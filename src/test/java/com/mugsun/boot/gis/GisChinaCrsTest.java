@@ -38,4 +38,28 @@ class GisChinaCrsTest {
 		assertThat(back[0]).isCloseTo(wgsLon, within(1e-5));
 		assertThat(back[1]).isCloseTo(wgsLat, within(1e-5));
 	}
+
+	@Test
+	void chinaBorderInsideIsTransformed() {
+		// 紧贴国境内侧（黑龙江附近）应发生偏移
+		double[] gcj = GisChinaCrs.toGcj02(130.0, 45.0);
+		assertThat(Math.hypot(gcj[0] - 130.0, gcj[1] - 45.0)).isGreaterThan(1e-4);
+	}
+
+	@Test
+	void chinaBorderOutsideUnchanged() {
+		assertThat(GisChinaCrs.outOfChina(70.0, 40.0)).isTrue();
+		assertThat(GisChinaCrs.toGcj02(70.0, 40.0)).containsExactly(70.0, 40.0);
+		assertThat(GisChinaCrs.outOfChina(140.0, 40.0)).isTrue();
+		assertThat(GisChinaCrs.outOfChina(116.0, 0.5)).isTrue();
+		assertThat(GisChinaCrs.outOfChina(116.0, 56.0)).isTrue();
+	}
+
+	@Test
+	void shanghaiAndUrumqiBothOffset() {
+		double[] sh = GisChinaCrs.toGcj02(121.4737, 31.2304);
+		double[] ur = GisChinaCrs.toGcj02(87.6168, 43.8256);
+		assertThat(Math.hypot(sh[0] - 121.4737, sh[1] - 31.2304)).isGreaterThan(0.001d);
+		assertThat(Math.hypot(ur[0] - 87.6168, ur[1] - 43.8256)).isGreaterThan(0.001d);
+	}
 }

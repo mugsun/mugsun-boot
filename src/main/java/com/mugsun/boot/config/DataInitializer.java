@@ -90,6 +90,7 @@ public class DataInitializer implements CommandLineRunner {
 		u.setPassword(passwordEncoder.encode("123456"));
 		u.setNickname("前端测试");
 		u.setStatus(1);
+		u.setIsLeader(0);
 		u.setTenantId(TenantConstants.DEFAULT_TENANT_ID);
 		try {
 			userMapper.insert(u);
@@ -191,6 +192,7 @@ public class DataInitializer implements CommandLineRunner {
 		admin.setPassword(passwordEncoder.encode(securityPolicyService.getInitPassword()));
 		admin.setNickname("超级管理员");
 		admin.setStatus(1);
+		admin.setIsLeader(0);
 		admin.setTenantId(TenantConstants.DEFAULT_TENANT_ID);
 		userMapper.insert(admin);
 		// 用户-角色

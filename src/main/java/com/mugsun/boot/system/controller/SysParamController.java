@@ -6,6 +6,7 @@ import com.mugsun.boot.system.entity.SysParam;
 import com.mugsun.boot.system.mapper.SysParamMapper;
 import com.mugsun.boot.system.service.ParamService;
 import com.mugsun.core.tool.api.R;
+import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,18 +28,32 @@ public class SysParamController {
 		this.paramService = paramService;
 	}
 
+	/** 分页查询（管理页使用：前端分页器依赖 records/totalRow 契约） */
+	@GetMapping("/page")
+	public R<Page<SysParam>> page(@RequestParam(defaultValue = "1") long pageNum,
+								  @RequestParam(defaultValue = "20") long pageSize,
+								  @RequestParam(required = false) String paramName,
+								  @RequestParam(required = false) String paramKey) {
+		return R.data(paramMapper.paginate(pageNum, pageSize, query(paramName, paramKey)));
+	}
+
+	/** 全量查询（脚本与内部调用使用，不分页） */
 	@GetMapping("/list")
 	public R<List<SysParam>> list(@RequestParam(required = false) String paramName,
 								  @RequestParam(required = false) String paramKey) {
+		return R.data(paramMapper.selectListByQuery(query(paramName, paramKey)));
+	}
+
+	/** 查询条件（值走参数化绑定，LIKE 前后模糊） */
+	private QueryWrapper query(String paramName, String paramKey) {
 		QueryWrapper query = QueryWrapper.create().orderBy("id", false);
-		// 查询条件（值走参数化绑定，LIKE 前后模糊）
 		if (paramName != null && !paramName.isBlank()) {
 			query.like("param_name", paramName.trim());
 		}
 		if (paramKey != null && !paramKey.isBlank()) {
 			query.like("param_key", paramKey.trim());
 		}
-		return R.data(paramMapper.selectListByQuery(query));
+		return query;
 	}
 
 	/** 按键取参数值（走缓存） */

@@ -98,6 +98,45 @@ class DictParamRegionApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void paramPageReturnsPaginationContract() {
+		// 管理页分页器依赖 records/totalRow/pageNumber，缺一个前端页码就会被打回第 1 页
+		JsonNode first = readBody(get("/system/param/page?pageNum=1&pageSize=5", adminToken)).path("data");
+		assertThat(first.path("records").isArray()).isTrue();
+		assertThat(first.path("records").size()).isLessThanOrEqualTo(5);
+		assertThat(first.path("totalRow").asLong()).isPositive();
+		assertThat(first.path("pageNumber").asLong()).isEqualTo(1);
+		assertThat(first.path("pageSize").asLong()).isEqualTo(5);
+
+		long total = first.path("totalRow").asLong();
+		if (total > 5) {
+			JsonNode second = readBody(get("/system/param/page?pageNum=2&pageSize=5", adminToken)).path("data");
+			assertThat(second.path("pageNumber").asLong()).isEqualTo(2);
+			assertThat(second.path("records").size()).isPositive();
+			// 第二页与第一页不得是同一批数据（分页真的切了片）
+			assertThat(second.path("records").path(0).path("id").asText())
+				.isNotEqualTo(first.path("records").path(0).path("id").asText());
+		}
+	}
+
+	@Test
+	void paramPageAppliesKeywordFilter() {
+		String key = "it.page." + TS;
+		Map<String, Object> param = new HashMap<>();
+		param.put("paramName", "IT分页过滤-" + TS);
+		param.put("paramKey", key);
+		param.put("paramValue", "v1");
+		assertThat(readBody(post("/system/param/submit", param, adminToken)).path("code").asInt()).isEqualTo(200);
+
+		JsonNode filtered = readBody(get("/system/param/page?pageNum=1&pageSize=20&paramKey=" + key, adminToken))
+			.path("data");
+		assertThat(filtered.path("totalRow").asLong()).isEqualTo(1);
+		assertThat(filtered.path("records").path(0).path("paramKey").asText()).isEqualTo(key);
+
+		long id = filtered.path("records").path(0).path("id").asLong();
+		assertThat(readBody(post("/system/param/remove", List.of(id), adminToken)).path("code").asInt()).isEqualTo(200);
+	}
+
+	@Test
 	void regionLazyTreeSubmitAndRemove() {
 		String code = "it" + TS.substring(TS.length() - 8);
 		Map<String, Object> region = new HashMap<>();
