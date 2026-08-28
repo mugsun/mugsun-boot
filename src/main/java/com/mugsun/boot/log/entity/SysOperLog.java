@@ -1,4 +1,4 @@
-package com.mugsun.boot.system.entity;
+package com.mugsun.boot.log.entity;
 
 import com.mugsun.core.mybatis.base.BaseEntity;
 import com.mybatisflex.annotation.Table;

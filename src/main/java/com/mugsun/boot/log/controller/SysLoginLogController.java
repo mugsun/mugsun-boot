@@ -1,10 +1,10 @@
-package com.mugsun.boot.system.controller;
+package com.mugsun.boot.log.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.mugsun.boot.auth.LoginLockService;
 import com.mugsun.boot.log.OperationLog;
-import com.mugsun.boot.system.entity.SysLoginLog;
-import com.mugsun.boot.system.mapper.SysLoginLogMapper;
+import com.mugsun.boot.log.entity.SysLoginLog;
+import com.mugsun.boot.log.mapper.SysLoginLogMapper;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;

@@ -1,7 +1,7 @@
 package com.mugsun.boot.security;
 
-import com.mugsun.boot.system.entity.SysPasswordLog;
-import com.mugsun.boot.system.mapper.SysPasswordLogMapper;
+import com.mugsun.boot.security.entity.SysPasswordLog;
+import com.mugsun.boot.security.mapper.SysPasswordLogMapper;
 import com.mugsun.boot.system.service.ParamService;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;

@@ -1,6 +1,6 @@
-package com.mugsun.boot.system.mapper;
+package com.mugsun.boot.log.mapper;
 
-import com.mugsun.boot.system.entity.SysDataAudit;
+import com.mugsun.boot.log.entity.SysDataAudit;
 import com.mybatisflex.core.BaseMapper;
 
 public interface SysDataAuditMapper extends BaseMapper<SysDataAudit> {

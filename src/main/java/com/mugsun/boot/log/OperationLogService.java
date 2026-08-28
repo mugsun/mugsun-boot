@@ -2,8 +2,8 @@ package com.mugsun.boot.log;
 
 import cn.hutool.crypto.SmUtil;
 import com.mugsun.boot.common.crypto.Sm2Util;
-import com.mugsun.boot.system.entity.SysOperLog;
-import com.mugsun.boot.system.mapper.SysOperLogMapper;
+import com.mugsun.boot.log.entity.SysOperLog;
+import com.mugsun.boot.log.mapper.SysOperLogMapper;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.scheduling.annotation.Async;

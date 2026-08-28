@@ -4,9 +4,9 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.client.entity.SysClient;
 import com.mugsun.boot.common.constant.MonitorConstants;
 import com.mugsun.boot.common.constant.TenantConstants;
-import com.mugsun.boot.system.entity.SysLoginLog;
+import com.mugsun.boot.log.entity.SysLoginLog;
 import com.mugsun.boot.system.entity.SysUser;
-import com.mugsun.boot.system.mapper.SysLoginLogMapper;
+import com.mugsun.boot.log.LoginLogService;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.websocket.WsMessageSender;
@@ -30,7 +30,7 @@ public class AuthLoginService {
 	private final SysUserMapper userMapper;
 	private final PasswordEncoder passwordEncoder;
 	private final LoginLockService loginLockService;
-	private final SysLoginLogMapper loginLogMapper;
+	private final LoginLogService loginLogService;
 	private final TwoFactorService twoFactorService;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
@@ -39,7 +39,7 @@ public class AuthLoginService {
 	private final IpRegionService ipRegionService;
 
 	public AuthLoginService(SysUserMapper userMapper, PasswordEncoder passwordEncoder,
-							LoginLockService loginLockService, SysLoginLogMapper loginLogMapper,
+							LoginLockService loginLockService, LoginLogService loginLogService,
 							TwoFactorService twoFactorService,
 							com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
 							com.mugsun.boot.tenant.TenantValidator tenantValidator,
@@ -49,7 +49,7 @@ public class AuthLoginService {
 		this.userMapper = userMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.loginLockService = loginLockService;
-		this.loginLogMapper = loginLogMapper;
+		this.loginLogService = loginLogService;
 		this.twoFactorService = twoFactorService;
 		this.securityPolicyService = securityPolicyService;
 		this.tenantValidator = tenantValidator;
@@ -174,7 +174,7 @@ public class AuthLoginService {
 		log.setStatus(status);
 		log.setMsg(msg);
 		log.setLoginTime(LocalDateTime.now());
-		TenantContext.ignore(() -> loginLogMapper.insertSelective(log));
+		loginLogService.record(log);
 	}
 
 	public String truncateUa(HttpServletRequest request) {

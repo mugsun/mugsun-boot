@@ -1,8 +1,8 @@
-package com.mugsun.boot.system.controller;
+package com.mugsun.boot.log.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
-import com.mugsun.boot.system.entity.SysOperLog;
-import com.mugsun.boot.system.mapper.SysOperLogMapper;
+import com.mugsun.boot.log.entity.SysOperLog;
+import com.mugsun.boot.log.mapper.SysOperLogMapper;
 import com.mugsun.core.tool.api.R;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;

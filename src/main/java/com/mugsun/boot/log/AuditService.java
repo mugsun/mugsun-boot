@@ -1,8 +1,8 @@
 package com.mugsun.boot.log;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mugsun.boot.system.entity.SysDataAudit;
-import com.mugsun.boot.system.mapper.SysDataAuditMapper;
+import com.mugsun.boot.log.entity.SysDataAudit;
+import com.mugsun.boot.log.mapper.SysDataAuditMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;

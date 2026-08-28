@@ -2,7 +2,7 @@ package com.mugsun.boot.log;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mugsun.boot.system.entity.SysOperLog;
+import com.mugsun.boot.log.entity.SysOperLog;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;

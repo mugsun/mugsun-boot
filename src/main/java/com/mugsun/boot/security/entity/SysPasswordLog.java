@@ -1,4 +1,4 @@
-package com.mugsun.boot.system.entity;
+package com.mugsun.boot.security.entity;
 
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
