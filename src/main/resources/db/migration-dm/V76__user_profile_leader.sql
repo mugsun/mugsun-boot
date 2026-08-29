@@ -1,5 +1,6 @@
 -- 由 scripts/pg_to_dm.py 从 db/migration 转换（达梦 Oracle 系）。
 -- 不引用 pg_catalog / ON CONFLICT / 部分索引 / VALUES 行构造器。
+-- pg2dm: manual —— 本文件含手工修正（is_leader 需显式 DEFAULT 0），转换器不再覆盖。
 
 -- 用户档案对齐：真实姓名/性别/生日/工号/直属主管/是否主管（头像列已在 V61）
 ALTER TABLE sys_user ADD real_name VARCHAR(64);

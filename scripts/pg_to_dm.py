@@ -13,6 +13,9 @@ HEADER = (
     "-- 不引用 pg_catalog / ON CONFLICT / 部分索引 / VALUES 行构造器。\n\n"
 )
 
+# 自动转换覆盖不了的语法要手工改达梦脚本，改完在文件里留这行标记，本脚本再跑就不会覆盖。
+MANUAL_MARK = "pg2dm: manual"
+
 VALUES_RE = re.compile(
     r"FROM\s*\(\s*VALUES\s*(?P<body>.*?)\s*\)\s*AS\s+(?P<alias>\w+)\s*\((?P<cols>[^)]+)\)",
     re.IGNORECASE | re.DOTALL,
@@ -208,11 +211,16 @@ def convert(sql: str) -> str:
 
 def main() -> None:
     DST.mkdir(parents=True, exist_ok=True)
+    kept = 0
     for p in sorted(SRC.glob("V*.sql")):
         out = DST / p.name
+        if out.exists() and MANUAL_MARK in out.read_text(encoding="utf-8"):
+            kept += 1
+            print("KEPT", out.name, "(手工维护)")
+            continue
         out.write_text(convert(p.read_text()), encoding="utf-8")
         print("WROTE", out.name)
-    print("DONE", len(list(DST.glob("V*.sql"))))
+    print("DONE", len(list(DST.glob("V*.sql"))), "KEPT", kept)
 
 
 if __name__ == "__main__":

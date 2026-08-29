@@ -1,6 +1,7 @@
 package com.mugsun.boot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mugsun.boot.gis.GisConstants;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -152,6 +153,81 @@ class GisApiTest extends AbstractIntegrationTest {
 		assertThat(page.path("code").asInt()).isEqualTo(200);
 		assertThat(page.path("data").path("records").get(0).path("dataJson").isNull()
 			|| page.path("data").path("records").get(0).path("dataJson").asText("").isBlank()).isTrue();
+
+		assertThat(readBody(post("/system/gis/layer/remove", List.of(id), adminToken)).path("code").asInt())
+			.isEqualTo(200);
+	}
+
+	/**
+	 * 四类空间查询走完整链路。测试容器是不带 PostGIS 的 postgres:16，V79 会跳过建表，
+	 * 因此这里实际验的是「没有 PostGIS 时回落 Java 侧」这条降级路径——达梦 / 金仓上就是这条路。
+	 * 断言只校验结果口径，不锁定 engine，换成 PostGIS 库跑同样通过。
+	 */
+	@Test
+	void spatialQueriesAcrossEngines() {
+		Map<String, Object> center = Map.of("longitude", 116.3975, "latitude", 39.9087, "title", "中心");
+		Map<String, Object> near = Map.of("longitude", 116.4033, "latitude", 39.9087, "title", "近点");
+		Map<String, Object> far = Map.of("longitude", 121.4737, "latitude", 31.2304, "title", "上海");
+		Map<String, Object> submit = new HashMap<>();
+		submit.put("name", "IT空间查询-" + System.currentTimeMillis());
+		submit.put("payload", List.of(center, near, far));
+		JsonNode created = readBody(post("/system/gis/layer/submit", submit, adminToken));
+		assertThat(created.path("code").asInt()).isEqualTo(200);
+		long id = created.path("data").path("id").asLong();
+
+		JsonNode status = readBody(get("/system/gis/spatial/status", adminToken));
+		assertThat(status.path("data").has("postgis")).isTrue();
+		assertThat(status.path("data").path("limitMax").asInt()).isEqualTo(5000);
+
+		JsonNode bbox = readBody(get("/system/gis/spatial/bbox?layerId=" + id
+			+ "&minLon=116.39&minLat=39.90&maxLon=116.41&maxLat=39.92", adminToken));
+		assertThat(bbox.path("data").path("count").asInt()).isEqualTo(2);
+		assertThat(bbox.path("data").path("engine").asText()).isIn("postgis", "java");
+
+		JsonNode radius = readBody(get("/system/gis/spatial/radius?layerId=" + id
+			+ "&lon=116.3975&lat=39.9087&meters=600", adminToken));
+		assertThat(radius.path("data").path("count").asInt()).isEqualTo(2);
+		double meters = radius.path("data").path("features").get(1)
+			.path("properties").path("meters").asDouble();
+		assertThat(meters).isBetween(480d, 510d);
+
+		JsonNode nearest = readBody(get("/system/gis/spatial/nearest?layerId=" + id
+			+ "&lon=116.3975&lat=39.9087&limit=2", adminToken));
+		assertThat(nearest.path("data").path("count").asInt()).isEqualTo(2);
+		assertThat(nearest.path("data").path("features").get(0)
+			.path("properties").path("title").asText()).isEqualTo("中心");
+
+		Map<String, Object> box = Map.of("layerId", String.valueOf(id), "geometry",
+			Map.of("type", "Polygon", "coordinates", List.of(List.of(
+				List.of(116.39, 39.90), List.of(116.41, 39.90),
+				List.of(116.41, 39.92), List.of(116.39, 39.92), List.of(116.39, 39.90)))));
+		JsonNode intersects = readBody(post("/system/gis/spatial/intersects", box, adminToken));
+		assertThat(intersects.path("data").path("count").asInt()).isEqualTo(2);
+
+		// 雪花 ID 超出 JS 安全整数，前端只能传字符串；服务端必须两种都收
+		JsonNode numericId = readBody(post("/system/gis/spatial/intersects",
+			Map.of("layerId", id, "geometry", box.get("geometry")), adminToken));
+		assertThat(numericId.path("data").path("count").asInt()).isEqualTo(2);
+
+		JsonNode badBbox = readBody(get("/system/gis/spatial/bbox?layerId=" + id
+			+ "&minLon=116.41&minLat=39.90&maxLon=116.39&maxLat=39.92", adminToken));
+		assertThat(badBbox.path("code").asInt()).isEqualTo(400);
+		JsonNode overRadius = readBody(get("/system/gis/spatial/radius?layerId=" + id
+			+ "&lon=116.4&lat=39.9&meters=999999", adminToken));
+		assertThat(overRadius.path("code").asInt()).isEqualTo(400);
+
+		assertThat(get("/system/gis/spatial/bbox?layerId=" + id
+			+ "&minLon=116.39&minLat=39.90&maxLon=116.41&maxLat=39.92", null)
+			.getStatusCode().value()).isEqualTo(401);
+
+		// 没有 PostGIS 时矢量瓦片应明确拒绝而不是回空瓦片，前端据此回落整层渲染
+		JsonNode mvtStatus = readBody(get("/system/gis/spatial/status", adminToken));
+		ResponseEntity<String> mvt = get("/system/gis/spatial/mvt/" + id + "/10/843/388", adminToken);
+		if (mvtStatus.path("data").path("mvt").asBoolean()) {
+			assertThat(mvt.getStatusCode().value()).isEqualTo(200);
+		} else {
+			assertThat(readBody(mvt).path("msg").asText()).isEqualTo(GisConstants.MSG_MVT_UNAVAILABLE);
+		}
 
 		assertThat(readBody(post("/system/gis/layer/remove", List.of(id), adminToken)).path("code").asInt())
 			.isEqualTo(200);

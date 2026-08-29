@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.gis.GisAnalyzeService;
 import com.mugsun.boot.gis.Gis3dTilesSpec;
 import com.mugsun.boot.gis.GisConstants;
+import com.mugsun.boot.gis.GisFeatureStore;
 import com.mugsun.boot.gis.GisFormatService;
 import com.mugsun.boot.gis.GisModuleService;
 import com.mugsun.boot.gis.GisRasterSpec;
@@ -40,13 +41,16 @@ public class GisLayerController {
 	private final GisFormatService formatService;
 	private final GisLayerMapper layerMapper;
 	private final ObjectMapper objectMapper;
+	private final GisFeatureStore featureStore;
 
 	public GisLayerController(GisModuleService moduleService, GisFormatService formatService,
-							  GisLayerMapper layerMapper, ObjectMapper objectMapper) {
+							  GisLayerMapper layerMapper, ObjectMapper objectMapper,
+							  GisFeatureStore featureStore) {
 		this.moduleService = moduleService;
 		this.formatService = formatService;
 		this.layerMapper = layerMapper;
 		this.objectMapper = objectMapper;
+		this.featureStore = featureStore;
 	}
 
 	@GetMapping("/page")
@@ -160,6 +164,8 @@ public class GisLayerController {
 			row.sanitizeForUpdate();
 			layerMapper.update(row);
 		}
+		// 要素行是空间查询的加速副本，同步失败只降级不报错（见 GisFeatureStore）
+		featureStore.sync(row.getId(), row.getTenantId(), row.getKind(), row.getDataJson());
 		return R.data(row);
 	}
 
@@ -168,7 +174,10 @@ public class GisLayerController {
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		moduleService.requireEnabled();
 		if (ids != null) {
-			ids.forEach(layerMapper::deleteById);
+			ids.forEach(id -> {
+				layerMapper.deleteById(id);
+				featureStore.dropLayer(id);
+			});
 		}
 		return R.success("删除成功");
 	}

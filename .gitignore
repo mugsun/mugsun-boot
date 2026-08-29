@@ -20,3 +20,4 @@ application-local.yml
 config/application-*-lab.yml
 .DS_Store
 Thumbs.db
+scripts/__pycache__/

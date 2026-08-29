@@ -78,6 +78,20 @@ public final class GisConstants {
 	public static final double SIMPLIFY_DEFAULT = 0.0001d;
 	public static final int BUFFER_MAX_M = 200_000;
 
+	/** 空间查询：一次最多回多少要素，防止把整层捞成一个响应 */
+	public static final int SPATIAL_LIMIT_DEFAULT = 1000;
+	public static final int SPATIAL_LIMIT_MAX = 5000;
+	/** 半径查询上限，与缓冲一致 */
+	public static final int RADIUS_MAX_M = BUFFER_MAX_M;
+	/** 下沉数据库执行 / 回落 Java 内存执行，随查询结果一起回前端，便于定位性能问题 */
+	public static final String ENGINE_POSTGIS = "postgis";
+	public static final String ENGINE_JAVA = "java";
+	/** 矢量瓦片：MVT 坐标范围与缓冲，取 Mapbox 默认值 */
+	public static final int MVT_EXTENT = 4096;
+	public static final int MVT_BUFFER = 64;
+	public static final String MVT_LAYER_NAME = "features";
+	public static final String MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile";
+
 	public static final int STATUS_ENABLE = 1;
 	public static final int STATUS_DISABLE = 0;
 
@@ -106,6 +120,13 @@ public final class GisConstants {
 	public static final String MSG_DEMO_MISSING = "没有这个示例";
 	public static final String MSG_TILESET_URL = "三维切片图层需要 tileset.json 地址：内置示例填 hosted:<code>，外部数据填 http(s) 链接";
 	public static final String MSG_TILESET_MISSING = "没有这个内置三维切片";
+	public static final String MSG_SPATIAL_BBOX = "请给出合法的查询范围（minLon/minLat/maxLon/maxLat，且最小值小于最大值）";
+	public static final String MSG_SPATIAL_POINT = "请给出合法的中心点经纬度";
+	public static final String MSG_SPATIAL_RADIUS = "半径需在 0～200000 米之间";
+	public static final String MSG_SPATIAL_GEOM = "请给出合法的 GeoJSON 几何（geometry 或 Feature）";
+	public static final String MSG_SPATIAL_KIND = "只有矢量 / 热力图层支持空间查询";
+	public static final String MSG_MVT_UNAVAILABLE = "当前数据库未启用 PostGIS，矢量瓦片不可用（请改用整层 GeoJSON 渲染）";
+	public static final String MSG_MVT_ZXY = "瓦片坐标越界";
 
 	public static String searchNoKey(String provider) {
 		if (PROVIDER_AMAP.equals(provider)) {
