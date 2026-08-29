@@ -24,6 +24,7 @@ public class GisDemoCatalog {
 	public static final String RADIUS = "radius";
 	public static final String GEOCODE = "geocode";
 	public static final String MEASURE = "measure";
+	public static final String TILES3D = "tiles3d";
 
 	private final GisFormatService formatService;
 
@@ -42,6 +43,8 @@ public class GisDemoCatalog {
 		out.add(meta(RADIUS, "圈选查询", "点一下定圆心，列出半径内的点", "query", "radius", GisConstants.KIND_VECTOR, 48));
 		out.add(meta(GEOCODE, "点选拾取", "单击地图逆地理，得到地址", "query", "geocode", GisConstants.KIND_VECTOR, 0));
 		out.add(meta(MEASURE, "测距测面", "折线长度、多边形面积，工单勘察常用", "query", "measure", GisConstants.KIND_VECTOR, 0));
+		out.add(meta(TILES3D, "三维切片", "倾斜摄影 / 实景模型走 3D Tiles，点楼看属性；示例切片随包发布",
+			"scene", "tileset", GisConstants.KIND_3DTILES, 16));
 		return out;
 	}
 
@@ -53,6 +56,7 @@ public class GisDemoCatalog {
 			case FENCE -> formatService.normalizeUnknown(fence());
 			case BUFFER -> formatService.normalizeUnknown(List.of(point(116.397428, 39.90923, "天安门", "point")));
 			case GEOCODE, MEASURE -> emptyCollection();
+			case TILES3D -> tileset3d();
 			default -> throw new ServiceException(GisConstants.MSG_DEMO_MISSING);
 		};
 	}
@@ -68,6 +72,23 @@ public class GisDemoCatalog {
 		row.put("kind", kind);
 		row.put("count", count);
 		return row;
+	}
+
+	/**
+	 * 三维示例不是要素集合，只给切片入口与渲染参数；相机由前端按切片包围球自动构图，
+	 * 免得写死的经纬高和切片位置对不上。
+	 */
+	private static Map<String, Object> tileset3d() {
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("mugsunGis", GisConstants.SPEC_VERSION);
+		out.put("crs", GisConstants.CRS_WGS84);
+		out.put("type", "Tileset3D");
+		out.put("hosted", GisConstants.TILESET_DEMO_CITY);
+		out.put("url", Gis3dTilesSpec.HOSTED_PREFIX + GisConstants.TILESET_DEMO_CITY);
+		out.put("maximumScreenSpaceError", 16);
+		out.put("heightOffset", 0);
+		out.put("count", 16);
+		return out;
 	}
 
 	private static Map<String, Object> emptyCollection() {

@@ -30,6 +30,19 @@ public class GisModuleService {
 		return "true".equalsIgnoreCase(v.trim()) || "1".equals(v.trim());
 	}
 
+	/**
+	 * 地形服务地址（quantized-mesh）。没配就返回空串，前端据此把地形开关置灰，
+	 * 而不是给一个点了没反应的开关。
+	 */
+	public String terrainUrl() {
+		String v = paramService.getValue(GisConstants.PARAM_TERRAIN_URL);
+		if (v == null) {
+			return "";
+		}
+		String url = v.trim();
+		return url.startsWith("http://") || url.startsWith("https://") ? url : "";
+	}
+
 	public void requireEnabled() {
 		if (!isEnabled()) {
 			throw new com.mugsun.core.tool.exception.ServiceException(GisConstants.MSG_DISABLED);

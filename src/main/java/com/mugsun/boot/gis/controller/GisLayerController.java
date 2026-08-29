@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.gis.GisAnalyzeService;
+import com.mugsun.boot.gis.Gis3dTilesSpec;
 import com.mugsun.boot.gis.GisConstants;
 import com.mugsun.boot.gis.GisFormatService;
 import com.mugsun.boot.gis.GisModuleService;
@@ -111,8 +112,10 @@ public class GisLayerController {
 		Integer featureCount = 0;
 		String bbox = null;
 		String crs = GisConstants.CRS_WGS84;
-		if (GisRasterSpec.isRaster(kind)) {
-			Map<String, Object> spec = GisRasterSpec.normalize(kind, payload);
+		if (GisRasterSpec.isRaster(kind) || Gis3dTilesSpec.is3dTiles(kind)) {
+			Map<String, Object> spec = Gis3dTilesSpec.is3dTiles(kind)
+				? Gis3dTilesSpec.normalize(payload)
+				: GisRasterSpec.normalize(kind, payload);
 			try {
 				json = objectMapper.writeValueAsString(spec);
 			} catch (Exception e) {

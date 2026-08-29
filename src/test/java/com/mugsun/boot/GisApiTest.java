@@ -195,7 +195,7 @@ class GisApiTest extends AbstractIntegrationTest {
 	void demoCatalogReadyToPlay() {
 		JsonNode list = readBody(get("/system/gis/demo/list", adminToken));
 		assertThat(list.path("code").asInt()).isEqualTo(200);
-		assertThat(list.path("data").size()).isEqualTo(9);
+		assertThat(list.path("data").size()).isEqualTo(10);
 		JsonNode poi = readBody(get("/system/gis/demo/poi", adminToken));
 		assertThat(poi.path("code").asInt()).isEqualTo(200);
 		assertThat(poi.path("data").path("count").asInt()).isEqualTo(8);
@@ -206,6 +206,12 @@ class GisApiTest extends AbstractIntegrationTest {
 		assertThat(play.path("data").path("features").get(0).path("properties").path("times").isArray()).isTrue();
 		assertThat(play.path("data").path("features").get(0).path("geometry").path("type").asText())
 			.isEqualTo("LineString");
+		JsonNode tiles3d = readBody(get("/system/gis/demo/tiles3d", adminToken));
+		assertThat(tiles3d.path("data").path("url").asText()).isEqualTo("hosted:demo-city");
+		assertThat(tiles3d.path("data").path("count").asInt()).isEqualTo(16);
+		JsonNode manifest = readBody(get("/system/gis/tileset/demo-city/tileset.json", adminToken));
+		assertThat(manifest.path("root").path("children").size()).isEqualTo(4);
+		assertThat(get("/system/gis/tileset/demo-city/tileset.json", null).getStatusCode().value()).isEqualTo(401);
 		JsonNode geo = readBody(get("/system/gis/demo/geocode", adminToken));
 		assertThat(geo.path("data").path("count").asInt()).isEqualTo(0);
 		JsonNode missing = readBody(get("/system/gis/demo/warp", adminToken));

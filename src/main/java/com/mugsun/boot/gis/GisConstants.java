@@ -10,6 +10,8 @@ public final class GisConstants {
 
 	/** sys_param：模块总开关，默认 true；false 时菜单隐藏、业务接口拒绝 */
 	public static final String PARAM_MODULE_ENABLED = "gis.module.enabled";
+	/** sys_param：quantized-mesh 地形服务地址，留空则三维只有平地形，前端地形开关置灰 */
+	public static final String PARAM_TERRAIN_URL = "gis.terrain.url";
 
 	public static final String PROVIDER_TIANDITU = "tianditu";
 	public static final String PROVIDER_AMAP = "amap";
@@ -46,7 +48,14 @@ public final class GisConstants {
 	public static final String KIND_HEATMAP = "heatmap";
 	public static final String KIND_XYZ = "xyz";
 	public static final String KIND_WMS = "wms";
+	/** 三维切片图层：倾斜摄影 / 模型，数据是 3D Tiles 的 tileset.json */
+	public static final String KIND_3DTILES = "3dtiles";
 	public static final int FEATURE_MAX = 8000;
+
+	/** 随包发布的示例切片目录（classpath:gis/tileset/<code>），只允许白名单内的 code */
+	public static final String TILESET_DEMO_CITY = "demo-city";
+	public static final Set<String> TILESETS = Set.of(TILESET_DEMO_CITY);
+	public static final String TILESET_ROOT = "gis/tileset/";
 
 	public static final String OP_BUFFER = "buffer";
 	public static final String OP_CENTROID = "centroid";
@@ -95,6 +104,8 @@ public final class GisConstants {
 	public static final String MSG_ANALYZE_EMPTY = "没有可运算的几何";
 	public static final String MSG_RASTER_URL = "栅格图层需要 http(s) 服务地址；XYZ 须含 {z}/{x}/{y}，WMS 须含 layers";
 	public static final String MSG_DEMO_MISSING = "没有这个示例";
+	public static final String MSG_TILESET_URL = "三维切片图层需要 tileset.json 地址：内置示例填 hosted:<code>，外部数据填 http(s) 链接";
+	public static final String MSG_TILESET_MISSING = "没有这个内置三维切片";
 
 	public static String searchNoKey(String provider) {
 		if (PROVIDER_AMAP.equals(provider)) {

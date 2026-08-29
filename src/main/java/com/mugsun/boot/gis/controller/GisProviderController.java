@@ -61,6 +61,10 @@ public class GisProviderController {
 			}
 		}
 		data.put("providers", providers);
+		if (enabled) {
+			data.put("terrainUrl", moduleService.terrainUrl());
+			data.put("tilesets", GisConstants.TILESETS);
+		}
 		return R.data(data);
 	}
 
