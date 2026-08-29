@@ -22,15 +22,28 @@ public class GisFormatService {
 	private static final String[] LON_KEYS = { "lon", "lng", "longitude", "x", "$lon", "gcjLon", "geo_lon", "$geo_lon" };
 	private static final String[] LAT_KEYS = { "lat", "latitude", "y", "$lat", "gcjLat", "geo_lat", "$geo_lat" };
 
+	/**
+	 * 无歧义的经纬度键。这些键一旦出现就说明作者意图是坐标，值越界属于数据错误，必须拒收；
+	 * 而 {@code x} / {@code y} 在业务记录里可能是任意数值（工位号、像素坐标），
+	 * 越界只当「这不是坐标」忽略，不能因此把整批拒掉。
+	 */
+	private static final java.util.Set<String> LON_KEYS_STRICT = java.util.Set.of(
+		"lon", "lng", "longitude", "$lon", "gcjLon", "geo_lon", "$geo_lon");
+	private static final java.util.Set<String> LAT_KEYS_STRICT = java.util.Set.of(
+		"lat", "latitude", "$lat", "gcjLat", "geo_lat", "$geo_lat");
+
 	private static final java.util.Set<String> GEOM_TYPES = java.util.Set.of(
 		"Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon");
 
 	private final ObjectMapper objectMapper;
 	private final GisTextIngest textIngest;
+	private final GisTopologyGuard topologyGuard;
 
-	public GisFormatService(ObjectMapper objectMapper, GisTextIngest textIngest) {
+	public GisFormatService(ObjectMapper objectMapper, GisTextIngest textIngest,
+							GisTopologyGuard topologyGuard) {
 		this.objectMapper = objectMapper;
 		this.textIngest = textIngest;
+		this.topologyGuard = topologyGuard;
 	}
 
 	public Map<String, Object> normalize(JsonNode raw) {
@@ -41,6 +54,9 @@ public class GisFormatService {
 		if (features.size() > GisConstants.FEATURE_MAX) {
 			throw new ServiceException(GisConstants.MSG_LAYER_TOO_MANY);
 		}
+		// 拓扑校验放在计 bbox 之前：越界坐标会把 bbox 撑成全球，后续按包围盒预筛的查询全部失效
+		GisTopologyGuard.Result checked = topologyGuard.inspect(features);
+		features = checked.features();
 		double[] bbox = bboxOf(features);
 		Map<String, Object> out = new LinkedHashMap<>();
 		out.put("mugsunGis", GisConstants.SPEC_VERSION);
@@ -49,6 +65,9 @@ public class GisFormatService {
 		out.put("count", features.size());
 		if (bbox != null) {
 			out.put("bbox", bbox);
+		}
+		if (!checked.warnings().isEmpty()) {
+			out.put("warnings", checked.warnings());
 		}
 		out.put("features", features);
 		return out;
@@ -335,9 +354,30 @@ public class GisFormatService {
 			return null;
 		}
 		if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+			// 明确写着 lon/lat 却越界，是坐标系搞错（典型：把墨卡托米当经纬度传），
+			// 静默丢弃会让用户以为数据存进去了，直接拒收
+			if (hasAny(obj, LON_KEYS_STRICT) && hasAny(obj, LAT_KEYS_STRICT)) {
+				throw new ServiceException(String.format(GisConstants.MSG_TOPO_RECORD_RANGE,
+					plain(lon) + ", " + plain(lat)));
+			}
 			return null;
 		}
 		return new double[] { lon, lat };
+	}
+
+	/** 报错文案里不要出现 1.2958065E7 这种科学计数法，用户对不上自己传的值 */
+	private static String plain(double v) {
+		return new java.math.BigDecimal(String.valueOf(v)).stripTrailingZeros().toPlainString();
+	}
+
+	private static boolean hasAny(JsonNode obj, java.util.Set<String> keys) {
+		for (String key : keys) {
+			JsonNode v = obj.get(key);
+			if (v != null && (v.isNumber() || v.isTextual())) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static Double firstNumber(JsonNode obj, String[] keys) {

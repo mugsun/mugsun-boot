@@ -128,6 +128,18 @@ public final class GisConstants {
 	public static final String MSG_MVT_UNAVAILABLE = "当前数据库未启用 PostGIS，矢量瓦片不可用（请改用整层 GeoJSON 渲染）";
 	public static final String MSG_MVT_ZXY = "瓦片坐标越界";
 
+	/** 拓扑校验：硬错误一律拒收整批并指出第几个要素，避免脏几何进库后查询与分析全错 */
+	public static final String MSG_TOPO_COORD_RANGE = "第 %d 个要素坐标越界（经度须在 -180～180、纬度须在 -90～90）：%s";
+	public static final String MSG_TOPO_COORD_NAN = "第 %d 个要素坐标不是有效数字";
+	/** 启发式识别「含经纬度的记录」时用不到要素序号，单独一条不带序号的提示 */
+	public static final String MSG_TOPO_RECORD_RANGE = "记录里的坐标越界（经度须在 -180～180、纬度须在 -90～90）：%s";
+	public static final String MSG_TOPO_DEGENERATE = "第 %d 个要素几何退化（%s）";
+	public static final String MSG_TOPO_TYPE = "第 %d 个要素几何类型不支持：%s";
+	public static final String MSG_TOPO_UNFIXABLE = "第 %d 个要素几何无法修复（自相交且修复后为空）";
+	/** 修复类问题不拒收，但要如实回报，不能悄悄改用户的数据 */
+	public static final String WARN_TOPO_RING_CLOSED = "第 %d 个要素的环未闭合，已自动闭合";
+	public static final String WARN_TOPO_SELF_INTERSECT = "第 %d 个要素自相交，已按 OGC 有效性规则修复";
+
 	public static String searchNoKey(String provider) {
 		if (PROVIDER_AMAP.equals(provider)) {
 			return "请先配置并启用高德密钥";

@@ -116,6 +116,7 @@ public class GisLayerController {
 		Integer featureCount = 0;
 		String bbox = null;
 		String crs = GisConstants.CRS_WGS84;
+		List<String> warnings = List.of();
 		if (GisRasterSpec.isRaster(kind) || Gis3dTilesSpec.is3dTiles(kind)) {
 			Map<String, Object> spec = Gis3dTilesSpec.is3dTiles(kind)
 				? Gis3dTilesSpec.normalize(payload)
@@ -130,6 +131,12 @@ public class GisLayerController {
 				kind = GisConstants.KIND_VECTOR;
 			}
 			Map<String, Object> normalized = formatService.normalizeUnknown(payload);
+			// 拓扑警告说明的是「这次保存改了什么」，属于本次操作的回执而非几何数据，
+			// 从落库的 FeatureCollection 里摘出来，改由响应 msg 告诉用户
+			Object warned = normalized.remove("warnings");
+			if (warned instanceof List<?> list && !list.isEmpty()) {
+				warnings = list.stream().map(String::valueOf).toList();
+			}
 			try {
 				json = objectMapper.writeValueAsString(normalized);
 			} catch (Exception e) {
@@ -166,7 +173,14 @@ public class GisLayerController {
 		}
 		// 要素行是空间查询的加速副本，同步失败只降级不报错（见 GisFeatureStore）
 		featureStore.sync(row.getId(), row.getTenantId(), row.getKind(), row.getDataJson());
-		return R.data(row);
+		R<GisLayer> res = R.data(row);
+		if (!warnings.isEmpty()) {
+			// 结构化回传给前端逐条展示；msg 兼顾脚本与第三方调用方
+			row.setWarnings(warnings);
+			res.setMsg("保存成功，但有 " + warnings.size() + " 处几何被修复："
+				+ String.join("；", warnings.subList(0, Math.min(5, warnings.size()))));
+		}
+		return res;
 	}
 
 	@PostMapping("/remove")

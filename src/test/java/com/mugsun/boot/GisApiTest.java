@@ -233,6 +233,52 @@ class GisApiTest extends AbstractIntegrationTest {
 			.isEqualTo(200);
 	}
 
+	/**
+	 * 脏几何入站的两档处置：越界 / 退化拒收，自相交与未闭合环修复后放过并回报。
+	 * 走的是真实 submit 与 ingest 接口，确认拓扑闸门确实挂在入站漏斗上而不只是单测里能跑。
+	 */
+	@Test
+	void topologyGuardRejectsDirtyGeometryOnIngest() {
+		// 把墨卡托米当经纬度传：最常见的坐标系事故，必须整批拒收并指出第几个要素
+		JsonNode mercator = readBody(post("/system/gis/layer/submit",
+			Map.of("name", "IT越界-" + System.currentTimeMillis(),
+				"payload", List.of(
+					Map.of("longitude", 116.3975, "latitude", 39.9087),
+					Map.of("longitude", 12958065.0, "latitude", 4852834.0))),
+			adminToken));
+		assertThat(mercator.path("code").asInt()).isEqualTo(400);
+		assertThat(mercator.path("msg").asText()).contains("坐标越界");
+
+		// 退化线：三个点里两个重合，落库后长度为 0、缓冲为空
+		Map<String, Object> degenerate = Map.of("type", "Feature", "properties", Map.of("name", "退化"),
+			"geometry", Map.of("type", "LineString", "coordinates",
+				List.of(List.of(116.39, 39.90), List.of(116.39, 39.90))));
+		JsonNode line = readBody(post("/system/gis/layer/ingest", Map.of("payload", degenerate), adminToken));
+		assertThat(line.path("code").asInt()).isEqualTo(400);
+		assertThat(line.path("msg").asText()).contains("两个不同的点");
+
+		// 自相交的蝴蝶结面：修好并回报，不拒收
+		Map<String, Object> bowtie = Map.of("type", "Feature", "properties", Map.of("name", "自相交"),
+			"geometry", Map.of("type", "Polygon", "coordinates", List.of(List.of(
+				List.of(116.39, 39.90), List.of(116.41, 39.92), List.of(116.41, 39.90),
+				List.of(116.39, 39.92), List.of(116.39, 39.90)))));
+		JsonNode preview = readBody(post("/system/gis/layer/ingest", Map.of("payload", bowtie), adminToken));
+		assertThat(preview.path("code").asInt()).isEqualTo(200);
+		assertThat(preview.path("data").path("warnings").get(0).asText()).contains("自相交");
+
+		JsonNode saved = readBody(post("/system/gis/layer/submit",
+			Map.of("name", "IT自相交-" + System.currentTimeMillis(), "payload", bowtie), adminToken));
+		assertThat(saved.path("code").asInt()).isEqualTo(200);
+		assertThat(saved.path("msg").asText()).contains("几何被修复");
+		long fixedId = saved.path("data").path("id").asLong();
+
+		// 修复后的图层必须能正常查：拓扑闸门的意义就在这里
+		JsonNode detail = readBody(get("/system/gis/layer/detail/" + fixedId, adminToken));
+		assertThat(detail.path("data").path("dataJson").asText()).doesNotContain("warnings");
+		assertThat(readBody(post("/system/gis/layer/remove", List.of(fixedId), adminToken)).path("code").asInt())
+			.isEqualTo(200);
+	}
+
 	@Test
 	void ingestWktAndCsvThenBufferMeters() {
 		JsonNode wkt = readBody(post("/system/gis/layer/ingest",

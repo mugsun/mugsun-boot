@@ -1,7 +1,10 @@
 package com.mugsun.boot.gis.entity;
 
 import com.mugsun.core.mybatis.base.BaseEntity;
+import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Table;
+
+import java.util.List;
 
 /**
  * 可复用 GIS 图层：规范化后的 WGS84 GeoJSON，其它模块按同一格式写入即可叠加。
@@ -19,6 +22,12 @@ public class GisLayer extends BaseEntity {
 	private String bbox;
 	private Integer status;
 	private String remark;
+	/**
+	 * 本次保存被自动修复的几何（未闭合环、自相交）。属于操作回执而非图层属性，
+	 * 不落库、不参与查询，只在 submit 的响应里回一次，让前端能明确告知用户改了什么。
+	 */
+	@Column(ignore = true)
+	private List<String> warnings;
 
 	public String getTenantId() {
 		return tenantId;
@@ -98,5 +107,13 @@ public class GisLayer extends BaseEntity {
 
 	public void setRemark(String remark) {
 		this.remark = remark;
+	}
+
+	public List<String> getWarnings() {
+		return warnings;
+	}
+
+	public void setWarnings(List<String> warnings) {
+		this.warnings = warnings;
 	}
 }

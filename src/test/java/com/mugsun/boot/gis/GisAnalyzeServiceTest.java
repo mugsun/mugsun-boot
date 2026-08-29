@@ -27,7 +27,8 @@ class GisAnalyzeServiceTest {
 	@BeforeEach
 	void setUp() {
 		GisGeometryCodec codec = new GisGeometryCodec();
-		GisFormatService format = new GisFormatService(new ObjectMapper(), new GisTextIngest(codec));
+		GisFormatService format = new GisFormatService(new ObjectMapper(), new GisTextIngest(codec),
+			new GisTopologyGuard(codec));
 		service = new GisAnalyzeService(format, codec, mock(GisLayerMapper.class));
 	}
 
