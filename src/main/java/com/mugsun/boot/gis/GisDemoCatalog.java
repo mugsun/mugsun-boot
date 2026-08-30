@@ -17,14 +17,16 @@ public class GisDemoCatalog {
 	public static final String POI = "poi";
 	public static final String HEAT = "heat";
 	public static final String CLUSTER = "cluster";
-	public static final String TRACK = "track";
 	public static final String PLAYBACK = "playback";
 	public static final String FENCE = "fence";
 	public static final String BUFFER = "buffer";
+	public static final String OPS = "ops";
 	public static final String RADIUS = "radius";
 	public static final String GEOCODE = "geocode";
 	public static final String MEASURE = "measure";
 	public static final String TILES3D = "tiles3d";
+	public static final String RASTER = "raster";
+	public static final String INGEST = "ingest";
 
 	private final GisFormatService formatService;
 
@@ -40,11 +42,17 @@ public class GisDemoCatalog {
 		out.add(meta(PLAYBACK, "轨迹回放", "播放 / 暂停 / 倍速 / 拖进度，物流与巡检标配", "motion", "playback", GisConstants.KIND_VECTOR, 1));
 		out.add(meta(FENCE, "电子围栏", "多边形围栏，可算面积、做进出判断", "motion", "overlay", GisConstants.KIND_VECTOR, 1));
 		out.add(meta(BUFFER, "缓冲分析", "服务端 JTS 按米缓冲出面", "motion", "buffer", GisConstants.KIND_VECTOR, 1));
+		out.add(meta(OPS, "空间运算", "两个围栏跑相交 / 包含 / 并集 / 差集 / 凸包 / 质心 / 简化，切算子看结果",
+			"motion", "ops", GisConstants.KIND_VECTOR, 2));
 		out.add(meta(RADIUS, "圈选查询", "点一下定圆心，列出半径内的点", "query", "radius", GisConstants.KIND_VECTOR, 48));
 		out.add(meta(GEOCODE, "点选拾取", "单击地图逆地理，得到地址", "query", "geocode", GisConstants.KIND_VECTOR, 0));
 		out.add(meta(MEASURE, "测距测面", "折线长度、多边形面积，工单勘察常用", "query", "measure", GisConstants.KIND_VECTOR, 0));
 		out.add(meta(TILES3D, "三维切片", "倾斜摄影 / 实景模型走 3D Tiles，点楼看属性；示例切片随包发布",
 			"scene", "tileset", GisConstants.KIND_3DTILES, 16));
+		out.add(meta(RASTER, "栅格叠加", "XYZ / WMS 栅格服务叠在底图上，可调透明度与显隐", "data", "raster",
+			GisConstants.KIND_XYZ, 1));
+		out.add(meta(INGEST, "多格式入站", "WKT / CSV / KML / GPX 粘进来即解析成要素，和入库走同一条链",
+			"data", "ingest", GisConstants.KIND_VECTOR, 0));
 		return out;
 	}
 
@@ -52,11 +60,14 @@ public class GisDemoCatalog {
 		return switch (code == null ? "" : code) {
 			case POI -> formatService.normalizeUnknown(poi());
 			case HEAT, CLUSTER, RADIUS -> formatService.normalizeUnknown(stores());
-			case TRACK, PLAYBACK -> formatService.normalizeUnknown(track());
+			case PLAYBACK -> formatService.normalizeUnknown(track());
 			case FENCE -> formatService.normalizeUnknown(fence());
 			case BUFFER -> formatService.normalizeUnknown(List.of(point(116.397428, 39.90923, "天安门", "point")));
+			case OPS -> formatService.normalizeUnknown(List.of(fence(), overlapFence()));
 			case GEOCODE, MEASURE -> emptyCollection();
 			case TILES3D -> tileset3d();
+			case RASTER -> rasterSpec();
+			case INGEST -> ingestSamples();
 			default -> throw new ServiceException(GisConstants.MSG_DEMO_MISSING);
 		};
 	}
@@ -89,6 +100,63 @@ public class GisDemoCatalog {
 		out.put("heightOffset", 0);
 		out.put("count", 16);
 		return out;
+	}
+
+	/**
+	 * 栅格示例不是要素集合：给一份 XYZ 规格，地址走同源瓦片代理（密钥不进浏览器），
+	 * {provider} 由前端替换成当前生效的供应商。wmsExample 只作文档，供抄去图层库建 WMS 图层。
+	 */
+	private static Map<String, Object> rasterSpec() {
+		Map<String, Object> wms = new LinkedHashMap<>();
+		wms.put("type", "WMS");
+		wms.put("url", "https://your-geoserver/geoserver/wms");
+		wms.put("layers", "workspace:layer");
+		wms.put("format", "image/png");
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("mugsunGis", GisConstants.SPEC_VERSION);
+		out.put("type", "XYZ");
+		out.put("url", "/api/system/gis/tile/{provider}/cva/{z}/{x}/{y}");
+		out.put("opacity", 0.9);
+		out.put("wmsExample", wms);
+		out.put("count", 1);
+		return out;
+	}
+
+	/**
+	 * 多格式入站示例：给几段原文，前端贴进 /layer/ingest 就能看到解析结果，
+	 * 和图层库新建时走的是同一个解析入口。
+	 */
+	private static Map<String, Object> ingestSamples() {
+		List<Map<String, Object>> samples = new ArrayList<>();
+		samples.add(sample("wkt", "WKT", "POINT (116.397428 39.90923)\nLINESTRING (116.352 39.9078, 116.445 39.9088)"));
+		samples.add(sample("csv", "CSV", "lon,lat,name\n116.397428,39.90923,天安门\n116.3970,39.9180,故宫\n116.4115,39.9139,王府井"));
+		samples.add(sample("kml", "KML", """
+			<?xml version="1.0" encoding="UTF-8"?>
+			<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+			<Placemark><name>景山公园</name><Point><coordinates>116.3964,39.9253</coordinates></Point></Placemark>
+			<Placemark><name>北海公园</name><Point><coordinates>116.3891,39.9254</coordinates></Point></Placemark>
+			</Document></kml>"""));
+		samples.add(sample("gpx", "GPX", """
+			<?xml version="1.0" encoding="UTF-8"?>
+			<gpx version="1.1"><trk><name>巡检轨迹</name><trkseg>
+			<trkpt lat="39.9078" lon="116.352"/><trkpt lat="39.9076" lon="116.371"/>
+			<trkpt lat="39.9074" lon="116.3974"/><trkpt lat="39.9088" lon="116.445"/>
+			</trkseg></trk></gpx>"""));
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("mugsunGis", GisConstants.SPEC_VERSION);
+		out.put("type", "IngestSamples");
+		out.put("endpoint", "/api/system/gis/layer/ingest");
+		out.put("samples", samples);
+		out.put("count", samples.size());
+		return out;
+	}
+
+	private static Map<String, Object> sample(String format, String label, String text) {
+		Map<String, Object> row = new LinkedHashMap<>();
+		row.put("format", format);
+		row.put("label", label);
+		row.put("text", text);
+		return row;
 	}
 
 	private static Map<String, Object> emptyCollection() {
@@ -170,6 +238,34 @@ public class GisDemoCatalog {
 		props.put("name", "核心区围栏");
 		props.put("kind", "polygon");
 		props.put("bizId", "fence-core");
+		props.put("role", "source");
+		Map<String, Object> feat = new LinkedHashMap<>();
+		feat.put("type", "Feature");
+		feat.put("properties", props);
+		feat.put("geometry", geom);
+		return feat;
+	}
+
+	/**
+	 * 空间运算示例的第二个围栏：和核心区部分重叠，这样相交为真、包含为假、
+	 * 并集与差集都能看出形状差别。
+	 */
+	private static Map<String, Object> overlapFence() {
+		List<List<List<Double>>> rings = List.of(List.of(
+			List.of(116.406, 39.914),
+			List.of(116.462, 39.914),
+			List.of(116.462, 39.941),
+			List.of(116.406, 39.941),
+			List.of(116.406, 39.914)
+		));
+		Map<String, Object> geom = new LinkedHashMap<>();
+		geom.put("type", "Polygon");
+		geom.put("coordinates", rings);
+		Map<String, Object> props = new LinkedHashMap<>();
+		props.put("name", "新区围栏");
+		props.put("kind", "polygon");
+		props.put("bizId", "fence-new");
+		props.put("role", "other");
 		Map<String, Object> feat = new LinkedHashMap<>();
 		feat.put("type", "Feature");
 		feat.put("properties", props);

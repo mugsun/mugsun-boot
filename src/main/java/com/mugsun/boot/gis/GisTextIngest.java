@@ -1,5 +1,6 @@
 package com.mugsun.boot.gis;
 
+import com.mugsun.boot.security.XssCleaner;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -31,6 +32,9 @@ public class GisTextIngest {
 	private static final Pattern GPX_WPT_SWAP = Pattern.compile(
 		"<wpt\\s[^>]*lon\\s*=\\s*[\"']([^\"']+)[\"'][^>]*lat\\s*=\\s*[\"']([^\"']+)[\"']",
 		Pattern.CASE_INSENSITIVE);
+	/** 行首的 WKT 几何关键字：用作多几何文本的切分点 */
+	private static final Pattern WKT_HEAD = Pattern.compile(
+		"(?im)(?=^[ \\t]*(?:MULTI)?(?:POINT|LINESTRING|POLYGON)\\b|^[ \\t]*GEOMETRYCOLLECTION\\b)");
 	private static final Pattern GPX_TRKPT = Pattern.compile(
 		"<trkpt\\s[^>]*lat\\s*=\\s*[\"']([^\"']+)[\"'][^>]*lon\\s*=\\s*[\"']([^\"']+)[\"']",
 		Pattern.CASE_INSENSITIVE);
@@ -80,19 +84,32 @@ public class GisTextIngest {
 			&& (low.contains("lat") || low.contains("latitude") || low.contains("y"));
 	}
 
+	/**
+	 * 一段文本里可以有多个 WKT：每行一个。WKTReader 只认第一个几何，所以先按行首的
+	 * 几何关键字切块，再逐块解析——跨行书写的单个几何不会被切开（续行以坐标开头）。
+	 */
 	private List<Map<String, Object>> wkt(String text) {
-		try {
-			Geometry geom = new WKTReader(factory).read(text);
-			if (geom == null || geom.isEmpty()) {
-				return List.of();
+		WKTReader reader = new WKTReader(factory);
+		List<Map<String, Object>> out = new ArrayList<>();
+		for (String chunk : WKT_HEAD.split(text)) {
+			String one = chunk.trim();
+			if (one.isEmpty()) {
+				continue;
 			}
-			Map<String, Object> props = new LinkedHashMap<>();
-			props.put("name", geom.getGeometryType());
-			props.put("kind", kindOf(geom));
-			return List.of(codec.toFeature(geom, props, null));
-		} catch (Exception e) {
-			return List.of();
+			try {
+				Geometry geom = reader.read(one);
+				if (geom == null || geom.isEmpty()) {
+					continue;
+				}
+				Map<String, Object> props = new LinkedHashMap<>();
+				props.put("name", geom.getGeometryType());
+				props.put("kind", kindOf(geom));
+				out.add(codec.toFeature(geom, props, null));
+			} catch (Exception ignored) {
+				// 单块解析不了就跳过，别拖累其它几何
+			}
 		}
+		return out;
 	}
 
 	private List<Map<String, Object>> csv(String text) {
@@ -121,9 +138,9 @@ public class GisTextIngest {
 					if (c == lon || c == lat) {
 						continue;
 					}
-					String key = head[c].trim();
+					String key = XssCleaner.clean(head[c].trim());
 					if (!key.isEmpty()) {
-						props.put(key, cols[c].trim());
+						props.put(key, XssCleaner.clean(cols[c].trim()));
 					}
 				}
 				props.putIfAbsent("name", "点");
@@ -140,7 +157,7 @@ public class GisTextIngest {
 	private List<Map<String, Object>> kml(String text) {
 		List<Map<String, Object>> out = new ArrayList<>();
 		Matcher names = KML_NAME.matcher(text);
-		String fallbackName = names.find() ? names.group(1).trim() : "KML";
+		String fallbackName = names.find() ? XssCleaner.clean(names.group(1).trim()) : "KML";
 		Matcher m = KML_COORD.matcher(text);
 		int idx = 0;
 		while (m.find()) {

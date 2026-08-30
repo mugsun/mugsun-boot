@@ -234,6 +234,47 @@ class GisApiTest extends AbstractIntegrationTest {
 	}
 
 	/**
+	 * 带标签的原文入站只有 text/plain 通道能通：JSON body 里的字符串会被全局 XSS 反序列化器
+	 * 按富文本过滤，标签一被剥掉就一个要素都解析不出来。这条链路必须钉住，否则「支持 KML / GPX」
+	 * 只在单测里成立、真实请求全是 400。
+	 */
+	@Test
+	void ingestKeepsTagsOnlyOnTextChannel() {
+		String kml = """
+			<?xml version="1.0" encoding="UTF-8"?>
+			<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+			<Placemark><name>景山公园</name><Point><coordinates>116.3964,39.9253</coordinates></Point></Placemark>
+			<Placemark><name>北海公园</name><Point><coordinates>116.3891,39.9254</coordinates></Point></Placemark>
+			</Document></kml>""";
+		JsonNode viaText = readBody(postText("/system/gis/layer/ingest", kml, adminToken));
+		assertThat(viaText.path("code").asInt()).isEqualTo(200);
+		assertThat(viaText.path("data").path("count").asInt()).isEqualTo(2);
+
+		// 同一份原文塞进 JSON body：标签被净化，解析不出要素，接口应明确报错而不是静默存空图层
+		JsonNode viaJson = readBody(post("/system/gis/layer/ingest", Map.of("payload", kml), adminToken));
+		assertThat(viaJson.path("code").asInt()).isEqualTo(400);
+
+		// 一段文本里多个 WKT：每行一个都要解析出来，不能只认第一个
+		JsonNode multiWkt = readBody(postText("/system/gis/layer/ingest",
+			"POINT (116.397428 39.90923)\nLINESTRING (116.352 39.9078, 116.445 39.9088)", adminToken));
+		assertThat(multiWkt.path("data").path("count").asInt()).isEqualTo(2);
+
+		assertThat(postText("/system/gis/layer/ingest", kml, null).getStatusCode().value()).isEqualTo(401);
+	}
+
+	/** 要素行是 data_json 的副本，同步失败只记日志，所以要有主动对账的口子 */
+	@Test
+	void featureDriftReportIsQueryable() {
+		JsonNode drift = readBody(get("/system/gis/spatial/drift", adminToken));
+		assertThat(drift.path("code").asInt()).isEqualTo(200);
+		assertThat(drift.path("data").has("postgis")).isTrue();
+		assertThat(drift.path("data").path("layers").isArray()).isTrue();
+		assertThat(drift.path("data").path("count").asInt())
+			.isEqualTo(drift.path("data").path("layers").size());
+		assertThat(get("/system/gis/spatial/drift", null).getStatusCode().value()).isEqualTo(401);
+	}
+
+	/**
 	 * 脏几何入站的两档处置：越界 / 退化拒收，自相交与未闭合环修复后放过并回报。
 	 * 走的是真实 submit 与 ingest 接口，确认拓扑闸门确实挂在入站漏斗上而不只是单测里能跑。
 	 */
@@ -317,7 +358,7 @@ class GisApiTest extends AbstractIntegrationTest {
 	void demoCatalogReadyToPlay() {
 		JsonNode list = readBody(get("/system/gis/demo/list", adminToken));
 		assertThat(list.path("code").asInt()).isEqualTo(200);
-		assertThat(list.path("data").size()).isEqualTo(10);
+		assertThat(list.path("data").size()).isEqualTo(13);
 		JsonNode poi = readBody(get("/system/gis/demo/poi", adminToken));
 		assertThat(poi.path("code").asInt()).isEqualTo(200);
 		assertThat(poi.path("data").path("count").asInt()).isEqualTo(8);
@@ -336,6 +377,16 @@ class GisApiTest extends AbstractIntegrationTest {
 		assertThat(get("/system/gis/tileset/demo-city/tileset.json", null).getStatusCode().value()).isEqualTo(401);
 		JsonNode geo = readBody(get("/system/gis/demo/geocode", adminToken));
 		assertThat(geo.path("data").path("count").asInt()).isEqualTo(0);
+		JsonNode ops = readBody(get("/system/gis/demo/ops", adminToken));
+		assertThat(ops.path("data").path("count").asInt()).isEqualTo(2);
+		assertThat(ops.path("data").path("features").get(1).path("properties").path("role").asText())
+			.isEqualTo("other");
+		JsonNode raster = readBody(get("/system/gis/demo/raster", adminToken));
+		assertThat(raster.path("data").path("type").asText()).isEqualTo("XYZ");
+		assertThat(raster.path("data").path("url").asText()).contains("{provider}");
+		JsonNode ingest = readBody(get("/system/gis/demo/ingest", adminToken));
+		assertThat(ingest.path("data").path("samples").size()).isEqualTo(4);
+		assertThat(ingest.path("data").path("samples").get(0).path("format").asText()).isEqualTo("wkt");
 		JsonNode missing = readBody(get("/system/gis/demo/warp", adminToken));
 		assertThat(missing.path("code").asInt()).isEqualTo(400);
 		assertThat(get("/system/gis/demo/list", null).getStatusCode().value()).isEqualTo(401);

@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import com.mugsun.boot.gis.GisAnalyzeService;
 import com.mugsun.boot.gis.GisConstants;
+import com.mugsun.boot.gis.GisFeatureStore;
 import com.mugsun.boot.gis.GisModuleService;
 import com.mugsun.boot.gis.GisSpatialQueryService;
 import com.mugsun.boot.gis.GisSpatialSupport;
@@ -42,15 +43,17 @@ public class GisSpatialController {
 	private final GisSpatialQueryService queryService;
 	private final GisVectorTileService tileService;
 	private final GisSpatialSupport support;
+	private final GisFeatureStore featureStore;
 
 	public GisSpatialController(GisModuleService moduleService, GisLayerMapper layerMapper,
 								GisSpatialQueryService queryService, GisVectorTileService tileService,
-								GisSpatialSupport support) {
+								GisSpatialSupport support, GisFeatureStore featureStore) {
 		this.moduleService = moduleService;
 		this.layerMapper = layerMapper;
 		this.queryService = queryService;
 		this.tileService = tileService;
 		this.support = support;
+		this.featureStore = featureStore;
 	}
 
 	/** 能力探测：前端据此决定走矢量瓦片还是整层 GeoJSON */
@@ -62,6 +65,22 @@ public class GisSpatialController {
 		out.put("postgis", support.available());
 		out.put("mvt", tileService.available());
 		out.put("limitMax", GisConstants.SPATIAL_LIMIT_MAX);
+		return R.data(out);
+	}
+
+	/**
+	 * 要素行对账：要素表只是 data_json 的加速副本，同步失败只记日志，所以得能主动查漂移。
+	 * 单独端点而不是并进 /status——这查询要扫图层表，不该每次开页都跑。
+	 */
+	@GetMapping("/drift")
+	@SaCheckPermission(value = { GisConstants.PERM_LAYER_LIST, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)
+	public R<Map<String, Object>> drift(@RequestParam(required = false, defaultValue = "0") int limit) {
+		moduleService.requireEnabled();
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("postgis", support.available());
+		java.util.List<Map<String, Object>> rows = featureStore.drift(limit);
+		out.put("count", rows.size());
+		out.put("layers", rows);
 		return R.data(out);
 	}
 

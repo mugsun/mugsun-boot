@@ -201,6 +201,49 @@ public class GisFeatureStore {
 		}
 	}
 
+	/**
+	 * 副本对账：要素行是 data_json 的加速副本，写失败只记日志不报错，所以必须能主动查出漂移的图层
+	 * （行数与 gis_layer.feature_count 不一致，或该填却一行没有）。
+	 *
+	 * <p>只看可索引图层；几何非法的要素本就插不进去，所以差值不一定是故障，但需要被看见。
+	 * 返回按差值绝对值从大到小，最多 limit 条。
+	 */
+	public List<Map<String, Object>> drift(int limit) {
+		if (!support.available()) {
+			return List.of();
+		}
+		int cap = limit <= 0 ? 50 : Math.min(limit, 500);
+		String sql = "SELECT l.id, l.name, l.kind, coalesce(l.feature_count, 0) AS expected,"
+			+ " (SELECT count(*) FROM gis_feature f WHERE f.layer_id = l.id AND f.is_deleted = 0) AS actual"
+			+ " FROM gis_layer l WHERE l.is_deleted = 0 AND l.kind IN (?, ?)"
+			+ " AND coalesce(l.feature_count, 0) <> (SELECT count(*) FROM gis_feature f"
+			+ " WHERE f.layer_id = l.id AND f.is_deleted = 0)"
+			+ " ORDER BY abs(coalesce(l.feature_count, 0) - (SELECT count(*) FROM gis_feature f"
+			+ " WHERE f.layer_id = l.id AND f.is_deleted = 0)) DESC LIMIT " + cap;
+		try {
+			List<Map<String, Object>> rows = support.jdbc().queryForList(
+				sql, GisConstants.KIND_VECTOR, GisConstants.KIND_HEATMAP);
+			List<Map<String, Object>> out = new ArrayList<>(rows.size());
+			for (Map<String, Object> row : rows) {
+				long expected = row.get("expected") instanceof Number n ? n.longValue() : 0L;
+				long actual = row.get("actual") instanceof Number n ? n.longValue() : 0L;
+				Map<String, Object> item = new java.util.LinkedHashMap<>();
+				item.put("layerId", row.get("id"));
+				item.put("name", row.get("name"));
+				item.put("kind", row.get("kind"));
+				item.put("expected", expected);
+				item.put("actual", actual);
+				// 一行都没有 = 存量图层还没回填；有行但数不对 = 真漂移，要重存图层重建
+				item.put("reason", actual == 0 ? "missing" : "mismatch");
+				out.add(item);
+			}
+			return out;
+		} catch (Exception e) {
+			log.warn("要素行对账失败：{}", e.getMessage());
+			return List.of();
+		}
+	}
+
 	/** 只有矢量与热力图层有要素；栅格与三维切片存的是服务地址，没有几何可索引 */
 	public static boolean indexable(String kind) {
 		return GisConstants.KIND_VECTOR.equals(kind) || GisConstants.KIND_HEATMAP.equals(kind);

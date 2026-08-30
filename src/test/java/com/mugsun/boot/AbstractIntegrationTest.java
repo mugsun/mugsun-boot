@@ -196,6 +196,13 @@ public abstract class AbstractIntegrationTest {
 		return rest.exchange(url, HttpMethod.POST, new HttpEntity<>(body, authHeaders(token)), String.class);
 	}
 
+	/** 原文 POST（text/plain）：带标签的 XML 原文必须绕开 JSON 的 XSS 净化才能到达服务端 */
+	protected ResponseEntity<String> postText(String url, String body, String token) {
+		HttpHeaders headers = authHeaders(token);
+		headers.setContentType(new MediaType(MediaType.TEXT_PLAIN, java.nio.charset.StandardCharsets.UTF_8));
+		return rest.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+	}
+
 	/** 带伪造租户头的 GET（租户守卫测试用） */
 	protected ResponseEntity<String> getWithTenantHeader(String url, String token, String tenantHeader) {
 		HttpHeaders headers = authHeaders(token);

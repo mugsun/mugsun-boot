@@ -18,6 +18,7 @@ import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -88,11 +89,23 @@ public class GisLayerController {
 		return R.data(require(id));
 	}
 
-	@PostMapping("/ingest")
+	@PostMapping(value = "/ingest", consumes = MediaType.APPLICATION_JSON_VALUE)
 	@SaCheckPermission(value = { GisConstants.PERM_LAYER_SAVE, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)
 	public R<Map<String, Object>> ingest(@RequestBody Object body) {
 		moduleService.requireEnabled();
 		return R.data(formatService.normalizeUnknown(unwrap(body)));
+	}
+
+	/**
+	 * 原文入站通道：KML / GPX 等带标签的格式必须走 text/plain。
+	 * JSON body 里的字符串会被全局 XSS 反序列化器按富文本过滤，标签一被剥掉就再也解析不出要素；
+	 * text/plain 不经 Jackson，原文完整到达，解析出的属性值再由 {@link com.mugsun.boot.gis.GisTextIngest} 严格净化。
+	 */
+	@PostMapping(value = "/ingest", consumes = MediaType.TEXT_PLAIN_VALUE)
+	@SaCheckPermission(value = { GisConstants.PERM_LAYER_SAVE, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)
+	public R<Map<String, Object>> ingestText(@RequestBody String raw) {
+		moduleService.requireEnabled();
+		return R.data(formatService.normalizeUnknown(raw));
 	}
 
 	@PostMapping("/submit")
