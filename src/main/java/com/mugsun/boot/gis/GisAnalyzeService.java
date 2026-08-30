@@ -19,6 +19,10 @@ import java.util.Map;
 /**
  * 空间分析内核：入站与图层 ingest 同一套规范化，运算走 JTS（米制 3857，出入 WGS84）。
  * 其它业务模块只要 POST 坐标或 layerId，不必感知地图页。
+ *
+ * <p>当请求带 {@code layerId} 且库里有 PostGIS 时，缓冲 / 包含会转交
+ * {@link GisSpatialQueryService} 下沉数据库（响应带 {@code engine}），避免把整层
+ * {@code data_json} 拉进 JVM 再算一遍；没有扩展或强制 {@code engine=java} 时仍走 JTS。
  */
 @Service
 public class GisAnalyzeService {
@@ -26,12 +30,14 @@ public class GisAnalyzeService {
 	private final GisFormatService formatService;
 	private final GisGeometryCodec codec;
 	private final GisLayerMapper layerMapper;
+	private final GisSpatialQueryService spatialQuery;
 
 	public GisAnalyzeService(GisFormatService formatService, GisGeometryCodec codec,
-							 GisLayerMapper layerMapper) {
+							 GisLayerMapper layerMapper, GisSpatialQueryService spatialQuery) {
 		this.formatService = formatService;
 		this.codec = codec;
 		this.layerMapper = layerMapper;
+		this.spatialQuery = spatialQuery;
 	}
 
 	public Map<String, Object> analyze(Map<String, Object> body) {
@@ -41,6 +47,13 @@ public class GisAnalyzeService {
 		String op = stringOf(body.get("op"));
 		if (op == null || !GisConstants.ANALYZE_OPS.contains(op)) {
 			throw new ServiceException(GisConstants.MSG_ANALYZE_OP);
+		}
+		double distance = numberOf(body.get("distance"), GisConstants.BUFFER_DEFAULT_M);
+		int limit = body.get("limit") instanceof Number n ? n.intValue() : 0;
+		boolean forceJava = GisConstants.ENGINE_JAVA.equalsIgnoreCase(stringOf(body.get("engine")));
+		Map<String, Object> offloaded = tryOffload(op, body, distance, limit, forceJava);
+		if (offloaded != null) {
+			return offloaded;
 		}
 		Map<String, Object> source = resolve(body.get("payload"), body.get("data"), body.get("layerId"));
 		List<Geometry> geoms = codec.fromCollection(source);
@@ -59,10 +72,9 @@ public class GisAnalyzeService {
 				throw new ServiceException(GisConstants.MSG_ANALYZE_OTHER);
 			}
 		}
-		double distance = numberOf(body.get("distance"), GisConstants.BUFFER_DEFAULT_M);
 		double tolerance = numberOf(body.get("tolerance"), GisConstants.SIMPLIFY_DEFAULT);
 		return switch (op) {
-			case GisConstants.OP_BUFFER -> buffer(source, geoms, distance);
+			case GisConstants.OP_BUFFER -> buffer(source, geoms, distance, limit);
 			case GisConstants.OP_CENTROID -> perFeature(source, geoms, GisConstants.OP_CENTROID,
 				g -> codec.toWgs84(codec.toMercator(g).getCentroid()));
 			case GisConstants.OP_BBOX -> envelope(source, geoms);
@@ -81,12 +93,85 @@ public class GisAnalyzeService {
 		};
 	}
 
-	private Map<String, Object> buffer(Map<String, Object> source, List<Geometry> geoms, double meters) {
+	/**
+	 * 图层级缓冲 / 包含优先下沉：有 PostGIS 时不把整层 JSON 拉进内存。
+	 * 返回 null 表示走不了下沉（没 layerId、不是这两个算子、或图层不适合索引）。
+	 */
+	private Map<String, Object> tryOffload(String op, Map<String, Object> body,
+										   double distance, int limit, boolean forceJava) {
+		if (!(GisConstants.OP_BUFFER.equals(op) || GisConstants.OP_CONTAINS.equals(op))) {
+			return null;
+		}
+		Long layerId = parseId(body.get("layerId"));
+		if (layerId == null) {
+			return null;
+		}
+		// 仍有 payload/data 时按调用方意图走内存几何，不抢下沉
+		if (body.get("payload") != null || body.get("data") != null) {
+			return null;
+		}
+		GisLayer layer = layerMapper.selectOneById(layerId);
+		if (layer == null) {
+			throw new ServiceException(GisConstants.MSG_LAYER_MISSING);
+		}
+		if (!GisFeatureStore.indexable(layer.getKind())) {
+			return null;
+		}
+		if (GisConstants.OP_BUFFER.equals(op)) {
+			Map<String, Object> spatial = spatialQuery.buffer(layer, distance, limit, forceJava);
+			return wrapSpatial(GisConstants.OP_BUFFER, spatial, distance);
+		}
+		Object probe = body.get("other");
+		if (probe == null && body.get("otherLayerId") != null) {
+			Map<String, Object> other = resolve(null, null, body.get("otherLayerId"));
+			@SuppressWarnings("unchecked")
+			List<Map<String, Object>> feats = (List<Map<String, Object>>) other.get("features");
+			if (feats == null || feats.isEmpty()) {
+				throw new ServiceException(GisConstants.MSG_ANALYZE_OTHER);
+			}
+			probe = feats.get(0).get("geometry");
+		}
+		if (probe == null) {
+			throw new ServiceException(GisConstants.MSG_ANALYZE_OTHER);
+		}
+		Map<String, Object> spatial = spatialQuery.contains(layer, probe, limit, forceJava);
+		Map<String, Object> out = wrapSpatial(GisConstants.OP_CONTAINS, spatial, null);
+		@SuppressWarnings("unchecked")
+		Map<String, Object> metrics = (Map<String, Object>) out.get("metrics");
+		int hit = spatial.get("count") instanceof Number n ? n.intValue() : 0;
+		metrics.put(GisConstants.OP_CONTAINS, hit > 0);
+		return out;
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> wrapSpatial(String op, Map<String, Object> spatial, Double bufferMeters) {
+		List<Map<String, Object>> feats = spatial.get("features") instanceof List<?> list
+			? (List<Map<String, Object>>) list : List.of();
+		Map<String, Object> metrics = measure(codec.fromCollection(wrapTemp(feats)));
+		if (bufferMeters != null) {
+			metrics.put("bufferMeters", bufferMeters);
+		}
+		Map<String, Object> out = envelopeResult(op, feats, metrics);
+		out.put("engine", spatial.getOrDefault("engine", GisConstants.ENGINE_JAVA));
+		out.put("truncated", Boolean.TRUE.equals(spatial.get("truncated")));
+		out.put("count", spatial.getOrDefault("count", feats.size()));
+		return out;
+	}
+
+	private Map<String, Object> buffer(Map<String, Object> source, List<Geometry> geoms,
+									   double meters, int limit) {
 		if (meters <= 0 || meters > GisConstants.BUFFER_MAX_M) {
 			throw new ServiceException(GisConstants.MSG_ANALYZE_DISTANCE);
 		}
+		int cap = limit <= 0 ? GisConstants.SPATIAL_LIMIT_DEFAULT
+			: Math.min(limit, GisConstants.SPATIAL_LIMIT_MAX);
 		List<Map<String, Object>> feats = new ArrayList<>();
+		boolean truncated = false;
 		for (int i = 0; i < geoms.size(); i++) {
+			if (feats.size() >= cap) {
+				truncated = true;
+				break;
+			}
 			Geometry merc = codec.toMercator(geoms.get(i));
 			Geometry buf = BufferOp.bufferOp(merc, meters);
 			if (buf == null || buf.isEmpty()) {
@@ -98,7 +183,11 @@ public class GisAnalyzeService {
 		}
 		Map<String, Object> metrics = measure(codec.fromCollection(wrapTemp(feats)));
 		metrics.put("bufferMeters", meters);
-		return envelopeResult(GisConstants.OP_BUFFER, feats, metrics);
+		Map<String, Object> out = envelopeResult(GisConstants.OP_BUFFER, feats, metrics);
+		out.put("engine", GisConstants.ENGINE_JAVA);
+		out.put("truncated", truncated);
+		out.put("count", feats.size());
+		return out;
 	}
 
 	private Map<String, Object> envelope(Map<String, Object> source, List<Geometry> geoms) {

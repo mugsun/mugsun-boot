@@ -9,12 +9,18 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # 必须是带 PostGIS 的镜像，不能退回 postgres:16-alpine：
+    # GIS 的空间查询下沉、GiST 索引与矢量瓦片全靠 PostGIS 扩展（见 V79 迁移）。
+    # 没有扩展时应用不会报错，而是静默全量回落 Java 侧——查询慢数倍、矢量瓦片直接不可用，
+    # 且只留一行 WARN 日志，运维极难发现。所以镜像即交付物，别在本地手工 apt 装扩展了事。
+    # 官方 postgis/postgis 目前仅发布 amd64；Apple Silicon 上 Docker Desktop 会自动走仿真。
+    image: postgis/postgis:16-3.4
+    platform: linux/amd64
     container_name: mugsun-pg
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${MUGSUN_POSTGRES_SUPER_PASSWORD:postgres}
-      MUGSUN_DB_PASSWORD: ${MUGSUN_DB_PASSWORD:mugsun}
+      POSTGRES_PASSWORD: ${MUGSUN_POSTGRES_SUPER_PASSWORD:-postgres}
+      MUGSUN_DB_PASSWORD: ${MUGSUN_DB_PASSWORD:-mugsun}
     ports:
       - "5432:5432"
     volumes:

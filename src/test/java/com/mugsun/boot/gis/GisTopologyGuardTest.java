@@ -109,6 +109,14 @@ class GisTopologyGuardTest {
 	}
 
 	@Test
+	@DisplayName("字符串型非数坐标（\"NaN\"）同样拒收，不误报成「无法修复」")
+	void rejectsStringNaN() {
+		assertThatThrownBy(() -> inspect(feature("Point", List.of("NaN", "39.9"))))
+			.isInstanceOf(ServiceException.class)
+			.hasMessageContaining("不是有效数字");
+	}
+
+	@Test
 	@DisplayName("线只有一个不同的点属退化，拒收")
 	void rejectsDegenerateLine() {
 		assertThatThrownBy(() -> inspect(feature("LineString",

@@ -116,6 +116,34 @@ public class GisSpatialController {
 		return R.data(queryService.nearest(require(layerId), lon, lat, limit, forceJava(engine)));
 	}
 
+	/**
+	 * 包含给定几何的要素。layerId 同样按字符串解析，避免雪花 ID 丢精度。
+	 */
+	@PostMapping("/contains")
+	@SaCheckPermission(value = { GisConstants.PERM_LAYER_LIST, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)
+	public R<Map<String, Object>> contains(@RequestBody Map<String, Object> body) {
+		moduleService.requireEnabled();
+		Long layerId = GisAnalyzeService.parseId(body.get("layerId"));
+		int limit = body.get("limit") instanceof Number n ? n.intValue() : 0;
+		return R.data(queryService.contains(require(layerId), body.get("geometry"), limit,
+			forceJava(body.get("engine") == null ? null : String.valueOf(body.get("engine")))));
+	}
+
+	/**
+	 * 对图层要素做米制缓冲，回缓冲后的几何。默认带 limit，防止万级图层一次吐整层。
+	 */
+	@PostMapping("/buffer")
+	@SaCheckPermission(value = { GisConstants.PERM_LAYER_LIST, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)
+	public R<Map<String, Object>> buffer(@RequestBody Map<String, Object> body) {
+		moduleService.requireEnabled();
+		Long layerId = GisAnalyzeService.parseId(body.get("layerId"));
+		double meters = body.get("distance") instanceof Number n
+			? n.doubleValue() : GisConstants.BUFFER_DEFAULT_M;
+		int limit = body.get("limit") instanceof Number n ? n.intValue() : 0;
+		return R.data(queryService.buffer(require(layerId), meters, limit,
+			forceJava(body.get("engine") == null ? null : String.valueOf(body.get("engine")))));
+	}
+
 	/** 矢量瓦片：application/vnd.mapbox-vector-tile，空瓦片回 0 字节 */
 	@GetMapping("/mvt/{layerId}/{z}/{x}/{y}")
 	@SaCheckPermission(value = { GisConstants.PERM_LAYER_LIST, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)

@@ -37,7 +37,9 @@ public class GisSpatialSupport {
 		if (ok) {
 			log.info("GIS 空间查询下沉数据库：PostGIS + gis_feature 就绪");
 		} else {
-			log.info("GIS 空间查询回落 Java 侧：当前库无 PostGIS 或无 gis_feature 表");
+			// 降级是可预期路径（达梦 / 未装扩展的 PG），但必须让运维看见：
+			// 否则容器重建后空间查询会悄悄慢数倍、矢量瓦片不可用，只留一行 INFO 极难发现。
+			log.warn("GIS 空间查询回落 Java 侧：当前库无 PostGIS 或无 gis_feature 表（矢量瓦片不可用，空间查询走内存）");
 		}
 		return ok;
 	}

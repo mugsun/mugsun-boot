@@ -192,4 +192,36 @@ class GisSpatialQueryServiceTest {
 		assertThat(GisFeatureStore.indexable(GisConstants.KIND_3DTILES)).isFalse();
 		assertThat(GisFeatureStore.indexable(null)).isFalse();
 	}
+
+	@Test
+	@DisplayName("包含查询：大方框命中，点与外部框不命中")
+	void containsFiltersByProbe() {
+		String data = """
+			{"type":"FeatureCollection","features":[
+			 {"type":"Feature","properties":{"name":"外框"},"geometry":{"type":"Polygon","coordinates":[[[116.39,39.90],[116.41,39.90],[116.41,39.92],[116.39,39.92],[116.39,39.90]]]}},
+			 {"type":"Feature","properties":{"name":"中心点"},"geometry":{"type":"Point","coordinates":[116.3975,39.9087]}},
+			 {"type":"Feature","properties":{"name":"远框"},"geometry":{"type":"Polygon","coordinates":[[[121.47,31.23],[121.48,31.23],[121.48,31.24],[121.47,31.24],[121.47,31.23]]]}}
+			]}
+			""";
+		Map<String, Object> probe = Map.of(
+			"type", "Point",
+			"coordinates", List.of(116.40, 39.91));
+		Map<String, Object> out = service.contains(layer(GisConstants.KIND_VECTOR, data), probe, 0, false);
+		assertThat(out.get("engine")).isEqualTo(GisConstants.ENGINE_JAVA);
+		assertThat(featuresOf(out)).extracting(GisSpatialQueryServiceTest::nameOf).containsExactly("外框");
+	}
+
+	@Test
+	@DisplayName("缓冲回落：点缓冲产出多边形，并受 limit 截断")
+	void bufferProducesPolygonsWithLimit() {
+		Map<String, Object> out = service.buffer(vector(), 500, 2, false);
+		assertThat(out.get("engine")).isEqualTo(GisConstants.ENGINE_JAVA);
+		assertThat(out.get("truncated")).isEqualTo(true);
+		assertThat(featuresOf(out)).hasSize(2);
+		assertThat(featuresOf(out).get(0).get("geometry"))
+			.asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+			.containsEntry("type", "Polygon");
+		assertThat(((Map<?, ?>) featuresOf(out).get(0).get("properties")).get("bufferMeters"))
+			.isEqualTo(500.0d);
+	}
 }

@@ -29,7 +29,8 @@ class GisAnalyzeServiceTest {
 		GisGeometryCodec codec = new GisGeometryCodec();
 		GisFormatService format = new GisFormatService(new ObjectMapper(), new GisTextIngest(codec),
 			new GisTopologyGuard(codec));
-		service = new GisAnalyzeService(format, codec, mock(GisLayerMapper.class));
+		service = new GisAnalyzeService(format, codec, mock(GisLayerMapper.class),
+			mock(GisSpatialQueryService.class));
 	}
 
 	private Map<String, Object> collection(Object... featureGeoms) {

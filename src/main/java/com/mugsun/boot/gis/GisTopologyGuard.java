@@ -95,15 +95,13 @@ public class GisTopologyGuard {
 		if (!(coords instanceof List<?> list) || list.isEmpty()) {
 			return;
 		}
-		if (list.get(0) instanceof Number) {
+		Object first = list.get(0);
+		if (first instanceof Number || first instanceof String) {
 			if (list.size() < 2) {
 				throw new ServiceException(String.format(GisConstants.MSG_TOPO_DEGENERATE, no, "坐标对不完整"));
 			}
-			double lon = ((Number) list.get(0)).doubleValue();
-			double lat = ((Number) list.get(1)).doubleValue();
-			if (!Double.isFinite(lon) || !Double.isFinite(lat)) {
-				throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_NAN, no));
-			}
+			double lon = asFinite(list.get(0), no);
+			double lat = asFinite(list.get(1), no);
 			if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
 				throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_RANGE, no,
 					trim(lon) + ", " + trim(lat)));
@@ -113,6 +111,26 @@ public class GisTopologyGuard {
 		for (Object item : list) {
 			scanCoords(item, no);
 		}
+	}
+
+	/** 数字或数字字符串；"NaN" / "Infinity" / 非数字文案都按「不是有效数字」拒收 */
+	private static double asFinite(Object raw, int no) {
+		double v;
+		if (raw instanceof Number n) {
+			v = n.doubleValue();
+		} else if (raw instanceof String s) {
+			try {
+				v = Double.parseDouble(s.trim());
+			} catch (NumberFormatException e) {
+				throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_NAN, no));
+			}
+		} else {
+			throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_NAN, no));
+		}
+		if (!Double.isFinite(v)) {
+			throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_NAN, no));
+		}
+		return v;
 	}
 
 	/**

@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 四类高频空间查询：视野范围（bbox）、半径内、与某几何相交、最近邻。
+ * 高频空间查询：视野范围（bbox）、半径内、与某几何相交、包含、最近邻、缓冲。
  *
  * <p>有 PostGIS 时全部下沉数据库，靠 {@code idx_gis_feature_geom}（GiST）过滤，只把命中要素回给前端；
  * 没有时回落读整层 {@code data_json} 在 Java 侧算——口径一致，但要素多了就慢，响应里的
@@ -134,6 +134,87 @@ public class GisSpatialQueryService {
 		}
 		out.put("count", ((List<?>) out.get("features")).size());
 		return out;
+	}
+
+	/**
+	 * 包含给定几何的要素（点落在多边形内、子区划落在上级区划内等）。
+	 * 语义是逐要素 {@code ST_Contains(geom, probe)}，不是整层并集再判一次。
+	 */
+	public Map<String, Object> contains(GisLayer layer, Object geometry, int limit, boolean forceJava) {
+		requireIndexable(layer);
+		Map<?, ?> geomMap = geometryOf(geometry);
+		int cap = clampLimit(limit);
+		if (ready(layer, forceJava)) {
+			String json = writeJson(geomMap);
+			return sql(layer,
+				" AND geom && ST_SetSRID(ST_GeomFromGeoJSON(?), 4326)"
+					+ " AND ST_Contains(geom, ST_SetSRID(ST_GeomFromGeoJSON(?), 4326))",
+				new Object[] { json, json }, null, cap);
+		}
+		Geometry other = codec.fromGeometry(geomMap);
+		if (other == null || other.isEmpty()) {
+			throw new ServiceException(GisConstants.MSG_SPATIAL_GEOM);
+		}
+		return java(layer, cap, (geom, feat) -> geom.contains(other) ? 0d : null);
+	}
+
+	/**
+	 * 对图层每个要素做米制缓冲，回缓冲后的几何（不是「缓冲区内的原要素」——那是 {@link #radius}）。
+	 * 默认带 limit，避免万级图层一次吐出整层多边形把前端和带宽打爆。
+	 */
+	public Map<String, Object> buffer(GisLayer layer, double meters, int limit, boolean forceJava) {
+		requireIndexable(layer);
+		if (meters <= 0 || meters > GisConstants.BUFFER_MAX_M) {
+			throw new ServiceException(GisConstants.MSG_ANALYZE_DISTANCE);
+		}
+		int cap = clampLimit(limit);
+		if (ready(layer, forceJava)) {
+			String select = "SELECT ST_AsGeoJSON(ST_Buffer(geom::geography, ?)::geometry) AS geom, props_json"
+				+ " FROM gis_feature WHERE layer_id = ? AND is_deleted = 0 LIMIT ?";
+			List<Map<String, Object>> feats = new ArrayList<>();
+			support.jdbc().query(select, rs -> {
+				Map<String, Object> props = readProps(rs.getString("props_json"));
+				props.put("bufferMeters", meters);
+				Map<String, Object> feat = new LinkedHashMap<>();
+				feat.put("type", "Feature");
+				feat.put("geometry", readJson(rs.getString("geom")));
+				feat.put("properties", props);
+				feats.add(feat);
+			}, meters, layer.getId(), cap);
+			return collection(feats, GisConstants.ENGINE_POSTGIS, cap);
+		}
+		List<Map<String, Object>> feats = new ArrayList<>();
+		for (Map<?, ?> feat : features(layer)) {
+			Object geomRaw = feat.get("geometry");
+			if (!(geomRaw instanceof Map<?, ?> geomMap)) {
+				continue;
+			}
+			Geometry geom;
+			try {
+				geom = codec.fromGeometry(geomMap);
+			} catch (Exception e) {
+				continue;
+			}
+			if (geom == null || geom.isEmpty()) {
+				continue;
+			}
+			Geometry buf = org.locationtech.jts.operation.buffer.BufferOp.bufferOp(
+				codec.toMercator(geom), meters);
+			if (buf == null || buf.isEmpty()) {
+				continue;
+			}
+			Map<String, Object> props = new LinkedHashMap<>();
+			if (feat.get("properties") instanceof Map<?, ?> p) {
+				p.forEach((k, v) -> props.put(String.valueOf(k), v));
+			}
+			props.put("bufferMeters", meters);
+			feats.add(codec.toFeature(codec.toWgs84(buf), props,
+				feat.get("id") == null ? null : String.valueOf(feat.get("id"))));
+			if (feats.size() >= cap) {
+				break;
+			}
+		}
+		return collection(feats, GisConstants.ENGINE_JAVA, cap);
 	}
 
 	// ==================== 下沉数据库 ====================
