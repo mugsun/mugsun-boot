@@ -71,7 +71,8 @@ public class GisVectorTileService {
 	private void ensureRows(GisLayer layer) {
 		if (featureStore.count(layer.getId()) == 0
 			&& layer.getFeatureCount() != null && layer.getFeatureCount() > 0) {
-			featureStore.sync(layer.getId(), layer.getTenantId(), layer.getKind(), layer.getDataJson());
+			featureStore.backfillIfEmpty(
+				layer.getId(), layer.getTenantId(), layer.getKind(), layer.getDataJson());
 		}
 	}
 }

@@ -3,8 +3,14 @@ package com.mugsun.boot.gis;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.stereotype.Component;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -39,25 +45,135 @@ public class GisFeatureStore {
 	 * 重建某图层的要素行（先清后插）。返回实际落库的要素数，不支持或失败返回 -1。
 	 */
 	public int sync(Long layerId, String tenantId, String kind, String dataJson) {
+		return sync(layerId, tenantId, kind, dataJson, false);
+	}
+
+	/**
+	 * 存量图层被查到时按需回填。与 {@link #sync} 的差别是拿到锁后会再查一次行数，
+	 * 已经有人填好就直接用——并发首枪只让一个请求真干活，其余等锁后复用结果。
+	 */
+	public int backfillIfEmpty(Long layerId, String tenantId, String kind, String dataJson) {
+		return sync(layerId, tenantId, kind, dataJson, true);
+	}
+
+	/**
+	 * 整个「清空 + 重插」必须是一个事务里的一件事，且同一图层全集群串行，否则并发首枪会互相穿插：
+	 * A 删完正插一半，B 又删（把 A 已插的删掉）再插，最终行数既不是 0 也不是要素数，
+	 * 而是随机的重复行——实测 8 并发首枪把 8000 要素灌成 62235 行，空间查询从此返回重复要素。
+	 *
+	 * <p>串行用 PostgreSQL 咨询锁而不是 JVM 锁：多实例部署时 JVM 锁互相看不见，照样穿插。
+	 * {@code pg_advisory_xact_lock} 随事务提交自动释放，不会漏锁。
+	 *
+	 * @param skipIfPresent true 表示拿到锁后若已有要素行就不重建（按需回填语义）
+	 */
+	private int sync(Long layerId, String tenantId, String kind, String dataJson, boolean skipIfPresent) {
 		if (layerId == null || !support.available() || !indexable(kind) || dataJson == null) {
 			return -1;
 		}
 		try {
 			List<Object[]> rows = rows(layerId, tenantId, dataJson);
-			support.jdbc().update("DELETE FROM gis_feature WHERE layer_id = ?", layerId);
-			int ok = 0;
-			for (int from = 0; from < rows.size(); from += BATCH) {
-				List<Object[]> chunk = rows.subList(from, Math.min(rows.size(), from + BATCH));
-				ok += insertChunk(chunk);
-			}
-			if (ok < rows.size()) {
+			Integer ok = support.jdbc().execute(
+				(ConnectionCallback<Integer>) conn -> rebuild(conn, layerId, rows, skipIfPresent));
+			if (ok != null && ok >= 0 && ok < rows.size()) {
 				log.warn("图层 {} 要素行写入 {}/{}，跳过的是几何非法的要素", layerId, ok, rows.size());
 			}
-			return ok;
+			return ok == null ? -1 : ok;
 		} catch (Exception e) {
 			log.warn("图层 {} 要素行同步失败，空间查询将回落 Java 侧：{}", layerId, e.getMessage());
 			return -1;
 		}
+	}
+
+	private int rebuild(Connection conn, Long layerId, List<Object[]> rows, boolean skipIfPresent)
+		throws SQLException {
+		boolean auto = conn.getAutoCommit();
+		conn.setAutoCommit(false);
+		try {
+			lockLayer(conn, layerId);
+			if (skipIfPresent) {
+				int present = countInTx(conn, layerId);
+				if (present > 0) {
+					conn.commit();
+					return present;
+				}
+			}
+			try (PreparedStatement del = conn.prepareStatement("DELETE FROM gis_feature WHERE layer_id = ?")) {
+				del.setLong(1, layerId);
+				del.executeUpdate();
+			}
+			int ok = insertRows(conn, rows);
+			conn.commit();
+			return ok;
+		} catch (SQLException e) {
+			conn.rollback();
+			throw e;
+		} finally {
+			conn.setAutoCommit(auto);
+		}
+	}
+
+	private static void lockLayer(Connection conn, Long layerId) throws SQLException {
+		try (PreparedStatement lock = conn.prepareStatement("SELECT pg_advisory_xact_lock(?)")) {
+			lock.setLong(1, layerId);
+			lock.execute();
+		}
+	}
+
+	private static int countInTx(Connection conn, Long layerId) throws SQLException {
+		try (PreparedStatement ps = conn.prepareStatement(
+			"SELECT count(*) FROM gis_feature WHERE layer_id = ? AND is_deleted = 0")) {
+			ps.setLong(1, layerId);
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next() ? rs.getInt(1) : 0;
+			}
+		}
+	}
+
+	/**
+	 * 分批插入。批内只要有一个几何被 PostGIS 判非法，整批会失败并把事务标记为异常，
+	 * 后续语句全都执行不了——所以每批前打保存点，失败就回到保存点再逐行救数据。
+	 */
+	private int insertRows(Connection conn, List<Object[]> rows) throws SQLException {
+		int ok = 0;
+		for (int from = 0; from < rows.size(); from += BATCH) {
+			List<Object[]> chunk = rows.subList(from, Math.min(rows.size(), from + BATCH));
+			Savepoint sp = conn.setSavepoint();
+			try (PreparedStatement ps = conn.prepareStatement(INSERT)) {
+				for (Object[] row : chunk) {
+					bind(ps, row);
+					ps.addBatch();
+				}
+				ps.executeBatch();
+				ok += chunk.size();
+			} catch (SQLException batchFailed) {
+				conn.rollback(sp);
+				ok += insertOneByOne(conn, chunk);
+			}
+		}
+		return ok;
+	}
+
+	private int insertOneByOne(Connection conn, List<Object[]> chunk) throws SQLException {
+		int ok = 0;
+		for (Object[] row : chunk) {
+			Savepoint sp = conn.setSavepoint();
+			try (PreparedStatement ps = conn.prepareStatement(INSERT)) {
+				bind(ps, row);
+				ps.executeUpdate();
+				ok++;
+			} catch (SQLException ignored) {
+				// 单个要素几何非法，回到保存点跳过即可，不影响其余要素
+				conn.rollback(sp);
+			}
+		}
+		return ok;
+	}
+
+	private static void bind(PreparedStatement ps, Object[] row) throws SQLException {
+		ps.setString(1, (String) row[0]);
+		ps.setLong(2, (Long) row[1]);
+		ps.setString(3, (String) row[2]);
+		ps.setString(4, (String) row[3]);
 	}
 
 	public void dropLayer(Long layerId) {
@@ -88,28 +204,6 @@ public class GisFeatureStore {
 	/** 只有矢量与热力图层有要素；栅格与三维切片存的是服务地址，没有几何可索引 */
 	public static boolean indexable(String kind) {
 		return GisConstants.KIND_VECTOR.equals(kind) || GisConstants.KIND_HEATMAP.equals(kind);
-	}
-
-	/**
-	 * 整批插入；某批里只要有一个几何被 PostGIS 判非法，整批会一起回滚，
-	 * 这时降级为逐行插入把好数据救回来，坏要素单独跳过。
-	 */
-	private int insertChunk(List<Object[]> chunk) {
-		try {
-			support.jdbc().batchUpdate(INSERT, chunk);
-			return chunk.size();
-		} catch (Exception batchFailed) {
-			int ok = 0;
-			for (Object[] row : chunk) {
-				try {
-					support.jdbc().update(INSERT, row);
-					ok++;
-				} catch (Exception ignored) {
-					// 单个要素几何非法，跳过即可，不影响其余要素
-				}
-			}
-			return ok;
-		}
 	}
 
 	private List<Object[]> rows(Long layerId, String tenantId, String dataJson) throws Exception {

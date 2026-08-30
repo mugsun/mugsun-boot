@@ -282,7 +282,8 @@ public class GisSpatialQueryService {
 		}
 		// 存量图层（PostGIS 之前入库的）第一次被查到时按需回填，省一次全库迁移任务
 		if (rows == 0 && layer.getFeatureCount() != null && layer.getFeatureCount() > 0) {
-			return featureStore.sync(layer.getId(), layer.getTenantId(), layer.getKind(), layer.getDataJson()) > 0;
+			return featureStore.backfillIfEmpty(
+				layer.getId(), layer.getTenantId(), layer.getKind(), layer.getDataJson()) > 0;
 		}
 		return false;
 	}
