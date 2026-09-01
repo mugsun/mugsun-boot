@@ -556,6 +556,8 @@ public class SysUserController {
 		user.setDeptId(deptId);
 		user.setPostId(postId);
 		user.setPassword(passwordEncoder.encode(securityPolicyService.getInitPassword()));
+		// 模板不承载「是否负责人」，须显式给默认值：不给则 ORM 写入显式 NULL，撞 is_leader 非空约束整批 500
+		user.setIsLeader(0);
 		user.sanitizeForInsert();
 		user.setTenantId(null);
 		tenantValidator.quotaLocked(tenant, () -> {
