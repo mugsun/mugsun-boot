@@ -3,6 +3,8 @@
  * 可选模块勾选拼包 CLI（二期下载器）。
  *
  * 用法：
+ *   node scripts/module-assemble.mjs                  # 交互式勾选（TTY）
+ *   node scripts/module-assemble.mjs --interactive
  *   node scripts/module-assemble.mjs --combo basic|full|gis-only|track-only
  *   node scripts/module-assemble.mjs --modules gis,track
  *   node scripts/module-assemble.mjs --combo basic --out /tmp/mugsun-basic --zip
@@ -13,6 +15,7 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -23,6 +26,8 @@ const CATALOG = path.join(BOOT_ROOT, 'docs/module-catalog.yaml')
 
 function usage(code = 1) {
   console.error(`Usage:
+  node scripts/module-assemble.mjs                         # 交互式勾选（需 TTY）
+  node scripts/module-assemble.mjs --interactive
   node scripts/module-assemble.mjs --combo <basic|full|gis-only|track-only> [--out DIR] [--zip]
   node scripts/module-assemble.mjs --modules [gis][,track] [--out DIR] [--zip]
   node scripts/module-assemble.mjs --list
@@ -31,7 +36,8 @@ Options:
   --pc <path>     pc 源目录（默认 ../mugsun-pc）
   --out <path>    输出目录（默认 /tmp/mugsun-assemble-<combo>-<ts>）
   --zip           额外打 zip（与 out 同级）
-  --dry-run       只打印计划，不写盘`)
+  --dry-run       只打印计划，不写盘
+  --interactive   强制进入交互勾选（无 TTY 时失败）`)
   process.exit(code)
 }
 
@@ -44,7 +50,8 @@ function parseArgs(argv) {
     out: null,
     zip: false,
     dryRun: false,
-    list: false
+    list: false,
+    interactive: false
   }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -56,6 +63,7 @@ function parseArgs(argv) {
     else if (a === '--out') out.out = path.resolve(next())
     else if (a === '--zip') out.zip = true
     else if (a === '--dry-run') out.dryRun = true
+    else if (a === '--interactive' || a === '-i') out.interactive = true
     else if (a === '--list' || a === '-h' || a === '--help') out.list = true
     else usage()
   }
@@ -72,6 +80,83 @@ function loadCatalog(file) {
   return JSON.parse(r.stdout)
 }
 
+function ask(rl, question) {
+  return new Promise((resolve) => rl.question(question, (ans) => resolve(String(ans || '').trim())))
+}
+
+/** 非 TTY（管道/重定向）时按行同步取答，避免 readline 一次吃光 stdin */
+function createLineReader() {
+  if (process.stdin.isTTY) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    return {
+      ask: (q) => ask(rl, q),
+      close: () => rl.close()
+    }
+  }
+  const lines = fs.readFileSync(0, 'utf8').split(/\r?\n/)
+  let i = 0
+  return {
+    ask: async (q) => {
+      process.stdout.write(q)
+      const ans = i < lines.length ? lines[i++] : ''
+      process.stdout.write(`${ans}\n`)
+      return String(ans || '').trim()
+    },
+    close: () => {}
+  }
+}
+
+async function runInteractive(catalog, args) {
+  // 显式 --interactive 时允许管道喂答（CI/脚本）；无参自动进入则要求 TTY
+  if (!args.interactive && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    throw new Error('交互模式需要 TTY。请用 --combo / --modules，或在终端运行 --interactive')
+  }
+  const reader = createLineReader()
+  try {
+    console.log('\nMugsun 可选模块拼包\n')
+    console.log('预设组合：')
+    const combos = catalog.combinations || []
+    combos.forEach((c, i) => {
+      const mods = (c.modules || []).join('+') || '（仅核心）'
+      console.log(`  ${i + 1}) ${c.id.padEnd(12)} ${mods}`)
+    })
+    console.log(`  ${combos.length + 1}) custom       自己勾选模块`)
+    const pick = await reader.ask(`\n选编号 [1-${combos.length + 1}]（默认 2=full）: `)
+    const n = Number(pick || '2')
+    let selected = []
+    let comboName = null
+    if (n >= 1 && n <= combos.length) {
+      comboName = combos[n - 1].id
+      selected = [...(combos[n - 1].modules || [])]
+    } else {
+      comboName = 'custom'
+      const ids = Object.entries(catalog.modules || {})
+        .filter(([, m]) => !m.requires)
+        .map(([id, m]) => ({ id, title: m.title || id }))
+      console.log('\n逐项勾选（y/n，回车=否）：')
+      for (const m of ids) {
+        const ans = await reader.ask(`  要「${m.title}」(${m.id})? [y/N] `)
+        if (/^(y|yes|1)$/i.test(ans)) selected.push(m.id)
+      }
+    }
+    console.log(`\n已选: [${selected.join(', ') || '仅核心'}]`)
+    if (!args.out) {
+      const def = path.join('/tmp', `mugsun-assemble-${comboName || 'custom'}-${Date.now()}`)
+      const outAns = await reader.ask(`输出目录（回车=${def}）: `)
+      args.out = outAns || def
+    }
+    if (!args.zip) {
+      const zipAns = await reader.ask('同时打 zip? [y/N] ')
+      args.zip = /^(y|yes|1)$/i.test(zipAns)
+    }
+    args.combo = comboName
+    args.modules = selected
+    return selected
+  } finally {
+    reader.close()
+  }
+}
+
 function resolveModules(catalog, args) {
   if (args.modules) {
     for (const id of args.modules) {
@@ -86,7 +171,7 @@ function resolveModules(catalog, args) {
     if (!c) throw new Error(`未知组合: ${args.combo}`)
     return [...(c.modules || [])]
   }
-  usage()
+  return null
 }
 
 function rmrf(p) {
@@ -146,7 +231,6 @@ function patchBootServerPom(pomPath, selected, { dryRun }) {
   let text = fs.readFileSync(pomPath, 'utf8')
   const wantGis = selected.includes('gis')
   const wantTrack = selected.includes('track')
-  // 重写 full profile 依赖，仅保留勾选模块
   const deps = []
   if (wantGis) {
     deps.push(`\t\t\t\t<dependency>
@@ -174,6 +258,24 @@ function patchBootServerPom(pomPath, selected, { dryRun }) {
 \t\t\t${fullBody}\t\t</profile>`
   )
   writeText(pomPath, text, { dryRun })
+}
+
+/** 未勾选模块的集成测从 server 删掉，避免拼包工程 testCompile 缺类 */
+function pruneServerOptionalTests(serverOut, selected, { dryRun }) {
+  const testRoot = path.join(serverOut, 'src/test/java/com/mugsun/boot')
+  const rm = (rel) => {
+    const p = path.join(testRoot, rel)
+    if (!fs.existsSync(p)) return
+    console.log(`  prune test ${rel}`)
+    if (!dryRun) fs.rmSync(p, { recursive: true, force: true })
+  }
+  if (!selected.includes('gis')) {
+    rm('gis')
+    rm('GisApiTest.java')
+  }
+  if (!selected.includes('track')) {
+    rm('track')
+  }
 }
 
 function patchPcEnv(envPath, selected, catalog, { dryRun }) {
@@ -256,7 +358,7 @@ function zipDir(dir, zipPath) {
   console.log(`zip -> ${zipPath}`)
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2))
   if (args.list) {
     const catalog = loadCatalog(CATALOG)
@@ -273,7 +375,15 @@ function main() {
   }
 
   const catalog = loadCatalog(CATALOG)
-  const selected = resolveModules(catalog, args)
+  const wantInteractive =
+    args.interactive || (!args.combo && !args.modules && process.stdin.isTTY)
+  let selected
+  if (wantInteractive) {
+    selected = await runInteractive(catalog, args)
+  } else {
+    selected = resolveModules(catalog, args)
+    if (!selected) usage()
+  }
   const comboName = args.combo || selected.slice().sort().join('+') || 'basic'
   const outRoot =
     args.out || path.join('/tmp', `mugsun-assemble-${comboName}-${Date.now()}`)
@@ -326,8 +436,9 @@ function main() {
   if (!args.dryRun) {
     patchBootParentPom(path.join(bootOut, 'pom.xml'), selected, dry)
     patchBootServerPom(path.join(bootOut, 'mugsun-boot-server', 'pom.xml'), selected, dry)
+    pruneServerOptionalTests(path.join(bootOut, 'mugsun-boot-server'), selected, dry)
   } else {
-    console.log('  (dry-run) would patch boot pom.xml / server pom.xml')
+    console.log('  (dry-run) would patch boot pom.xml / server pom.xml / prune tests')
   }
 
   // --- pc ---
@@ -385,4 +496,7 @@ function main() {
   }
 }
 
-main()
+main().catch((e) => {
+  console.error(e.message || e)
+  process.exit(1)
+})
