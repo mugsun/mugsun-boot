@@ -1,0 +1,67 @@
+# 可选模块清单（供 module-assemble.mjs 勾选拼包）
+# 下载器只应拷贝下列 path 并改依赖，勿维护 lite 分支。
+
+version: 1
+core:
+  boot:
+    - mugsun-boot-core
+    - mugsun-boot-server
+  pc:
+    - src
+    # 不含 modules/gis、modules/track
+modules:
+  gis:
+    id: gis
+    title: 地理信息
+    boot:
+      artifacts:
+        - mugsun-boot-gis
+      paths:
+        - mugsun-boot-gis
+    pc:
+      paths:
+        - modules/gis
+      env:
+        VITE_ENABLE_GIS: "true"
+      npm_optional:
+        - cesium
+        - ol
+        - gcoord
+    bridges:
+      - id: form-gis-pick
+        when: [gis]
+        note: form-create gisPick 由 GIS 模块 registerGisPick 注册
+  track:
+    id: track
+    title: 埋点分析
+    boot:
+      artifacts:
+        - mugsun-boot-track
+      paths:
+        - mugsun-boot-track
+      requires_db:
+        - mugsun_track
+    pc:
+      paths:
+        - modules/track
+      env:
+        VITE_ENABLE_TRACK: "true"
+      npm_optional:
+        - "@mugsun/track-web"
+        - rrweb-player
+        - source-map-js
+    sdk_repo: mugsun-track
+  gis_track_bridge:
+    id: gis-track-heat
+    title: 工作台埋点热力
+    requires: [gis, track]
+    note: 仅两模块都勾选时保留 workspace 内 trackHeat 入口
+combinations:
+  - id: basic
+    modules: []
+  - id: full
+    modules: [gis, track]
+  - id: gis-only
+    modules: [gis]
+  - id: track-only
+    modules: [track]

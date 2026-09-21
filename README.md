@@ -8,9 +8,27 @@
 ![Redis](https://img.shields.io/badge/Redis-7-red)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green)
 
-mugsun 平台的单体后端，将系统管理、工作流、多租户、开放平台与埋点分析集成在一个可执行应用中，`mvn spring-boot:run` 即可本地启动，首次启动后功能完整可用。
+mugsun 平台的单体后端，将系统管理、工作流、多租户、开放平台与可选的 GIS / 埋点分析集成在一个可执行应用中。默认全量装配；只要基础能力时可去掉 GIS / 埋点模块（见 [可选模块装配](docs/可选模块装配.md)）。
 
 基于 JDK 21 虚拟线程与 Spring Boot 3.5 构建，内置国密 SM2/SM3/SM4 加密体系与全链路审计，Flyway 管理数据库 schema。
+
+## 模块结构
+
+```text
+mugsun-boot/
+  mugsun-boot-core/     # 核心（无 GIS / 埋点源码）
+  mugsun-boot-gis/      # 可选：地理信息
+  mugsun-boot-track/    # 可选：埋点分析
+  mugsun-boot-server/   # 装配壳（默认依赖上述全部）
+```
+
+```bash
+# 全量
+mvn -pl mugsun-boot-server -am package -DskipTests
+
+# 仅核心（无 GIS / 埋点 jar）
+mvn -pl mugsun-boot-server -am package -DskipTests -Pbasic,'!full'
+```
 
 ## 功能
 
@@ -86,7 +104,7 @@ flowchart TB
 docker compose up -d
 ```
 
-脚本会创建 `mugsun` 账号、主库 `mugsun` 与埋点库 `mugsun_track`，并授予 CREATEDB 权限。本机已有 PostgreSQL 时也可执行 `psql -U postgres -f scripts/init-db.sql`。
+脚本会创建 `mugsun` 账号、主库 `mugsun` 与埋点库 `mugsun_track`，并授予 CREATEDB 权限。本机已有 PostgreSQL 时也可执行 `psql -U postgres -f scripts/init-db.sql`。仅核心装配（`-Pbasic,'!full'`）时可不建 `mugsun_track`。
 
 ### 2. 构建内核
 
@@ -101,7 +119,7 @@ cp config/application-local.yml.example config/application-local.yml
 # 写入固定 SM2 密钥对；留空则每次启动临时生成，登录会不稳定
 ```
 
-`application-local.yml` 已被 gitignore。`mvn spring-boot:run` 会自动 import `./config/application-local.yml`（工作目录须为 `mugsun-boot`），用于固定密钥并通过 `show-code: true` 回显验证码。
+`application-local.yml` 已被 gitignore。从仓库根目录启动时工作目录仍为 `mugsun-boot`，会自动 import `./config/application-local.yml`，用于固定密钥并通过 `show-code: true` 回显验证码。
 
 OAuth 同意页跳转地址取自 `mugsun.web.front-url`（环境变量 `MUGSUN_FRONT_URL`）。日常前端 `:3006` 使用默认值；e2e 使用 `:3007` 时须设置 `MUGSUN_FRONT_URL=http://localhost:3007`。
 
@@ -110,10 +128,11 @@ PowerJob Worker 默认关闭。定时任务页依赖独立的 PowerJob Server（
 ### 4. 启动
 
 ```bash
-mvn spring-boot:run
+# 在 mugsun-boot 根目录（父 POM）
+mvn -pl mugsun-boot-server -am spring-boot:run
 ```
 
-Flyway 会执行 70 余个迁移脚本与菜单种子数据，首次启动即为完整系统。API 文档见 `http://localhost:8080/swagger-ui/index.html`（prod 环境自动关闭）。
+Flyway 执行 0.1.0 基线脚本（`V1__baseline_0_1.sql`）与菜单种子数据，首次启动即为完整系统。后续小版本（如 0.1.1）再追加 `V2__*.sql`。API 文档见 `http://localhost:8080/swagger-ui/index.html`（prod 环境自动关闭）。
 
 ### 5. 登录
 

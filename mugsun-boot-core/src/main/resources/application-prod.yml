@@ -1,0 +1,74 @@
+# 生产部署覆盖（--spring.profiles.active=prod）：基础设施与密钥一律环境变量注入，仓库内不落任何明文
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+  mail:
+    host: ${SMTP_HOST}
+    port: ${SMTP_PORT:465}
+    username: ${SMTP_USERNAME}
+    password: ${SMTP_PASSWORD}
+
+mybatis-flex:
+  datasource:
+    primary:
+      type: hikari
+      url: ${JDBC_URL}
+      username: ${JDBC_USERNAME}
+      password: ${JDBC_PASSWORD}
+
+jetcache:
+  remote:
+    default:
+      # 密码经 REDIS_PASSWORD 注入（实测：Lettuce 空密码不发起 AUTH，无密码实例留空即可）
+      uri: redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT:6379}/${REDIS_DB:0}
+
+# 对象存储：生产禁用本地 /file/** 匿名直出（私有附件全走授权流式/预签名），启用云平台由 sys_oss 配置驱动
+dromara:
+  x-file-storage:
+    local-plus:
+      - platform: local-plus-1
+        enable-storage: true
+        enable-access: false
+        domain: ${FILE_DOMAIN}
+        base-path: mugsun/
+        path-patterns: /file/**
+        storage-path: ${FILE_STORAGE_PATH:/var/lib/mugsun/files/}
+
+sms:
+  blends:
+    default:
+      supplier: ${SMS_SUPPLIER:alibaba}
+      access-key-id: ${SMS_AK}
+      access-key-secret: ${SMS_SK}
+      signature: ${SMS_SIGNATURE}
+      template-id: ${SMS_TEMPLATE_ID}
+
+powerjob:
+  worker:
+    enabled: ${POWERJOB_ENABLED:false}
+    server-address: ${POWERJOB_SERVER:}
+    app-name: ${POWERJOB_APP_NAME:mugsun}
+
+# API 文档生产关闭（类型生成走 CI 内网拉取）
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+mugsun:
+  web:
+    front-url: ${MUGSUN_FRONT_URL}
+  captcha:
+    enabled: true
+    show-code: false
+  sms:
+    show-code: false
+  crypto:
+    strict-keys: true            # 密钥缺失即拒绝启动（SM4/api-key/SM2/审计签名 全部必须注入）
+  social:
+    mock-enabled: false          # mock 来源身份固定=后门，生产永不开启

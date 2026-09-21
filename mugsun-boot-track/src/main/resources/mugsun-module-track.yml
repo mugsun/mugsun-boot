@@ -1,0 +1,14 @@
+# 埋点模块配置（随 mugsun-boot-track jar 提供；核心通过 optional:classpath 引入）
+mybatis-flex:
+  datasource:
+    # 埋点独立数据源（G99）：静态、租户无关；与业务库物理隔离（同实例独立 database，L1 层）
+    track:
+      type: hikari
+      url: ${TRACK_JDBC_URL:jdbc:postgresql://localhost:5432/mugsun_track}
+      username: ${TRACK_JDBC_USERNAME:mugsun}
+      password: ${TRACK_JDBC_PASSWORD:mugsun}
+
+mugsun:
+  track:
+    enabled: ${MUGSUN_TRACK_ENABLED:true}
+    flyway-enabled: ${MUGSUN_TRACK_FLYWAY_ENABLED:true}

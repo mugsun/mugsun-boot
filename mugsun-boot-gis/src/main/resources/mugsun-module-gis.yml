@@ -1,0 +1,5 @@
+# 地理信息模块配置（随 mugsun-boot-gis jar 提供；核心通过 optional:classpath 引入）
+mugsun:
+  gis:
+    # 地理信息模块总开关（默认开）；sys_param gis.module.enabled=false 可运行时关闭
+    enabled: ${MUGSUN_GIS_ENABLED:true}

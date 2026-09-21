@@ -113,7 +113,7 @@ The PowerJob worker is **off by default**. The job admin page talks to a standal
 mvn spring-boot:run
 ```
 
-Flyway automatically applies 70+ migrations plus menu seed data, so the very first boot is already a complete system. API docs live at `http://localhost:8080/swagger-ui/index.html` (disabled under the prod profile).
+Flyway applies the 0.1.0 baseline (`V1__baseline_0_1.sql`) plus menu seed data on first boot, so a fresh install is already a complete system. Later releases (e.g. 0.1.1) add `V2__*.sql`. API docs live at `http://localhost:8080/swagger-ui/index.html` (disabled under the prod profile).
 
 ### 5. Sign in
 

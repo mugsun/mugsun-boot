@@ -1,0 +1,167 @@
+server:
+  port: 8080
+  # 优雅停机：停接新请求、等待在途请求处理完毕，滚动发布/重启不硬砍在途请求
+  shutdown: graceful
+spring:
+  application:
+    name: mugsun-boot
+  # 本地密钥/验证码回显：把 config/application-local.yml.example 复制为 application-local.yml（gitignore）
+  config:
+    import:
+      - optional:file:./config/application-local.yml
+      # 可选模块自带配置（jar 不在 classpath 时 optional 静默跳过）
+      - optional:classpath:mugsun-module-track.yml
+      - optional:classpath:mugsun-module-gis.yml
+  lifecycle:
+    # 优雅停机在途请求最长等待
+    timeout-per-shutdown-phase: 20s
+  threads:
+    virtual:
+      enabled: true
+  servlet:
+    multipart:
+      # G101 sourcemap 上限 20MB（服务端校验 400 先于容器截断）：默认 1MB/10MB 不够，放宽到 25MB
+      max-file-size: 25MB
+      max-request-size: 25MB
+  task:
+    scheduling:
+      pool:
+        # 调度线程池显式扩容：多调度任务（通知重试/日志清理）互不饿死
+        size: 2
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+    placeholder-replacement: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 3
+      timeout: 3000ms
+  mail:
+    host: smtp.example.com
+    port: 465
+    username: placeholder@example.com
+    password: placeholder
+    properties:
+      mail.smtp.connectiontimeout: 3000
+      mail.smtp.timeout: 3000
+management:
+  # 邮件为尽力而为通道：默认关闭 mail 健康指标，避免占位/未配真实 SMTP 时 /actuator/health 聚合恒 503（配真实 SMTP 后可开启）
+  health:
+    mail:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        # prometheus/metrics 由 ActuatorAuthFilter 门控（登录 + sys:monitor:list）；health/info 保持公开
+        include: health,info,metrics,prometheus
+  # Boot 3.5 起 management.defaults.metrics.export.enabled 默认视为 false，Prometheus 注册表须显式开启
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+# 日志收口 logback-spring.xml：控制台/文件级别段均注入 traceId（TraceIdFilter 写 MDC）；
+# 默认落盘 ./logs（logging.file.path 可覆盖），按天+100MB 双滚动，error 单独成文件保留 90 天
+sa-token:
+  token-name: Authorization
+  timeout: 2592000
+  token-style: uuid
+  is-log: false
+  # 并发登录控制：允许同账号多端在线（is-concurrent），各端独立 token（is-share=false，方可按 token 踢单端），单账号最大并发终端数
+  is-concurrent: true
+  is-share: false
+  max-login-count: 12
+mybatis-flex:
+  datasource:
+    primary:
+      type: hikari
+      url: jdbc:postgresql://localhost:5432/mugsun
+      username: mugsun
+      password: mugsun
+  default-datasource-key: primary
+  global-config:
+    print-banner: false
+    tenant-column: tenant_id
+jetcache:
+  statIntervalMinutes: 1
+  areaInCacheName: false
+  local:
+    default:
+      type: linkedhashmap
+      keyConvertor: bean:tenantKeyConvertor
+      limit: 500
+      expireAfterWriteInMillis: 3600000
+  remote:
+    default:
+      type: redis.lettuce
+      keyConvertor: bean:tenantKeyConvertor
+      valueEncoder: bean:jsonValueEncoder
+      valueDecoder: bean:jsonValueDecoder
+      uri: redis://localhost:6379/3
+dromara:
+  x-file-storage:
+    default-platform: local-plus-1
+    local-plus:
+      - platform: local-plus-1
+        enable-storage: true
+        enable-access: true
+        domain: http://127.0.0.1:8080/file/
+        base-path: mugsun/
+        path-patterns: /file/**
+        storage-path: /tmp/mugsun-files/
+sms:
+  config-type: yaml
+  blends:
+    default:
+      supplier: alibaba
+      access-key-id: placeholder
+      access-key-secret: placeholder
+      signature: mugsun
+      template-id: SMS_000000
+powerjob:
+  worker:
+    enabled: false
+    app-name: mugsun
+    server-address: 127.0.0.1:7700
+    protocol: http
+    store-strategy: disk
+    port: 27777
+liteflow:
+  rule-source: flow/*.el.xml
+mugsun:
+  web:
+    # 管理端 origin；e2e :3007 / 反代域名设 MUGSUN_FRONT_URL，禁止代码写死端口
+    front-url: ${MUGSUN_FRONT_URL:http://localhost:3006}
+  captcha:
+    enabled: true
+    show-code: false         # 验证码回显仅 dev profile 开启（生产开启=防爆破体系架空）
+    expire-seconds: 300
+  sms:
+    show-code: false         # 短信验证码回显仅 dev profile 开启（生产开启=未认证接管任意账号）
+  crypto:
+    gm-enabled: ${MUGSUN_GM_ENABLED:true}          # 国密总开关（传输 SM2 / 摘要 SM3 一处切）
+    sm4-key: ${MUGSUN_SM4_KEY:}                     # SM4 字段加密密钥（生产必须环境变量注入，缺省拒绝启动明文提示）
+    api-key: ${MUGSUN_API_KEY:}                     # 接口加解密 SM4 密钥（同上）
+    strict-keys: ${MUGSUN_STRICT_KEYS:false}        # 生产 true：密钥缺失即拒绝启动
+    sm2-private-key: ${MUGSUN_SM2_PRIVATE_KEY:}     # SM2 传输私钥 hex（留空则启动生成并告警）
+    sm2-public-key: ${MUGSUN_SM2_PUBLIC_KEY:}       # SM2 传输公钥 hex（04+128）
+    sign-private-key: ${MUGSUN_SIGN_PRIVATE_KEY:}   # 审计签名 SM2 私钥（与传输分离，生产必须固定注入）
+    sign-public-key: ${MUGSUN_SIGN_PUBLIC_KEY:}     # 审计签名 SM2 公钥
+  serial-number:
+    provider: redis          # redis 自增（默认）/ db 行锁
+  websocket:
+    sender-type: redis       # 推送扇出：local=单机直发（仅本地调试）/ redis=集群经 Redis Pub/Sub 扇出
+  social:
+    enabled: ${MUGSUN_SOCIAL_ENABLED:true}
+    # mock 社交来源仅 dev profile 配置（身份固定=后门，主配置绝不携带）
+    mock-enabled: ${MUGSUN_SOCIAL_MOCK:false}
+  ip2region:
+    # 离线 IP 归属地（登录日志 login_location 列）：缺省关闭。
+    # xdb 数据文件（约 11MB）不入库——官方仅经 GitHub 仓库 data/ 分发且不定期更新，
+    # 开启步骤：下载 https://github.com/lionsoul2014/ip2region/raw/master/data/ip2region_v4.xdb
+    # 至服务器本地目录，xdb-path 指向该文件后 enabled=true。
+    enabled: ${MUGSUN_IP2REGION_ENABLED:false}
+    xdb-path: ${MUGSUN_IP2REGION_XDB_PATH:}
