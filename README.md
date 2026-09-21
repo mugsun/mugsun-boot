@@ -27,7 +27,7 @@ mugsun-boot/
 mvn -pl mugsun-boot-server -am package -DskipTests
 
 # 仅核心（无 GIS / 埋点 jar）
-mvn -pl mugsun-boot-server -am package -DskipTests -Pbasic,'!full'
+mvn -pl mugsun-boot-server -am clean package -DskipTests -Pbasic,'!full'
 ```
 
 ## 功能

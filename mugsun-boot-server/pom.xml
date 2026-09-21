@@ -76,6 +76,22 @@
 		<profile>
 			<id>basic</id>
 			<!-- 激活时请同时关掉 full：mvn -Pbasic,'!full' package -->
+			<!-- 装配壳上的 gis/track 集成测试只在 full 有类路径；basic 排除以免 testCompile 失败 -->
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-compiler-plugin</artifactId>
+						<configuration>
+							<testExcludes>
+								<testExclude>**/gis/**</testExclude>
+								<testExclude>**/track/**</testExclude>
+								<testExclude>**/GisApiTest.java</testExclude>
+							</testExcludes>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
 		</profile>
 		<profile>
 			<id>kingbase</id>

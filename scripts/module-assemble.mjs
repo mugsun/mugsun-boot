@@ -97,6 +97,19 @@ function mkdirp(p) {
   fs.mkdirSync(p, { recursive: true })
 }
 
+const SKIP_DIR_NAMES = new Set([
+  'target',
+  'node_modules',
+  'dist',
+  'logs',
+  '.git',
+  '.idea',
+  '.vscode',
+  'coverage',
+  'test-results',
+  'playwright-report'
+])
+
 function copyPath(src, dest, { dryRun }) {
   if (!fs.existsSync(src)) {
     throw new Error(`源路径不存在: ${src}`)
@@ -104,7 +117,14 @@ function copyPath(src, dest, { dryRun }) {
   console.log(`  copy ${src} -> ${dest}`)
   if (dryRun) return
   mkdirp(path.dirname(dest))
-  fs.cpSync(src, dest, { recursive: true, dereference: false })
+  fs.cpSync(src, dest, {
+    recursive: true,
+    dereference: false,
+    filter: (p) => {
+      const base = path.basename(p)
+      return !SKIP_DIR_NAMES.has(base)
+    }
+  })
 }
 
 function writeText(file, content, { dryRun }) {
