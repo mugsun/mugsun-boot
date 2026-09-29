@@ -3,7 +3,9 @@ package com.mugsun.boot.common.perm;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.annotation.SaIgnore;
+import cn.dev33.satoken.exception.SaTokenContextException;
 import cn.dev33.satoken.stp.StpUtil;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.method.HandlerMethod;
@@ -20,6 +22,9 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
 
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+		if (request.getDispatcherType() == DispatcherType.ASYNC) {
+			return true;
+		}
 		if (!(handler instanceof HandlerMethod hm)) {
 			return true;
 		}
@@ -32,7 +37,13 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
 			|| hasAnnotation(hm, SaIgnore.class)) {
 			return true;
 		}
-		if (!StpUtil.isLogin()) {
+		boolean loggedIn;
+		try {
+			loggedIn = StpUtil.isLogin();
+		} catch (SaTokenContextException e) {
+			return true;
+		}
+		if (!loggedIn) {
 			return true;
 		}
 		String path = request.getRequestURI();

@@ -15,4 +15,9 @@ sed "s/WITH PASSWORD '[^']*'/WITH PASSWORD '${MUGSUN_DB_PASSWORD}'/" /initdb/ini
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname mugsun \
   -c "CREATE EXTENSION IF NOT EXISTS postgis"
 
-echo ">> mugsun / mugsun_track 数据库初始化完成（含 PostGIS 扩展）"
+# AI 知识库依赖的向量扩展。交付镜像必须带 pgvector；装不上就让容器起不来，
+# 避免知识库页面假装向量化成功、实际只能关键词检索。
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname mugsun \
+  -c "CREATE EXTENSION IF NOT EXISTS vector"
+
+echo ">> mugsun / mugsun_track 数据库初始化完成（含 PostGIS 与 pgvector）"

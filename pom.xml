@@ -16,12 +16,13 @@
 	<version>0.1.0</version>
 	<packaging>pom</packaging>
 	<name>mugsun-boot</name>
-	<description>Mugsun 单体版父工程（core + 可选 gis/track + 装配壳）</description>
+	<description>Mugsun 单体版父工程（core + 可选 gis/track/ai + 装配壳）</description>
 
 	<modules>
 		<module>mugsun-boot-core</module>
 		<module>mugsun-boot-gis</module>
 		<module>mugsun-boot-track</module>
+		<module>mugsun-boot-ai</module>
 		<module>mugsun-boot-server</module>
 	</modules>
 
@@ -31,6 +32,7 @@
 		<kingbase.jdbc.version>9.0.1.jre7</kingbase.jdbc.version>
 		<dameng.jdbc.version>8.1.3.62</dameng.jdbc.version>
 		<jts.version>1.20.0</jts.version>
+		<spring-ai.version>1.1.2</spring-ai.version>
 	</properties>
 
 	<dependencyManagement>
@@ -63,6 +65,18 @@
 				<groupId>com.mugsun</groupId>
 				<artifactId>mugsun-boot-track</artifactId>
 				<version>${project.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.mugsun</groupId>
+				<artifactId>mugsun-boot-ai</artifactId>
+				<version>${project.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-bom</artifactId>
+				<version>${spring-ai.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
 			</dependency>
 			<dependency>
 				<groupId>org.locationtech.jts</groupId>

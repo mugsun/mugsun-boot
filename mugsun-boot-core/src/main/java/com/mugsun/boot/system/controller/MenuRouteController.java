@@ -35,16 +35,19 @@ public class MenuRouteController {
 	private final SysRoleMenuMapper roleMenuMapper;
 	private final com.mugsun.boot.common.module.GisModuleStatus gisModuleStatus;
 	private final com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus;
+	private final com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus;
 
 	public MenuRouteController(SysMenuMapper menuMapper, SysUserRoleMapper userRoleMapper,
 							   SysRoleMenuMapper roleMenuMapper,
 							   com.mugsun.boot.common.module.GisModuleStatus gisModuleStatus,
-							   com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus) {
+							   com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus,
+							   com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus) {
 		this.menuMapper = menuMapper;
 		this.userRoleMapper = userRoleMapper;
 		this.roleMenuMapper = roleMenuMapper;
 		this.gisModuleStatus = gisModuleStatus;
 		this.trackModuleStatus = trackModuleStatus;
+		this.aiModuleStatus = aiModuleStatus;
 	}
 
 	@GetMapping("/menus")
@@ -109,6 +112,14 @@ public class MenuRouteController {
 				}
 			}
 		}
+		if (!aiModuleStatus.enabled()) {
+			for (SysMenu m : all) {
+				String path = m.getPath();
+				if (path != null && (path.equals("/ai") || path.startsWith("/ai/"))) {
+					visible.remove(m.getId());
+				}
+			}
+		}
 		// 建树（父不存在的节点提升为根）+ 空目录剔除
 		List<Map<String, Object>> tree = buildTree(0L, byId, visible);
 		return R.data(tree);
@@ -136,7 +147,7 @@ public class MenuRouteController {
 		return result;
 	}
 
-	/** 转前端 AppRouteRecord：子路径相对化（前端 normalizeMenuPaths 负责拼全）、目录组件落布局 */
+	/** 转前端 AppRouteRecord：子路径相对化（前端 normalizeMenuPaths 负责拼全）；仅顶级目录落 Layout */
 	private Map<String, Object> toRoute(SysMenu m, Long parentId, Map<Long, SysMenu> byId,
 										List<Map<String, Object>> children) {
 		Map<String, Object> node = new LinkedHashMap<>();
@@ -149,9 +160,7 @@ public class MenuRouteController {
 		node.put("parentId", parentId);
 		node.put("path", relPath);
 		node.put("name", routeName(fullPath, m.getId()));
-		node.put("component", m.getComponent() != null && !m.getComponent().isBlank()
-			? m.getComponent()
-			: ("M".equals(m.getMenuType()) ? "/index/index" : fullPath));
+		node.put("component", resolveComponent(m, parentId, fullPath));
 		Map<String, Object> meta = new LinkedHashMap<>();
 		meta.put("title", m.getMenuName());
 		meta.put("icon", m.getIcon());
@@ -167,6 +176,27 @@ public class MenuRouteController {
 			node.put("children", children);
 		}
 		return node;
+	}
+
+	/**
+	 * 布局组件只允许挂在顶级目录（parentId=0）。
+	 * 二级及以下目录若再写 /index/index，会在内容区再嵌一套侧栏+顶栏（双菜单）。
+	 */
+	private static String resolveComponent(SysMenu m, Long parentId, String fullPath) {
+		String stored = m.getComponent();
+		boolean dir = "M".equals(m.getMenuType());
+		boolean topLevel = parentId == null || parentId == 0L;
+		if (dir) {
+			if (topLevel) {
+				return stored == null || stored.isBlank() ? "/index/index" : stored;
+			}
+			// 嵌套目录：清空 Layout；保留其它显式组件（极少见）
+			if (stored == null || stored.isBlank() || "/index/index".equals(stored.trim())) {
+				return "";
+			}
+			return stored;
+		}
+		return stored != null && !stored.isBlank() ? stored : fullPath;
 	}
 
 	/** 路由名：按全路径派生唯一稳定名（/system/user → SystemUser；兜底 Route_<id>） */

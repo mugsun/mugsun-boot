@@ -3,20 +3,22 @@ package com.mugsun.boot.gen;
 import com.mugsun.boot.gen.entity.GenColumn;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.core.tool.exception.ServiceException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * 规则建模（原 AI 辅助建模）：按格式描述 → 候选可编辑元数据（gen_table + gen_column），**仅产出候选、绝不落库/建表**，
  * 由前端展示供人工确认修改，确认后才走建表通道。
- * <p>当前为规则解析器（英文标识符 + 中文标签 + 类型词），**基于规则解析，不支持自由中文描述**；
- * 作为 D9 大模型通道的可替换占位：解析契约稳定、产物结构与 LLM 输出一致，D9 接入后仅替换本解析实现即可。
+ * <p>有 {@link GenAiDraftEnhancer}（ai 模块）时优先走 LLM 结构化候选；缺席或失败回落规则解析。
+ * 确认闸门仍在 {@code GenModelingController} 的 draft/confirm，本类绝不落库。
  */
 @Service
 public class AiModelService {
@@ -25,12 +27,34 @@ public class AiModelService {
 	/** 段分隔：换行 / 中英逗号 / 顿号 / 分号 / 竖线 */
 	private static final Pattern SEG = Pattern.compile("[\\n\\r,，、;；|]+");
 
+	private final ObjectProvider<GenAiDraftEnhancer> draftEnhancer;
+
+	public AiModelService(ObjectProvider<GenAiDraftEnhancer> draftEnhancer) {
+		this.draftEnhancer = draftEnhancer;
+	}
+
 	/** 描述 → 候选元数据（table + columns），不持久化 */
 	public Map<String, Object> draft(String description) {
 		if (description == null || description.isBlank()) {
 			throw new ServiceException("请用一句话描述要建的表（含英文表名/字段名 + 中文含义 + 类型）");
 		}
-		String[] segs = SEG.split(description.trim());
+		GenAiDraftEnhancer enhancer = draftEnhancer.getIfAvailable();
+		if (enhancer != null) {
+			Optional<Map<String, Object>> candidate = enhancer.draftCandidate(description.trim());
+			if (candidate.isPresent()) {
+				return candidate.get();
+			}
+			Optional<String> enhanced = enhancer.enhanceDescription(description.trim());
+			if (enhanced.isPresent() && !enhanced.get().isBlank()) {
+				return draftByRules(enhanced.get());
+			}
+		}
+		return draftByRules(description.trim());
+	}
+
+	/** 规则解析（英文标识符 + 中文标签 + 类型词） */
+	private Map<String, Object> draftByRules(String description) {
+		String[] segs = SEG.split(description);
 		if (segs.length < 2) {
 			throw new ServiceException("至少描述表名与一个字段，例如：product_comment 商品评论；content 内容 文本，score 评分 整数");
 		}

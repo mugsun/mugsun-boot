@@ -1,6 +1,8 @@
 package com.mugsun.boot.common.mask;
 
+import cn.dev33.satoken.exception.SaTokenContextException;
 import cn.dev33.satoken.stp.StpUtil;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -13,8 +15,16 @@ public class FieldMaskInterceptor implements HandlerInterceptor {
 
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-		if (StpUtil.isLogin()) {
-			FieldMaskContext.resolve(StpUtil.getPermissionList());
+		// SSE 完成后 ASYNC 回派无 Sa-Token 请求上下文
+		if (request.getDispatcherType() == DispatcherType.ASYNC) {
+			return true;
+		}
+		try {
+			if (StpUtil.isLogin()) {
+				FieldMaskContext.resolve(StpUtil.getPermissionList());
+			}
+		} catch (SaTokenContextException ignored) {
+			// 异步派发等场景无上下文，跳过脱敏快照
 		}
 		return true;
 	}

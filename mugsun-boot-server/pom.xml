@@ -10,7 +10,7 @@
 	</parent>
 	<artifactId>mugsun-boot-server</artifactId>
 	<name>mugsun-boot-server</name>
-	<description>Mugsun 装配壳：默认全量（core+gis+track）；-Pbasic 仅核心</description>
+	<description>Mugsun 装配壳：默认全量（core+gis+track+ai）；-Pbasic 仅核心；-Pgis-only / -Ptrack-only / -Pai-only 单模块</description>
 	<dependencies>
 		<dependency>
 			<groupId>com.mugsun</groupId>
@@ -55,7 +55,7 @@
 			</plugin>
 		</plugins>
 	</build>
-	<!-- 默认 full：带 gis+track；mvn -Pbasic package 仅核心 -->
+	<!-- 默认 full。单模块或 basic 必须关掉 full：mvn -Pgis-only,'!full' package -->
 	<profiles>
 		<profile>
 			<id>full</id>
@@ -71,12 +71,91 @@
 					<groupId>com.mugsun</groupId>
 					<artifactId>mugsun-boot-track</artifactId>
 				</dependency>
+				<dependency>
+					<groupId>com.mugsun</groupId>
+					<artifactId>mugsun-boot-ai</artifactId>
+				</dependency>
 			</dependencies>
 		</profile>
 		<profile>
 			<id>basic</id>
 			<!-- 激活时请同时关掉 full：mvn -Pbasic,'!full' package -->
-			<!-- 装配壳上的 gis/track 集成测试只在 full 有类路径；basic 排除以免 testCompile 失败 -->
+			<!-- 装配壳上的 gis/track/ai 集成测试只在 full 有类路径；basic 排除以免 testCompile 失败 -->
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-compiler-plugin</artifactId>
+						<configuration>
+							<testExcludes>
+								<testExclude>**/gis/**</testExclude>
+								<testExclude>**/track/**</testExclude>
+								<testExclude>**/ai/**</testExclude>
+								<testExclude>**/GisApiTest.java</testExclude>
+								<testExclude>**/AiApiTest.java</testExclude>
+							</testExcludes>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+		<profile>
+			<id>gis-only</id>
+			<dependencies>
+				<dependency>
+					<groupId>com.mugsun</groupId>
+					<artifactId>mugsun-boot-gis</artifactId>
+				</dependency>
+			</dependencies>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-compiler-plugin</artifactId>
+						<configuration>
+							<testExcludes>
+								<testExclude>**/track/**</testExclude>
+								<testExclude>**/ai/**</testExclude>
+								<testExclude>**/AiApiTest.java</testExclude>
+							</testExcludes>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+		<profile>
+			<id>track-only</id>
+			<dependencies>
+				<dependency>
+					<groupId>com.mugsun</groupId>
+					<artifactId>mugsun-boot-track</artifactId>
+				</dependency>
+			</dependencies>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-compiler-plugin</artifactId>
+						<configuration>
+							<testExcludes>
+								<testExclude>**/gis/**</testExclude>
+								<testExclude>**/ai/**</testExclude>
+								<testExclude>**/GisApiTest.java</testExclude>
+								<testExclude>**/AiApiTest.java</testExclude>
+							</testExcludes>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+		<profile>
+			<id>ai-only</id>
+			<dependencies>
+				<dependency>
+					<groupId>com.mugsun</groupId>
+					<artifactId>mugsun-boot-ai</artifactId>
+				</dependency>
+			</dependencies>
 			<build>
 				<plugins>
 					<plugin>

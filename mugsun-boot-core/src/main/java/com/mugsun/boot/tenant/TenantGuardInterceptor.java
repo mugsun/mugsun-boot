@@ -1,9 +1,11 @@
 package com.mugsun.boot.tenant;
 
+import cn.dev33.satoken.exception.SaTokenContextException;
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.system.entity.SysTenant;
 import com.mugsun.core.tool.exception.ForbiddenException;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -31,7 +33,17 @@ public class TenantGuardInterceptor implements HandlerInterceptor {
 
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-		if (!StpUtil.isLogin()) {
+		// SSE/DeferredResult 完成后 Tomcat 会 ASYNC 回派；此时无 Sa-Token 请求上下文，勿再鉴权
+		if (request.getDispatcherType() == DispatcherType.ASYNC) {
+			return true;
+		}
+		boolean loggedIn;
+		try {
+			loggedIn = StpUtil.isLogin();
+		} catch (SaTokenContextException e) {
+			return true;
+		}
+		if (!loggedIn) {
 			return true;
 		}
 		String path = request.getRequestURI();

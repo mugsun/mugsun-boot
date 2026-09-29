@@ -1,0 +1,26 @@
+# AI 模块配置（随 mugsun-boot-ai jar 提供；核心通过 optional:classpath 引入）
+mugsun:
+  ai:
+    # AI 模块总开关（默认开）；sys_param ai.module.enabled=false 可运行时关闭
+    enabled: ${MUGSUN_AI_ENABLED:true}
+spring:
+  ai:
+    openai:
+      # 占位：真实调用走 ai_model 表配置；此处仅避免 starter 缺 key 拒启
+      api-key: ${MUGSUN_AI_OPENAI_API_KEY:sk-not-configured}
+      base-url: ${MUGSUN_AI_OPENAI_BASE_URL:https://api.openai.com}
+    vectorstore:
+      pgvector:
+        initialize-schema: false
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+    mcp:
+      # 对外 MCP Server 默认关（避免与管理端路由冲突）；Client 默认开，连接走 ai_mcp_tool 表
+      server:
+        enabled: ${MUGSUN_AI_MCP_SERVER:false}
+        name: mugsun-ai
+        version: 0.1.0
+      client:
+        enabled: ${MUGSUN_AI_MCP_CLIENT:true}
+        toolcallback:
+          enabled: false

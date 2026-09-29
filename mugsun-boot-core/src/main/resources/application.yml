@@ -12,6 +12,7 @@ spring:
       # 可选模块自带配置（jar 不在 classpath 时 optional 静默跳过）
       - optional:classpath:mugsun-module-track.yml
       - optional:classpath:mugsun-module-gis.yml
+      - optional:classpath:mugsun-module-ai.yml
   lifecycle:
     # 优雅停机在途请求最长等待
     timeout-per-shutdown-phase: 20s
