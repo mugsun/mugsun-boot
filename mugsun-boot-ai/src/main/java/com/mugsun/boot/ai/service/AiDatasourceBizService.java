@@ -52,6 +52,9 @@ public class AiDatasourceBizService {
 		if (body.getName() == null || body.getName().isBlank()) {
 			throw new ServiceException("请填写名称");
 		}
+		if (body.getDbType() == null || body.getDbType().isBlank()) {
+			throw new ServiceException("请选择数据库类型");
+		}
 		fillDriver(body);
 		if (body.getId() == null) {
 			body.sanitizeForInsert();

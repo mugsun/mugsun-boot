@@ -54,7 +54,15 @@ public class AiPromptController {
 
 	@PostMapping("/optimize")
 	@SaCheckPermission(AiConstants.PERM_PROMPT_OPTIMIZE)
-	public R<Map<String, Object>> optimize(@RequestParam Long id) {
-		return R.data(service.optimize(id));
+	public R<Map<String, Object>> optimize(@RequestParam(required = false) Long id,
+										   @RequestBody(required = false) Map<String, Object> body) {
+		Long real = id;
+		if (real == null && body != null && body.get("id") != null) {
+			real = Long.valueOf(String.valueOf(body.get("id")));
+		}
+		if (real == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("缺少提示词 id");
+		}
+		return R.data(service.optimize(real));
 	}
 }

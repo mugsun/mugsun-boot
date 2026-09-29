@@ -46,7 +46,15 @@ public class AiChannelController {
 
 	@PostMapping("/debug")
 	@SaCheckPermission(AiConstants.PERM_CHANNEL_DEBUG)
-	public R<Map<String, Object>> debug(@RequestParam Long id) {
-		return R.data(service.debug(id));
+	public R<Map<String, Object>> debug(@RequestParam(required = false) Long id,
+										@RequestBody(required = false) Map<String, Object> body) {
+		Long real = id;
+		if (real == null && body != null && body.get("id") != null) {
+			real = Long.valueOf(String.valueOf(body.get("id")));
+		}
+		if (real == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("缺少渠道 id");
+		}
+		return R.data(service.debug(real));
 	}
 }

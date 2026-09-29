@@ -46,8 +46,23 @@ public class AiSecretController {
 
 	@PostMapping("/status")
 	@SaCheckPermission(AiConstants.PERM_SECRET_STATUS)
-	public R<Void> status(@RequestParam Long id, @RequestParam Integer status) {
-		service.status(id, status);
+	public R<Void> status(@RequestParam(required = false) Long id,
+						 @RequestParam(required = false) Integer status,
+						 @RequestBody(required = false) Map<String, Object> body) {
+		Long realId = id;
+		Integer realStatus = status;
+		if (body != null) {
+			if (realId == null && body.get("id") != null) {
+				realId = Long.valueOf(String.valueOf(body.get("id")));
+			}
+			if (realStatus == null && body.get("status") != null) {
+				realStatus = Integer.valueOf(String.valueOf(body.get("status")));
+			}
+		}
+		if (realId == null || realStatus == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("缺少密钥 id 或状态");
+		}
+		service.status(realId, realStatus);
 		return R.success("ok");
 	}
 }

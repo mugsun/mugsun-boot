@@ -54,8 +54,16 @@ public class AiDatasourceController {
 
 	@PostMapping("/test")
 	@SaCheckPermission(AiConstants.PERM_DATASOURCE_TEST)
-	public R<Map<String, Object>> test(@RequestParam Long id) {
-		return R.data(service.test(id));
+	public R<Map<String, Object>> test(@RequestParam(required = false) Long id,
+										@RequestBody(required = false) Map<String, Object> body) {
+		Long real = id;
+		if (real == null && body != null && body.get("id") != null) {
+			real = Long.valueOf(String.valueOf(body.get("id")));
+		}
+		if (real == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("缺少数据源 id");
+		}
+		return R.data(service.test(real));
 	}
 
 	@GetMapping("/tables")

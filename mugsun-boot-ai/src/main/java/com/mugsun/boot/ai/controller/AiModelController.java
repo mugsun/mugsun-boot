@@ -8,6 +8,7 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiModel;
 import com.mugsun.boot.ai.service.AiModelBizService;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import org.springframework.web.bind.annotation.*;
 
@@ -61,8 +62,17 @@ public class AiModelController {
 
 	@PostMapping("/remove")
 	@SaCheckPermission(AiConstants.PERM_MODEL_REMOVE)
-	public R<Void> remove(@RequestParam String ids) {
-		List<Long> idList = Arrays.stream(ids.split(",")).filter(s -> !s.isBlank())
+	public R<Void> remove(@RequestParam(required = false) String ids,
+						  @RequestBody(required = false) Map<String, Object> body) {
+		String raw = ids;
+		if ((raw == null || raw.isBlank()) && body != null) {
+			Object v = body.get("ids") != null ? body.get("ids") : body.get("id");
+			raw = v == null ? null : String.valueOf(v);
+		}
+		if (raw == null || raw.isBlank()) {
+			throw new ServiceException("缺少模型 id");
+		}
+		List<Long> idList = Arrays.stream(raw.split(",")).filter(s -> !s.isBlank())
 			.map(Long::valueOf).collect(Collectors.toList());
 		modelService.remove(idList);
 		return R.success("删除成功");
@@ -70,14 +80,26 @@ public class AiModelController {
 
 	@PostMapping("/default")
 	@SaCheckPermission(AiConstants.PERM_MODEL_DEFAULT)
-	public R<Void> setDefault(@RequestParam Long id) {
-		modelService.setDefault(id);
+	public R<Void> setDefault(@RequestParam(required = false) Long id,
+							  @RequestBody(required = false) Map<String, Object> body) {
+		modelService.setDefault(requireId(id, body));
 		return R.success("已设为默认");
 	}
 
 	@PostMapping("/test")
 	@SaCheckPermission(AiConstants.PERM_MODEL_TEST)
-	public R<Map<String, Object>> test(@RequestParam Long id) {
-		return R.data(modelService.test(id));
+	public R<Map<String, Object>> test(@RequestParam(required = false) Long id,
+										@RequestBody(required = false) Map<String, Object> body) {
+		return R.data(modelService.test(requireId(id, body)));
+	}
+
+	private static Long requireId(Long id, Map<String, Object> body) {
+		if (id != null) {
+			return id;
+		}
+		if (body != null && body.get("id") != null) {
+			return Long.valueOf(String.valueOf(body.get("id")));
+		}
+		throw new ServiceException("缺少模型 id");
 	}
 }

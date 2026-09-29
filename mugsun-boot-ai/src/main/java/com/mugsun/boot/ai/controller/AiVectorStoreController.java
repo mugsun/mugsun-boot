@@ -56,7 +56,18 @@ public class AiVectorStoreController {
 
 	@PostMapping("/test")
 	@SaCheckPermission(AiConstants.PERM_VECTOR_TEST)
-	public R<Map<String, Object>> test(@RequestParam Long id) {
-		return R.data(service.test(id));
+	public R<Map<String, Object>> test(@RequestParam(required = false) Long id,
+										@RequestBody(required = false) Map<String, Object> body) {
+		return R.data(service.test(bodyId(id, body)));
+	}
+
+	private static Long bodyId(Long id, Map<String, Object> body) {
+		if (id != null) {
+			return id;
+		}
+		if (body != null && body.get("id") != null) {
+			return Long.valueOf(String.valueOf(body.get("id")));
+		}
+		throw new com.mugsun.core.tool.exception.ServiceException("缺少 id");
 	}
 }

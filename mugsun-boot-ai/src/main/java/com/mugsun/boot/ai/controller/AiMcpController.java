@@ -47,13 +47,25 @@ public class AiMcpController {
 
 	@PostMapping("/parse")
 	@SaCheckPermission(AiConstants.PERM_MCP_PARSE)
-	public R<Map<String, Object>> parse(@RequestParam Long id) {
-		return R.data(service.parse(id));
+	public R<Map<String, Object>> parse(@RequestParam(required = false) Long id,
+										@RequestBody(required = false) Map<String, Object> body) {
+		return R.data(service.parse(mcpId(id, body)));
 	}
 
 	@PostMapping("/debug")
 	@SaCheckPermission(AiConstants.PERM_MCP_DEBUG)
-	public R<Map<String, Object>> debug(@RequestParam Long id, @RequestBody(required = false) Map<String, Object> args) {
-		return R.data(service.debug(id, args));
+	public R<Map<String, Object>> debug(@RequestParam(required = false) Long id,
+										 @RequestBody(required = false) Map<String, Object> args) {
+		return R.data(service.debug(mcpId(id, args), args));
+	}
+
+	private static Long mcpId(Long id, Map<String, Object> body) {
+		if (id != null) {
+			return id;
+		}
+		if (body != null && body.get("id") != null) {
+			return Long.valueOf(String.valueOf(body.get("id")));
+		}
+		throw new com.mugsun.core.tool.exception.ServiceException("缺少 MCP id");
 	}
 }
