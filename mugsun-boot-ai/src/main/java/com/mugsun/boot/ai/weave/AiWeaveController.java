@@ -98,6 +98,9 @@ public class AiWeaveController {
 			snap = port.snapshot(body == null ? Map.of() : body);
 		} catch (ServiceException ex) {
 			return R.fail(ex.getMessage());
+		} catch (RuntimeException ex) {
+			String detail = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+			return R.fail("读取" + ("gis".equals(module) ? "图层" : "埋点") + "数据失败：" + detail);
 		}
 		Map<String, Object> out = new LinkedHashMap<>();
 		out.put("grounded", true);

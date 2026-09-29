@@ -14,8 +14,10 @@ import java.util.Map;
 
 /**
  * 把埋点接入应用与概览实数交给 AI 编织。概览走既有分析查询，不另造指标。
+ * <p>类上 {@link TrackDS}：track_app 在埋点库，不能落到业务库。
  */
 @Component
+@TrackDS
 public class TrackInsightAdapter implements ModuleInsightPort {
 
 	private final TrackModuleService moduleService;
