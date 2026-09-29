@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 金仓 / openGauss（PG 兼容系）冒烟清单——需可连通的实例与（金仓）厂商 JDBC。
-# 本机 Docker Desktop 上 enmotech/opengauss 常因 cgroup 无法拉起；有 Linux/K8s 实例时跑本脚本。
+# 2026-09-29 本机 Docker Desktop（arm64 仿真 amd64）：enmotech/opengauss-lite:5.1.0 --privileged 可启动。
+# 企业版 enmotech/opengauss:5.0.0 仍会在 gs_ctl 退出。lite 起来后，PG 基线里的 ON CONFLICT、
+# ADD COLUMN IF NOT EXISTS 不能原样执行，不要把「容器起来」写成「脚本已灌完」。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
