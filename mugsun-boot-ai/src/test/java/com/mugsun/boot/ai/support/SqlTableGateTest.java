@@ -11,7 +11,7 @@ class SqlTableGateTest {
 
 	@Test
 	void parseAndExtract() {
-		assertEquals(Set.of("a", "b"), SqlTableGate.parseWhitelist("a, b;C".toLowerCase()));
+		assertEquals(Set.of("a", "b", "c"), SqlTableGate.parseWhitelist("a, b;C"));
 		assertEquals(Set.of("users", "orders"),
 			SqlTableGate.extractTables("SELECT * FROM users u JOIN orders o ON u.id=o.uid"));
 	}
