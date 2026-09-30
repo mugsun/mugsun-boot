@@ -192,6 +192,12 @@
 					<version>${dameng.jdbc.version}</version>
 					<scope>runtime</scope>
 				</dependency>
+				<!-- 社区 Flyway 不认 DM DBMS。mengweijin/db-migration 4.1.2 覆盖 Flyway 10.10–12.4，对得上 Boot 3.5 的 11.7。 -->
+				<dependency>
+					<groupId>com.github.mengweijin</groupId>
+					<artifactId>db-migration-dameng-flyway</artifactId>
+					<version>4.1.2</version>
+				</dependency>
 			</dependencies>
 		</profile>
 	</profiles>

@@ -5,4 +5,5 @@
 - 全新安装：Flyway 只跑这一份。
 - 后续升级（如 0.1.1）：新增 `V2__*.sql`，不要再拆回历史增量。
 - 达梦：见并列目录 `../migration-dm/`（`scripts/pg_to_dm.py` 从本目录转换）。
+- openGauss-lite 5.1：见并列目录 `../migration-og/`（`scripts/pg_to_opengauss.py` 从本目录转换，库须 `DBCOMPATIBILITY 'PG'`）。
 - 埋点库：独立序列 `../track/migration/T1__baseline_0_1.sql`。

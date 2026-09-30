@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "src/main/resources/db/migration"
-DST = Path(__file__).resolve().parents[1] / "src/main/resources/db/migration-dm"
+_DB = Path(__file__).resolve().parents[1] / "mugsun-boot-core/src/main/resources/db"
+SRC = _DB / "migration"
+DST = _DB / "migration-dm"
 
 HEADER = (
     "-- 由 scripts/pg_to_dm.py 从 db/migration 转换（达梦 Oracle 系）。\n"
@@ -87,7 +88,24 @@ def drop_if_not_exists(sql: str) -> str:
 
 
 def strip_on_conflict(sql: str) -> str:
-    sql = re.sub(r"\s+ON\s+CONFLICT\s+\([^)]+\)\s+DO\s+NOTHING", "", sql, flags=re.I)
+    """达梦没有 ON CONFLICT。DO NOTHING 用官方 hint，重复键跳过，见达梦社区 IGNORE_ROW_ON_DUPKEY_INDEX。"""
+
+    def nothing(m: re.Match) -> str:
+        table, cols = m.group(2), m.group(3)
+        hinted = re.sub(
+            r"(?i)\bINSERT\s+INTO\b",
+            f"INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX({table}({cols})) */ INTO",
+            m.group(1),
+            count=1,
+        )
+        return hinted
+
+    sql = re.sub(
+        r"(INSERT\s+INTO\s+(\w+)\b[^;]*?)\s+ON\s+CONFLICT\s+\(([^)]+)\)\s+DO\s+NOTHING",
+        nothing,
+        sql,
+        flags=re.I,
+    )
     sql = re.sub(
         r"\s+ON\s+CONFLICT\s+\([^)]+\)(?:\s+WHERE[^\n]+)?\s+DO\s+UPDATE[\s\S]*?(?=;)",
         "",
@@ -95,6 +113,72 @@ def strip_on_conflict(sql: str) -> str:
         flags=re.I,
     )
     return sql
+
+
+def name_inline_unique(sql: str) -> str:
+    """PG 把列上的 UNIQUE 命名为 表_列_key。达梦会改成 CONS*，后面的 DROP CONSTRAINT 对不上。"""
+    lines = sql.splitlines(keepends=True)
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        header = re.match(r"CREATE\s+TABLE\s+(\w+)\s*\(", lines[i], re.I)
+        if not header:
+            out.append(lines[i])
+            i += 1
+            continue
+        table = header.group(1)
+        block = [lines[i]]
+        i += 1
+        while i < len(lines) and not re.match(r"\s*\);", lines[i]):
+            block.append(lines[i])
+            i += 1
+        end = lines[i] if i < len(lines) else ""
+        if i < len(lines):
+            i += 1
+        constraints: list[str] = []
+        body: list[str] = [block[0]]
+        for line in block[1:]:
+            col = re.match(r"(\s*)(\w+)(\s+.*)\s+UNIQUE\s*,?\s*$", line.rstrip("\n"), re.I)
+            if col and "CONSTRAINT" not in line.upper():
+                constraints.append(f"\tCONSTRAINT {table}_{col.group(2)}_key UNIQUE ({col.group(2)})")
+                body.append(f"{col.group(1)}{col.group(2)}{col.group(3).rstrip()},\n")
+            else:
+                body.append(line)
+        if constraints:
+            last = body[-1].rstrip("\n")
+            if not last.rstrip().endswith(","):
+                body[-1] = last + ",\n"
+            for idx, constraint in enumerate(constraints):
+                suffix = "," if idx < len(constraints) - 1 else ""
+                body.append(constraint + suffix + "\n")
+        out.extend(body)
+        if end:
+            out.append(end)
+    return "".join(out)
+
+
+def skip_existing_columns(sql: str) -> str:
+    """基线把历史 ALTER 拼进同一个文件。列已经在 CREATE TABLE 里时，再 ADD 会在达梦上报「列已存在」。"""
+    columns: dict[str, set[str]] = {}
+    kept: list[str] = []
+    for stmt in re.split(r";\s*\n", sql):
+        create = re.search(r"CREATE\s+TABLE\s+(\w+)\s*\((.*)\)", stmt, re.I | re.S)
+        if create:
+            table = create.group(1).lower()
+            cols = columns.setdefault(table, set())
+            for line in create.group(2).splitlines():
+                name = re.match(r"\s*(\w+)\s+", line)
+                if name and name.group(1).upper() not in {"CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"}:
+                    cols.add(name.group(1).lower())
+        add = re.search(r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+(?:COLUMN\s+)?(\w+)\s+", stmt, re.I)
+        if add and add.group(2).lower() in columns.get(add.group(1).lower(), set()):
+            continue
+        if add:
+            columns.setdefault(add.group(1).lower(), set()).add(add.group(2).lower())
+        piece = stmt.strip()
+        if piece:
+            kept.append(piece)
+    return ";\n\n".join(kept) + ";\n"
 
 
 def convert_values_ctor(sql: str) -> str:
@@ -201,6 +285,8 @@ def convert(sql: str) -> str:
     sql = drop_if_not_exists(sql)
     sql = convert_types(sql)
     sql = reorder_not_null_default(sql)
+    sql = name_inline_unique(sql)
+    sql = skip_existing_columns(sql)
     # Flex DmDialect 对关键字包成大写双引号（U."TYPE"），列须同口径，禁止小写 "type"
     sql = re.sub(r"(?m)^(\s+)type(\s+)", r'\1"TYPE"\2', sql)
     sql = re.sub(r"\(processed_by,\s*type\)", '(processed_by, "TYPE")', sql)

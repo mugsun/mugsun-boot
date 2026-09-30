@@ -15,11 +15,11 @@ spring:
     username: MUGSUN
     password: <pwd>
   flyway:
-    enabled: false          # 社区 Flyway 不识别 DM DBMS 8.1
+    enabled: true
     locations: classpath:db/migration-dm
 ```
 
-灌库：`scripts/pg_to_dm.py` 生成后用 JDBC 按版本号逐语句执行（见联调记录）。打包：`mvn -Pdameng package -DskipTests`。
+JDBC 不要加 `compatibleMode=oracle`。打包带上 `db-migration-dameng-flyway` 4.1.2：`mvn -Pfull,dameng package -DskipTests`。不要用 disql 灌这些脚本。
 
 ## 编写约定
 
