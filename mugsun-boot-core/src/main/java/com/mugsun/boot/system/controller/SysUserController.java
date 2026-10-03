@@ -273,7 +273,7 @@ public class SysUserController {
 	}
 
 	/**
-	 * 切换是否主管（对齐 BladeX set-leader）：is_leader 0↔1。
+	 * 切换是否主管：is_leader 0↔1。
 	 * 标记为主管后可出现在 leader-list，供他人选直属主管。
 	 */
 	@PostMapping("/set-leader")

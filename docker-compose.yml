@@ -1,7 +1,7 @@
 # Mugsun 本地基础设施（PostgreSQL + Redis）
 # 用法（在 mugsun-boot 目录）：
 #   docker compose up -d
-# 容器名与 README / e2e 一致：mugsun-pg、blade-redis。
+# 容器名与 README / e2e 一致：mugsun-pg、mugsun-redis。
 # 后端仍在宿主机以 jar/mvn 启动，连 localhost:5432 / 6379。
 #
 # 默认账号与 application.yml 对齐（仅本机开发）：库用户 mugsun/mugsun，Redis 无密码 db 3。
@@ -37,7 +37,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: blade-redis
+    container_name: mugsun-redis
     ports:
       - "6379:6379"
     healthcheck:

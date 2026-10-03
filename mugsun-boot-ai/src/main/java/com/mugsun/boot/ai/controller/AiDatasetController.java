@@ -49,8 +49,9 @@ public class AiDatasetController {
 
 	@PostMapping("/remove")
 	@SaCheckPermission(AiConstants.PERM_DATASET_REMOVE)
-	public R<Void> remove(@RequestParam String ids) {
-		service.remove(Arrays.stream(ids.split(",")).filter(s -> !s.isBlank()).map(Long::valueOf).collect(Collectors.toList()));
+	public R<Void> remove(@RequestParam(required = false) String ids,
+						 @RequestBody(required = false) java.util.Map<String, Object> body) {
+		service.remove(com.mugsun.boot.ai.support.AiIds.parse(ids, body));
 		return R.success("删除成功");
 	}
 

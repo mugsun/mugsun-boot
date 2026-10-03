@@ -57,10 +57,15 @@ public class AiMcpBizService {
 			if (body.getDefaultFlag() == null) {
 				body.setDefaultFlag(AiConstants.FLAG_NO);
 			}
+			if (body.getSseUrl() != null && !body.getSseUrl().isBlank()
+				&& (body.getTransport() == null || body.getTransport().isBlank() || "local".equalsIgnoreCase(body.getTransport()))) {
+				body.setTransport("http");
+			}
 			if (body.getTransport() == null || body.getTransport().isBlank()) {
 				body.setTransport("local");
 			}
-			if (body.getToolsJson() == null || body.getToolsJson().isBlank()) {
+			boolean remote = isRemote(body.getTransport());
+			if (!remote && (body.getToolsJson() == null || body.getToolsJson().isBlank())) {
 				body.setToolsJson("[{\"name\":\"echo\",\"description\":\"echo input\"}]");
 			}
 			mapper.insert(body);
@@ -88,8 +93,8 @@ public class AiMcpBizService {
 	public Map<String, Object> parse(Long id) {
 		moduleService.requireEnabled();
 		AiMcpTool tool = require(id);
-		String transport = tool.getTransport() == null ? "local" : tool.getTransport().trim().toLowerCase();
-		boolean remote = "http".equals(transport) || "sse".equals(transport) || "streamable".equals(transport);
+		String transport = resolveTransport(tool);
+		boolean remote = isRemote(transport);
 		if (remote) {
 			if (tool.getSseUrl() == null || tool.getSseUrl().isBlank()) {
 				throw new ServiceException("HTTP/SSE MCP 未配置 sseUrl，无法解析工具列表");
@@ -103,6 +108,7 @@ public class AiMcpBizService {
 				if (body == null || body.isBlank()) {
 					throw new ServiceException("MCP 返回空响应");
 				}
+				tool.setTransport(transport);
 				tool.setToolsJson(body);
 				tool.sanitizeForUpdate();
 				mapper.update(tool);
@@ -181,6 +187,57 @@ public class AiMcpBizService {
 			return url + "call";
 		}
 		return url + "/call";
+	}
+
+	public void setDefault(Long id) {
+		moduleService.requireEnabled();
+		AiMcpTool tool = require(id);
+		List<AiMcpTool> current = mapper.selectListByQuery(QueryWrapper.create().eq("default_flag", AiConstants.FLAG_YES));
+		for (AiMcpTool other : current) {
+			if (!other.getId().equals(id)) {
+				other.setDefaultFlag(AiConstants.FLAG_NO);
+				other.sanitizeForUpdate();
+				mapper.update(other);
+			}
+		}
+		tool.setDefaultFlag(AiConstants.FLAG_YES);
+		tool.sanitizeForUpdate();
+		mapper.update(tool);
+	}
+
+	public void lock(Long id, Integer lockFlag) {
+		moduleService.requireEnabled();
+		AiMcpTool tool = require(id);
+		tool.setLockFlag(lockFlag == null ? AiConstants.FLAG_NO : lockFlag);
+		tool.sanitizeForUpdate();
+		mapper.update(tool);
+	}
+
+	/** 对外暴露页：已启用、且不是纯本地 echo 的工具。 */
+	public List<AiMcpTool> exposed() {
+		moduleService.requireEnabled();
+		List<AiMcpTool> list = mapper.selectListByQuery(
+			QueryWrapper.create().eq("status", AiConstants.STATUS_ENABLE).orderBy("id", false));
+		list.removeIf(tool -> !isRemote(resolveTransport(tool)));
+		list.forEach(this::mask);
+		return list;
+	}
+
+	private static boolean isRemote(String transport) {
+		if (transport == null) {
+			return false;
+		}
+		String value = transport.trim().toLowerCase();
+		return "http".equals(value) || "sse".equals(value) || "streamable".equals(value);
+	}
+
+	private static String resolveTransport(AiMcpTool tool) {
+		String transport = tool.getTransport() == null ? "" : tool.getTransport().trim().toLowerCase();
+		if ((transport.isBlank() || "local".equals(transport))
+			&& tool.getSseUrl() != null && !tool.getSseUrl().isBlank()) {
+			return "http";
+		}
+		return transport.isBlank() ? "local" : transport;
 	}
 
 	private AiMcpTool require(Long id) {

@@ -1,6 +1,8 @@
 package com.mugsun.boot.system.entity;
 
+import com.mugsun.boot.common.crypto.Sm4TypeHandler;
 import com.mugsun.core.mybatis.base.BaseEntity;
+import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Table;
 
 /**
@@ -11,6 +13,7 @@ public class SysApiKey extends BaseEntity {
 
 	private String name;
 	private String accessKey;
+	@Column(typeHandler = Sm4TypeHandler.class)
 	private String secretKey;
 	private String scope;
 	private Integer status;

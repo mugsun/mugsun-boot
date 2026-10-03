@@ -2,6 +2,7 @@ package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.mugsun.boot.system.entity.SysPost;
 import com.mugsun.boot.system.mapper.SysPostMapper;
 import com.mugsun.core.tool.api.R;
@@ -27,6 +28,7 @@ public class SysPostController {
 		this.postMapper = postMapper;
 	}
 
+	@SaCheckPermission(value = {"sys:post:save", "sys:post:remove"}, mode = SaMode.OR)
 	@GetMapping("/page")
 	public R<Page<SysPost>> page(@RequestParam(defaultValue = "1") long pageNum,
 								 @RequestParam(defaultValue = "10") long pageSize,
@@ -44,6 +46,7 @@ public class SysPostController {
 	}
 
 	/** 岗位下拉选项（value/label 契约） */
+	@SaCheckPermission(value = {"sys:post:save", "sys:post:remove", "sys:user:list"}, mode = SaMode.OR)
 	@GetMapping("/select")
 	public R<List<Map<String, Object>>> select() {
 		List<Map<String, Object>> options = postMapper
@@ -59,6 +62,7 @@ public class SysPostController {
 		return R.data(options);
 	}
 
+	@SaCheckPermission(value = {"sys:post:save", "sys:post:remove"}, mode = SaMode.OR)
 	@GetMapping("/detail")
 	public R<SysPost> detail(@RequestParam Long id) {
 		return R.data(postMapper.selectOneById(id));

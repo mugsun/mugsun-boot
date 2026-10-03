@@ -31,6 +31,9 @@ public class AiQuotaBizService {
 
 	public AiQuota submit(AiQuota body) {
 		moduleService.requireEnabled();
+		if (body.getPeriod() == null || body.getPeriod().isBlank()) {
+			body.setPeriod("month");
+		}
 		if (body.getId() == null) {
 			body.sanitizeForInsert();
 			body.setTenantId(TenantContext.current());

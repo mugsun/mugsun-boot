@@ -50,7 +50,7 @@ public class AiPromptBizService {
 
 	public AiPrompt submit(AiPrompt body) {
 		moduleService.requireEnabled();
-		if (body.getName() == null || body.getName().isBlank()) {
+		if (body.getId() == null && (body.getName() == null || body.getName().isBlank())) {
 			throw new ServiceException("请填写提示词名称");
 		}
 		if (body.getId() == null) {
@@ -66,6 +66,9 @@ public class AiPromptBizService {
 		} else {
 			AiPrompt db = require(body.getId());
 			int ver = db.getVersion() == null ? 1 : db.getVersion();
+			if (body.getName() == null || body.getName().isBlank()) {
+				body.setName(db.getName());
+			}
 			body.sanitizeForUpdate();
 			body.setTenantId(db.getTenantId());
 			if (body.getContent() != null && !body.getContent().equals(db.getContent())) {
@@ -90,16 +93,13 @@ public class AiPromptBizService {
 		moduleService.requireEnabled();
 		AiPrompt p = require(id);
 		AiModel model = modelBizService.requireDefaultChat();
+		String source = p.getContent() == null ? "" : p.getContent();
 		String improved = llmClient.chat(model, List.of(
 			Map.of("role", "system", "content", "你是提示词工程师，请优化用户给出的提示词，只输出优化后的正文。"),
-			Map.of("role", "user", "content", p.getContent() == null ? "" : p.getContent())
+			Map.of("role", "user", "content", source)
 		), 1024);
-		p.setContent(improved);
 		int ver = p.getVersion() == null ? 1 : p.getVersion();
-		p.setVersion(ver + 1);
-		p.sanitizeForUpdate();
-		mapper.update(p);
-		return Map.of("content", improved, "version", p.getVersion());
+		return Map.of("content", improved, "version", ver);
 	}
 
 	private AiPrompt require(Long id) {

@@ -26,8 +26,8 @@ import java.util.Map;
 @Service
 public class GisSpatialQueryService {
 
-	/** 一度纬度约合米数，只用于把半径换算成包围盒的度数（索引预筛，精确判距在后面） */
-	private static final double M_PER_DEG = 111_320d;
+	/** 赤道处每度纬度约 110574 米。预过滤框用这个下限，避免把圆内的点挡在框外。精确距离仍由 geography 判断。 */
+	private static final double M_PER_DEG = 110_574d;
 
 	private final GisSpatialSupport support;
 	private final GisFeatureStore featureStore;

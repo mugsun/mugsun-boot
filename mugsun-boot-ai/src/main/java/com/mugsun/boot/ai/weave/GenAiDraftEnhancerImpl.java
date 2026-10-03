@@ -26,7 +26,7 @@ public class GenAiDraftEnhancerImpl implements GenAiDraftEnhancer {
 	private static final String SYSTEM = """
 		你是低代码建表助手。根据用户自然语言输出 JSON（不要 markdown）：
 		{"tableName":"英文蛇形表名","tableComment":"中文表注释","columns":[{"name":"英文列名","comment":"中文","javaType":"String|Integer|Long|BigDecimal|LocalDateTime|LocalDate","htmlType":"input|textarea|number|datetime|switch|select"}]}
-		表名/列名须匹配 ^[a-z][a-z0-9_]{0,62}$，不要系统前缀 sys_/gen_/flyway_/flow_/quartz_/blade_/act_。
+		表名/列名须匹配 ^[a-z][a-z0-9_]{0,62}$，不要系统前缀 sys_/gen_/flyway_/flow_/quartz_/act_。
 		""";
 
 	private final AiModelBizService modelBizService;
@@ -190,7 +190,7 @@ public class GenAiDraftEnhancerImpl implements GenAiDraftEnhancer {
 	private static boolean isProtectedTable(String tableName) {
 		String n = tableName.toLowerCase();
 		return n.startsWith("sys_") || n.startsWith("gen_") || n.startsWith("flyway_")
-			|| n.startsWith("flow_") || n.startsWith("qrtz_") || n.startsWith("blade_")
-			|| n.startsWith("act_") || n.startsWith("ai_");
+			|| n.startsWith("flow_") || n.startsWith("qrtz_") || n.startsWith("act_")
+			|| n.startsWith("ai_");
 	}
 }

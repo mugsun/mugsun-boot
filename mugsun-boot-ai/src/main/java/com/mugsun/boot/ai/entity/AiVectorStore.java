@@ -25,6 +25,9 @@ public class AiVectorStore extends BaseEntity {
 	private String indexType;
 	private Integer builtinFlag;
 	private String remark;
+	/** 页面连接串，不落库，拆进 host / port / database。 */
+	@Column(ignore = true)
+	private String url;
 
 	public String getTenantId() {
 		return tenantId;
@@ -152,5 +155,45 @@ public class AiVectorStore extends BaseEntity {
 
 	public void setRemark(String remark) {
 		this.remark = remark;
+	}
+
+	/** 页面只填一个连接串，拆进 host / port / database。 */
+	public String getUrl() {
+		if (host == null || host.isBlank()) {
+			return null;
+		}
+		if ("pgvector".equalsIgnoreCase(storeType)) {
+			return "jdbc:postgresql://" + host + ":" + (port == null ? 5432 : port) + "/"
+				+ (databaseName == null ? "" : databaseName);
+		}
+		return port == null ? host : host + ":" + port;
+	}
+
+	public void setUrl(String url) {
+		if (url == null || url.isBlank()) {
+			return;
+		}
+		String rest = url.trim();
+		int scheme = rest.indexOf("://");
+		if (rest.startsWith("jdbc:") && scheme >= 0) {
+			rest = rest.substring(scheme + 3);
+		}
+		int slash = rest.indexOf('/');
+		String hostPort = slash < 0 ? rest : rest.substring(0, slash);
+		String db = slash < 0 ? null : rest.substring(slash + 1).split("\\?")[0];
+		int colon = hostPort.lastIndexOf(':');
+		if (colon > 0) {
+			this.host = hostPort.substring(0, colon);
+			try {
+				this.port = Integer.valueOf(hostPort.substring(colon + 1));
+			} catch (NumberFormatException ignored) {
+				this.host = hostPort;
+			}
+		} else {
+			this.host = hostPort;
+		}
+		if (db != null && !db.isBlank()) {
+			this.databaseName = db;
+		}
 	}
 }

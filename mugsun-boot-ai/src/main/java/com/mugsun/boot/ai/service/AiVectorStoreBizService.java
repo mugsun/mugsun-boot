@@ -100,7 +100,7 @@ public class AiVectorStoreBizService {
 				return Map.of("ok", false, "message", e.getMessage() == null ? "连接失败" : e.getMessage());
 			}
 		}
-		return Map.of("ok", true, "message", "非 pgvector 类型，跳过 JDBC 探测");
+		return Map.of("ok", false, "message", "当前类型不能自动探测连接，请核对地址");
 	}
 
 	private AiVectorStore require(Long id) {

@@ -1,5 +1,9 @@
 package com.mugsun.boot.ai.entity;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.mugsun.boot.ai.support.AiDateTimeDeserializer;
 import com.mugsun.boot.common.crypto.Sm4TypeHandler;
 import com.mugsun.core.mybatis.base.BaseEntity;
 import com.mybatisflex.annotation.Table;
@@ -13,9 +17,14 @@ public class AiSecret extends BaseEntity {
 	@Column(typeHandler = Sm4TypeHandler.class)
 	private String secretKey;
 	private String secretPrefix;
+	@Column(ignore = true)
+	private String apiKeyMask;
+	@JsonAlias("scopeType")
 	private String scope;
 	private Long scopeId;
 	private String description;
+	@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+	@JsonDeserialize(using = AiDateTimeDeserializer.class)
 	private LocalDateTime expireTime;
 	private Integer rateLimit;
 	private String allowIps;
@@ -45,6 +54,22 @@ public class AiSecret extends BaseEntity {
 
 	public void setSecretPrefix(String secretPrefix) {
 		this.secretPrefix = secretPrefix;
+	}
+
+	public String getApiKeyMask() {
+		return apiKeyMask;
+	}
+
+	public void setApiKeyMask(String apiKeyMask) {
+		this.apiKeyMask = apiKeyMask;
+	}
+
+	public String getScopeType() {
+		return scope;
+	}
+
+	public void setScopeType(String scopeType) {
+		this.scope = scopeType;
 	}
 
 	public String getScope() {

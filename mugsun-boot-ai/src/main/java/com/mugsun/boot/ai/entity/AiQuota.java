@@ -12,6 +12,7 @@ public class AiQuota extends BaseEntity {
 	private String period;
 	private Long tokenLimit;
 	private BigDecimal amountLimit;
+	@com.fasterxml.jackson.annotation.JsonAlias("warnPercent")
 	private Integer warnRatio;
 	private String overAction;
 	private Long usedTokens;
@@ -57,6 +58,18 @@ public class AiQuota extends BaseEntity {
 
 	public void setWarnRatio(Integer warnRatio) {
 		this.warnRatio = warnRatio;
+	}
+
+	public Integer getWarnPercent() {
+		return warnRatio;
+	}
+
+	public void setWarnPercent(Integer warnPercent) {
+		this.warnRatio = warnPercent;
+	}
+
+	public String getScopeType() {
+		return "tenant";
 	}
 
 	public String getOverAction() {

@@ -1,6 +1,8 @@
 package com.mugsun.boot.oauth.entity;
 
+import com.mugsun.boot.common.crypto.Sm4TypeHandler;
 import com.mugsun.core.mybatis.base.BaseEntity;
+import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Table;
 
 /**
@@ -11,6 +13,7 @@ public class SysOauthClient extends BaseEntity {
 
 	private String name;
 	private String clientId;
+	@Column(typeHandler = Sm4TypeHandler.class)
 	private String clientSecret;
 	/** 授权类型，逗号分隔：client_credentials,authorization_code */
 	private String grantTypes;

@@ -36,7 +36,7 @@ public class DdlService {
 
 	/** 受保护的系统表前缀（不可重建/删除，且新建不得占用）；biz_/help_/viz_/ai_ 为平台既有业务域，同样禁碰。
 	 *  gen_table/gen_column 两张元数据表按精确名单保护（低代码业务表常以 gen_ 命名，不可按前缀误伤） */
-	private static final Set<String> PROTECTED = Set.of("sys_", "flyway_", "flow_", "qrtz_", "blade_", "act_",
+	private static final Set<String> PROTECTED = Set.of("sys_", "flyway_", "flow_", "qrtz_", "act_",
 		"biz_", "help_", "viz_", "ai_");
 
 	/** 精确保护名单：代码生成元数据表本体 */

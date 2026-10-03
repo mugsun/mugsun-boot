@@ -82,7 +82,7 @@ flowchart TB
 ### 1. Infrastructure (Docker Compose)
 
 ```bash
-# From the mugsun-boot directory: Postgres 16 (mugsun-pg) + Redis 7 (blade-redis)
+# From the mugsun-boot directory: Postgres 16 (mugsun-pg) + Redis 7 (mugsun-redis)
 docker compose up -d
 ```
 

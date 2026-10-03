@@ -40,8 +40,9 @@ public class AiMcpController {
 
 	@PostMapping("/remove")
 	@SaCheckPermission(AiConstants.PERM_MCP_REMOVE)
-	public R<Void> remove(@RequestParam String ids) {
-		service.remove(Arrays.stream(ids.split(",")).filter(s -> !s.isBlank()).map(Long::valueOf).collect(Collectors.toList()));
+	public R<Void> remove(@RequestParam(required = false) String ids,
+						 @RequestBody(required = false) Map<String, Object> body) {
+		service.remove(com.mugsun.boot.ai.support.AiIds.parse(ids, body));
 		return R.success("删除成功");
 	}
 
@@ -57,6 +58,31 @@ public class AiMcpController {
 	public R<Map<String, Object>> debug(@RequestParam(required = false) Long id,
 										 @RequestBody(required = false) Map<String, Object> args) {
 		return R.data(service.debug(mcpId(id, args), args));
+	}
+
+	@PostMapping("/default")
+	@SaCheckPermission(AiConstants.PERM_MCP_DEFAULT)
+	public R<Void> setDefault(@RequestParam(required = false) Long id,
+							  @RequestBody(required = false) Map<String, Object> body) {
+		service.setDefault(com.mugsun.boot.ai.support.AiIds.one(id, body));
+		return R.success("已设为默认");
+	}
+
+	@PostMapping("/lock")
+	@SaCheckPermission(AiConstants.PERM_MCP_LOCK)
+	public R<Void> lock(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null || body.get("id") == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("缺少 MCP id");
+		}
+		Integer flag = body.get("lockFlag") == null ? 1 : Integer.valueOf(String.valueOf(body.get("lockFlag")));
+		service.lock(Long.valueOf(String.valueOf(body.get("id"))), flag);
+		return R.success("已更新");
+	}
+
+	@GetMapping("/server/list")
+	@SaCheckPermission(AiConstants.PERM_MCP_SERVER)
+	public R<java.util.List<AiMcpTool>> servers() {
+		return R.data(service.exposed());
 	}
 
 	private static Long mcpId(Long id, Map<String, Object> body) {

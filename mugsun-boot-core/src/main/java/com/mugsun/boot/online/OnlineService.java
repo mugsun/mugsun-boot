@@ -179,7 +179,7 @@ public class OnlineService {
 
 	/** 运行时黑名单：平台系统表前缀 + 元数据表本体（gen_table/gen_column） */
 	private static final java.util.Set<String> RUNTIME_PROTECTED_PREFIXES = java.util.Set.of(
-		"sys_", "flow_", "flyway_", "qrtz_", "blade_", "act_", "biz_", "help_", "viz_", "ai_");
+		"sys_", "flow_", "flyway_", "qrtz_", "act_", "biz_", "help_", "viz_", "ai_");
 
 	private void guardRuntimeTable(String tableName) {
 		String low = tableName.toLowerCase();

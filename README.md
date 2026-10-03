@@ -100,7 +100,7 @@ flowchart TB
 ### 1. 基础设施（Docker Compose）
 
 ```bash
-# 在 mugsun-boot 目录：拉起 Postgres 16（mugsun-pg）与 Redis 7（blade-redis）
+# 在 mugsun-boot 目录：拉起 Postgres 16（mugsun-pg）与 Redis 7（mugsun-redis）
 docker compose up -d
 ```
 

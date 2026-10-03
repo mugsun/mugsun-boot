@@ -29,6 +29,7 @@ public class SysParamController {
 	}
 
 	/** 分页查询（管理页使用：前端分页器依赖 records/totalRow 契约） */
+	@SaCheckPermission("sys:param:save")
 	@GetMapping("/page")
 	public R<Page<SysParam>> page(@RequestParam(defaultValue = "1") long pageNum,
 								  @RequestParam(defaultValue = "20") long pageSize,
@@ -37,7 +38,8 @@ public class SysParamController {
 		return R.data(paramMapper.paginate(pageNum, pageSize, query(paramName, paramKey)));
 	}
 
-	/** 全量查询（脚本与内部调用使用，不分页） */
+	/** 全量查询（参数管理页使用，不分页）。含安全策略键，不能只凭登录态开放。 */
+	@SaCheckPermission("sys:param:save")
 	@GetMapping("/list")
 	public R<List<SysParam>> list(@RequestParam(required = false) String paramName,
 								  @RequestParam(required = false) String paramKey) {
@@ -56,12 +58,14 @@ public class SysParamController {
 		return query;
 	}
 
-	/** 按键取参数值（走缓存） */
+	/** 按键取参数值（走缓存）。安全策略键也在这张表里，与列表同一权限。 */
+	@SaCheckPermission("sys:param:save")
 	@GetMapping("/value")
 	public R<String> value(@RequestParam String paramKey) {
 		return R.data(paramService.getValue(paramKey));
 	}
 
+	@SaCheckPermission("sys:param:save")
 	@GetMapping("/detail")
 	public R<SysParam> detail(@RequestParam Long id) {
 		return R.data(paramMapper.selectOneById(id));

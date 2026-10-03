@@ -2,6 +2,7 @@ package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.mugsun.boot.system.entity.SysDept;
 import com.mugsun.boot.system.mapper.SysDeptMapper;
 import com.mugsun.core.tool.api.R;
@@ -27,6 +28,7 @@ public class SysDeptController {
 		this.deptMapper = deptMapper;
 	}
 
+	@SaCheckPermission(value = {"sys:dept:save", "sys:dept:remove"}, mode = SaMode.OR)
 	@GetMapping("/tree")
 	public R<List<SysDept>> tree(@RequestParam(required = false) String deptName) {
 		List<SysDept> all = deptMapper.selectListByQuery(QueryWrapper.create().orderBy("sort", true));
@@ -51,7 +53,21 @@ public class SysDeptController {
 		return R.data(TreeUtil.build(all, 0L));
 	}
 
+	/** 用户、角色表单用的部门树，只含 id、名称和层级，不开放部门管理接口。 */
+	@SaCheckPermission(value = {
+		"sys:dept:save", "sys:dept:remove", "sys:user:list", "sys:role:list"
+	}, mode = SaMode.OR)
+	@GetMapping("/options")
+	public R<List<SysDept>> options() {
+		List<SysDept> all = deptMapper.selectListByQuery(QueryWrapper.create().orderBy("sort", true));
+		return R.data(TreeUtil.build(all, 0L));
+	}
+
 	/** 部门下拉选项（value/label 契约，供上级部门选择等场景） */
+	@SaCheckPermission(value = {
+		"sys:dept:save", "sys:dept:remove",
+		"sys:notice:manage", "sys:flow:design", "sys:flow:design-graph", "sys:flow:definition"
+	}, mode = SaMode.OR)
 	@GetMapping("/select")
 	public R<List<Map<String, Object>>> select() {
 		List<Map<String, Object>> options = deptMapper
@@ -67,6 +83,7 @@ public class SysDeptController {
 		return R.data(options);
 	}
 
+	@SaCheckPermission(value = {"sys:dept:save", "sys:dept:remove"}, mode = SaMode.OR)
 	@GetMapping("/detail")
 	public R<SysDept> detail(@RequestParam Long id) {
 		return R.data(deptMapper.selectOneById(id));

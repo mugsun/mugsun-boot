@@ -39,6 +39,22 @@ public class AiSecretBizService {
 		if (body.getDescription() == null || body.getDescription().isBlank()) {
 			throw new ServiceException("请填写密钥说明");
 		}
+		if (body.getId() != null) {
+			AiSecret db = require(body.getId());
+			db.setDescription(body.getDescription());
+			if (body.getScope() != null) {
+				db.setScope(body.getScope());
+			}
+			db.setScopeId(body.getScopeId());
+			db.setRateLimit(body.getRateLimit());
+			db.setAllowIps(body.getAllowIps());
+			db.setExpireTime(body.getExpireTime());
+			db.sanitizeForUpdate();
+			mapper.update(db);
+			Map<String, Object> resp = new HashMap<>();
+			resp.put("id", db.getId());
+			return resp;
+		}
 		String plain = AiConstants.SECRET_PREFIX + IdUtil.fastSimpleUUID();
 		body.sanitizeForInsert();
 		body.setTenantId(TenantContext.current());
@@ -52,6 +68,7 @@ public class AiSecretBizService {
 		Map<String, Object> resp = new HashMap<>();
 		resp.put("id", body.getId());
 		resp.put("secretKey", plain);
+		resp.put("apiKey", plain);
 		resp.put("secretPrefix", body.getSecretPrefix());
 		resp.put("message", AiConstants.MSG_SECRET_ONCE);
 		return resp;
@@ -111,6 +128,8 @@ public class AiSecretBizService {
 
 	private void mask(AiSecret s) {
 		if (s != null) {
+			String prefix = s.getSecretPrefix();
+			s.setApiKeyMask(prefix == null || prefix.isBlank() ? "***" : prefix + "******");
 			s.setSecretKey(null);
 		}
 	}

@@ -144,4 +144,29 @@ public class AiMcpTool extends BaseEntity {
 	public void setStatus(Integer status) {
 		this.status = status;
 	}
+
+	/** 页面用 SSE / HTTP / STDIO，库里存小写 transport。 */
+	public String getProtocolType() {
+		if (transport == null || transport.isBlank()) {
+			return null;
+		}
+		return switch (transport.trim().toLowerCase()) {
+			case "sse" -> "SSE";
+			case "http", "streamable" -> "HTTP";
+			case "stdio" -> "STDIO";
+			default -> transport;
+		};
+	}
+
+	public void setProtocolType(String protocolType) {
+		if (protocolType == null || protocolType.isBlank()) {
+			return;
+		}
+		this.transport = switch (protocolType.trim().toUpperCase()) {
+			case "SSE" -> "sse";
+			case "HTTP", "STREAMABLE HTTP" -> "http";
+			case "STDIO" -> "stdio";
+			default -> protocolType.trim().toLowerCase();
+		};
+	}
 }

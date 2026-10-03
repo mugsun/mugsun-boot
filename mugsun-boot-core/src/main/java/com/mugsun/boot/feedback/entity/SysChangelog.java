@@ -1,5 +1,7 @@
 package com.mugsun.boot.feedback.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.mugsun.core.mybatis.base.BaseEntity;
 import com.mybatisflex.annotation.Table;
 
@@ -19,7 +21,9 @@ public class SysChangelog extends BaseEntity {
 	private String title;
 	/** 富文本内容 */
 	private String content;
-	/** 发布时间 */
+	/** 发布时间。页面日期控件提交 yyyy-MM-dd HH:mm:ss，空串视为未填。 */
+	@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+	@JsonDeserialize(using = ChangelogTimeDeserializer.class)
 	private LocalDateTime publishTime;
 	/** 排序 */
 	private Integer sort;

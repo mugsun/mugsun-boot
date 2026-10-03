@@ -11,6 +11,7 @@ import com.mugsun.boot.ai.entity.AiModel;
 import com.mugsun.boot.ai.service.AiModelBizService;
 import com.mugsun.boot.ai.support.AiLlmClient;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -98,6 +99,26 @@ public class AiGenController {
 			}
 		}));
 		return emitter;
+	}
+
+	@PostMapping("/{type}/export")
+	@SaCheckPermission(value = {
+		AiConstants.PERM_GEN_MINDMAP, AiConstants.PERM_GEN_POSTER, AiConstants.PERM_GEN_ARTICLE,
+		AiConstants.PERM_GEN_PRODUCT, AiConstants.PERM_GEN_MARKETING, AiConstants.PERM_GEN_SVG,
+		AiConstants.PERM_GEN_LAYOUT
+	}, mode = SaMode.OR)
+	public R<Map<String, Object>> export(@PathVariable String type, @RequestBody Map<String, Object> body) {
+		moduleService.requireEnabled();
+		if (!TYPES.contains(type)) {
+			throw new ServiceException("未知生成器类型");
+		}
+		StpUtil.checkPermission(permForType(type));
+		String content = body.get("content") == null ? "" : body.get("content").toString();
+		if (content.isBlank()) {
+			throw new ServiceException("没有可导出的内容");
+		}
+		String ext = "svg".equals(type) ? "svg" : "txt";
+		return R.data(Map.of("filename", type + "." + ext, "content", content));
 	}
 
 	private static String permForType(String type) {

@@ -86,9 +86,14 @@ public class AiChannelBizService {
 				httpResp = e.getMessage() == null ? "send failed" : e.getMessage();
 			}
 		}
+		boolean attempted = sample != null && sample.contains("http");
+		String message = httpSent ? "调试成功" : (attempted
+			? (httpResp == null || httpResp.isBlank() ? "调试未发出" : httpResp)
+			: "未配置 Webhook");
 		return Map.of(
-			"ok", true,
-			"sent", true,
+			"ok", httpSent,
+			"sent", httpSent,
+			"message", message,
 			"channelCode", bind.getChannelCode(),
 			"alias", bind.getAlias() == null ? "" : bind.getAlias(),
 			"content", content == null ? "" : content,

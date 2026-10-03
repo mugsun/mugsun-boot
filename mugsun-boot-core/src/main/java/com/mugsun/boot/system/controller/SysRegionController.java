@@ -2,6 +2,7 @@ package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.mugsun.boot.system.entity.SysRegion;
 import com.mugsun.boot.system.excel.RegionExcel;
 import com.mugsun.boot.system.mapper.SysRegionMapper;
@@ -31,6 +32,7 @@ public class SysRegionController {
 	}
 
 	/** 懒加载：取某父级下的直接子节点，标注 leaf 供前端判定是否可展开 */
+	@SaCheckPermission(value = {"sys:region:save", "sys:region:remove", "sys:region:import"}, mode = SaMode.OR)
 	@GetMapping("/lazy-tree")
 	public R<List<SysRegion>> lazyTree(@RequestParam(defaultValue = "0") String parentCode) {
 		List<SysRegion> nodes = regionMapper.selectListByQuery(
@@ -73,6 +75,7 @@ public class SysRegionController {
 	}
 
 	/** 导出全部区划 */
+	@SaCheckPermission(value = {"sys:region:save", "sys:region:remove", "sys:region:import"}, mode = SaMode.OR)
 	@GetMapping("/export")
 	public void export(HttpServletResponse response) {
 		List<RegionExcel> rows = regionMapper.selectListByQuery(QueryWrapper.create().orderBy("code", true))

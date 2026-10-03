@@ -1749,7 +1749,7 @@ DELETE FROM sys_password_log WHERE user_id NOT IN (SELECT id FROM sys_user);
 -- skipped PostgreSQL DO block (达梦用 Java/应用层回填)
 
 -- ========== 原 V58__menu_enhance.sql ==========
--- V58 菜单管理字段补齐（BladeX 标配）：图标 / 隐藏 / 页面缓存(keep-alive) / 外链新窗口
+-- V58 菜单管理字段补齐：图标 / 隐藏 / 页面缓存(keep-alive) / 外链新窗口
 -- 全部幂等（ADD COLUMN ）；存量行由 DEFAULT 回填：默认显示、缓存、非外链
 
 ALTER TABLE sys_menu ADD icon          VARCHAR(64);
