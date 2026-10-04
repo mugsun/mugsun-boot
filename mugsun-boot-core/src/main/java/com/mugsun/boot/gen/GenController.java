@@ -64,6 +64,14 @@ public class GenController {
 			param.basePackage(), param.tablePrefix(), param.author()));
 	}
 
+	/** 删除导入的生成配置，不删数据库里的业务表 */
+	@SaCheckPermission("sys:gen:edit")
+	@PostMapping("/remove")
+	public R<Void> remove(@RequestParam Long tableId) {
+		metaService.remove(tableId);
+		return R.success("删除成功");
+	}
+
 	/** 已导入的表配置列表 */
 	@GetMapping("/list")
 	@SaCheckPermission("sys:gen:list")

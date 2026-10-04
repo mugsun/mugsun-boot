@@ -95,7 +95,31 @@ public class TenantService {
 	public void remove(java.util.List<Long> ids) {
 		java.util.List<SysTenant> tenants = tenantMapper.selectListByIds(ids);
 		tenantMapper.deleteBatchByIds(ids);
-		tenants.forEach(t -> tenantValidator.evict(t.getTenantCode()));
+		for (SysTenant tenant : tenants) {
+			tenantValidator.evict(tenant.getTenantCode());
+			purgeTenantData(tenant.getTenantCode());
+		}
+	}
+
+	/** 删掉建租户时初始化的部门、岗位、角色、用户。平台租户不在这里清。 */
+	private void purgeTenantData(String code) {
+		if (code == null || code.isBlank() || "000000".equals(code)) {
+			return;
+		}
+		java.util.List<SysUser> users = userMapper.selectListByQuery(QueryWrapper.create().eq("tenant_id", code));
+		java.util.List<Long> userIds = new java.util.ArrayList<>();
+		for (SysUser user : users) {
+			if (user.getId() != null) {
+				userIds.add(user.getId());
+			}
+		}
+		if (!userIds.isEmpty()) {
+			userRoleMapper.deleteByQuery(QueryWrapper.create().in("user_id", userIds));
+		}
+		userMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
+		deptMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
+		postMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
+		roleMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
 	}
 
 	private void initDefaults(String code, String tenantName) {

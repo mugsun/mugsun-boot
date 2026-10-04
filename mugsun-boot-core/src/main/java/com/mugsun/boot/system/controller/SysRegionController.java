@@ -87,7 +87,7 @@ public class SysRegionController {
 				e.setLevel(r.getLevel());
 				return e;
 			}).toList();
-		ExcelUtil.export(response, "行政区划.xlsx", "行政区划", rows, RegionExcel.class);
+		ExcelUtil.export(response, "行政区划", "行政区划", rows, RegionExcel.class);
 	}
 
 	/** 导入区划：按编码存在则更新，否则新增 */

@@ -251,7 +251,7 @@ public class AiChatBizService {
 						usageHolder[2] = u[2];
 					}
 				}), err -> TenantContext.execute(tid, () -> {
-					asst.setStatus(AiConstants.MSG_STATUS_FAILED);
+					asst.setStatus(stop.get() ? AiConstants.MSG_STATUS_CANCELED : AiConstants.MSG_STATUS_FAILED);
 					asst.setContent(contentBuf.toString());
 					asst.setThinkContent(thinkBuf.toString());
 					asst.sanitizeForUpdate();
@@ -371,9 +371,13 @@ public class AiChatBizService {
 			.limit(1));
 	}
 
-	public Page<AiSession> conversationPage(long pageNum, long pageSize) {
+	public Page<AiSession> conversationPage(long pageNum, long pageSize, String keyword) {
 		moduleService.requireEnabled();
-		return sessionMapper.paginate(pageNum, pageSize, QueryWrapper.create().orderBy("last_time", false));
+		QueryWrapper query = QueryWrapper.create().orderBy("last_time", false);
+		if (keyword != null && !keyword.isBlank()) {
+			query.like("title", keyword.trim());
+		}
+		return sessionMapper.paginate(pageNum, pageSize, query);
 	}
 
 	public Page<AiBill> billPage(long pageNum, long pageSize) {

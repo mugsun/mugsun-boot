@@ -513,6 +513,10 @@ public class AuthController {
 	@SaCheckLogin
 	public R<Map<String, Object>> info() {
 		SysUser user = TenantContext.ignore(() -> userMapper.selectOneById(StpUtil.getLoginIdAsLong()));
+		if (user == null) {
+			StpUtil.logout();
+			throw new ServiceException("登录已失效，请重新登录");
+		}
 		Map<String, Object> data = new java.util.HashMap<>();
 		data.put("userId", user.getId());
 		data.put("userName", user.getUsername());

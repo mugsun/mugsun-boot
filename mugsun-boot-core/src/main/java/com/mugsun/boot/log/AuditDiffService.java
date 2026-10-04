@@ -33,7 +33,7 @@ public class AuditDiffService {
 			f.setAccessible(true);
 			String oldS = render(ann, value(f, before));
 			String newS = render(ann, value(f, after));
-			if (!Objects.equals(oldS, newS)) {
+			if (!Objects.equals(oldS, newS) && !(blank(oldS) && blank(newS))) {
 				Map<String, String> c = new LinkedHashMap<>();
 				c.put("label", ann.value());
 				c.put("old", oldS == null ? "" : oldS);
@@ -65,6 +65,11 @@ public class AuditDiffService {
 		} catch (Exception e) {
 			return null;
 		}
+	}
+
+	/** 未填和空字符串在页面上一样，不算一次变更。 */
+	private boolean blank(String s) {
+		return s == null || s.isBlank();
 	}
 
 	private String render(AuditField ann, Object v) {

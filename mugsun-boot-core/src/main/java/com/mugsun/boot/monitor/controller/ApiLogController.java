@@ -3,6 +3,7 @@ package com.mugsun.boot.monitor.controller;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.constant.MonitorConstants;
+import com.mugsun.boot.monitor.OperatorNameLookup;
 import com.mugsun.boot.monitor.entity.SysApiLog;
 import com.mugsun.boot.monitor.mapper.SysApiLogMapper;
 import com.mugsun.core.tool.api.R;
@@ -22,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ApiLogController {
 
 	private final SysApiLogMapper apiLogMapper;
+	private final OperatorNameLookup operatorNameLookup;
 
-	public ApiLogController(SysApiLogMapper apiLogMapper) {
+	public ApiLogController(SysApiLogMapper apiLogMapper, OperatorNameLookup operatorNameLookup) {
 		this.apiLogMapper = apiLogMapper;
+		this.operatorNameLookup = operatorNameLookup;
 	}
 
 	@GetMapping("/page")
@@ -44,12 +47,30 @@ public class ApiLogController {
 		if (uri != null && !uri.isBlank()) {
 			query.and("request_uri like ?", "%" + uri + "%");
 		}
-		return R.data(apiLogMapper.paginate(pageNum, Math.min(pageSize, 500), query));
+		Page<SysApiLog> page = apiLogMapper.paginate(pageNum, Math.min(pageSize, 500), query);
+		fillOperatorName(page.getRecords());
+		return R.data(page);
 	}
 
 	@GetMapping("/detail")
 	@SaCheckPermission(MonitorConstants.PERM_API_LOG_LIST)
 	public R<SysApiLog> detail(@RequestParam Long id) {
-		return R.data(apiLogMapper.selectOneById(id));
+		SysApiLog row = apiLogMapper.selectOneById(id);
+		if (row != null) {
+			fillOperatorName(java.util.List.of(row));
+		}
+		return R.data(row);
+	}
+
+	private void fillOperatorName(java.util.List<SysApiLog> records) {
+		if (records == null || records.isEmpty()) {
+			return;
+		}
+		java.util.Map<String, String> names = operatorNameLookup.namesOf(
+			records.stream().map(SysApiLog::getOperator).toList());
+		for (SysApiLog row : records) {
+			String name = row.getOperator() == null ? null : names.get(row.getOperator());
+			row.setOperatorName(name != null ? name : row.getOperator());
+		}
 	}
 }

@@ -29,11 +29,14 @@ public class AiMcpBizService {
 		this.webClientBuilder = webClientBuilder;
 	}
 
-	public Page<AiMcpTool> page(long pageNum, long pageSize, String name) {
+	public Page<AiMcpTool> page(long pageNum, long pageSize, String name, String category) {
 		moduleService.requireEnabled();
 		QueryWrapper q = QueryWrapper.create().orderBy("id", false);
 		if (name != null && !name.isBlank()) {
 			q.like("name", name.trim());
+		}
+		if (category != null && !category.isBlank()) {
+			q.eq("category", category.trim());
 		}
 		Page<AiMcpTool> page = mapper.paginate(pageNum, pageSize, q);
 		page.getRecords().forEach(this::mask);

@@ -110,7 +110,11 @@ public class SysOperLogController {
 	@GetMapping("/detail")
 	@cn.dev33.satoken.annotation.SaCheckPermission("sys:oper-log:list")
 	public R<SysOperLog> detail(@RequestParam Long id) {
-		return R.data(operLogMapper.selectOneById(id));
+		SysOperLog row = operLogMapper.selectOneById(id);
+		if (row != null) {
+			enrichOperatorName(java.util.List.of(row));
+		}
+		return R.data(row);
 	}
 
 	/** 审计完整性验签：重算哈希链 + 验证 SM2 签名，检出篡改并定位首个被篡改记录。

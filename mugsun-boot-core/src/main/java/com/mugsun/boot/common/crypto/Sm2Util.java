@@ -4,16 +4,22 @@ import cn.hutool.core.util.HexUtil;
 import cn.hutool.crypto.SmUtil;
 import cn.hutool.crypto.asymmetric.KeyType;
 import cn.hutool.crypto.asymmetric.SM2;
+import org.bouncycastle.asn1.gm.GMNamedCurves;
 import org.bouncycastle.crypto.engines.SM2Engine;
+import org.bouncycastle.math.ec.ECCurve;
 
 /**
  * SM2 国密非对称传输工具（登录/改密/注册密码前端公钥加密、后端私钥解密）。
- * <p>与前端 sm-crypto 跨库互通：sm-crypto {@code doEncrypt(pwd, pub, 1)} 默认 C1C3C2 且密文不含 {@code 04} 前缀；
- * Hutool(底层 BC SM2Engine) 解密要求密文带 {@code 04} 前缀，故解密前补齐；mode 显式对齐 {@link SM2Engine.Mode#C1C3C2}
- * 防依赖升降级。为兼容历史/多前端来源，解密走「补/不补 04 × C1C3C2/C1C2C3」四组合兜底（C3 校验错组合必抛异常，绝不误判）。
- * <p>密钥由 {@link Sm2CryptoConfig} 启动时以配置注入；配置缺失时启动生成一对并告警（生产须外部注入固定密钥）。
+ * <p>线上只有一种密文：sm-crypto {@code doEncrypt(pwd, pub, 1)}，C1C3C2，C1 为 128 hex、不含 {@code 04}。
+ * BouncyCastle 要求未压缩点带 {@code 04}。是否已带前缀看前 65 字节能不能解成曲线上的点，不能看第一个字节：
+ * X 坐标本身有 1/256 的概率以 {@code 04} 开头，按开头判断会把这一字节吃掉。
+ * <p>密钥由 {@link GmCryptoConfig} 启动时以配置注入；配置缺失时启动生成一对并告警（生产须外部注入固定密钥）。
  */
 public final class Sm2Util {
+
+	/** 未压缩点：1 字节标记 + 32 字节 X + 32 字节 Y */
+	private static final int UNCOMPRESSED_POINT_HEX = 130;
+	private static final ECCurve SM2_CURVE = GMNamedCurves.getByName("sm2p256v1").getCurve();
 
 	private static volatile String privateKeyHex;
 	private static volatile String publicKeyHex;
@@ -63,30 +69,34 @@ public final class Sm2Util {
 	}
 
 	/**
-	 * 私钥解密前端 SM2 密文（hex，可带或不带 04 前缀）。健壮兜底四组合，任一成功即返回。
+	 * 私钥解密。sm-crypto 的密文无条件补 {@code 04}；已经是未压缩点的密文保持原样。模式只认 C1C3C2。
 	 */
 	public static String decrypt(String cipherHex) {
 		if (cipherHex == null || cipherHex.isEmpty()) {
 			return cipherHex;
 		}
-		String bare = cipherHex.startsWith("04") ? cipherHex.substring(2) : cipherHex;
-		String withPrefix = "04" + bare;
-		SM2Engine.Mode[] modes = {SM2Engine.Mode.C1C3C2, SM2Engine.Mode.C1C2C3};
-		String[] candidates = {withPrefix, cipherHex};
-		for (SM2Engine.Mode mode : modes) {
-			for (String c : candidates) {
-				String hex = c.startsWith("04") ? c : "04" + c;
-				try {
-					SM2 sm2 = SmUtil.sm2(privateKeyHex, publicKeyHex);
-					sm2.setMode(mode);
-					return sm2.decryptStr(hex, KeyType.PrivateKey);
-				} catch (Exception ignore) {
-					// 换下一组合；不外泄内部异常细节
-				}
-			}
+		String hex = cipherHex.trim();
+		String normalized = hasUncompressedPoint(hex) ? hex : "04" + hex;
+		try {
+			SM2 sm2 = SmUtil.sm2(privateKeyHex, publicKeyHex);
+			sm2.setMode(SM2Engine.Mode.C1C3C2);
+			return sm2.decryptStr(normalized, KeyType.PrivateKey);
+		} catch (Exception e) {
+			throw new com.mugsun.core.tool.exception.ServiceException("SM2 密文无效");
 		}
-		// 不回显内部实现细节，仅给中性提示（防密文格式探测）
-		throw new com.mugsun.core.tool.exception.ServiceException("SM2 密文无效");
+	}
+
+	/** 前 65 字节能解成 SM2 曲线上的点，才说明 {@code 04} 是点标记而不是 X 坐标的第一个字节。 */
+	private static boolean hasUncompressedPoint(String hex) {
+		if (hex.length() < UNCOMPRESSED_POINT_HEX || (hex.length() & 1) == 1) {
+			return false;
+		}
+		try {
+			SM2_CURVE.decodePoint(org.bouncycastle.util.encoders.Hex.decode(hex.substring(0, UNCOMPRESSED_POINT_HEX)));
+			return true;
+		} catch (Exception e) {
+			return false;
+		}
 	}
 
 	/** SM2 私钥签名（对 hex 数据）→ 签名 hex，供审计记录防伪造（用审计签名密钥，与传输解耦） */

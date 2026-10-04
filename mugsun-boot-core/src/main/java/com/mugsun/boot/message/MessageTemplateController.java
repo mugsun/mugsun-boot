@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.message.entity.SysMessageTemplate;
 import com.mugsun.boot.message.mapper.SysMessageTemplateMapper;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.web.bind.annotation.*;
@@ -45,6 +46,15 @@ public class MessageTemplateController {
 	@PostMapping("/submit")
 	@SaCheckPermission("sys:message:manage")
 	public R<Void> submit(@RequestBody SysMessageTemplate template) {
+		if (template.getCode() != null && !template.getCode().isBlank()) {
+			QueryWrapper dup = QueryWrapper.create().eq("code", template.getCode().trim());
+			if (template.getId() != null) {
+				dup.ne("id", template.getId());
+			}
+			if (templateMapper.selectCountByQuery(dup) > 0) {
+				throw new ServiceException("模板编码已存在");
+			}
+		}
 		if (template.getId() == null) {
 			templateMapper.insertSelective(template);
 		} else {

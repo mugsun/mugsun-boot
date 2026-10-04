@@ -1,5 +1,6 @@
 package com.mugsun.boot.ai.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.mugsun.core.mybatis.base.BaseEntity;
 import com.mybatisflex.annotation.Table;
 import java.math.BigDecimal;
@@ -20,6 +21,7 @@ public class AiBill extends BaseEntity {
 	private BigDecimal amount;
 	private String ip;
 	private String bizType;
+	@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
 	private LocalDateTime callTime;
 
 	public String getTenantId() {

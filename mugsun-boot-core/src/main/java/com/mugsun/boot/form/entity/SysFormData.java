@@ -1,6 +1,7 @@
 package com.mugsun.boot.form.entity;
 
 import com.mugsun.core.mybatis.base.BaseEntity;
+import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Table;
 
 /**
@@ -13,6 +14,9 @@ public class SysFormData extends BaseEntity {
 	/** 填报数据 JSON */
 	private String formData;
 	private Long submitter;
+	/** 填报人展示名（非表列） */
+	@Column(ignore = true)
+	private String submitterName;
 
 	public String getFormKey() {
 		return formKey;
@@ -36,5 +40,13 @@ public class SysFormData extends BaseEntity {
 
 	public void setSubmitter(Long submitter) {
 		this.submitter = submitter;
+	}
+
+	public String getSubmitterName() {
+		return submitterName;
+	}
+
+	public void setSubmitterName(String submitterName) {
+		this.submitterName = submitterName;
 	}
 }

@@ -86,7 +86,19 @@ public class FeedbackController {
 	@PostMapping("/remove")
 	@SaCheckPermission("sys:feedback:manage")
 	public R<Void> remove(@RequestBody List<Long> ids) {
-		feedbackMapper.deleteBatchByIds(ids);
+		if (ids != null && !ids.isEmpty()) {
+			java.util.List<SysFeedback> rows = feedbackMapper.selectListByIds(ids);
+			feedbackMapper.deleteBatchByIds(ids);
+			java.util.List<Long> attachIds = new java.util.ArrayList<>();
+			for (SysFeedback row : rows) {
+				if (row.getAttachId() != null) {
+					attachIds.add(row.getAttachId());
+				}
+			}
+			if (!attachIds.isEmpty()) {
+				attachMapper.deleteBatchByIds(attachIds);
+			}
+		}
 		return R.success("删除成功");
 	}
 }

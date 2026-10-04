@@ -369,6 +369,9 @@ public class SysUserController {
 			&& (user.getIdCard().contains("*") || com.mugsun.boot.common.crypto.Sm4Util.looksLikeCipher(user.getIdCard()))) {
 			user.setIdCard(null);
 		}
+		if (user.getId() == null && (user.getUsername() == null || user.getUsername().isBlank())) {
+			throw new com.mugsun.core.tool.exception.ServiceException("请填写账号");
+		}
 		// 手机号格式校验（短信登录按号取人，脏号即冒注面）
 		if (user.getPhone() != null && !user.getPhone().isBlank() && !user.getPhone().matches("^1\\d{10}$")) {
 			throw new com.mugsun.core.tool.exception.ServiceException("手机号格式不正确");

@@ -2,6 +2,7 @@ package com.mugsun.boot.oauth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.api.ResultCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
@@ -83,7 +84,10 @@ public class OpenApiInterceptor implements HandlerInterceptor {
 		response.setStatus(status);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.setCharacterEncoding("UTF-8");
-		response.getWriter().write(objectMapper.writeValueAsString(R.fail(msg)));
+		ResultCode code = status == HttpServletResponse.SC_UNAUTHORIZED
+			? ResultCode.UNAUTHORIZED
+			: status == HttpServletResponse.SC_FORBIDDEN ? ResultCode.FORBIDDEN : ResultCode.FAILURE;
+		response.getWriter().write(objectMapper.writeValueAsString(R.fail(code, msg)));
 		return false;
 	}
 }

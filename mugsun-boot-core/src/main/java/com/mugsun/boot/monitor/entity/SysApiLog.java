@@ -1,6 +1,7 @@
 package com.mugsun.boot.monitor.entity;
 
 import com.mugsun.core.mybatis.base.BaseEntity;
+import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Table;
 
 /**
@@ -21,6 +22,9 @@ public class SysApiLog extends BaseEntity {
 	private String userAgent;
 	/** 操作人 loginId（未认证请求为空） */
 	private String operator;
+	/** 操作人展示名（非表列） */
+	@Column(ignore = true)
+	private String operatorName;
 	/** 请求所属租户（Flex 租户插件落库时填充，@Async 经 TenantTaskDecorator 透传） */
 	private String tenantId;
 	/** HTTP 响应状态码 */
@@ -95,6 +99,14 @@ public class SysApiLog extends BaseEntity {
 
 	public void setOperator(String operator) {
 		this.operator = operator;
+	}
+
+	public String getOperatorName() {
+		return operatorName;
+	}
+
+	public void setOperatorName(String operatorName) {
+		this.operatorName = operatorName;
 	}
 
 	public String getTenantId() {

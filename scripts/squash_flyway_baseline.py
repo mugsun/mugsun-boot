@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """将主库 / 埋点库多段 Flyway 收成 0.1 基线单脚本（一次性收口工具）。
 
-正常演进请直接新增 V2__ / T2__，不要再跑本脚本覆盖基线。
+0.1 尚未发布：改库直接改 V1__ / T1__，不要新增版本脚本。
+本脚本只在误加了增量文件、需要收回基线时使用，会覆盖现有基线。
 用法（在 mugsun-boot 根目录）::
 
     python3 scripts/squash_flyway_baseline.py

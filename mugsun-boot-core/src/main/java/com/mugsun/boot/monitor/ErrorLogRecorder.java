@@ -35,9 +35,9 @@ public class ErrorLogRecorder implements ErrorLogListener {
 		record.setRequestUri(request.getRequestURI());
 		record.setRequestMethod(request.getMethod());
 		record.setExceptionClass(error.getClass().getName());
-		record.setMessage(truncate(error.getMessage(), MonitorConstants.ERROR_MSG_MAX_LEN));
+		record.setMessage(truncate(redact(error.getMessage()), MonitorConstants.ERROR_MSG_MAX_LEN));
 		fillLocation(record, error);
-		record.setStacktrace(truncate(stacktrace(error), MonitorConstants.STACK_MAX_LEN));
+		record.setStacktrace(truncate(redact(stacktrace(error)), MonitorConstants.STACK_MAX_LEN));
 		record.setStatus(MonitorConstants.ERROR_STATUS_TODO);
 		fillOperator(record);
 		// 回填异常摘要：访问日志 error_msg 取此（同一线程请求属性，Filter 在链尾读取）
@@ -79,6 +79,14 @@ public class ErrorLogRecorder implements ErrorLogListener {
 		StringWriter sw = new StringWriter();
 		error.printStackTrace(new PrintWriter(sw));
 		return sw.toString();
+	}
+
+	/** 库异常会把失败行带进消息，bcrypt 口令哈希不能进错误日志。 */
+	private String redact(String s) {
+		if (s == null) {
+			return null;
+		}
+		return s.replaceAll("\\$2[aby]\\$\\d\\$[./A-Za-z0-9]{53}", "[redacted]");
 	}
 
 	private String truncate(String s, int max) {

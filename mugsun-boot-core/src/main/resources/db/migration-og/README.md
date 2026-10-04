@@ -12,7 +12,7 @@
 CREATE DATABASE mugsun DBCOMPATIBILITY 'PG';
 ```
 
-然后按版本执行 `V1` → `V4`。5.1 的改写点：
+然后只执行 `V1__baseline_0_1.sql`。0.1 未发布，不另起版本脚本。5.1 的改写点：
 
 - `ON CONFLICT DO NOTHING` → `ON DUPLICATE KEY UPDATE NOTHING`
 - 去掉 `ADD COLUMN IF NOT EXISTS`（列已在 `CREATE TABLE` 里的整句删掉）

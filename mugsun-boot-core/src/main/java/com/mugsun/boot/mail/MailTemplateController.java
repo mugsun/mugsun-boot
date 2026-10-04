@@ -57,7 +57,7 @@ public class MailTemplateController {
 		return R.success("删除成功");
 	}
 
-	/** 发送测试：按模板渲染并发送到指定邮箱（无 SMTP 凭证时降级日志），返回渲染内容 */
+	/** 发送测试：按模板渲染并发送到指定邮箱。通道未配置时直接报错，返回渲染内容。 */
 	@SaCheckPermission("sys:mail-template:send")
 	@PostMapping("/send-test")
 	public R<String> sendTest(@RequestBody Map<String, String> body) {

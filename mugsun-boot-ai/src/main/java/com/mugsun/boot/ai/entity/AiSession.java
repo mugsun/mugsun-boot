@@ -1,5 +1,6 @@
 package com.mugsun.boot.ai.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.mugsun.core.mybatis.base.BaseEntity;
 import com.mybatisflex.annotation.Table;
 import java.time.LocalDateTime;
@@ -15,6 +16,7 @@ public class AiSession extends BaseEntity {
 	private Long modelId;
 	private Integer messageCount;
 	private Integer totalTokens;
+	@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
 	private LocalDateTime lastTime;
 
 	public String getTenantId() {

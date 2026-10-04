@@ -1,6 +1,7 @@
 package com.mugsun.boot.monitor.entity;
 
 import com.mugsun.core.mybatis.base.BaseEntity;
+import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Table;
 
 import java.time.LocalDateTime;
@@ -17,6 +18,12 @@ public class SysErrorLog extends BaseEntity {
 	private String requestMethod;
 	/** 操作人 loginId（未认证请求为空） */
 	private String operator;
+	/** 操作人展示名（非表列） */
+	@Column(ignore = true)
+	private String operatorName;
+	/** 处理人展示名（非表列） */
+	@Column(ignore = true)
+	private String handleUserName;
 	/** 请求所属租户（Flex 租户插件落库时填充） */
 	private String tenantId;
 	/** 异常类全名 */
@@ -66,6 +73,22 @@ public class SysErrorLog extends BaseEntity {
 
 	public void setOperator(String operator) {
 		this.operator = operator;
+	}
+
+	public String getOperatorName() {
+		return operatorName;
+	}
+
+	public void setOperatorName(String operatorName) {
+		this.operatorName = operatorName;
+	}
+
+	public String getHandleUserName() {
+		return handleUserName;
+	}
+
+	public void setHandleUserName(String handleUserName) {
+		this.handleUserName = handleUserName;
 	}
 
 	public String getTenantId() {

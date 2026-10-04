@@ -6,6 +6,7 @@ import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.boot.gen.mapper.GenColumnMapper;
 import com.mugsun.boot.gen.mapper.GenTableMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.row.Db;
@@ -168,10 +169,10 @@ public class OnlineService {
 	private GenTable table(Long tableId) {
 		GenTable t = tableMapper.selectOneById(tableId);
 		if (t == null) {
-			throw new IllegalArgumentException("在线表单不存在：" + tableId);
+			throw new ServiceException("在线表单不存在");
 		}
 		if (!com.mugsun.boot.gen.GenNaming.isIdentifier(t.getTableName())) {
-			throw new IllegalArgumentException("非法表名：" + t.getTableName());
+			throw new ServiceException("非法表名");
 		}
 		guardRuntimeTable(t.getTableName());
 		return t;
@@ -184,11 +185,11 @@ public class OnlineService {
 	private void guardRuntimeTable(String tableName) {
 		String low = tableName.toLowerCase();
 		if ("gen_table".equals(low) || "gen_column".equals(low)) {
-			throw new IllegalArgumentException("元数据表不可作为在线表单：" + tableName);
+			throw new ServiceException("元数据表不可作为在线表单");
 		}
 		for (String p : RUNTIME_PROTECTED_PREFIXES) {
 			if (low.startsWith(p)) {
-				throw new IllegalArgumentException("平台系统表不可作为在线表单：" + tableName);
+				throw new ServiceException("平台系统表不可作为在线表单");
 			}
 		}
 	}

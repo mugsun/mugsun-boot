@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.MonitorConstants;
+import com.mugsun.boot.monitor.OperatorNameLookup;
 import com.mugsun.boot.monitor.entity.SysErrorLog;
 import com.mugsun.boot.monitor.mapper.SysErrorLogMapper;
 import com.mugsun.core.tool.api.R;
@@ -30,9 +31,11 @@ import java.util.Map;
 public class ErrorLogController {
 
 	private final SysErrorLogMapper errorLogMapper;
+	private final OperatorNameLookup operatorNameLookup;
 
-	public ErrorLogController(SysErrorLogMapper errorLogMapper) {
+	public ErrorLogController(SysErrorLogMapper errorLogMapper, OperatorNameLookup operatorNameLookup) {
 		this.errorLogMapper = errorLogMapper;
+		this.operatorNameLookup = operatorNameLookup;
 	}
 
 	@GetMapping("/page")
@@ -48,13 +51,37 @@ public class ErrorLogController {
 		if (traceId != null && !traceId.isBlank()) {
 			query.and("trace_id = ?", traceId);
 		}
-		return R.data(errorLogMapper.paginate(pageNum, Math.min(pageSize, 500), query));
+		Page<SysErrorLog> page = errorLogMapper.paginate(pageNum, Math.min(pageSize, 500), query);
+		fillOperatorName(page.getRecords());
+		return R.data(page);
 	}
 
 	@GetMapping("/detail")
 	@SaCheckPermission(MonitorConstants.PERM_ERROR_LOG_LIST)
 	public R<SysErrorLog> detail(@RequestParam Long id) {
-		return R.data(errorLogMapper.selectOneById(id));
+		SysErrorLog row = errorLogMapper.selectOneById(id);
+		if (row != null) {
+			fillOperatorName(java.util.List.of(row));
+		}
+		return R.data(row);
+	}
+
+	private void fillOperatorName(java.util.List<SysErrorLog> records) {
+		if (records == null || records.isEmpty()) {
+			return;
+		}
+		java.util.List<String> ids = new java.util.ArrayList<>();
+		for (SysErrorLog row : records) {
+			ids.add(row.getOperator());
+			ids.add(row.getHandleUser());
+		}
+		java.util.Map<String, String> names = operatorNameLookup.namesOf(ids);
+		for (SysErrorLog row : records) {
+			String name = row.getOperator() == null ? null : names.get(row.getOperator());
+			row.setOperatorName(name != null ? name : row.getOperator());
+			String handler = row.getHandleUser() == null ? null : names.get(row.getHandleUser());
+			row.setHandleUserName(handler != null ? handler : row.getHandleUser());
+		}
 	}
 
 	/** 认领处理：状态流转 0 → 1（已处理）/ 2（已忽略），携带处理备注与认领人留痕 */

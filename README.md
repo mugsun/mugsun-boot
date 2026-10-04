@@ -132,7 +132,7 @@ PowerJob Worker 默认关闭。定时任务页依赖独立的 PowerJob Server（
 mvn -pl mugsun-boot-server -am spring-boot:run
 ```
 
-Flyway 执行 0.1.0 基线脚本（`V1__baseline_0_1.sql`）与菜单种子数据，首次启动即为完整系统。后续小版本（如 0.1.1）再追加 `V2__*.sql`。API 文档见 `http://localhost:8080/swagger-ui/index.html`（prod 环境自动关闭）。
+Flyway 执行 0.1.0 基线脚本（`V1__baseline_0_1.sql`），首次启动即为完整系统。0.1 未发布前只改这一份，不另起版本脚本。正式发布后的小版本（如 0.1.1）再追加 `V2__*.sql`。API 文档见 `http://localhost:8080/swagger-ui/index.html`（prod 环境自动关闭）。
 
 ### 5. 登录
 

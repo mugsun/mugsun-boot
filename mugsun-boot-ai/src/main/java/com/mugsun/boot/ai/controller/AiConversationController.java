@@ -31,8 +31,9 @@ public class AiConversationController {
 	@GetMapping("/page")
 	@SaCheckPermission(AiConstants.PERM_CONVERSATION_LIST)
 	public R<Page<AiSession>> page(@RequestParam(defaultValue = "1") long pageNum,
-								   @RequestParam(defaultValue = "20") long pageSize) {
-		return R.data(chatService.conversationPage(pageNum, pageSize));
+								   @RequestParam(defaultValue = "20") long pageSize,
+								   @RequestParam(required = false) String keyword) {
+		return R.data(chatService.conversationPage(pageNum, pageSize, keyword));
 	}
 
 	@GetMapping("/detail")
@@ -49,7 +50,7 @@ public class AiConversationController {
 	@GetMapping("/export")
 	@SaCheckPermission(AiConstants.PERM_CONVERSATION_EXPORT)
 	public void export(@RequestParam(required = false) String keyword, HttpServletResponse response) throws IOException {
-		Page<AiSession> page = chatService.conversationPage(1, 5000);
+		Page<AiSession> page = chatService.conversationPage(1, 5000, keyword);
 		List<String> rows = new ArrayList<>();
 		String key = keyword == null ? "" : keyword.trim();
 		for (AiSession row : page.getRecords()) {

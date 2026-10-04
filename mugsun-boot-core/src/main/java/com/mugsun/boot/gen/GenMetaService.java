@@ -186,6 +186,16 @@ public class GenMetaService {
 		return "input";
 	}
 
+	/** 删除导入的生成配置（表 + 字段）。只删元数据，不删业务表。 */
+	@Transactional(rollbackFor = Exception.class)
+	public void remove(Long tableId) {
+		if (tableId == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("请选择要删除的配置");
+		}
+		columnMapper.deleteByQuery(QueryWrapper.create().eq("table_id", tableId));
+		tableMapper.deleteById(tableId);
+	}
+
 	/** 已导入的表配置列表 */
 	public List<GenTable> list() {
 		return tableMapper.selectListByQuery(QueryWrapper.create().orderBy("id", false));

@@ -6,6 +6,7 @@ import com.mugsun.boot.form.entity.SysForm;
 import com.mugsun.boot.form.entity.SysFormData;
 import com.mugsun.boot.form.mapper.SysFormDataMapper;
 import com.mugsun.boot.form.mapper.SysFormMapper;
+import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -24,10 +25,12 @@ public class FormController {
 
 	private final SysFormMapper formMapper;
 	private final SysFormDataMapper formDataMapper;
+	private final SysUserMapper userMapper;
 
-	public FormController(SysFormMapper formMapper, SysFormDataMapper formDataMapper) {
+	public FormController(SysFormMapper formMapper, SysFormDataMapper formDataMapper, SysUserMapper userMapper) {
 		this.formMapper = formMapper;
 		this.formDataMapper = formDataMapper;
+		this.userMapper = userMapper;
 	}
 
 	@GetMapping("/page")
@@ -75,7 +78,15 @@ public class FormController {
 
 	@PostMapping("/remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
-		formMapper.deleteBatchByIds(ids);
+		if (ids != null && !ids.isEmpty()) {
+			List<SysForm> forms = formMapper.selectListByIds(ids);
+			for (SysForm form : forms) {
+				if (form.getFormKey() != null && !form.getFormKey().isBlank()) {
+					formDataMapper.deleteByQuery(QueryWrapper.create().eq("form_key", form.getFormKey()));
+				}
+			}
+			formMapper.deleteBatchByIds(ids);
+		}
 		return R.success("删除成功");
 	}
 
@@ -103,6 +114,31 @@ public class FormController {
 		if (!StpUtil.hasPermission("sys:form:list")) {
 			query.and("submitter = ?", StpUtil.getLoginIdAsLong());
 		}
-		return R.data(formDataMapper.paginate(pageNum, Math.min(pageSize, 500), query));
+		Page<SysFormData> page = formDataMapper.paginate(pageNum, Math.min(pageSize, 500), query);
+		fillSubmitterName(page.getRecords());
+		return R.data(page);
+	}
+
+	private void fillSubmitterName(List<SysFormData> records) {
+		if (records == null || records.isEmpty()) {
+			return;
+		}
+		java.util.Set<Long> ids = new java.util.HashSet<>();
+		for (SysFormData row : records) {
+			if (row.getSubmitter() != null) {
+				ids.add(row.getSubmitter());
+			}
+		}
+		if (ids.isEmpty()) {
+			return;
+		}
+		java.util.Map<Long, String> names = new java.util.HashMap<>();
+		userMapper.selectListByQuery(QueryWrapper.create().in("id", ids)).forEach(u -> names.put(
+			u.getId(), u.getNickname() == null || u.getNickname().isBlank() ? u.getUsername() : u.getNickname()));
+		for (SysFormData row : records) {
+			if (row.getSubmitter() != null) {
+				row.setSubmitterName(names.getOrDefault(row.getSubmitter(), String.valueOf(row.getSubmitter())));
+			}
+		}
 	}
 }

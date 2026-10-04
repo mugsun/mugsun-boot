@@ -28,8 +28,9 @@ public class AiMcpController {
 	@SaCheckPermission(AiConstants.PERM_MCP_LIST)
 	public R<Page<AiMcpTool>> page(@RequestParam(defaultValue = "1") long pageNum,
 								   @RequestParam(defaultValue = "20") long pageSize,
-								   @RequestParam(required = false) String name) {
-		return R.data(service.page(pageNum, pageSize, name));
+								   @RequestParam(required = false) String name,
+								   @RequestParam(required = false) String category) {
+		return R.data(service.page(pageNum, pageSize, name, category));
 	}
 
 	@PostMapping("/submit")
