@@ -80,19 +80,19 @@ public class AuthLoginService {
 		}
 		if (user == null || rawPassword == null || !passwordEncoder.matches(rawPassword, user.getPassword())) {
 			loginLockService.recordFail(lockKey);
-			saveLoginLog(username, request, client.getClientId(), tenantId, 0, "账号或密码错误");
+			saveLoginLog(username, request, client.getClientId(), tenantId, 0, "账号或密码错误", "password");
 			throw new ServiceException("账号或密码错误");
 		}
 		String tenantInvalid = tenantValidator.validate(tenantId);
 		if (tenantInvalid != null) {
-			saveLoginLog(username, request, client.getClientId(), tenantId, 0, tenantInvalid);
+			saveLoginLog(username, request, client.getClientId(), tenantId, 0, tenantInvalid, "password");
 			throw new ServiceException(tenantInvalid);
 		}
 		assertUserLoginable(user, username, request, client.getClientId());
 		loginLockService.clear(lockKey);
 		if (twoFactorService.isEnabled()) {
 			String[] challenge = twoFactorService.challenge(user.getId(), twoFactorContact(user));
-			saveLoginLog(username, request, client.getClientId(), user.getTenantId(), 1, "登录待二次验证");
+			saveLoginLog(username, request, client.getClientId(), user.getTenantId(), 1, "登录待二次验证", "password");
 			Map<String, Object> resp = new HashMap<>();
 			resp.put("twoFactorRequired", true);
 			resp.put("twoFactorToken", challenge[0]);
@@ -122,7 +122,7 @@ public class AuthLoginService {
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
 		enforceMaxOnline(user.getId(), client.getMaxOnline());
-		saveLoginLog(user.getUsername(), request, client.getClientId(), user.getTenantId(), 1, logMsg);
+		saveLoginLog(user.getUsername(), request, client.getClientId(), user.getTenantId(), 1, logMsg, "password");
 		return Map.of("token", StpUtil.getTokenValue());
 	}
 
@@ -151,13 +151,18 @@ public class AuthLoginService {
 
 	public void assertUserLoginable(SysUser user, String username, HttpServletRequest request, String clientId) {
 		if (user.getStatus() == null || user.getStatus() != 1) {
-			saveLoginLog(username, request, clientId, user.getTenantId(), 0, "账号已停用");
+			saveLoginLog(username, request, clientId, user.getTenantId(), 0, "账号已停用", "password");
 			throw new ServiceException("账号已停用，请联系管理员");
 		}
 	}
 
 	public void saveLoginLog(String username, HttpServletRequest request, String device, String tenantId,
 							 int status, String msg) {
+		saveLoginLog(username, request, device, tenantId, status, msg, null);
+	}
+
+	public void saveLoginLog(String username, HttpServletRequest request, String device, String tenantId,
+							 int status, String msg, String grantType) {
 		SysLoginLog log = new SysLoginLog();
 		log.setUsername(username);
 		log.setIp(request.getRemoteAddr());
@@ -173,6 +178,7 @@ public class AuthLoginService {
 		log.setTenantId(tenantId);
 		log.setStatus(status);
 		log.setMsg(msg);
+		log.setGrantType(grantType == null || grantType.isBlank() ? null : grantType.trim());
 		log.setLoginTime(LocalDateTime.now());
 		loginLogService.record(log);
 	}

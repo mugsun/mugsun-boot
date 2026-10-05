@@ -28,6 +28,8 @@ public class SysLoginLog extends BaseEntity {
 	private String loginLocation;
 	/** 登录客户端码（web/app…） */
 	private String device;
+	/** password 密码 / sms 短信 / social 社交 / refresh_token 刷新。历史记录可能为空 */
+	private String grantType;
 	/** 账号当前是否处于登录失败锁定中（非表列，page 接口按 Redis 锁键富化） */
 	@com.mybatisflex.annotation.Column(ignore = true)
 	private Boolean locked;
@@ -118,6 +120,14 @@ public class SysLoginLog extends BaseEntity {
 
 	public void setDevice(String device) {
 		this.device = device;
+	}
+
+	public String getGrantType() {
+		return grantType;
+	}
+
+	public void setGrantType(String grantType) {
+		this.grantType = grantType;
 	}
 
 	public Boolean getLocked() {

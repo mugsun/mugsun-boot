@@ -2924,3 +2924,6 @@ COMMENT ON TABLE sys_api_scope IS '接口权限规则';
 COMMENT ON COLUMN sys_api_scope.scope_type IS '1 系统接口 / 2 业务接口';
 COMMENT ON COLUMN sys_api_scope.status IS '1 启用 / 0 停用';
 COMMENT ON TABLE sys_role_api_scope IS '角色已授权的接口权限';
+
+ALTER TABLE sys_login_log ADD COLUMN grant_type VARCHAR(32);
+COMMENT ON COLUMN sys_login_log.grant_type IS 'password 密码 / sms 短信 / social 社交 / refresh_token 刷新';

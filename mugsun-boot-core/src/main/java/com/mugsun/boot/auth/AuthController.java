@@ -124,7 +124,7 @@ public class AuthController {
 	/** 登录通道统一闸门：停用账号（status≠1）禁止一切方式登录并留痕（停用=封号，与踢会话联动） */
 	private void assertUserLoginable(SysUser user, String username, HttpServletRequest request, String clientId) {
 		if (user.getStatus() == null || user.getStatus() != 1) {
-			authLoginService.saveLoginLog(username, request, clientId, user.getTenantId(), 0, "账号已停用");
+			authLoginService.saveLoginLog(username, request, clientId, user.getTenantId(), 0, "账号已停用", "password");
 			throw new ServiceException("账号已停用，请联系管理员");
 		}
 	}
@@ -171,13 +171,13 @@ public class AuthController {
 		}
 		if (user == null || rawPassword == null || !passwordEncoder.matches(rawPassword, user.getPassword())) {
 			loginLockService.recordFail(lockKey);
-			authLoginService.saveLoginLog(username, request, client.getClientId(), tenantId, 0, "账号或密码错误");
+			authLoginService.saveLoginLog(username, request, client.getClientId(), tenantId, 0, "账号或密码错误", "password");
 			throw new ServiceException("账号或密码错误");
 		}
 		// 租户生命周期校验后置（密码通过后才判定），避免「租户不存在/停用」成为租户枚举预言机
 		String tenantInvalid = tenantValidator.validate(tenantId);
 		if (tenantInvalid != null) {
-			authLoginService.saveLoginLog(username, request, client.getClientId(), tenantId, 0, tenantInvalid);
+			authLoginService.saveLoginLog(username, request, client.getClientId(), tenantId, 0, tenantInvalid, "password");
 			throw new ServiceException(tenantInvalid);
 		}
 		// 停用账号禁止登录（停用=封号语义，全通道统一）
@@ -186,7 +186,7 @@ public class AuthController {
 		// 双因子登录（默认关闭）：密码通过后下发二次验证码，暂不发 token
 		if (twoFactorService.isEnabled()) {
 			String[] challenge = twoFactorService.challenge(user.getId(), twoFactorContact(user));
-			authLoginService.saveLoginLog(username, request, client.getClientId(), user.getTenantId(), 1, "登录待二次验证");
+			authLoginService.saveLoginLog(username, request, client.getClientId(), user.getTenantId(), 1, "登录待二次验证", "password");
 			java.util.Map<String, Object> resp = new java.util.HashMap<>();
 			resp.put("twoFactorRequired", true);
 			resp.put("twoFactorToken", challenge[0]);
@@ -204,7 +204,7 @@ public class AuthController {
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
 		// 按 client 策略：单账号最大在线终端数（超出踢最旧）
 		enforceMaxOnline(user.getId(), client.getMaxOnline());
-		authLoginService.saveLoginLog(username, request, client.getClientId(), user.getTenantId(), 1, "登录成功");
+		authLoginService.saveLoginLog(username, request, client.getClientId(), user.getTenantId(), 1, "登录成功", "password");
 		return R.data(Map.of("token", StpUtil.getTokenValue()));
 	}
 
@@ -232,7 +232,7 @@ public class AuthController {
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, request.getRemoteAddr())
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
-		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "双因子登录成功");
+		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "双因子登录成功", "password");
 		return R.data(Map.of("token", StpUtil.getTokenValue()));
 	}
 
@@ -361,7 +361,7 @@ public class AuthController {
 		loginLockService.assertNotLocked(lockKey);
 		if (!smsService.verifyCode(phone, code)) {
 			loginLockService.recordFail(lockKey);
-			authLoginService.saveLoginLog(phone, request, ClientConstants.DEFAULT_CLIENT_ID, TenantConstants.DEFAULT_TENANT_ID, 0, "短信验证码错误");
+			authLoginService.saveLoginLog(phone, request, ClientConstants.DEFAULT_CLIENT_ID, TenantConstants.DEFAULT_TENANT_ID, 0, "短信验证码错误", "sms");
 			throw new ServiceException("手机号或验证码错误");
 		}
 		SysUser user = TenantContext.ignore(() ->
@@ -369,13 +369,13 @@ public class AuthController {
 		// 话术归一：未注册/其他失败同质，防手机号枚举
 		if (user == null) {
 			loginLockService.recordFail(lockKey);
-			authLoginService.saveLoginLog(phone, request, ClientConstants.DEFAULT_CLIENT_ID, TenantConstants.DEFAULT_TENANT_ID, 0, "手机号未注册");
+			authLoginService.saveLoginLog(phone, request, ClientConstants.DEFAULT_CLIENT_ID, TenantConstants.DEFAULT_TENANT_ID, 0, "手机号未注册", "sms");
 			throw new ServiceException("手机号或验证码错误");
 		}
 		// 登录层租户生命周期校验：停用/过期的租户禁止短信登录
 		String smsTenantInvalid = tenantValidator.validate(user.getTenantId());
 		if (smsTenantInvalid != null) {
-			authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 0, smsTenantInvalid);
+			authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 0, smsTenantInvalid, "sms");
 			throw new ServiceException(smsTenantInvalid);
 		}
 		assertUserLoginable(user, user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID);
@@ -384,7 +384,7 @@ public class AuthController {
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, request.getRemoteAddr())
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
-		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "短信登录成功");
+		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "短信登录成功", "sms");
 		return R.data(Map.of("token", StpUtil.getTokenValue()));
 	}
 
@@ -437,7 +437,7 @@ public class AuthController {
 
 	/** 社交登录：只收 source+code+state，openId 由服务端凭 code 换取（杜绝越权）。clientType=app 走 C 端自动注册，默认管理端禁自动开户 */
 	@PostMapping("/social/login")
-	public R<Map<String, Object>> socialLogin(@RequestBody Map<String, String> body) {
+	public R<Map<String, Object>> socialLogin(@RequestBody Map<String, String> body, HttpServletRequest request) {
 		String source = body.get("source");
 		String code = body.get("code");
 		String state = body.get("state");
@@ -446,6 +446,12 @@ public class AuthController {
 		}
 		boolean autoRegister = "app".equalsIgnoreCase(body.get("clientType"));
 		String token = socialService.loginByCode(source, code, state, autoRegister);
+		SysUser socialUser = TenantContext.ignore(() -> userMapper.selectOneById(StpUtil.getLoginIdAsLong()));
+		if (socialUser != null) {
+			authLoginService.saveLoginLog(socialUser.getUsername(), request,
+				autoRegister ? "app" : ClientConstants.DEFAULT_CLIENT_ID,
+				socialUser.getTenantId(), 1, "社交登录成功", "social");
+		}
 		return R.data(Map.of("token", token));
 	}
 
