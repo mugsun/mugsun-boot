@@ -72,7 +72,7 @@ public class FlowController {
 			throw new ServiceException("流程编码与名称不能为空。请填上编码和名称后再发布");
 		}
 		if (req.nodes() == null || req.nodes().isEmpty()) {
-			throw new ServiceException("至少设计一个审批节点");
+			throw new ServiceException("至少设计一个审批节点。请加上一个审批节点后再发布");
 		}
 		String json = buildFlowJson(req);
 		Definition def = FlowEngine.defService().importJson(json);
