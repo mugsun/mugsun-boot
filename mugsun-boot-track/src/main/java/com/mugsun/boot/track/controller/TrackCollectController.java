@@ -280,7 +280,8 @@ public class TrackCollectController {
 			while ((n = gzip.read(chunk)) != -1) {
 				total += n;
 				if (total > TrackConstants.COLLECT_PAYLOAD_MAX_BYTES) {
-					throw new TrackCollectException(413, "请求体解压后超限");
+					throw new TrackCollectException(413, "这段事件上报解压后太大。解压后最长 "
+						+ TrackConstants.COLLECT_PAYLOAD_MAX_BYTES + " 字节，请缩小后再上传");
 				}
 				out.write(chunk, 0, n);
 			}
