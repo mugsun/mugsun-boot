@@ -336,7 +336,7 @@ public class AuthController {
 	public R<Map<String, Object>> smsCode(@RequestBody Map<String, String> body) {
 		String phone = body.get("phone");
 		if (phone == null || phone.isBlank()) {
-			throw new ServiceException("手机号不能为空");
+			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
 		smsService.sendCode(phone);
 		Map<String, Object> resp = new java.util.HashMap<>();
@@ -352,7 +352,7 @@ public class AuthController {
 		String phone = body.get("phone");
 		String code = body.get("code");
 		if (phone == null || phone.isBlank()) {
-			throw new ServiceException("手机号不能为空");
+			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
 		// 图形验证码前置（等保：短信登录也需图形码，防短信轰炸/枚举）
 		captchaService.verify(body.get("captchaUuid"), body.get("captchaCode"));
