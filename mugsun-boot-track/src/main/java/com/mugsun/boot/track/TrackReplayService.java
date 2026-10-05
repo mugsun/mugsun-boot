@@ -102,7 +102,8 @@ public class TrackReplayService {
 			throw new TrackCollectException(400, "这段回放没有内容。请带上录制内容后再上传");
 		}
 		if (payload.length() > TrackConstants.REPLAY_PAYLOAD_B64_MAX_LEN) {
-			throw new TrackCollectException(413, "回放块过大");
+			throw new TrackCollectException(413, "这段回放太大。单块内容最长 "
+				+ TrackConstants.REPLAY_PAYLOAD_B64_MAX_LEN + " 个字，请缩小后再上传");
 		}
 
 		// 2) 应用校验：存在 + enabled=1 + replay_enabled=1（本地缓存 30s，生效延迟见 TrackAppService javadoc）
