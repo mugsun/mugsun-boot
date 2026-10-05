@@ -79,4 +79,10 @@ public class SysFeedback extends BaseEntity {
 	public void setStatus(Integer status) {
 		this.status = status;
 	}
+
+	/** 防重复提交按这段内容认同一条，不带提交人和状态。 */
+	@Override
+	public String toString() {
+		return content + "|" + contact + "|" + attachId;
+	}
 }

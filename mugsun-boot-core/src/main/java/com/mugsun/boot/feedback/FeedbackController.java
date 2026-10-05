@@ -3,14 +3,18 @@ package com.mugsun.boot.feedback;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.feedback.entity.SysFeedback;
 import com.mugsun.boot.feedback.mapper.SysFeedbackMapper;
+import com.mugsun.boot.system.entity.SysAttach;
+import com.mugsun.boot.system.mapper.SysAttachMapper;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -22,26 +26,37 @@ import java.util.List;
 public class FeedbackController {
 
 	private final SysFeedbackMapper feedbackMapper;
-	private final com.mugsun.boot.system.mapper.SysAttachMapper attachMapper;
+	private final SysAttachMapper attachMapper;
 
-	public FeedbackController(SysFeedbackMapper feedbackMapper,
-							  com.mugsun.boot.system.mapper.SysAttachMapper attachMapper) {
+	public FeedbackController(SysFeedbackMapper feedbackMapper, SysAttachMapper attachMapper) {
 		this.feedbackMapper = feedbackMapper;
 		this.attachMapper = attachMapper;
 	}
 
 	/** 用户提交反馈 */
 	@PostMapping("/submit")
+	@RepeatSubmit
 	public R<Void> submit(@RequestBody SysFeedback feedback) {
-		if (feedback.getContent() == null || feedback.getContent().isBlank()) {
-			throw new ServiceException("反馈内容不能为空");
+		if (feedback == null) {
+			throw new ServiceException("请填写反馈内容。写清楚遇到的问题和期望，再提交");
 		}
-		// 附件信息一律按 attachId 服务端解析回填（不信任客户端传入的名称/地址——
-		// 防 javascript: 伪协议等存储型 XSS 钓管理员；本地存储相对地址亦不受影响）
+		String content = feedback.getContent() == null ? "" : feedback.getContent().trim();
+		if (content.isEmpty()) {
+			throw new ServiceException("请填写反馈内容。写清楚遇到的问题和期望，再提交");
+		}
+		if (content.length() > 2000) {
+			throw new ServiceException("反馈内容请控制在 2000 个字以内");
+		}
+		String contact = feedback.getContact() == null ? "" : feedback.getContact().trim();
+		if (contact.length() > 64) {
+			throw new ServiceException("联系方式请控制在 64 个字以内");
+		}
+		feedback.setContent(content);
+		feedback.setContact(contact.isEmpty() ? null : contact);
 		if (feedback.getAttachId() != null) {
-			com.mugsun.boot.system.entity.SysAttach attach = attachMapper.selectOneById(feedback.getAttachId());
+			SysAttach attach = attachMapper.selectOneById(feedback.getAttachId());
 			if (attach == null) {
-				throw new ServiceException("附件不存在或已删除");
+				throw new ServiceException("这个附件不存在。请重新选择图片后再提交");
 			}
 			feedback.setAttachName(attach.getName());
 			feedback.setAttachUrl(attach.getUrl());
@@ -49,13 +64,12 @@ public class FeedbackController {
 			feedback.setAttachName(null);
 			feedback.setAttachUrl(null);
 		}
-		// 提交人与状态由服务端定，忽略客户端 id
 		feedback.setId(null);
 		feedback.setUserId(StpUtil.getLoginIdAsLong());
 		feedback.setStatus(0);
 		feedback.sanitizeForInsert();
-		feedbackMapper.insertSelective(feedback);
-		return R.success("提交成功");
+		feedbackMapper.insert(feedback);
+		return R.success("已提交。管理员可以在意见反馈里看到，处理完会标成已处理");
 	}
 
 	/** 后台分页列表 */
@@ -63,10 +77,17 @@ public class FeedbackController {
 	@SaCheckPermission("sys:feedback:manage")
 	public R<Page<SysFeedback>> page(@RequestParam(defaultValue = "1") long pageNum,
 									 @RequestParam(defaultValue = "10") long pageSize,
-									 @RequestParam(required = false) Integer status) {
+									 @RequestParam(required = false) Integer status,
+									 @RequestParam(required = false) String name) {
 		QueryWrapper query = QueryWrapper.create().orderBy("id", false);
 		if (status != null) {
+			if (status != 0 && status != 1) {
+				throw new ServiceException("状态请选择未处理或已处理");
+			}
 			query.eq("status", status);
+		}
+		if (name != null && !name.isBlank()) {
+			query.like("content", name.trim());
 		}
 		return R.data(feedbackMapper.paginate(pageNum, pageSize, query));
 	}
@@ -74,31 +95,45 @@ public class FeedbackController {
 	/** 切换处理状态 */
 	@PostMapping("/status/{id}")
 	@SaCheckPermission("sys:feedback:manage")
+	@RepeatSubmit
 	public R<Void> status(@PathVariable Long id) {
 		SysFeedback feedback = feedbackMapper.selectOneById(id);
-		if (feedback != null) {
-			feedback.setStatus(feedback.getStatus() != null && feedback.getStatus() == 1 ? 0 : 1);
-			feedbackMapper.update(feedback);
+		if (feedback == null) {
+			throw new ServiceException("这条反馈不存在。请刷新列表后再处理");
 		}
-		return R.success("操作成功");
+		boolean handled = feedback.getStatus() != null && feedback.getStatus() == 1;
+		feedback.setStatus(handled ? 0 : 1);
+		feedbackMapper.update(feedback);
+		if (handled) {
+			return R.success("已标为未处理。还可以再标成已处理");
+		}
+		return R.success("已标为已处理。列表里的状态会跟着变");
 	}
 
 	@PostMapping("/remove")
 	@SaCheckPermission("sys:feedback:manage")
+	@RepeatSubmit
 	public R<Void> remove(@RequestBody List<Long> ids) {
-		if (ids != null && !ids.isEmpty()) {
-			java.util.List<SysFeedback> rows = feedbackMapper.selectListByIds(ids);
-			feedbackMapper.deleteBatchByIds(ids);
-			java.util.List<Long> attachIds = new java.util.ArrayList<>();
-			for (SysFeedback row : rows) {
-				if (row.getAttachId() != null) {
-					attachIds.add(row.getAttachId());
-				}
-			}
-			if (!attachIds.isEmpty()) {
-				attachMapper.deleteBatchByIds(attachIds);
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先选择要删除的反馈");
+		}
+		if (ids.stream().anyMatch(id -> id == null)) {
+			throw new ServiceException("有反馈不存在。请刷新列表后再删除");
+		}
+		List<SysFeedback> rows = feedbackMapper.selectListByIds(ids);
+		if (rows.size() != ids.size()) {
+			throw new ServiceException("有反馈不存在，或已经被删除。请刷新列表后再试");
+		}
+		List<Long> attachIds = new ArrayList<>();
+		for (SysFeedback row : rows) {
+			feedbackMapper.deleteById(row.getId());
+			if (row.getAttachId() != null) {
+				attachIds.add(row.getAttachId());
 			}
 		}
-		return R.success("删除成功");
+		if (!attachIds.isEmpty()) {
+			attachMapper.deleteBatchByIds(attachIds);
+		}
+		return R.success("已删除 " + rows.size() + " 条反馈。列表里不会再出现");
 	}
 }
