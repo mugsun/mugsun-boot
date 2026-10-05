@@ -256,7 +256,7 @@ public class AuthController {
 		captchaService.verify(dto.getCaptchaUuid(), dto.getCaptchaCode());
 		// 手机号格式校验（短信登录按号取人，脏号即冒注/混淆面）
 		if (dto.getPhone() != null && !dto.getPhone().isBlank() && !dto.getPhone().matches("^1\\d{10}$")) {
-			throw new ServiceException("手机号格式不正确");
+			throw new ServiceException("手机号格式不正确。请改成 11 位、以 1 开头的手机号后再注册");
 		}
 		// 传输密码 SM2 解密（国密开关开启时），解密失败归一为参数无效（不暴露密文细节）
 		String rawPassword = decodePasswordNormalized(dto.getPassword());
