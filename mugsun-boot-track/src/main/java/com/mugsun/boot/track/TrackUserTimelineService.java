@@ -99,10 +99,18 @@ public class TrackUserTimelineService {
 		if (cursor != null && !cursor.isBlank()) {
 			int sep = cursor.indexOf('_');
 			try {
+				if (sep <= 0 || sep >= cursor.length() - 1) {
+					throw new ServiceException("翻页位置不对。请重新查询");
+				}
 				cursorTs = OffsetDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(cursor.substring(0, sep))), ZoneOffset.UTC);
 				cursorId = Long.parseLong(cursor.substring(sep + 1));
+				if (cursorId < 0) {
+					throw new ServiceException("翻页位置不对。请重新查询");
+				}
+			} catch (ServiceException e) {
+				throw e;
 			} catch (RuntimeException e) {
-				throw new ServiceException("非法 cursor");
+				throw new ServiceException("翻页位置不对。请重新查询");
 			}
 		}
 
