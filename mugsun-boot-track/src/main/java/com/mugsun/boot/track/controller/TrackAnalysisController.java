@@ -163,7 +163,7 @@ public class TrackAnalysisController {
 	 */
 	@GetMapping("/retention")
 	@SaCheckPermission(TrackConstants.PERM_RETENTION_LIST)
-	public R<Map<String, Object>> retention(@RequestParam String appKey,
+	public R<Map<String, Object>> retention(@RequestParam(required = false) String appKey,
 											@RequestParam(required = false) Integer days) {
 		return R.data(retentionService.retention(appKey, days));
 	}
