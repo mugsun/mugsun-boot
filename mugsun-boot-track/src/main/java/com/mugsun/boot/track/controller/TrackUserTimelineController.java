@@ -42,7 +42,7 @@ public class TrackUserTimelineController {
 	 */
 	@GetMapping("/timeline")
 	@SaCheckPermission(TrackConstants.PERM_USER_LIST)
-	public R<Map<String, Object>> timeline(@RequestParam String appKey,
+	public R<Map<String, Object>> timeline(@RequestParam(required = false) String appKey,
 										   @RequestParam(required = false) Long userId,
 										   @RequestParam(required = false) String distinctId,
 										   @RequestParam Long startTs,
