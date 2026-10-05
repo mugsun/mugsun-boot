@@ -56,6 +56,7 @@ public class SysUserController {
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final NotifySendApi notifySendApi;
+	private final com.mugsun.boot.auth.LoginLockService loginLockService;
 
 	public SysUserController(SysUserMapper userMapper, PasswordEncoder passwordEncoder, AuditService auditService,
 							 SysUserRoleMapper userRoleMapper,
@@ -64,7 +65,8 @@ public class SysUserController {
 							 com.mugsun.boot.system.mapper.SysPostMapper postMapper,
 							 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
 							 com.mugsun.boot.tenant.TenantValidator tenantValidator,
-							 NotifySendApi notifySendApi) {
+							 NotifySendApi notifySendApi,
+							 com.mugsun.boot.auth.LoginLockService loginLockService) {
 		this.userMapper = userMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.auditService = auditService;
@@ -75,6 +77,7 @@ public class SysUserController {
 		this.securityPolicyService = securityPolicyService;
 		this.tenantValidator = tenantValidator;
 		this.notifySendApi = notifySendApi;
+		this.loginLockService = loginLockService;
 	}
 
 	@GetMapping("/page")
@@ -643,6 +646,83 @@ public class SysUserController {
 			StpUtil.kickout(id);
 		}
 		return R.success("密码已重置为初始密码");
+	}
+
+	/** 当前租户仍被锁定的账号，含失败锁定和管理员锁定。 */
+	@GetMapping("/locks")
+	@SaCheckPermission("sys:user:edit")
+	public R<List<Map<String, Object>>> locks() {
+		return R.data(loginLockService.list(com.mugsun.boot.tenant.TenantContext.current()));
+	}
+
+	/** 管理员锁定。不填分钟数则一直锁定，直到解锁。锁定后踢下线。 */
+	@PostMapping("/lock")
+	@SaCheckPermission("sys:user:edit")
+	@OperationLog("锁定账号")
+	public R<Void> lock(@RequestBody Map<String, Object> body) {
+		Long id = longOf(body.get("id"));
+		if (id == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("请选择要锁定的用户");
+		}
+		assertTargetOperable(id, false);
+		SysUser user = userMapper.selectOneById(id);
+		if (user == null || user.getUsername() == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("用户不存在");
+		}
+		Integer minutes = intOf(body.get("minutes"));
+		loginLockService.manualLock(
+			loginLockService.keyOf(user.getTenantId(), user.getUsername()),
+			body.get("reason") == null ? null : String.valueOf(body.get("reason")),
+			minutes,
+			String.valueOf(StpUtil.getLoginId()));
+		StpUtil.kickout(id);
+		return R.success("账号已锁定");
+	}
+
+	/** 管理员解锁。同时清掉失败次数锁定。 */
+	@PostMapping("/unlock")
+	@SaCheckPermission("sys:user:edit")
+	@OperationLog("解锁账号")
+	public R<Void> unlockAccount(@RequestBody Map<String, Object> body) {
+		String lockKey = body.get("lockKey") == null ? null : String.valueOf(body.get("lockKey"));
+		if (lockKey == null || lockKey.isBlank()) {
+			Long id = longOf(body.get("id"));
+			if (id == null) {
+				throw new com.mugsun.core.tool.exception.ServiceException("请选择要解锁的账号");
+			}
+			assertTargetOperable(id, true);
+			SysUser user = userMapper.selectOneById(id);
+			if (user == null) {
+				throw new com.mugsun.core.tool.exception.ServiceException("用户不存在");
+			}
+			lockKey = loginLockService.keyOf(user.getTenantId(), user.getUsername());
+		} else if (!lockKey.startsWith(com.mugsun.boot.tenant.TenantContext.current() + ":")) {
+			throw new com.mugsun.core.tool.exception.ServiceException("无权解锁其他租户的账号");
+		}
+		loginLockService.clear(lockKey);
+		return R.success("账号已解锁");
+	}
+
+	private static Long longOf(Object raw) {
+		if (raw == null || String.valueOf(raw).isBlank()) {
+			return null;
+		}
+		try {
+			return Long.valueOf(String.valueOf(raw));
+		} catch (NumberFormatException e) {
+			throw new com.mugsun.core.tool.exception.ServiceException("用户编号不正确");
+		}
+	}
+
+	private static Integer intOf(Object raw) {
+		if (raw == null || String.valueOf(raw).isBlank()) {
+			return null;
+		}
+		try {
+			return Integer.valueOf(String.valueOf(raw));
+		} catch (NumberFormatException e) {
+			throw new com.mugsun.core.tool.exception.ServiceException("锁定时长请填写分钟数");
+		}
 	}
 
 	/** 启用 / 停用用户（停用即踢全部在线端） */
