@@ -135,4 +135,20 @@ public class AiDatasource extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	/** 供重复提交按名称、类型和地址归并，不带密码。 */
+	@Override
+	public String toString() {
+		String url = jdbcUrl == null ? "" : jdbcUrl;
+		String secret = password == null ? "" : password;
+		String note = remark == null ? "" : remark;
+		return (name == null ? "" : name) + "|"
+			+ (dbType == null ? "" : dbType) + "|"
+			+ (username == null ? "" : username) + "|"
+			+ (readOnlyFlag == null ? "" : readOnlyFlag) + "|"
+			+ url.length() + ":" + Integer.toHexString(url.hashCode()) + "|"
+			+ note.length() + ":" + Integer.toHexString(note.hashCode()) + "|"
+			+ secret.length() + ":" + Integer.toHexString(secret.hashCode()) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }
