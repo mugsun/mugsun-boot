@@ -87,4 +87,16 @@ public class AiPrompt extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	/** 供重复提交按名称、分类和正文归并，正文只留长度和哈希。 */
+	@Override
+	public String toString() {
+		String body = content == null ? "" : content;
+		return (name == null ? "" : name) + "|"
+			+ (category == null ? "" : category) + "|"
+			+ (status == null ? "" : status) + "|"
+			+ (scene == null ? "" : scene) + "|"
+			+ body.length() + ":" + Integer.toHexString(body.hashCode()) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }
