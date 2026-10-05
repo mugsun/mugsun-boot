@@ -90,16 +90,16 @@ public class SmsService {
 			SmsFactory.createSmsBlend(readConfigOf(sms));
 			SmsResponse resp = SmsFactory.getSmsBlend(sms.getSmsCode()).sendMessage(phone, code);
 			if (resp == null || !resp.isSuccess()) {
-				throw new ServiceException("短信下发未成功(凭证占位或网关拒绝): " + sms.getSmsCode());
+				throw new ServiceException("短信没有发出去。请核对签名、模板和密钥，确认账号可用后再试");
 			}
-			log.info("短信配置[{}/{}]下发成功 phone={}", sms.getSmsCode(), sms.getCategory(), phone);
+			log.info("短信配置[{}/{}]下发成功", sms.getSmsCode(), sms.getCategory());
 		} catch (ServiceException e) {
-			// 下发失败作废验证码：不留「未送达却可登录」的悬空码
 			smsCodeMapper.deleteByQuery(QueryWrapper.create().eq("phone", phone));
 			throw e;
 		} catch (Exception e) {
 			smsCodeMapper.deleteByQuery(QueryWrapper.create().eq("phone", phone));
-			throw new ServiceException("短信通道异常: " + e.getMessage());
+			log.warn("短信下发失败 code={}", sms.getSmsCode());
+			throw new ServiceException("短信没有发出去。请核对签名、模板和密钥，确认账号可用后再试");
 		}
 	}
 
@@ -140,13 +140,45 @@ public class SmsService {
 			SmsFactory.createSmsBlend(readConfigOf(sms));
 			SmsResponse resp = SmsFactory.getSmsBlend(sms.getSmsCode()).sendMessage(phone, text);
 			if (resp == null || !resp.isSuccess()) {
-				throw new ServiceException("短信下发未成功(凭证占位或网关拒绝): " + sms.getSmsCode());
+				throw new ServiceException("短信没有发出去。请核对签名、模板和密钥，确认账号可用后再试");
 			}
 		} catch (ServiceException e) {
 			throw e;
 		} catch (Exception e) {
-			throw new ServiceException("短信通道异常: " + e.getMessage());
+			log.warn("短信下发失败 code={}", sms.getSmsCode());
+			throw new ServiceException("短信没有发出去。请核对签名、模板和密钥，确认账号可用后再试");
 		}
+	}
+
+	/** 按指定配置试发一条，不走登录验证码，失败时不返回网关原文。 */
+	public String debugSend(SysSms sms, String phone) {
+		if (sms == null) {
+			throw new ServiceException("请从列表里选择一套短信配置后再试发");
+		}
+		if (phone == null || !phone.trim().matches("^1\\d{10}$")) {
+			throw new ServiceException("请填写 11 位手机号，再发送这条试发短信");
+		}
+		if (sms.getAccessKey() == null || sms.getAccessKey().isBlank()
+			|| sms.getSecretKey() == null || sms.getSecretKey().isBlank()) {
+			throw new ServiceException("这套配置还没有密钥。请先填好 AccessKey 和 SecretKey 再试发");
+		}
+		if (sms.getSignature() == null || sms.getSignature().isBlank()
+			|| sms.getTemplateId() == null || sms.getTemplateId().isBlank()) {
+			throw new ServiceException("请先填好短信签名和模板编号，再试发");
+		}
+		try {
+			SmsFactory.createSmsBlend(readConfigOf(sms));
+			SmsResponse resp = SmsFactory.getSmsBlend(sms.getSmsCode()).sendMessage(phone.trim(), "000000");
+			if (resp == null || !resp.isSuccess()) {
+				throw new ServiceException("试发没有成功。请核对签名、模板编号和密钥，确认账号可用后再试");
+			}
+		} catch (ServiceException ex) {
+			throw ex;
+		} catch (Exception ex) {
+			log.warn("短信试发失败 code={}", sms.getSmsCode());
+			throw new ServiceException("试发没有成功。请核对签名、模板编号和密钥，确认账号可用后再试");
+		}
+		return "试发已提交。请看手机是否收到；没收到就核对模板是不是只需要一个验证码变量";
 	}
 
 	/** 校验验证码：命中未过期记录则通过并作废 */

@@ -17,6 +17,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -138,12 +143,73 @@ public class OssService {
 			case OssConstants.CATEGORY_ALIYUN:
 				return buildAliyun(oss);
 			default:
-				throw new ServiceException("未知存储类别: " + oss.getCategory());
+				throw new ServiceException("请选择本地存储、MinIO 或阿里云");
 		}
 	}
 
+	/**
+	 * 检查这一套配置能不能用：本地试写一个文件再删掉；远程只确认地址能连上，不把连接原文返回给页面。
+	 */
+	public String probe(SysOss oss) {
+		if (oss == null) {
+			throw new ServiceException("请从列表里选择一套存储后再检查");
+		}
+		if (OssConstants.CATEGORY_LOCAL.equals(oss.getCategory())) {
+			return probeLocal(oss);
+		}
+		buildStorage(oss);
+		String endpoint = oss.getEndpoint() == null ? "" : oss.getEndpoint().trim();
+		String url = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : "http://" + endpoint;
+		try {
+			URI uri = URI.create(url);
+			String host = uri.getHost();
+			int port = uri.getPort();
+			if (host == null || host.isBlank()) {
+				throw new ServiceException("服务地址看不懂。请写成 http://主机:端口 这样的形式后再检查");
+			}
+			if (port < 0) {
+				port = "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+			}
+			try (Socket socket = new Socket()) {
+				socket.connect(new InetSocketAddress(host, port), 2000);
+			}
+		} catch (ServiceException ex) {
+			throw ex;
+		} catch (RuntimeException | java.io.IOException ex) {
+			log.warn("对象存储检查没有连上 category={}", oss.getCategory());
+			throw new ServiceException("这套存储暂时连不上。请检查地址、桶名和密钥是否正确后再试");
+		}
+		return "地址可以连上。启用后，新上传的文件会存到这套存储";
+	}
+
+	private String probeLocal(SysOss oss) {
+		if (oss.getStoragePath() == null || oss.getStoragePath().isBlank()) {
+			throw new ServiceException("本地存储请填写目录。请先在表单里填好本机目录再检查");
+		}
+		Path dir = Path.of(oss.getStoragePath().trim());
+		if (!Files.isDirectory(dir)) {
+			throw new ServiceException("这个目录还不存在，或不是文件夹。请先在服务器上建好目录后再检查");
+		}
+		if (!Files.isWritable(dir)) {
+			throw new ServiceException("应用写不了这个目录。请检查目录权限后再试");
+		}
+		Path file = dir.resolve("mugsun-probe-" + System.nanoTime() + ".txt");
+		try {
+			Files.writeString(file, "ok");
+			Files.deleteIfExists(file);
+		} catch (java.io.IOException ex) {
+			try {
+				Files.deleteIfExists(file);
+			} catch (java.io.IOException ignored) {
+				log.warn("清理试写文件失败");
+			}
+			throw new ServiceException("试写文件没有成功。请检查目录权限后再试");
+		}
+		return "这个目录可以写入。启用后，新上传的文件会存到这里";
+	}
+
 	private FileStorage buildLocal(SysOss oss) {
-		require(oss.getStoragePath(), "本地存储缺少 storage_path");
+		require(oss.getStoragePath(), "本地存储请填写目录。请先在表单里填好本机目录再保存");
 		FileStorageProperties.LocalPlusConfig config = new FileStorageProperties.LocalPlusConfig();
 		config.setPlatform(oss.getOssCode());
 		config.setStoragePath(oss.getStoragePath());
@@ -153,10 +219,10 @@ public class OssService {
 	}
 
 	private FileStorage buildMinio(SysOss oss) {
-		require(oss.getEndpoint(), "MinIO 缺少 endpoint");
-		require(oss.getBucketName(), "MinIO 缺少 bucket_name");
-		require(oss.getAccessKey(), "MinIO 缺少 access_key");
-		require(oss.getSecretKey(), "MinIO 缺少 secret_key");
+		require(oss.getEndpoint(), "MinIO 请填写服务地址。写成 http://主机:端口 后再保存");
+		require(oss.getBucketName(), "MinIO 请填写桶名后再保存");
+		require(oss.getAccessKey(), "MinIO 请填写 AccessKey 后再保存");
+		require(oss.getSecretKey(), "MinIO 请填写 SecretKey 后再保存");
 		FileStorageProperties.MinioConfig config = new FileStorageProperties.MinioConfig();
 		config.setPlatform(oss.getOssCode());
 		config.setEndPoint(oss.getEndpoint());
@@ -170,10 +236,10 @@ public class OssService {
 	}
 
 	private FileStorage buildAliyun(SysOss oss) {
-		require(oss.getEndpoint(), "阿里云 OSS 缺少 endpoint");
-		require(oss.getBucketName(), "阿里云 OSS 缺少 bucket_name");
-		require(oss.getAccessKey(), "阿里云 OSS 缺少 access_key");
-		require(oss.getSecretKey(), "阿里云 OSS 缺少 secret_key");
+		require(oss.getEndpoint(), "阿里云请填写服务地址后再保存");
+		require(oss.getBucketName(), "阿里云请填写桶名后再保存");
+		require(oss.getAccessKey(), "阿里云请填写 AccessKey 后再保存");
+		require(oss.getSecretKey(), "阿里云请填写 SecretKey 后再保存");
 		FileStorageProperties.AliyunOssConfig config = new FileStorageProperties.AliyunOssConfig();
 		config.setPlatform(oss.getOssCode());
 		config.setEndPoint(oss.getEndpoint());

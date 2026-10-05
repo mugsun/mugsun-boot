@@ -38,7 +38,7 @@ class SmsApiTest extends AbstractIntegrationTest {
 		Map<String, Object> body = new HashMap<>();
 		body.put("name", "IT短信-" + TS);
 		body.put("smsCode", "it_sms_" + TS);
-		body.put("category", "ali");
+		body.put("category", "alibaba");
 		body.put("accessKey", "ak-it");
 		body.put("secretKey", "sk-it");
 		body.put("signature", "Mugsun");
