@@ -171,12 +171,16 @@ public class TrackUserTimelineService {
 	 * 「body 未采集或已清理」（400，不暴露存储内部错误形态）。
 	 */
 	public byte[] bodyJson(String eventId) {
-		if (eventId == null || eventId.isBlank() || eventId.length() > TrackConstants.EVENT_ID_MAX_LEN
-			|| !TrackConstants.REPLAY_PATH_SAFE.matcher(eventId.trim()).matches()) {
-			throw new ServiceException("无效 eventId");
+		if (eventId == null || eventId.isBlank()) {
+			throw new ServiceException("这条记录对不上。请重新查询后再看响应体");
+		}
+		String id = eventId.trim();
+		if (id.length() > TrackConstants.EVENT_ID_MAX_LEN
+			|| !TrackConstants.REPLAY_PATH_SAFE.matcher(id).matches()) {
+			throw new ServiceException("这条记录对不上。请重新查询后再看响应体");
 		}
 		String tenant = currentTenant();
-		List<Object> args = new ArrayList<>(List.of(eventId.trim()));
+		List<Object> args = new ArrayList<>(List.of(id));
 		List<Map<String, Object>> rows = jdbc.queryForList(
 			"SELECT e.app_key, e.received_at, e.props->>'" + TrackConstants.PROP_BODY_REF + "' AS ref"
 				+ " FROM track_event e WHERE e.event_id = ?" + tenantFrag("e", tenant, args) + " LIMIT 1",

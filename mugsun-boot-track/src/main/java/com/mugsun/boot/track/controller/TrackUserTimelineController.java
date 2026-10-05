@@ -2,10 +2,12 @@ package com.mugsun.boot.track.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.log.OperationLog;
 import com.mugsun.boot.track.TrackUserTimelineService;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.exception.ServiceException;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
@@ -29,9 +32,11 @@ import java.util.Map;
 public class TrackUserTimelineController {
 
 	private final TrackUserTimelineService timelineService;
+	private final ObjectMapper objectMapper;
 
-	public TrackUserTimelineController(TrackUserTimelineService timelineService) {
+	public TrackUserTimelineController(TrackUserTimelineService timelineService, ObjectMapper objectMapper) {
 		this.timelineService = timelineService;
+		this.objectMapper = objectMapper;
 	}
 
 	/**
@@ -60,8 +65,21 @@ public class TrackUserTimelineController {
 	@GetMapping("/api-body")
 	@SaCheckPermission(TrackConstants.PERM_USER_VIEW_BODY)
 	@OperationLog("查看接口响应体")
-	public void apiBody(@RequestParam String eventId, HttpServletResponse response) throws IOException {
-		byte[] json = timelineService.bodyJson(eventId);
+	public void apiBody(@RequestParam(required = false) String eventId, HttpServletResponse response) throws IOException {
+		byte[] json;
+		try {
+			json = timelineService.bodyJson(eventId);
+		} catch (ServiceException e) {
+			// 成功时正文是采集到的响应，不是统一信封。失败若仍回 200，页面会把错误信封当成响应体展示。
+			response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+			response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+			response.setContentType("application/json;charset=UTF-8");
+			byte[] body = objectMapper.writeValueAsString(R.fail(e.getResultCode(), e.getMessage()))
+				.getBytes(StandardCharsets.UTF_8);
+			response.setContentLength(body.length);
+			response.getOutputStream().write(body);
+			return;
+		}
 		response.setContentType("application/json;charset=UTF-8");
 		response.setContentLength(json.length);
 		response.getOutputStream().write(json);
