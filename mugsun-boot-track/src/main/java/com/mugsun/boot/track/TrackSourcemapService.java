@@ -146,14 +146,14 @@ public class TrackSourcemapService {
 		return row;
 	}
 
-	/** 读取 .map 原文（raw 端点用；存储侧异常一律「不存在或已下线」，不暴露存储内部错误形态） */
+	/** 读取 .map 原文（raw 端点用；存储侧异常一律说明文件不存在或存储已下线，不暴露存储内部错误形态） */
 	public byte[] raw(long id) {
 		TrackSourcemap row = requireRow(id);
 		try {
 			return storage.load(row.getStoragePlatform(), row.getStorageBasePath(), row.getStorageKey());
 		} catch (Exception e) {
 			log.warn("sourcemap 读取失败 id={} key={}：{}", id, row.getStorageKey(), e.getMessage());
-			throw new ServiceException("sourcemap 文件不存在或存储平台已下线");
+			throw new ServiceException("这个符号表的文件不存在，或存储已经下线。请重新上传这个版本的符号表后再还原");
 		}
 	}
 
