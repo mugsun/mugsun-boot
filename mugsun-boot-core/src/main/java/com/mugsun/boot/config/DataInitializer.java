@@ -70,6 +70,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedApiKeyLogButton();
 			seedUsualLogPage();
 			seedJobServerPage();
+			seedFlowRunningPage();
 			return null;
 		});
 	}
@@ -300,6 +301,32 @@ public class DataInitializer implements CommandLineRunner {
 		seedMenuButton(page.getId(), 1200000000000000157L, "保存任务服务", "sys:job-server:save", 1);
 		seedMenuButton(page.getId(), 1200000000000000158L, "删除任务服务", "sys:job-server:remove", 2);
 		seedMenuButton(page.getId(), 1200000000000000159L, "同步任务服务", "sys:job-server:sync", 3);
+	}
+
+	/** 正在办理的流程。基线已灌过的库靠这里补菜单和按钮。 */
+	private void seedFlowRunningPage() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/flow-running"));
+		if (page == null) {
+			page = new SysMenu();
+			page.setId(1200000000000000160L);
+			page.setParentId(parent.getId());
+			page.setMenuName("运行中的流程");
+			page.setPath("/system/flow-running");
+			page.setComponent("/system/flow-running");
+			page.setMenuType("C");
+			page.setPermission("sys:flow:running");
+			page.setSort(28);
+			page.setIcon("ri:git-commit-line");
+			page.setIsPublic(0);
+			page.setIsHide(0);
+			menuMapper.insert(page);
+		}
+		seedMenuButton(page.getId(), 1200000000000000161L, "终止运行中的流程", "sys:flow:running:terminate", 1);
+		seedMenuButton(page.getId(), 1200000000000000162L, "挂起或恢复流程", "sys:flow:running:active", 2);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {

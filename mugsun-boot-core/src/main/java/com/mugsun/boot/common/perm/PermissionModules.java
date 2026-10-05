@@ -40,7 +40,9 @@ public final class PermissionModules {
 		"/system/flow/task",
 		// 工作流发起：提交审批是登录用户的业务动作（流程定义控制审批人），不套 RBAC 码；流程定义管理(deploy/design)仍受管控
 		"/system/flow/start",
-		"/system/flow/start-by"
+		"/system/flow/start-by",
+		// 签收：只有任务上的办理人能签，服务里再校验，不套菜单权限码
+		"/system/flow/claim"
 	);
 
 	private PermissionModules() {

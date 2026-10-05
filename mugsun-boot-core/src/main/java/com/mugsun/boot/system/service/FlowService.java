@@ -12,6 +12,8 @@ import org.dromara.warm.flow.core.FlowEngine;
 import org.dromara.warm.flow.core.dto.FlowParams;
 import org.dromara.warm.flow.core.entity.Instance;
 import org.dromara.warm.flow.core.entity.Task;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -31,6 +33,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class FlowService {
+
+	private static final Logger log = LoggerFactory.getLogger(FlowService.class);
 
 	/** 抄送用户类型（warm-flow 引擎不识别，仅应用层读写；引擎办理人为 1/2/3） */
 	private static final String USER_TYPE_COPY = "C";
@@ -178,6 +182,139 @@ public class FlowService {
 				+ (tenantSql == null ? "" : "and " + tenantSql + " ")
 				+ "group by h.instance_id, i.business_id, i.flow_status, d.flow_name "
 				+ "order by max(h.create_time) desc", args.toArray());
+	}
+
+	/** 正在办理的流程。可按实例编号或流程编码精确筛选，只看本租户发起的。 */
+	public List<Row> running(String instanceId, String flowCode) {
+		if (instanceId != null && !instanceId.isBlank() && !instanceId.trim().matches("\\d{1,20}")) {
+			throw new ServiceException("流程实例编号请填写数字，可以从列表里复制");
+		}
+		if (flowCode != null && flowCode.trim().length() > 40) {
+			throw new ServiceException("流程编码请控制在 40 字以内");
+		}
+		StringBuilder sql = new StringBuilder(
+			"select i.id as \"instanceId\", i.business_id as \"businessId\", i.node_name as \"nodeName\", "
+				+ "i.activity_status as \"activityStatus\", d.flow_name as \"flowName\", d.flow_code as \"flowCode\", "
+				+ "i.create_time as \"createTime\" "
+				+ "from flow_instance i join flow_definition d on d.id = i.definition_id "
+				+ "where coalesce(i.del_flag, '0') <> '1' and i.flow_status = '1' ");
+		List<Object> args = new ArrayList<>();
+		String tenantSql = tenantPredicate();
+		if (tenantSql != null) {
+			sql.append("and ").append(tenantSql).append(' ');
+			args.add(com.mugsun.boot.tenant.TenantContext.current());
+		}
+		if (instanceId != null && !instanceId.isBlank()) {
+			sql.append("and i.id = ? ");
+			args.add(Long.valueOf(instanceId.trim()));
+		}
+		if (flowCode != null && !flowCode.isBlank()) {
+			sql.append("and d.flow_code = ? ");
+			args.add(flowCode.trim());
+		}
+		sql.append("order by i.id desc");
+		return Db.selectListBySql(sql.toString(), args.toArray());
+	}
+
+	/** 填写原因后终止正在办理的流程。已结束的不能再终止。 */
+	public void terminateRunning(Long instanceId, String reason) {
+		if (reason == null || reason.isBlank()) {
+			throw new ServiceException("请填写终止原因，方便发起人知道流程为什么被停下");
+		}
+		if (reason.trim().length() > 200) {
+			throw new ServiceException("终止原因请控制在 200 字以内");
+		}
+		requireRunning(instanceId);
+		try {
+			FlowEngine.taskService().terminationByInsId(instanceId,
+				FlowParams.build().handler(uid()).message(reason.trim()).ignore(true));
+		} catch (ServiceException e) {
+			throw e;
+		} catch (RuntimeException e) {
+			log.warn("终止流程失败 {}", e.getClass().getSimpleName());
+			throw new ServiceException("这个流程暂时不能终止。请刷新列表确认它还在办理中，再填写原因后重试");
+		}
+	}
+
+	/** 挂起正在办理的流程，挂起后不能继续审批，直到恢复。 */
+	public void suspendRunning(Long instanceId) {
+		Instance ins = requireRunning(instanceId);
+		if (Integer.valueOf(0).equals(ins.getActivityStatus())) {
+			throw new ServiceException("这个流程已经挂起。可以先恢复，或填写原因后终止");
+		}
+		FlowEngine.insService().unActive(instanceId);
+	}
+
+	/** 恢复已挂起的流程。 */
+	public void resumeRunning(Long instanceId) {
+		Instance ins = requireRunning(instanceId);
+		if (!Integer.valueOf(0).equals(ins.getActivityStatus())) {
+			throw new ServiceException("这个流程正在办理，不用恢复。需要停下来请先挂起，或填写原因后终止");
+		}
+		FlowEngine.insService().active(instanceId);
+	}
+
+	/** 待签收：当前用户是办理人之一，且还不只有他一个人。 */
+	public List<Row> claimList() {
+		List<String> flags = userFlags();
+		String in = flags.stream().map(f -> "?").collect(Collectors.joining(","));
+		String tenantSql = tenantPredicate();
+		List<Object> args = new ArrayList<>(flags);
+		if (tenantSql != null) {
+			args.add(com.mugsun.boot.tenant.TenantContext.current());
+		}
+		return Db.selectListBySql(
+			"select distinct t.id as \"taskId\", t.instance_id as \"instanceId\", t.node_name as \"nodeName\", "
+				+ "i.business_id as \"businessId\", d.flow_name as \"flowName\", t.create_time as \"createTime\" "
+				+ "from flow_task t "
+				+ "join flow_user u on u.associated = t.id and u.type in ('1','2','3') and coalesce(u.del_flag, '0') <> '1' "
+				+ "join flow_instance i on i.id = t.instance_id "
+				+ "join flow_definition d on d.id = t.definition_id "
+				+ "where coalesce(t.del_flag, '0') <> '1' and i.flow_status = '1' and u.processed_by in (" + in + ") "
+				+ "and (select count(distinct u2.processed_by) from flow_user u2 "
+				+ "where u2.associated = t.id and u2.type in ('1','2','3') and coalesce(u2.del_flag, '0') <> '1') > 1 "
+				+ (tenantSql == null ? "" : "and " + tenantSql + " ")
+				+ "order by t.id desc",
+			args.toArray());
+	}
+
+	/** 签收后只保留当前用户，其他人不再看到这条待办。 */
+	public void claim(Long taskId) {
+		Task task = requireTaskInTenant(taskId);
+		List<String> handlers = Db.selectListBySql(
+			"select distinct u.processed_by as \"v\" from flow_user u "
+				+ "where u.associated = ? and u.type in ('1','2','3') and coalesce(u.del_flag, '0') <> '1'", task.getId())
+			.stream().map(r -> r.getString("v")).filter(v -> v != null && !v.isBlank()).toList();
+		if (handlers.stream().noneMatch(userFlags()::contains)) {
+			throw new ServiceException("这个任务不存在，或还没轮到你签收。请刷新待签列表");
+		}
+		if (handlers.size() == 1 && uid().equals(handlers.get(0))) {
+			throw new ServiceException("这个任务已经签收，请到待办里办理");
+		}
+		Db.updateBySql(
+			"update flow_user set del_flag = '1' where associated = ? and type in ('1','2','3') and coalesce(del_flag, '0') <> '1'",
+			task.getId());
+		Db.updateBySql(RuntimeSql.insertFlowUser(DbDialects.current()),
+			IdUtil.getSnowflakeNextId(), "1", uid(), task.getId());
+	}
+
+	private Instance requireRunning(Long instanceId) {
+		if (instanceId == null) {
+			throw new ServiceException("请从列表中选择一条正在办理的流程");
+		}
+		Instance ins = FlowEngine.insService().getById(instanceId);
+		if (ins == null) {
+			throw new ServiceException("这个流程不存在，或属于其他租户。请刷新列表后再试");
+		}
+		try {
+			assertInstanceTenant(ins);
+		} catch (ServiceException e) {
+			throw new ServiceException("这个流程不存在，或属于其他租户。请刷新列表后再试");
+		}
+		if (!"1".equals(ins.getFlowStatus())) {
+			throw new ServiceException("这个流程已经结束，不能再操作。请刷新列表");
+		}
+		return ins;
 	}
 
 	/** 流程图进度：实例定义的各节点 + 状态（已过 passed / 当前 current / 驳回 rejected / 待处理 pending） */

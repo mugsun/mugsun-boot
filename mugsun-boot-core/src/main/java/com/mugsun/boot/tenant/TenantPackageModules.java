@@ -36,7 +36,7 @@ public final class TenantPackageModules {
 		GATED.put("/system/sms", Set.of("Sms"));
 		GATED.put("/system/gen", Set.of("Gen"));
 		GATED.put("/system/form", Set.of("FormDesigner"));
-		GATED.put("/system/flow", Set.of("FlowDef", "FlowTodo"));
+		GATED.put("/system/flow", Set.of("FlowDef", "FlowTodo", "FlowCenter", "FlowRunning"));
 		GATED.put("/system/job-server", Set.of("JobServer"));
 		GATED.put("/system/job", Set.of("Job"));
 		GATED.put("/system/report", Set.of("Report"));

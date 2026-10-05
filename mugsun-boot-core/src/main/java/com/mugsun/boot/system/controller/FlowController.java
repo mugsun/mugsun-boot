@@ -187,6 +187,53 @@ public class FlowController {
 		return R.data(flowService.myTodo());
 	}
 
+	/** 待签收：多人共同办理、还没被单独签下的任务 */
+	@GetMapping("/claim-list")
+	public R<List<Row>> claimList() {
+		return R.data(flowService.claimList());
+	}
+
+	/** 签收后只留给当前用户 */
+	@RepeatSubmit(message = "请勿重复签收。如果已经签下，请到待办里办理")
+	@PostMapping("/claim/{taskId}")
+	public R<Void> claim(@PathVariable Long taskId) {
+		flowService.claim(taskId);
+		return R.success("已签收，请到待办里办理");
+	}
+
+	/** 正在办理的流程 */
+	@GetMapping("/running")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:running")
+	public R<List<Row>> running(@RequestParam(required = false) String instanceId,
+								@RequestParam(required = false) String flowCode) {
+		return R.data(flowService.running(instanceId, flowCode));
+	}
+
+	/** 填写原因后终止 */
+	@RepeatSubmit(message = "请勿重复终止。请刷新列表确认流程是否已经停下")
+	@PostMapping("/running/terminate")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:running:terminate")
+	public R<Void> terminateRunning(@RequestBody Map<String, Object> body) {
+		flowService.terminateRunning(longOf(body.get("instanceId")), textOf(body.get("reason")));
+		return R.success("流程已终止");
+	}
+
+	/** 挂起 */
+	@PostMapping("/running/suspend")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:running:active")
+	public R<Void> suspendRunning(@RequestBody Map<String, Object> body) {
+		flowService.suspendRunning(longOf(body.get("instanceId")));
+		return R.success("流程已挂起");
+	}
+
+	/** 恢复 */
+	@PostMapping("/running/resume")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:running:active")
+	public R<Void> resumeRunning(@RequestBody Map<String, Object> body) {
+		flowService.resumeRunning(longOf(body.get("instanceId")));
+		return R.success("流程已恢复");
+	}
+
 	/** 我的抄送 */
 	@GetMapping("/my-copy")
 	public R<List<Row>> myCopy() {
@@ -296,6 +343,21 @@ public class FlowController {
 
 	private String msg(ActionParam param) {
 		return param == null ? null : param.message();
+	}
+
+	private static String textOf(Object raw) {
+		return raw == null ? null : String.valueOf(raw);
+	}
+
+	private static Long longOf(Object raw) {
+		if (raw == null || String.valueOf(raw).isBlank()) {
+			return null;
+		}
+		try {
+			return Long.valueOf(String.valueOf(raw).trim());
+		} catch (NumberFormatException e) {
+			throw new ServiceException("请从列表中选择一条正在办理的流程");
+		}
 	}
 
 	// ==================== 设计 JSON 组装 ====================
