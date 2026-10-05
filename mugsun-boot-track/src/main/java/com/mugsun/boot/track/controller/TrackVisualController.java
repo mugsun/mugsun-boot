@@ -99,7 +99,7 @@ public class TrackVisualController {
 	/** 规则分页：appKey 必填 + status 可选（本租户行级隔离由 Flex 插件自动拼条件），update_time 倒序 */
 	@GetMapping("/rule/page")
 	@SaCheckPermission(TrackConstants.PERM_VISUAL_LIST)
-	public R<Page<TrackVisualRule>> rulePage(@RequestParam String appKey,
+	public R<Page<TrackVisualRule>> rulePage(@RequestParam(required = false) String appKey,
 											 @RequestParam(required = false) Integer status,
 											 @RequestParam(defaultValue = "1") long pageNum,
 											 @RequestParam(defaultValue = "10") long pageSize) {
