@@ -153,7 +153,7 @@ public class TrackRetentionService {
 		String sql = "SELECT count(*) FROM track_app WHERE app_key = ? AND is_deleted = 0" + tenantFrag(null, tenant, args);
 		Long count = jdbc.queryForObject(sql, Long.class, args.toArray());
 		if (count == null || count == 0) {
-			throw new ServiceException("应用不存在或无权访问");
+			throw new ServiceException("应用不存在或无权访问。请刷新应用列表后再看；如果这是别的租户的应用，请用那个租户的账号打开");
 		}
 	}
 

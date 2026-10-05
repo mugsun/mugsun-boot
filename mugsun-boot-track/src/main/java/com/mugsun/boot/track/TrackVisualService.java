@@ -485,7 +485,7 @@ public class TrackVisualService {
 		String sql = "SELECT tenant_id FROM track_app WHERE app_key = ? AND is_deleted = 0" + tenantFrag(tenant, args);
 		List<String> rows = jdbc.queryForList(sql, String.class, args.toArray());
 		if (rows.isEmpty()) {
-			throw new ServiceException("应用不存在或无权访问");
+			throw new ServiceException("应用不存在或无权访问。请刷新应用列表后再看；如果这是别的租户的应用，请用那个租户的账号打开");
 		}
 		return rows.get(0);
 	}
