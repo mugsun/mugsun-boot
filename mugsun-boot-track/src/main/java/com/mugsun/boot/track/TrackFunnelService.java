@@ -174,7 +174,7 @@ public class TrackFunnelService {
 			return TrackConstants.FUNNEL_WINDOW_DEFAULT_HOURS;
 		}
 		if (!TrackConstants.FUNNEL_WINDOW_OPTIONS_HOURS.contains(windowHours)) {
-			throw new ServiceException("转化窗口仅支持 " + TrackConstants.FUNNEL_WINDOW_OPTIONS_HOURS + " 小时");
+			throw new ServiceException("转化窗口只支持 1 小时、24 小时或 7 天。请从列表里重新选择");
 		}
 		return windowHours;
 	}
