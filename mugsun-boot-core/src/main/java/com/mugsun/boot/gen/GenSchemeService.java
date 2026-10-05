@@ -10,6 +10,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,25 +119,23 @@ public class GenSchemeService {
 		return body;
 	}
 
-	public int remove(List<Long> ids) {
+	@Transactional(rollbackFor = Exception.class)
+	public List<GenScheme> remove(List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {
 			throw new ServiceException("请先勾选要删除的生成方案");
 		}
-		int removed = 0;
+		List<GenScheme> rows = new ArrayList<>();
 		for (Long id : ids) {
-			if (id == null) {
-				continue;
-			}
 			GenScheme row = schemeMapper.selectOneById(id);
-			if (row != null) {
-				schemeMapper.deleteById(id);
-				removed++;
+			if (row == null) {
+				throw new ServiceException("这套生成方案不存在，或属于其他租户。请刷新列表后再试");
 			}
+			rows.add(row);
 		}
-		if (removed == 0) {
-			throw new ServiceException("这些生成方案不存在，或属于其他租户。请刷新列表后再删");
+		for (GenScheme row : rows) {
+			schemeMapper.deleteById(row.getId());
 		}
-		return removed;
+		return rows;
 	}
 
 	public static Map<String, Object> view(GenScheme row) {
