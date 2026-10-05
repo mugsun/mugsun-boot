@@ -3038,3 +3038,8 @@ COMMENT ON COLUMN sys_data_audit.client_ip IS '触发这次变更的来源地址
 
 ALTER TABLE sys_post ADD COLUMN category VARCHAR(16);
 COMMENT ON COLUMN sys_post.category IS 'manage 管理 / tech 技术 / biz 业务';
+
+ALTER TABLE sys_dept ADD COLUMN full_name VARCHAR(128);
+ALTER TABLE sys_dept ADD COLUMN category VARCHAR(16);
+COMMENT ON COLUMN sys_dept.full_name IS '部门全称';
+COMMENT ON COLUMN sys_dept.category IS 'company 公司 / dept 部门 / team 小组';
