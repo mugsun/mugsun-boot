@@ -2878,3 +2878,21 @@ CREATE TABLE sys_usual_log (
 COMMENT ON TABLE sys_usual_log IS '通用日志';
 COMMENT ON COLUMN sys_usual_log.log_level IS 'info 信息 / debug 调试 / warn 警告 / error 错误';
 COMMENT ON COLUMN sys_usual_log.log_id IS '业务编号，例如被锁定的账号';
+
+CREATE TABLE sys_job_server (
+	id            BIGINT PRIMARY KEY,
+	tenant_id     VARCHAR(12),
+	server_name   VARCHAR(64)  NOT NULL,
+	server_url    VARCHAR(200) NOT NULL,
+	app_name      VARCHAR(64)  NOT NULL,
+	app_password  VARCHAR(128) NOT NULL,
+	remark        VARCHAR(200),
+	sync_status   INT,
+	sync_msg      VARCHAR(255),
+	sync_time     TIMESTAMP,
+	create_time   TIMESTAMP,
+	update_time   TIMESTAMP,
+	is_deleted    INT          NOT NULL DEFAULT 0
+);
+COMMENT ON TABLE sys_job_server IS '任务服务';
+COMMENT ON COLUMN sys_job_server.sync_status IS '1 已同步 / 0 未连上，空表示还没同步';

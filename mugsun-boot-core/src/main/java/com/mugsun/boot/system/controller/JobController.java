@@ -2,6 +2,7 @@ package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.mugsun.boot.system.service.JobServerRegistry;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.slf4j.Logger;
@@ -45,9 +46,11 @@ public class JobController {
 	private String password;
 
 	private final ApplicationContext applicationContext;
+	private final JobServerRegistry jobServerRegistry;
 
-	public JobController(ApplicationContext applicationContext) {
+	public JobController(ApplicationContext applicationContext, JobServerRegistry jobServerRegistry) {
 		this.applicationContext = applicationContext;
+		this.jobServerRegistry = jobServerRegistry;
 	}
 
 	private volatile PowerJobClient client;
@@ -63,23 +66,34 @@ public class JobController {
 		return client;
 	}
 
+	private PowerJobClient client(Long serverId) {
+		return serverId == null ? client() : jobServerRegistry.openClient(serverId);
+	}
+
 	/** OpenAPI 调用失败转友好业务错误，避免 Server 未起时整页 500 */
 	private <T> T callOpenApi(java.util.function.Supplier<T> action) {
+		return callOpenApi(null, action);
+	}
+
+	private <T> T callOpenApi(Long serverId, java.util.function.Supplier<T> action) {
 		try {
 			return action.get();
 		} catch (ServiceException e) {
 			throw e;
 		} catch (Exception e) {
-			log.warn("PowerJob OpenAPI 不可用 address={}", serverAddress, e);
-			throw new ServiceException("定时任务服务不可用，请先启动 PowerJob Server（" + serverAddress + "）");
+			log.warn("任务服务调用失败 serverId={} err={}", serverId, e.getClass().getSimpleName());
+			if (serverId == null) {
+				throw new ServiceException("定时任务服务不可用，请先启动 PowerJob Server（" + serverAddress + "）");
+			}
+			throw new ServiceException("任务服务暂时连不上。请到任务服务页确认地址可以访问后再试");
 		}
 	}
 
 	/** 任务列表（过滤已删除 status=99） */
 	@SaCheckPermission("sys:job:list")
 	@GetMapping("/list")
-	public R<List<JobInfoDTO>> list() {
-		List<JobInfoDTO> jobs = callOpenApi(() -> client().fetchAllJob().getData());
+	public R<List<JobInfoDTO>> list(@RequestParam(required = false) Long serverId) {
+		List<JobInfoDTO> jobs = callOpenApi(serverId, () -> client(serverId).fetchAllJob().getData());
 		return R.data(jobs == null ? List.of()
 			: jobs.stream().filter(j -> j.getStatus() == null || j.getStatus() != 99).toList());
 	}
@@ -117,7 +131,8 @@ public class JobController {
 		if (type == TimeExpressionType.CRON) {
 			req.setTimeExpression(param.timeExpression());
 		}
-		return R.data(callOpenApi(() -> client().saveJob(req).getData()));
+		Long serverId = param.serverId();
+		return R.data(callOpenApi(serverId, () -> client(serverId).saveJob(req).getData()));
 	}
 
 	/** 处理器校验：必须已在注册表（Spring 容器 BasicProcessor 实现）中，防保存指向不存在类的死任务 */
@@ -137,18 +152,18 @@ public class JobController {
 	/** 立即执行一次（携带任务配置的 jobParams 作为实例参数），返回执行实例ID */
 	@SaCheckPermission("sys:job:run")
 	@PostMapping("/run/{jobId}")
-	public R<Long> run(@PathVariable Long jobId) {
-		JobInfoDTO job = callOpenApi(() -> client().fetchJob(jobId).getData());
+	public R<Long> run(@PathVariable Long jobId, @RequestParam(required = false) Long serverId) {
+		JobInfoDTO job = callOpenApi(serverId, () -> client(serverId).fetchJob(jobId).getData());
 		String instanceParams = job == null || job.getJobParams() == null ? "" : job.getJobParams();
-		return R.data(callOpenApi(() -> client().runJob(jobId, instanceParams, 0L).getData()));
+		return R.data(callOpenApi(serverId, () -> client(serverId).runJob(jobId, instanceParams, 0L).getData()));
 	}
 
 	/** 启用任务 */
 	@SaCheckPermission("sys:job:edit")
 	@PostMapping("/enable/{jobId}")
-	public R<Void> enable(@PathVariable Long jobId) {
-		callOpenApi(() -> {
-			client().enableJob(jobId);
+	public R<Void> enable(@PathVariable Long jobId, @RequestParam(required = false) Long serverId) {
+		callOpenApi(serverId, () -> {
+			client(serverId).enableJob(jobId);
 			return null;
 		});
 		return R.success("已启用");
@@ -157,9 +172,9 @@ public class JobController {
 	/** 停用任务 */
 	@SaCheckPermission("sys:job:edit")
 	@PostMapping("/disable/{jobId}")
-	public R<Void> disable(@PathVariable Long jobId) {
-		callOpenApi(() -> {
-			client().disableJob(jobId);
+	public R<Void> disable(@PathVariable Long jobId, @RequestParam(required = false) Long serverId) {
+		callOpenApi(serverId, () -> {
+			client(serverId).disableJob(jobId);
 			return null;
 		});
 		return R.success("已停用");
@@ -168,9 +183,9 @@ public class JobController {
 	/** 删除任务 */
 	@SaCheckPermission("sys:job:remove")
 	@PostMapping("/delete/{jobId}")
-	public R<Void> delete(@PathVariable Long jobId) {
-		callOpenApi(() -> {
-			client().deleteJob(jobId);
+	public R<Void> delete(@PathVariable Long jobId, @RequestParam(required = false) Long serverId) {
+		callOpenApi(serverId, () -> {
+			client(serverId).deleteJob(jobId);
 			return null;
 		});
 		return R.success("删除成功");
@@ -179,23 +194,24 @@ public class JobController {
 	/** 任务执行日志（最近实例） */
 	@SaCheckPermission("sys:job:list")
 	@GetMapping("/instances")
-	public R<List<InstanceInfoDTO>> instances(@RequestParam Long jobId) {
+	public R<List<InstanceInfoDTO>> instances(@RequestParam Long jobId,
+											 @RequestParam(required = false) Long serverId) {
 		InstancePageQuery query = new InstancePageQuery();
 		query.setJobIdEq(jobId);
 		query.setIndex(0);
 		query.setPageSize(20);
-		return R.data(callOpenApi(() -> client().queryInstanceInfo(query).getData().getData()));
+		return R.data(callOpenApi(serverId, () -> client(serverId).queryInstanceInfo(query).getData().getData()));
 	}
 
 	/** 查询执行实例状态（3 运行中 / 5 成功 / 4 失败） */
 	@SaCheckPermission("sys:job:list")
 	@GetMapping("/status")
-	public R<Integer> status(@RequestParam Long instanceId) {
-		return R.data(callOpenApi(() -> client().fetchInstanceStatus(instanceId).getData()));
+	public R<Integer> status(@RequestParam Long instanceId, @RequestParam(required = false) Long serverId) {
+		return R.data(callOpenApi(serverId, () -> client(serverId).fetchInstanceStatus(instanceId).getData()));
 	}
 
 	/** 任务参数：id 为空则新建；processorInfo 处理器全限定类名；jobParams 任务固定参数；时间表达式类型 API（手动）/ CRON（定时） */
 	public record JobParam(Long id, String jobName, String jobDescription, String processorInfo, String jobParams,
-						   String timeExpressionType, String timeExpression) {
+						   String timeExpressionType, String timeExpression, Long serverId) {
 	}
 }

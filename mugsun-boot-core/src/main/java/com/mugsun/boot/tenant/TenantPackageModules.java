@@ -37,6 +37,7 @@ public final class TenantPackageModules {
 		GATED.put("/system/gen", Set.of("Gen"));
 		GATED.put("/system/form", Set.of("FormDesigner"));
 		GATED.put("/system/flow", Set.of("FlowDef", "FlowTodo"));
+		GATED.put("/system/job-server", Set.of("JobServer"));
 		GATED.put("/system/job", Set.of("Job"));
 		GATED.put("/system/report", Set.of("Report"));
 		GATED.put("/system/region", Set.of("Region"));
@@ -88,6 +89,7 @@ public final class TenantPackageModules {
 		"/system/online",
 		"/system/oss",
 		"/system/cache",
+		"/system/job-server",
 		"/system/job",
 		"/system/api-key",
 		"/system/client",
