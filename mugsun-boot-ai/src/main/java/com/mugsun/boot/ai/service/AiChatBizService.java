@@ -58,25 +58,54 @@ public class AiChatBizService {
 		this.objectMapper = objectMapper;
 	}
 
+	private static final java.util.Set<String> SOURCES = java.util.Set.of(
+		AiConstants.SOURCE_ASSISTANT, AiConstants.SOURCE_APP, AiConstants.SOURCE_DATASET,
+		AiConstants.SOURCE_GENERATOR, AiConstants.SOURCE_OPENAPI);
+	private static final String SOURCE_HINT = "来源请选择助手、应用、问数、生成或开放接口";
+
 	public Page<AiSession> sessionPage(long pageNum, long pageSize, String source) {
 		moduleService.requireEnabled();
+		if (pageNum < 1) {
+			throw new ServiceException("页码请从 1 开始");
+		}
+		if (pageSize < 1 || pageSize > 100) {
+			throw new ServiceException("每页条数请在 1 到 100 之间");
+		}
 		QueryWrapper q = QueryWrapper.create()
 			.eq("user_id", StpUtil.getLoginIdAsLong())
 			.orderBy("last_time", false);
 		if (source != null && !source.isBlank()) {
-			q.eq("source", source.trim());
+			String value = source.trim();
+			if (!SOURCES.contains(value)) {
+				throw new ServiceException(SOURCE_HINT);
+			}
+			q.eq("source", value);
 		}
 		return sessionMapper.paginate(pageNum, pageSize, q);
 	}
 
 	public AiSession createSession(String title, String source, Long bizId, Long modelId) {
 		moduleService.requireEnabled();
+		String name = title == null ? "" : title.trim();
+		if (name.isEmpty()) {
+			name = "新对话";
+		}
+		if (name.length() > 128) {
+			throw new ServiceException("会话标题请控制在 128 个字以内");
+		}
+		String from = source == null || source.isBlank() ? AiConstants.SOURCE_ASSISTANT : source.trim();
+		if (!SOURCES.contains(from)) {
+			throw new ServiceException(SOURCE_HINT);
+		}
+		if (modelId != null) {
+			requireChatModel(modelId);
+		}
 		AiSession s = new AiSession();
 		s.sanitizeForInsert();
 		s.setTenantId(TenantContext.current());
 		s.setUserId(StpUtil.getLoginIdAsLong());
-		s.setTitle(title == null || title.isBlank() ? "新对话" : title);
-		s.setSource(source == null ? AiConstants.SOURCE_ASSISTANT : source);
+		s.setTitle(name);
+		s.setSource(from);
 		s.setBizId(bizId);
 		s.setModelId(modelId);
 		s.setMessageCount(0);
@@ -86,14 +115,49 @@ public class AiChatBizService {
 		return s;
 	}
 
-	public void removeSession(Long id) {
+	public AiSession updateSession(Long id, String title, Long modelId, boolean modelPresent) {
 		moduleService.requireEnabled();
-		requireSession(id);
+		if (id == null) {
+			throw new ServiceException("请先在列表里选择要修改的会话");
+		}
+		AiSession db = requireSession(id);
+		if (title != null) {
+			String name = title.trim();
+			if (name.isEmpty()) {
+				throw new ServiceException("请填写会话标题。用来在列表里区分");
+			}
+			if (name.length() > 128) {
+				throw new ServiceException("会话标题请控制在 128 个字以内");
+			}
+			db.setTitle(name);
+		}
+		if (modelPresent) {
+			if (modelId != null) {
+				requireChatModel(modelId);
+			}
+			db.setModelId(modelId);
+		}
+		db.sanitizeForUpdate();
+		sessionMapper.update(db);
+		return db;
+	}
+
+	public AiSession removeSession(Long id) {
+		moduleService.requireEnabled();
+		if (id == null) {
+			throw new ServiceException("请先选择要删除的会话");
+		}
+		AiSession row = requireSession(id);
+		messageMapper.deleteByQuery(QueryWrapper.create().eq("session_id", id));
 		sessionMapper.deleteById(id);
+		return row;
 	}
 
 	public void clearMessages(Long sessionId) {
 		moduleService.requireEnabled();
+		if (sessionId == null) {
+			throw new ServiceException("请先选择要清空的会话");
+		}
 		requireSession(sessionId);
 		messageMapper.deleteByQuery(QueryWrapper.create().eq("session_id", sessionId));
 		AiSession s = sessionMapper.selectOneById(sessionId);
@@ -459,6 +523,13 @@ public class AiChatBizService {
 		try {
 			emitter.send(SseEmitter.event().name(event).data(objectMapper.writeValueAsString(data)));
 		} catch (IOException ignored) {
+		}
+	}
+
+	private void requireChatModel(Long modelId) {
+		AiModel model = modelBizService.requireRaw(modelId);
+		if (!AiConstants.MODEL_TYPE_CHAT.equals(model.getModelType())) {
+			throw new ServiceException("请选择对话模型。向量模型不能用来聊天");
 		}
 	}
 

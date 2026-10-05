@@ -14,7 +14,7 @@ public final class AiConstants {
 	public static final String MSG_VECTOR_MISSING = "向量库不存在";
 	public static final String MSG_DS_MISSING = "数据源不存在";
 	public static final String MSG_PROMPT_MISSING = "这个提示词不存在。请刷新列表后再试";
-	public static final String MSG_SESSION_MISSING = "会话不存在";
+	public static final String MSG_SESSION_MISSING = "这个会话不存在。请刷新列表后再试";
 	public static final String MSG_SECRET_MISSING = "密钥不存在";
 	public static final String MSG_APP_MISSING = "这个应用不存在。请刷新列表后再试";
 	public static final String MSG_KB_MISSING = "这个知识库不存在。请刷新列表后再试";
