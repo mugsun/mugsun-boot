@@ -87,7 +87,7 @@ public class TrackAdminService {
 		} else {
 			app = appMapper.selectOneByQuery(QueryWrapper.create().where("id = ?", body.getId()));
 			if (app == null) {
-				throw new ServiceException("应用不存在或无权限");
+				throw new ServiceException("这个应用不存在。请刷新列表后再试");
 			}
 			// appKey/tenantId 服务端字段，客户端提交一律忽略（防伪造接管他应用数据）
 			if (body.getAppName() != null) {
@@ -246,10 +246,14 @@ public class TrackAdminService {
 	}
 
 	private String requireAppName(String appName) {
-		if (appName == null || appName.isBlank() || appName.length() > 64) {
-			throw new ServiceException("应用名称必填且 ≤64 字");
+		if (appName == null || appName.isBlank()) {
+			throw new ServiceException("请填写应用名称");
 		}
-		return appName.trim();
+		String name = appName.trim();
+		if (name.length() > 64) {
+			throw new ServiceException("应用名称请控制在 64 个字以内");
+		}
+		return name;
 	}
 
 	private String normalizePlatform(String platform) {

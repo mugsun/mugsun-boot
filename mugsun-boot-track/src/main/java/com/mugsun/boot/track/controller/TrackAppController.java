@@ -4,6 +4,8 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import cn.dev33.satoken.stp.StpUtil;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackAdminService;
 import com.mugsun.boot.track.entity.TrackApp;
@@ -33,9 +35,11 @@ import java.util.Map;
 public class TrackAppController {
 
 	private final TrackAdminService adminService;
+	private final ObjectMapper objectMapper;
 
-	public TrackAppController(TrackAdminService adminService) {
+	public TrackAppController(TrackAdminService adminService, ObjectMapper objectMapper) {
 		this.adminService = adminService;
+		this.objectMapper = objectMapper;
 	}
 
 	// ==================== 应用管理 ====================
@@ -52,10 +56,30 @@ public class TrackAppController {
 	/** 新增/编辑应用（语义见 TrackAdminService.appSubmit；无 id=新增，有 id=编辑） */
 	@PostMapping("/app/submit")
 	@SaCheckPermission(value = {TrackConstants.PERM_APP_ADD, TrackConstants.PERM_APP_EDIT}, mode = SaMode.OR)
-	public R<TrackApp> appSubmit(@RequestBody TrackApp body) {
+	public R<TrackApp> appSubmit(@RequestBody(required = false) JsonNode body) {
+		if (body == null || body.isNull() || !body.isObject()) {
+			throw new ServiceException("请填写应用名称");
+		}
+		boolean edit = body.hasNonNull("id") && !body.get("id").asText().isBlank()
+			&& !"null".equals(body.get("id").asText());
+		if (edit && !body.get("id").asText().trim().matches("\\d{1,19}")) {
+			throw new ServiceException("应用编号请填写数字，可以从列表里复制");
+		}
+		TrackApp app = objectMapper.convertValue(body, TrackApp.class);
 		// 内联精确分码：注解 OR 仅满足守卫探测，真实校验按新增/编辑分别要码
-		StpUtil.checkPermission(body.getId() == null ? TrackConstants.PERM_APP_ADD : TrackConstants.PERM_APP_EDIT);
-		return R.data(adminService.appSubmit(body));
+		StpUtil.checkPermission(app.getId() == null ? TrackConstants.PERM_APP_ADD : TrackConstants.PERM_APP_EDIT);
+		TrackApp saved = adminService.appSubmit(app);
+		String name = saved.getAppName();
+		if (name == null || name.isBlank()) {
+			name = "这个应用";
+		}
+		R<TrackApp> resp = R.data(saved);
+		if (edit) {
+			resp.setMsg("保存成功。「" + name + "」采集会按这里的名称、采样率和开关执行");
+		} else {
+			resp.setMsg("保存成功。「" + name + "」接入片段里的应用标识已经生成");
+		}
+		return resp;
 	}
 
 	/** 删除应用（逻辑删除；缓存即时失效后采集端拒收） */
