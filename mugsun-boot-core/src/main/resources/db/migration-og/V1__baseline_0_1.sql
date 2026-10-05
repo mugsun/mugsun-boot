@@ -2786,3 +2786,23 @@ CREATE TABLE sys_top_menu_menu (
 	is_deleted  INT NOT NULL DEFAULT 0
 );
 COMMENT ON TABLE sys_top_menu_menu IS '顶部菜单方案包含的菜单';
+
+-- 数据权限规则：启用后登记受控表，并在比角色更严时收紧该表的查询
+CREATE TABLE sys_data_scope (
+	id            BIGINT PRIMARY KEY,
+	resource_code VARCHAR(64)  NOT NULL,
+	scope_name    VARCHAR(64)  NOT NULL,
+	menu_id       BIGINT,
+	table_name    VARCHAR(64)  NOT NULL,
+	dept_column   VARCHAR(64)  NOT NULL,
+	user_column   VARCHAR(64)  NOT NULL,
+	scope_type    INT          NOT NULL DEFAULT 1,
+	status        INT          NOT NULL DEFAULT 1,
+	remark        VARCHAR(255),
+	create_time   TIMESTAMP,
+	update_time   TIMESTAMP,
+	is_deleted    INT          NOT NULL DEFAULT 0
+);
+COMMENT ON TABLE sys_data_scope IS '数据权限规则';
+COMMENT ON COLUMN sys_data_scope.scope_type IS '1 全部 / 2 本部门 / 3 本部门及子部门 / 4 仅本人';
+COMMENT ON COLUMN sys_data_scope.status IS '1 启用 / 0 停用';

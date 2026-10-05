@@ -40,6 +40,7 @@ public class DataScopeEngine {
 			query.and(new RawQueryCondition("1 = 0"));
 			return;
 		}
+		ctx = narrow(ctx, tableName);
 		if (ctx.scopes().contains(DataScopeConstants.ALL)) {
 			// 任一角色「全部」→ OR 并集即全部，不注入
 			return;
@@ -62,5 +63,23 @@ public class DataScopeEngine {
 		} else {
 			query.and(combined);
 		}
+	}
+
+	/**
+	 * 启用中的规则比角色更严时，只保留规则范围，避免角色上的「全部」把受控表重新放开。
+	 * 规则不比角色更严时保持角色范围，不会把可见数据放大。
+	 */
+	private static DataScopeContext.Ctx narrow(DataScopeContext.Ctx ctx, String tableName) {
+		DataScopeRuleIndex.Hit hit = DataScopeRuleIndex.find(tableName);
+		if (hit == null || hit.scopeType() == DataScopeConstants.ALL) {
+			return ctx;
+		}
+		int ceiling = DataScopeRuleIndex.rank(hit.scopeType());
+		boolean wider = ctx.scopes().stream().anyMatch(scope -> DataScopeRuleIndex.rank(scope) < ceiling);
+		if (!wider) {
+			return ctx;
+		}
+		return new DataScopeContext.Ctx(ctx.userId(), ctx.deptId(), java.util.Set.of(hit.scopeType()),
+			ctx.customDeptIds(), ctx.subtreeDeptIds(), ctx.customSqls());
 	}
 }

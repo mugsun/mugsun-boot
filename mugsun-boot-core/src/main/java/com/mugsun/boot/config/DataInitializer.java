@@ -65,6 +65,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedFronttestUser();
 			reanchorSeedMenus();
 			seedTopMenuPage();
+			seedDataScopePage();
 			return null;
 		});
 	}
@@ -178,6 +179,32 @@ public class DataInitializer implements CommandLineRunner {
 		seedMenuButton(page.getId(), 1200000000000000144L, "保存顶部菜单", "sys:top-menu:save", 1);
 		seedMenuButton(page.getId(), 1200000000000000145L, "删除顶部菜单", "sys:top-menu:remove", 2);
 		seedMenuButton(page.getId(), 1200000000000000146L, "配置顶部菜单", "sys:top-menu:grant", 3);
+	}
+
+	/** 数据权限规则页。基线已灌过的库靠这里补菜单和按钮权限。 */
+	private void seedDataScopePage() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/data-scope"));
+		if (page == null) {
+			page = new SysMenu();
+			page.setId(1200000000000000147L);
+			page.setParentId(parent.getId());
+			page.setMenuName("数据权限");
+			page.setPath("/system/data-scope");
+			page.setComponent("/system/data-scope");
+			page.setMenuType("C");
+			page.setPermission("sys:data-scope:list");
+			page.setSort(44);
+			page.setIcon("ri:shield-keyhole-line");
+			page.setIsPublic(0);
+			page.setIsHide(0);
+			menuMapper.insert(page);
+		}
+		seedMenuButton(page.getId(), 1200000000000000148L, "保存数据权限", "sys:data-scope:save", 1);
+		seedMenuButton(page.getId(), 1200000000000000149L, "删除数据权限", "sys:data-scope:remove", 2);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {
