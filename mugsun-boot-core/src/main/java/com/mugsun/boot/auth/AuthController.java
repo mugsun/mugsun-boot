@@ -425,7 +425,7 @@ public class AuthController {
 									@RequestParam String state, HttpServletResponse response) throws IOException {
 		com.mugsun.boot.social.SocialProperties.ClientConfig mockCfg = socialProperties.getType().get("mock");
 		if (!socialProperties.isEnabled() || !socialProperties.isMockEnabled() || mockCfg == null) {
-			throw new ServiceException("mock 社交来源未启用");
+			throw new ServiceException("模拟社交来源未启用。这只用于本地联调，请改用已配置的真实来源，或联系管理员后再试");
 		}
 		if (!mockCfg.getRedirectUri().equals(redirectUri)) {
 			throw new ServiceException("redirect_uri 不合法");

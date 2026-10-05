@@ -38,7 +38,7 @@ public class SocialAuthFactory {
 		if ("mock".equals(key)) {
 			// mock provider 仅 dev 联调：身份固定，生产开启即后门，独立开关缺省关闭
 			if (!properties.isMockEnabled()) {
-				throw new ServiceException("mock 社交来源未启用");
+				throw new ServiceException("模拟社交来源未启用。这只用于本地联调，请改用已配置的真实来源，或联系管理员后再试");
 			}
 			AuthConfig authConfig = AuthConfig.builder()
 				.clientId(cfg.getClientId())
