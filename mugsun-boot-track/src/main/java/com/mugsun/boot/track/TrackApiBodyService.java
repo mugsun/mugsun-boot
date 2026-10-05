@@ -99,7 +99,7 @@ public class TrackApiBodyService {
 		TrackApp app = appService.findCollectable(appKey)
 			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用。请到接入管理确认应用还在，并且采集是打开的"));
 		if (app.getApiBodyEnabled() == null || app.getApiBodyEnabled() != 1) {
-			throw new TrackCollectException(400, "应用未开启接口响应体采集");
+			throw new TrackCollectException(400, "这个应用没有打开响应体采集。请到接入管理打开后再上传这段响应体");
 		}
 
 		// 3) 限流（独立键前缀，阈值 = collect 同级；body 频次远低于事件流但仍需防恶意打爆）
