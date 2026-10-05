@@ -11,7 +11,7 @@ public final class AiConstants {
 	public static final String MSG_MODEL_MISSING = "这个模型不存在。请刷新列表后再试";
 	public static final String MSG_MODEL_INACTIVE = "模型未通过探测激活，不可用";
 	public static final String MSG_BUILTIN_LOCKED = "内置配置不可删除";
-	public static final String MSG_VECTOR_MISSING = "向量库不存在";
+	public static final String MSG_VECTOR_MISSING = "这个向量库不存在。请刷新列表后再试";
 	public static final String MSG_DS_MISSING = "这个数据源不存在。请刷新列表后再试";
 	public static final String MSG_PROMPT_MISSING = "这个提示词不存在。请刷新列表后再试";
 	public static final String MSG_SESSION_MISSING = "这个会话不存在。请刷新列表后再试";

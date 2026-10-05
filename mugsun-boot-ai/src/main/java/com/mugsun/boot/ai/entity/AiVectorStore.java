@@ -1,5 +1,6 @@
 package com.mugsun.boot.ai.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.mugsun.boot.common.crypto.Sm4TypeHandler;
 import com.mugsun.core.mybatis.base.BaseEntity;
 import com.mybatisflex.annotation.Table;
@@ -25,9 +26,9 @@ public class AiVectorStore extends BaseEntity {
 	private String indexType;
 	private Integer builtinFlag;
 	private String remark;
-	/** 页面连接串，不落库，拆进 host / port / database。 */
+	/** 页面提交的原始连接串，不落库。 */
 	@Column(ignore = true)
-	private String url;
+	private String submittedUrl;
 
 	public String getTenantId() {
 		return tenantId;
@@ -169,7 +170,31 @@ public class AiVectorStore extends BaseEntity {
 		return port == null ? host : host + ":" + port;
 	}
 
+	/** 供重复提交按名称、类型和地址归并，不带密码。 */
+	@Override
+	public String toString() {
+		String note = remark == null ? "" : remark;
+		String secret = password == null ? "" : password;
+		String raw = submittedUrl == null ? "" : submittedUrl;
+		return (name == null ? "" : name) + "|"
+			+ (storeType == null ? "" : storeType) + "|"
+			+ (host == null ? "" : host) + "|"
+			+ (port == null ? "" : port) + "|"
+			+ (databaseName == null ? "" : databaseName) + "|"
+			+ (dimensions == null ? "" : dimensions) + "|"
+			+ raw.length() + ":" + Integer.toHexString(raw.hashCode()) + "|"
+			+ note.length() + ":" + Integer.toHexString(note.hashCode()) + "|"
+			+ secret.length() + ":" + Integer.toHexString(secret.hashCode()) + "|"
+			+ (getId() == null ? "" : getId());
+	}
+
+	@JsonIgnore
+	public String getSubmittedUrl() {
+		return submittedUrl;
+	}
+
 	public void setUrl(String url) {
+		this.submittedUrl = url;
 		if (url == null || url.isBlank()) {
 			return;
 		}
