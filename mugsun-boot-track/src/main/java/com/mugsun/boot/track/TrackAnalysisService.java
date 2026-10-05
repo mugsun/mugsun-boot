@@ -450,7 +450,7 @@ public class TrackAnalysisService {
 	public Page<Map<String, Object>> errorDetail(String appKey, String fingerprint, Integer days, long pageNum, long pageSize) {
 		appKey = assertAppKey(appKey);
 		if (fingerprint == null || fingerprint.isBlank()) {
-			throw new ServiceException("缺少 fingerprint");
+			throw new ServiceException("请先从错误列表里打开一组错误。明细是按这组错误分开的");
 		}
 		String tenant = currentTenant();
 		int d = clampDays(days);

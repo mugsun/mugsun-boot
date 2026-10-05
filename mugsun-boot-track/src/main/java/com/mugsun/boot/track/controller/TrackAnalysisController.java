@@ -123,7 +123,7 @@ public class TrackAnalysisController {
 	@GetMapping("/errors/detail")
 	@SaCheckPermission(TrackConstants.PERM_ERROR_LIST)
 	public R<Page<Map<String, Object>>> errorDetail(@RequestParam(required = false) String appKey,
-													@RequestParam String fingerprint,
+													@RequestParam(required = false) String fingerprint,
 													@RequestParam(required = false) Integer days,
 													@RequestParam(defaultValue = "1") long pageNum,
 													@RequestParam(defaultValue = "10") long pageSize) {
