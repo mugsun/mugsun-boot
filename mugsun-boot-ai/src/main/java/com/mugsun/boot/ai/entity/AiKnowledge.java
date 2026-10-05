@@ -148,4 +148,17 @@ public class AiKnowledge extends BaseEntity {
 	public void setSegmentCount(Integer segmentCount) {
 		this.segmentCount = segmentCount;
 	}
+
+	/** 供重复提交按名称和检索方式归并。 */
+	@Override
+	public String toString() {
+		String desc = description == null ? "" : description;
+		return (name == null ? "" : name) + "|"
+			+ (retrievalMode == null ? "" : retrievalMode) + "|"
+			+ (status == null ? "" : status) + "|"
+			+ (topK == null ? "" : topK) + "|"
+			+ (minScore == null ? "" : minScore.toPlainString()) + "|"
+			+ desc.length() + ":" + Integer.toHexString(desc.hashCode()) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }

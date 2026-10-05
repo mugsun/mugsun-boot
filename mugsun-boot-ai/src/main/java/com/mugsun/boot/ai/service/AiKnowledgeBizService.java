@@ -56,8 +56,16 @@ public class AiKnowledgeBizService {
 		this.webClientBuilder = webClientBuilder;
 	}
 
+	private static final java.util.Set<String> MODES = java.util.Set.of("hybrid", "vector", "keyword");
+
 	public Page<AiKnowledge> page(long pageNum, long pageSize, String name) {
 		moduleService.requireEnabled();
+		if (pageNum < 1) {
+			throw new ServiceException("页码请从 1 开始");
+		}
+		if (pageSize < 1 || pageSize > 100) {
+			throw new ServiceException("每页条数请在 1 到 100 之间");
+		}
 		QueryWrapper q = QueryWrapper.create().orderBy("id", false);
 		if (name != null && !name.isBlank()) {
 			q.like("name", name.trim());
@@ -79,9 +87,47 @@ public class AiKnowledgeBizService {
 
 	public AiKnowledge submit(AiKnowledge body) {
 		moduleService.requireEnabled();
-		if (body.getName() == null || body.getName().isBlank()) {
-			throw new ServiceException("请填写知识库名称");
+		if (body == null) {
+			throw new ServiceException("请填写知识库名称。用来在列表里区分");
 		}
+		String name = body.getName() == null ? "" : body.getName().trim();
+		if (name.isEmpty()) {
+			throw new ServiceException("请填写知识库名称。用来在列表里区分");
+		}
+		if (name.length() > 64) {
+			throw new ServiceException("知识库名称请控制在 64 个字以内");
+		}
+		String description = body.getDescription() == null ? null : body.getDescription().trim();
+		if (description != null && description.length() > 200) {
+			throw new ServiceException("描述请控制在 200 个字以内");
+		}
+		String mode = body.getRetrievalMode() == null ? "" : body.getRetrievalMode().trim();
+		if (mode.isEmpty()) {
+			mode = "hybrid";
+		}
+		if (!MODES.contains(mode)) {
+			throw new ServiceException("检索请选择混合、向量或关键词");
+		}
+		if (body.getTopK() != null && (body.getTopK() < 1 || body.getTopK() > 20)) {
+			throw new ServiceException("返回条数请填 1 到 20");
+		}
+		if (body.getMinScore() != null
+			&& (body.getMinScore().compareTo(BigDecimal.ZERO) < 0 || body.getMinScore().compareTo(BigDecimal.ONE) > 0)) {
+			throw new ServiceException("最低分请填 0 到 1 之间的数");
+		}
+		if (body.getStatus() != null && body.getStatus() != 0 && body.getStatus() != 1) {
+			throw new ServiceException("状态请选择启用或停用");
+		}
+		if (body.getEmbeddingModelId() != null) {
+			AiModel model = modelBizService.requireRaw(body.getEmbeddingModelId());
+			if (!AiConstants.MODEL_TYPE_EMBEDDING.equals(model.getModelType())) {
+				throw new ServiceException("请选择向量模型。对话模型不能用来做知识库检索");
+			}
+		}
+		body.setName(name);
+		body.setDescription(description == null || description.isEmpty() ? null : description);
+		body.setRetrievalMode(mode);
+		requireUniqueName(name, body.getId());
 		if (body.getId() == null) {
 			body.sanitizeForInsert();
 			body.setTenantId(TenantContext.current());
@@ -91,9 +137,6 @@ public class AiKnowledgeBizService {
 			if (body.getTopK() == null) {
 				body.setTopK(6);
 			}
-			if (body.getRetrievalMode() == null || body.getRetrievalMode().isBlank()) {
-				body.setRetrievalMode("hybrid");
-			}
 			if (body.getMinScore() == null) {
 				body.setMinScore(new BigDecimal("0.35"));
 			}
@@ -101,20 +144,32 @@ public class AiKnowledgeBizService {
 				body.setRerankFlag(AiConstants.FLAG_NO);
 			}
 			knowledgeMapper.insert(body);
-		} else {
-			body.sanitizeForUpdate();
-			knowledgeMapper.update(body);
+			return body;
 		}
+		AiKnowledge db = require(body.getId());
+		body.setTenantId(db.getTenantId());
+		body.sanitizeForUpdate();
+		knowledgeMapper.update(body);
 		return body;
 	}
 
-	public void remove(List<Long> ids) {
+	public List<AiKnowledge> remove(List<Long> ids) {
 		moduleService.requireEnabled();
-		for (Long id : ids) {
-			require(id);
-			vectorStore.deleteByKnowledge(id);
-			knowledgeMapper.deleteById(id);
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先选择要删除的知识库");
 		}
+		List<AiKnowledge> rows = new ArrayList<>();
+		for (Long id : ids) {
+			if (id == null) {
+				throw new ServiceException("知识库编号请填写数字，可以从列表里复制");
+			}
+			rows.add(require(id));
+		}
+		for (AiKnowledge row : rows) {
+			vectorStore.deleteByKnowledge(row.getId());
+			knowledgeMapper.deleteById(row.getId());
+		}
+		return rows;
 	}
 
 	/** 复制知识库配置壳（不含资料/分段），名称加「-副本」 */
@@ -125,7 +180,12 @@ public class AiKnowledgeBizService {
 		dst.sanitizeForInsert();
 		dst.setTenantId(TenantContext.current());
 		dst.setIcon(src.getIcon());
-		dst.setName((src.getName() == null ? "知识库" : src.getName()) + "-副本");
+		String copyName = (src.getName() == null ? "知识库" : src.getName()) + "-副本";
+		if (copyName.length() > 64) {
+			throw new ServiceException("复制后的名称会超过 64 个字。请先把原知识库名称改短再复制");
+		}
+		requireUniqueName(copyName, null);
+		dst.setName(copyName);
 		dst.setDescription(src.getDescription());
 		dst.setVectorStoreId(src.getVectorStoreId());
 		dst.setEmbeddingModelId(src.getEmbeddingModelId());
@@ -143,22 +203,33 @@ public class AiKnowledgeBizService {
 	/** 列表页快捷测试：走同一套 hitTest，返回摘要 */
 	public Map<String, Object> test(Long id, String query) {
 		moduleService.requireEnabled();
-		String q = (query == null || query.isBlank()) ? "知识库" : query.trim();
+		if (id == null) {
+			throw new ServiceException("请先在列表里选择要测试的知识库");
+		}
+		if (query == null || query.isBlank()) {
+			throw new ServiceException("请先填写要测试的问题。用来看能不能检索到资料");
+		}
+		String q = query.trim();
 		List<Map<String, Object>> hits = hitTest(id, q, 0);
 		Map<String, Object> out = new HashMap<>();
 		out.put("ok", true);
 		out.put("hitCount", hits.size());
 		out.put("query", q);
 		out.put("hits", hits);
-		out.put("message", hits.isEmpty() ? "未命中分段，请确认已上传资料并完成向量化" : ("命中 " + hits.size() + " 条分段"));
+		out.put("message", hits.isEmpty()
+			? "没有命中资料。请先上传内容，或换一个更接近原文的问题再测"
+			: ("命中 " + hits.size() + " 条。可以打开知识库核对这些分段"));
 		return out;
 	}
 
 	public void updateStatus(Long id, Integer status) {
 		moduleService.requireEnabled();
+		if (id == null) {
+			throw new ServiceException("请先在列表里选择要改状态的知识库");
+		}
 		AiKnowledge kb = require(id);
-		if (status == null) {
-			throw new ServiceException("缺少 status");
+		if (status == null || (status != 0 && status != 1)) {
+			throw new ServiceException("状态请选择启用或停用");
 		}
 		kb.setStatus(status);
 		kb.sanitizeForUpdate();
@@ -178,7 +249,7 @@ public class AiKnowledgeBizService {
 		}
 		String text = resolveContent(body);
 		if (text == null || text.isBlank()) {
-			throw new ServiceException("请提供 contentText 正文或可访问的 fileUrl");
+			throw new ServiceException("请先贴上正文，或填写能打开的文件地址。没有内容就没法分段");
 		}
 		body.setContentText(text);
 		assetMapper.insert(body);
@@ -309,16 +380,24 @@ public class AiKnowledgeBizService {
 			QueryWrapper.create().eq("knowledge_id", knowledgeId).orderBy("id", false));
 	}
 
-	public void removeAssets(List<Long> ids) {
+	public List<AiKnowledgeAsset> removeAssets(List<Long> ids) {
 		moduleService.requireEnabled();
 		if (ids == null || ids.isEmpty()) {
-			return;
+			throw new ServiceException("请先选择要删除的资料");
 		}
+		List<AiKnowledgeAsset> rows = new ArrayList<>();
 		for (Long id : ids) {
-			AiKnowledgeAsset a = assetMapper.selectOneById(id);
-			if (a == null) {
-				continue;
+			if (id == null) {
+				throw new ServiceException("资料编号请填写数字，可以从列表里复制");
 			}
+			AiKnowledgeAsset asset = assetMapper.selectOneById(id);
+			if (asset == null) {
+				throw new ServiceException("这份资料不存在。请刷新列表后再试");
+			}
+			rows.add(asset);
+		}
+		for (AiKnowledgeAsset a : rows) {
+			Long id = a.getId();
 			List<AiKnowledgeSegment> segs = segmentMapper.selectListByQuery(
 				QueryWrapper.create().eq("asset_id", id));
 			for (AiKnowledgeSegment s : segs) {
@@ -327,13 +406,14 @@ public class AiKnowledgeBizService {
 			}
 			assetMapper.deleteById(id);
 		}
+		return rows;
 	}
 
 	public AiKnowledgeAsset resegmentAsset(Long assetId) {
 		moduleService.requireEnabled();
 		AiKnowledgeAsset asset = assetMapper.selectOneById(assetId);
 		if (asset == null) {
-			throw new ServiceException("资料不存在");
+			throw new ServiceException("这份资料不存在。请刷新列表后再试");
 		}
 		AiKnowledge kb = require(asset.getKnowledgeId());
 		List<AiKnowledgeSegment> old = segmentMapper.selectListByQuery(
@@ -344,7 +424,7 @@ public class AiKnowledgeBizService {
 		}
 		String text = resolveContent(asset);
 		if (text == null || text.isBlank()) {
-			throw new ServiceException("资料无正文，无法重分段");
+			throw new ServiceException("这份资料还没有正文。请重新上传后再分段");
 		}
 		int len = asset.getSegmentLength() == null || asset.getSegmentLength() <= 0 ? 500 : asset.getSegmentLength();
 		int overlap = asset.getSegmentOverlap() == null ? 50 : Math.max(0, asset.getSegmentOverlap());
@@ -384,11 +464,11 @@ public class AiKnowledgeBizService {
 	public AiKnowledgeSegment saveSegment(AiKnowledgeSegment body) {
 		moduleService.requireEnabled();
 		if (body.getId() == null) {
-			throw new ServiceException("缺少分段 id");
+			throw new ServiceException("请先在列表里选择要修改的分段");
 		}
 		AiKnowledgeSegment db = segmentMapper.selectOneById(body.getId());
 		if (db == null) {
-			throw new ServiceException("分段不存在");
+			throw new ServiceException("这个分段不存在。请刷新列表后再试");
 		}
 		if (body.getContent() != null) {
 			db.setContent(body.getContent());
@@ -406,7 +486,7 @@ public class AiKnowledgeBizService {
 		moduleService.requireEnabled();
 		AiKnowledgeSegment db = segmentMapper.selectOneById(id);
 		if (db == null) {
-			throw new ServiceException("分段不存在");
+			throw new ServiceException("这个分段不存在。请刷新列表后再试");
 		}
 		if (enabled != null) {
 			db.setEnabled(enabled);
@@ -696,6 +776,16 @@ public class AiKnowledgeBizService {
 
 	static List<String> chunk(String text, int length, int overlap, String type, String symbol) {
 		return AiTextSplitter.split(text, length, overlap, type, symbol);
+	}
+
+	private void requireUniqueName(String name, Long excludeId) {
+		QueryWrapper q = QueryWrapper.create().eq("name", name);
+		if (excludeId != null) {
+			q.ne("id", excludeId);
+		}
+		if (knowledgeMapper.selectCountByQuery(q) > 0) {
+			throw new ServiceException("已经有叫「" + name + "」的知识库。请换一个名称，或打开原来那个");
+		}
 	}
 
 	private AiKnowledge require(Long id) {
