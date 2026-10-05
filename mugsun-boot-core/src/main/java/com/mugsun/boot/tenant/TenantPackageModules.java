@@ -122,11 +122,11 @@ public final class TenantPackageModules {
 	/**
 	 * 平台超管专属「写」路径：GET 只读放行（租户管理员授权 UI/字典运行时依赖菜单树等只读数据），
 	 * 非 GET 写请求仅平台超管——sys_menu/sys_dict/sys_param 为平台全局表，租户不得改写。
+	 * 业务字典按租户隔离，各租户在自己的权限内维护，不放进这份名单。
 	 */
 	private static final List<String> PLATFORM_WRITE_PREFIXES = List.of(
 		"/system/menu",
 		"/system/dict",
-		"/system/dict-biz",
 		"/system/param",
 		"/system/client"
 	);
