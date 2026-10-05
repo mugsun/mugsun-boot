@@ -60,4 +60,17 @@ public class AiChannelBind extends BaseEntity {
 	public void setStatus(Integer status) {
 		this.status = status;
 	}
+
+	/** 供重复提交按渠道、名称和状态归并，不展开 Webhook 原文。 */
+	@Override
+	public String toString() {
+		String sample = paramsSample == null ? "" : paramsSample;
+		String template = templateCode == null ? "" : templateCode;
+		return (channelCode == null ? "" : channelCode) + "|"
+			+ (alias == null ? "" : alias) + "|"
+			+ (status == null ? "" : status) + "|"
+			+ template.length() + ":" + Integer.toHexString(template.hashCode()) + "|"
+			+ sample.length() + ":" + Integer.toHexString(sample.hashCode()) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }
