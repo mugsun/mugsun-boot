@@ -16,7 +16,7 @@ public final class AiConstants {
 	public static final String MSG_PROMPT_MISSING = "提示词不存在";
 	public static final String MSG_SESSION_MISSING = "会话不存在";
 	public static final String MSG_SECRET_MISSING = "密钥不存在";
-	public static final String MSG_APP_MISSING = "应用不存在";
+	public static final String MSG_APP_MISSING = "这个应用不存在。请刷新列表后再试";
 	public static final String MSG_KB_MISSING = "知识库不存在";
 	public static final String MSG_DATASET_MISSING = "问数智能体不存在";
 	public static final String MSG_DASHBOARD_MISSING = "仪表盘不存在";

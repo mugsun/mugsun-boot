@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class AiAppBizService {
@@ -38,14 +39,27 @@ public class AiAppBizService {
 		this.flowExecutor = flowExecutor;
 	}
 
+	private static final Set<String> APP_TYPES = Set.of("workflow", "text", "chat", "chatflow");
+	private static final String TYPE_HINT = "类型请选择工作流、文本生成、对话助手或对话流程";
+
 	public Page<AiApp> page(long pageNum, long pageSize, String name, String appType) {
 		moduleService.requireEnabled();
+		if (pageNum < 1) {
+			throw new ServiceException("页码请从 1 开始");
+		}
+		if (pageSize < 1 || pageSize > 100) {
+			throw new ServiceException("每页条数请在 1 到 100 之间");
+		}
 		QueryWrapper q = QueryWrapper.create().orderBy("id", false);
 		if (name != null && !name.isBlank()) {
 			q.like("name", name.trim());
 		}
 		if (appType != null && !appType.isBlank()) {
-			q.eq("app_type", appType.trim());
+			String type = appType.trim();
+			if (!APP_TYPES.contains(type)) {
+				throw new ServiceException(TYPE_HINT);
+			}
+			q.eq("app_type", type);
 		}
 		return mapper.paginate(pageNum, pageSize, q);
 	}
@@ -57,9 +71,31 @@ public class AiAppBizService {
 
 	public AiApp submit(AiApp body) {
 		moduleService.requireEnabled();
-		if (body.getName() == null || body.getName().isBlank()) {
-			throw new ServiceException("请填写应用名称");
+		if (body == null) {
+			throw new ServiceException("请填写应用名称。用来在列表里区分");
 		}
+		String name = body.getName() == null ? "" : body.getName().trim();
+		if (name.isEmpty()) {
+			throw new ServiceException("请填写应用名称。用来在列表里区分");
+		}
+		if (name.length() > 64) {
+			throw new ServiceException("应用名称请控制在 64 个字以内");
+		}
+		String type = body.getAppType() == null ? "" : body.getAppType().trim();
+		if (!APP_TYPES.contains(type)) {
+			throw new ServiceException(TYPE_HINT);
+		}
+		String description = body.getDescription() == null ? null : body.getDescription().trim();
+		if (description != null && description.length() > 200) {
+			throw new ServiceException("描述请控制在 200 个字以内");
+		}
+		if (body.getStatus() != null && body.getStatus() != 0 && body.getStatus() != 1) {
+			throw new ServiceException("状态请选择启用或停用");
+		}
+		body.setName(name);
+		body.setAppType(type);
+		body.setDescription(description == null || description.isEmpty() ? null : description);
+		requireUniqueName(name, body.getId());
 		if (body.getId() == null) {
 			body.sanitizeForInsert();
 			body.setTenantId(TenantContext.current());
@@ -70,7 +106,7 @@ public class AiAppBizService {
 				body.setVersion(1);
 			}
 			if (body.getDsl() == null || body.getDsl().isBlank()) {
-				body.setDsl(defaultDsl(body.getAppType()));
+				body.setDsl(defaultDsl(type));
 			}
 			mapper.insert(body);
 		} else {
@@ -85,21 +121,39 @@ public class AiAppBizService {
 		return body;
 	}
 
-	public void remove(List<Long> ids) {
+	public List<AiApp> remove(List<Long> ids) {
 		moduleService.requireEnabled();
-		for (Long id : ids) {
-			require(id);
-			mapper.deleteById(id);
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先选择要删除的应用");
 		}
+		List<AiApp> rows = new java.util.ArrayList<>();
+		for (Long id : ids) {
+			if (id == null) {
+				throw new ServiceException("应用编号请填写数字，可以从列表里复制");
+			}
+			rows.add(require(id));
+		}
+		for (AiApp row : rows) {
+			mapper.deleteById(row.getId());
+		}
+		return rows;
 	}
 
 	public AiApp copy(Long id) {
 		moduleService.requireEnabled();
+		if (id == null) {
+			throw new ServiceException("请先在列表里选择要复制的应用");
+		}
 		AiApp src = require(id);
+		String name = src.getName() + " 副本";
+		if (name.length() > 64) {
+			throw new ServiceException("复制后的名称会超过 64 个字。请先把原应用名称改短再复制");
+		}
+		requireUniqueName(name, null);
 		AiApp copy = new AiApp();
 		copy.sanitizeForInsert();
 		copy.setTenantId(TenantContext.current());
-		copy.setName(src.getName() + " 副本");
+		copy.setName(name);
 		copy.setAppType(src.getAppType());
 		copy.setDescription(src.getDescription());
 		copy.setDsl(src.getDsl());
@@ -108,6 +162,16 @@ public class AiAppBizService {
 		copy.setVersion(1);
 		mapper.insert(copy);
 		return copy;
+	}
+
+	private void requireUniqueName(String name, Long excludeId) {
+		QueryWrapper q = QueryWrapper.create().eq("name", name);
+		if (excludeId != null) {
+			q.ne("id", excludeId);
+		}
+		if (mapper.selectCountByQuery(q) > 0) {
+			throw new ServiceException("已经有叫「" + name + "」的应用。请换一个名称，或打开原来那个");
+		}
 	}
 
 	public AiApp saveDsl(Long id, String dsl) {

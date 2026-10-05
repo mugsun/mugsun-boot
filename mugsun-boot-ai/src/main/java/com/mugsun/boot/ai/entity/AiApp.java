@@ -141,4 +141,13 @@ public class AiApp extends BaseEntity {
 	public void setVersion(Integer version) {
 		this.version = version;
 	}
+
+	/** 供重复提交按名称、类型和描述归并，不展开编排内容。 */
+	@Override
+	public String toString() {
+		return (name == null ? "" : name) + "|"
+			+ (appType == null ? "" : appType) + "|"
+			+ (description == null ? "" : description) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }

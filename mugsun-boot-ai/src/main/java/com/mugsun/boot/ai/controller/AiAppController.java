@@ -6,14 +6,16 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiApp;
 import com.mugsun.boot.ai.entity.AiAppRun;
 import com.mugsun.boot.ai.service.AiAppBizService;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/system/ai/app")
@@ -41,17 +43,25 @@ public class AiAppController {
 						   @RequestParam(value = "id", required = false) Long queryId) {
 		Long real = id != null ? id : queryId;
 		if (real == null) {
-			return R.fail("缺少 id");
+			throw new ServiceException("请从列表中选择一个应用后再查看");
 		}
 		return R.data(service.detail(real));
 	}
 
+	@RepeatSubmit
 	@PostMapping("/submit")
 	@SaCheckPermission(AiConstants.PERM_APP_SAVE)
-	public R<AiApp> submit(@RequestBody AiApp body) {
-		return R.data(service.submit(body));
+	public R<AiApp> submit(@RequestBody(required = false) AiApp body) {
+		boolean create = body == null || body.getId() == null;
+		AiApp saved = service.submit(body);
+		R<AiApp> result = R.data(saved);
+		result.setMsg(create
+			? "已创建。可以点编排继续设计"
+			: "已保存。列表会显示最新内容");
+		return result;
 	}
 
+	@RepeatSubmit
 	@PostMapping("/remove")
 	@SaCheckPermission(AiConstants.PERM_APP_REMOVE)
 	public R<Void> remove(@RequestParam(required = false) String ids, @RequestBody(required = false) Map<String, Object> body) {
@@ -60,17 +70,45 @@ public class AiAppController {
 			raw = String.valueOf(body.get("id"));
 		}
 		if (raw == null || raw.isBlank()) {
-			return R.fail("缺少 id");
+			throw new ServiceException("请先选择要删除的应用");
 		}
-		service.remove(Arrays.stream(raw.split(",")).filter(s -> !s.isBlank()).map(Long::valueOf).collect(Collectors.toList()));
-		return R.success("删除成功");
+		List<Long> parsed = new ArrayList<>();
+		for (String part : raw.split(",")) {
+			if (part == null || part.isBlank()) {
+				continue;
+			}
+			parsed.add(parseId(part));
+		}
+		List<AiApp> removed = service.remove(parsed);
+		if (removed.size() == 1) {
+			return R.success("已删除「" + removed.get(0).getName() + "」。列表里不会再出现");
+		}
+		return R.success("已删除 " + removed.size() + " 个应用。列表里不会再出现");
 	}
 
+	@RepeatSubmit
 	@PostMapping("/copy")
 	@SaCheckPermission(AiConstants.PERM_APP_COPY)
-	public R<AiApp> copy(@RequestParam(required = false) Long id, @RequestBody(required = false) Map<String, Object> body) {
-		Long real = id != null ? id : (body == null || body.get("id") == null ? null : Long.valueOf(String.valueOf(body.get("id"))));
-		return R.data(service.copy(real));
+	public R<AiApp> copy(@RequestParam(required = false) String id, @RequestBody(required = false) Map<String, Object> body) {
+		Object raw = id;
+		if (raw == null && body != null) {
+			raw = body.get("id");
+		}
+		if (raw == null || String.valueOf(raw).isBlank()) {
+			throw new ServiceException("请先在列表里选择要复制的应用");
+		}
+		AiApp copied = service.copy(parseId(raw));
+		R<AiApp> result = R.data(copied);
+		result.setMsg("已复制「" + copied.getName() + "」。列表里可以打开这份副本");
+		return result;
+	}
+
+	private static Long parseId(Object raw) {
+		String text = String.valueOf(raw).trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("应用编号请填写数字，可以从列表里复制");
+		}
+		return Long.valueOf(text);
 	}
 
 	@PostMapping("/dsl/save")
