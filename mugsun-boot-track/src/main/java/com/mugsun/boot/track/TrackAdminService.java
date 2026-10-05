@@ -284,7 +284,7 @@ public class TrackAdminService {
 			return TrackConstants.DEFAULT_RETENTION_DAYS;
 		}
 		if (retentionDays < 1 || retentionDays > 3650) {
-			throw new ServiceException("保留天数须 1..3650");
+			throw new ServiceException("保留天数只支持 1 到 3650 天。请改到这个范围里再保存");
 		}
 		return retentionDays;
 	}
