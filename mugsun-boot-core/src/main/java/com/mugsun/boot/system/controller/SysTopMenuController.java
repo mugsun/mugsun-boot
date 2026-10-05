@@ -338,7 +338,7 @@ public class SysTopMenuController {
 	private SysTopMenu requireOwn(Long id) {
 		SysTopMenu row = topMenuMapper.selectOneById(id);
 		if (row == null) {
-			throw new ServiceException("方案不存在或已删除");
+			throw new ServiceException("方案不存在或已删除。请刷新列表后再操作");
 		}
 		return row;
 	}
