@@ -331,7 +331,8 @@ public class TrackAdminService {
 			return TrackConstants.API_BODY_DEFAULT_RETENTION_DAYS;
 		}
 		if (retentionDays < 1 || retentionDays > TrackConstants.API_BODY_MAX_RETENTION_DAYS) {
-			throw new ServiceException("响应体保留天数须 1.." + TrackConstants.API_BODY_MAX_RETENTION_DAYS);
+			throw new ServiceException("响应体保留天数只支持 1 到 " + TrackConstants.API_BODY_MAX_RETENTION_DAYS
+				+ " 天。响应体比事件大得多，请改到这个范围里再保存");
 		}
 		return retentionDays;
 	}
