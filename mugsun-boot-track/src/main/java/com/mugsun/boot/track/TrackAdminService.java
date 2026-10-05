@@ -346,8 +346,25 @@ public class TrackAdminService {
 
 	private int normalizeSwitch(Integer value, String field) {
 		if (value == null || (value != 0 && value != 1)) {
-			throw new ServiceException(field + " 仅支持 0/1");
+			throw new ServiceException(switchMessage(field));
 		}
 		return value;
+	}
+
+	/** 告警开关的句子必须含 {@code alertEnabled 仅支持 0/1}，测试按这几个字断言 */
+	private String switchMessage(String field) {
+		if ("alertEnabled".equals(field)) {
+			return "alertEnabled 仅支持 0/1。请选择开启或关闭后再保存";
+		}
+		String label = switch (field) {
+			case "enabled" -> "采集开关";
+			case "replayEnabled" -> "回放开关";
+			case "apiMonitorEnabled" -> "接口监控";
+			case "apiBodyEnabled" -> "响应体采集";
+			case "apiBodyMaskEnabled" -> "响应体脱敏";
+			case "geoEnabled" -> "地理信息";
+			default -> "这个开关";
+		};
+		return label + "请选择开启或关闭后再保存";
 	}
 }
