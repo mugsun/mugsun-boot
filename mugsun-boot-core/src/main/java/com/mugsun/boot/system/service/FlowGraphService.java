@@ -194,7 +194,7 @@ public class FlowGraphService {
 			throw new ServiceException("条件规则缺少字段或运算符。请补上字段和运算符后再发布");
 		}
 		if (!OPS.contains(r.op())) {
-			throw new ServiceException("不支持的条件运算符：" + r.op());
+			throw new ServiceException("不支持的条件运算符。请改成等于、不等于、大于、大于等于、小于、小于等于、包含或不包含后再发布");
 		}
 		// 变量名限定为合法标识符：杜绝 SpEL 注入（如 T(Runtime)…）与破坏 @@/| 分隔的字符
 		if (!FIELD_PATTERN.matcher(r.field().trim()).matches()) {
@@ -225,7 +225,7 @@ public class FlowGraphService {
 			case "le" -> field + " <= " + v;
 			case "like" -> field + " != null && " + field + ".contains(" + v + ")";
 			case "notLike" -> "(" + field + " == null || !" + field + ".contains(" + v + "))";
-			default -> throw new ServiceException("不支持的条件运算符：" + r.op());
+			default -> throw new ServiceException("不支持的条件运算符。请改成等于、不等于、大于、大于等于、小于、小于等于、包含或不包含后再发布");
 		};
 	}
 
