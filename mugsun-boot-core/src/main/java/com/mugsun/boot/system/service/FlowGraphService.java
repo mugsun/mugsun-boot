@@ -287,7 +287,7 @@ public class FlowGraphService {
 			try {
 				node.put("ext", objectMapper.writeValueAsString(fieldPerms));
 			} catch (Exception e) {
-				throw new ServiceException("字段权限序列化失败");
+				throw new ServiceException("字段权限序列化失败。请重新配置字段权限后再发布");
 			}
 		}
 	}
