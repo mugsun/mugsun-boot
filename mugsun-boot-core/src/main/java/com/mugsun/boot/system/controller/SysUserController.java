@@ -620,7 +620,7 @@ public class SysUserController {
 		SysUser existing = userMapper.selectOneByQuery(QueryWrapper.create().eq("username", username));
 		if (existing != null) {
 			if (!updateSupport) {
-				throw new com.mugsun.core.tool.exception.ServiceException("已存在");
+				throw new com.mugsun.core.tool.exception.ServiceException("已存在。请改一个用户名，或打开覆盖后再导入");
 			}
 			// 覆盖更新：仅模板承载字段（不更新密码/手机号）；空白字段视为「不更新」，置 null 交 Flex update 忽略、保留原值
 			assertTargetOperable(existing.getId(), true);
