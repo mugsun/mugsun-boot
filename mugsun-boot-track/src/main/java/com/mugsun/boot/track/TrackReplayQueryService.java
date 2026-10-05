@@ -127,9 +127,7 @@ public class TrackReplayQueryService {
 	 */
 	public List<Map<String, Object>> sessionEvents(String appKey, String sessionId) {
 		appKey = requireAppKey(appKey);
-		if (sessionId == null || sessionId.isBlank() || sessionId.length() > TrackConstants.SESSION_ID_MAX_LEN) {
-			throw new ServiceException("无效 sessionId");
-		}
+		sessionId = requireSessionId(sessionId);
 		// 会话归属校验（Flex 租户插件自动隔离：跨租户命中「不存在」→ 空数组，与事件查询租户口径一致）
 		TrackSession session = sessionMapper.selectOneByQuery(QueryWrapper.create()
 			.eq("app_key", appKey.trim()).eq("session_id", sessionId.trim()));
@@ -158,12 +156,18 @@ public class TrackReplayQueryService {
 		return events;
 	}
 
+	/** 会话标识空了或超长时说明回到列表重开。格式对但没有这条回放，仍走后面的「不存在」或空结果。 */
+	private String requireSessionId(String sessionId) {
+		if (sessionId == null || sessionId.isBlank() || sessionId.trim().length() > TrackConstants.SESSION_ID_MAX_LEN) {
+			throw new ServiceException("这个会话对不上。请回到列表重新打开");
+		}
+		return sessionId.trim();
+	}
+
 	/** 按 session_id 取元数据（租户插件自动隔离；跨租户/已删 → 「不存在」） */
 	private TrackReplay requireReplay(String sessionId) {
-		if (sessionId == null || sessionId.isBlank() || sessionId.length() > TrackConstants.SESSION_ID_MAX_LEN) {
-			throw new ServiceException("无效 sessionId");
-		}
-		TrackReplay replay = replayMapper.selectOneByQuery(QueryWrapper.create().eq("session_id", sessionId.trim()));
+		sessionId = requireSessionId(sessionId);
+		TrackReplay replay = replayMapper.selectOneByQuery(QueryWrapper.create().eq("session_id", sessionId));
 		if (replay == null || replay.getStorageKey() == null) {
 			throw new ServiceException("回放不存在");
 		}

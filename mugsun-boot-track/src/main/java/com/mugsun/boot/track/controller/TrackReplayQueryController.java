@@ -53,7 +53,7 @@ public class TrackReplayQueryController {
 	/** 回放详情：{replay: 同 page 记录结构, blocks: [{seq, key}]}（块键按 seq 推导，供调试；读取走 /data） */
 	@GetMapping("/detail")
 	@SaCheckPermission(TrackConstants.PERM_REPLAY_LIST)
-	public R<Map<String, Object>> detail(@RequestParam String sessionId) {
+	public R<Map<String, Object>> detail(@RequestParam(required = false) String sessionId) {
 		return R.data(replayQueryService.detail(sessionId));
 	}
 
@@ -75,7 +75,7 @@ public class TrackReplayQueryController {
 	@GetMapping("/data")
 	@SaCheckPermission(TrackConstants.PERM_REPLAY_VIEW)
 	@OperationLog("查看会话回放")
-	public void data(@RequestParam String sessionId, @RequestParam int seq,
+	public void data(@RequestParam(required = false) String sessionId, @RequestParam int seq,
 					 HttpServletResponse response) throws IOException {
 		byte[] json = replayQueryService.blockJson(sessionId, seq);
 		response.setContentType("application/json;charset=UTF-8");
