@@ -143,8 +143,12 @@ public class TrackFunnelService {
 		if (deduped.isEmpty()) {
 			throw new ServiceException("请至少选择两个步骤。漏斗要按顺序看转化");
 		}
-		if (deduped.size() < 2 || deduped.size() > TrackConstants.FUNNEL_STEPS_MAX) {
-			throw new ServiceException("步骤数须 2.." + TrackConstants.FUNNEL_STEPS_MAX + "（去重后）");
+		if (deduped.size() < 2) {
+			throw new ServiceException("只剩一个步骤。请再选一个不同的事件");
+		}
+		if (deduped.size() > TrackConstants.FUNNEL_STEPS_MAX) {
+			throw new ServiceException("步骤超过 " + TrackConstants.FUNNEL_STEPS_MAX
+				+ " 个了。请删到 " + TrackConstants.FUNNEL_STEPS_MAX + " 步以内再查");
 		}
 		for (String name : deduped) {
 			if (!TrackConstants.CUSTOM_EVENT_NAME.matcher(name).matches()
