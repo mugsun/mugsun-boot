@@ -39,4 +39,11 @@ public class SysTableColumn extends BaseEntity {
 	public void setConfigJson(String configJson) {
 		this.configJson = configJson;
 	}
+
+	/** 供重复提交按内容归并；只留长度和哈希，不展开整段配置。 */
+	@Override
+	public String toString() {
+		String json = configJson == null ? "" : configJson;
+		return (tableKey == null ? "" : tableKey) + "|" + json.length() + ":" + Integer.toHexString(json.hashCode());
+	}
 }
