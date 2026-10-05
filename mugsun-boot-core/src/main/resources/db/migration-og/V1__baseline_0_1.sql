@@ -2896,3 +2896,23 @@ CREATE TABLE sys_job_server (
 );
 COMMENT ON TABLE sys_job_server IS '任务服务';
 COMMENT ON COLUMN sys_job_server.sync_status IS '1 已同步 / 0 未连上，空表示还没同步';
+
+CREATE TABLE sys_gen_datasource (
+	id              BIGINT PRIMARY KEY,
+	tenant_id       VARCHAR(12),
+	ds_name         VARCHAR(64)  NOT NULL,
+	jdbc_url        VARCHAR(300) NOT NULL,
+	username        VARCHAR(64)  NOT NULL,
+	password        VARCHAR(128) NOT NULL,
+	driver_class    VARCHAR(128),
+	remark          VARCHAR(200),
+	connect_status  INT,
+	connect_msg     VARCHAR(255),
+	connect_time    TIMESTAMP,
+	create_time     TIMESTAMP,
+	update_time     TIMESTAMP,
+	is_deleted      INT          NOT NULL DEFAULT 0
+);
+COMMENT ON TABLE sys_gen_datasource IS '代码生成数据源';
+COMMENT ON COLUMN sys_gen_datasource.connect_status IS '1 已连上 / 0 未连上';
+COMMENT ON COLUMN sys_gen_datasource.password IS '数据库口令，接口不回传';

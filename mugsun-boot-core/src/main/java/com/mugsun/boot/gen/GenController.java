@@ -24,12 +24,15 @@ public class GenController {
 	private final GenService genService;
 	private final GenMetaService metaService;
 	private final GenRenderService renderService;
+	private final GenDatasourceService datasourceService;
 	private final Environment env;
 
-	public GenController(GenService genService, GenMetaService metaService, GenRenderService renderService, Environment env) {
+	public GenController(GenService genService, GenMetaService metaService, GenRenderService renderService,
+						 GenDatasourceService datasourceService, Environment env) {
 		this.genService = genService;
 		this.metaService = metaService;
 		this.renderService = renderService;
+		this.datasourceService = datasourceService;
 		this.env = env;
 	}
 
@@ -46,11 +49,14 @@ public class GenController {
 		return R.data(ds);
 	}
 
-	/** 数据库全部表元数据 */
+	/** 数据库全部表元数据。不传数据源时读主库，传入时读已登记且连上的数据源。 */
 	@SaCheckPermission("sys:gen:list")
 	@GetMapping("/tables")
-	public R<List<Map<String, Object>>> tables() {
-		return R.data(genService.tables());
+	public R<List<Map<String, Object>>> tables(@RequestParam(required = false) Long datasourceId) {
+		if (datasourceId == null) {
+			return R.data(genService.tables());
+		}
+		return R.data(datasourceService.tables(datasourceId));
 	}
 
 	/** 导入库表为元数据配置（内省列 + 智能推断落 gen_table/gen_column），返回表配置 id */

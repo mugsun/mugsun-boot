@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -55,7 +56,37 @@ public class GenService {
 		return result;
 	}
 
+	/**
+	 * 从已登记的数据源读取表。只支持 PostgreSQL 系，失败时不带回数据库原文。
+	 */
+	public List<Map<String, Object>> tablesOf(String url, String username, String password) {
+		int previous = DriverManager.getLoginTimeout();
+		DriverManager.setLoginTimeout(3);
+		try (Connection connection = DriverManager.getConnection(url, username, password)) {
+			String product = connection.getMetaData().getDatabaseProductName();
+			String lower = product == null ? "" : product.toLowerCase();
+			if (lower.contains("postgres") || lower.contains("kingbase") || lower.contains("gauss")) {
+				return readInformationSchema(connection);
+			}
+			throw new ServiceException("这套数据源已经连上，但目前只能读取 PostgreSQL 的表。请改用主数据源，或换一套 PostgreSQL 数据源。");
+		} catch (ServiceException ex) {
+			throw ex;
+		} catch (SQLException ex) {
+			throw new ServiceException(GenDatasourceService.hint(ex));
+		} finally {
+			DriverManager.setLoginTimeout(previous);
+		}
+	}
+
 	private List<Map<String, Object>> tablesViaInformationSchema() {
+		try (Connection connection = dataSource.getConnection()) {
+			return readInformationSchema(connection);
+		} catch (SQLException e) {
+			throw new ServiceException("读取库表失败：" + e.getMessage());
+		}
+	}
+
+	private List<Map<String, Object>> readInformationSchema(Connection connection) throws SQLException {
 		String sql = "SELECT c.table_name, c.column_name, c.data_type "
 			+ "FROM information_schema.columns c "
 			+ "WHERE c.table_schema = current_schema() "
@@ -64,8 +95,7 @@ public class GenService {
 			+ "WHERE t.table_type = 'BASE TABLE' AND t.table_schema = current_schema()) "
 			+ "ORDER BY c.table_name, c.ordinal_position";
 		Map<String, Map<String, Object>> grouped = new LinkedHashMap<>();
-		try (Connection connection = dataSource.getConnection();
-			 PreparedStatement statement = connection.prepareStatement(sql);
+		try (PreparedStatement statement = connection.prepareStatement(sql);
 			 ResultSet rows = statement.executeQuery()) {
 			while (rows.next()) {
 				String tableName = rows.getString(1);
@@ -86,8 +116,6 @@ public class GenService {
 				List<Map<String, Object>> columns = (List<Map<String, Object>>) table.get("columns");
 				columns.add(column);
 			}
-		} catch (SQLException e) {
-			throw new ServiceException("读取库表失败：" + e.getMessage());
 		}
 		List<Map<String, Object>> result = new ArrayList<>(grouped.values());
 		result.sort(Comparator.comparing(m -> String.valueOf(m.get("name"))));

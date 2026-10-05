@@ -71,6 +71,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedUsualLogPage();
 			seedJobServerPage();
 			seedFlowRunningPage();
+			seedGenDatasourcePage();
 			return null;
 		});
 	}
@@ -327,6 +328,32 @@ public class DataInitializer implements CommandLineRunner {
 		}
 		seedMenuButton(page.getId(), 1200000000000000161L, "终止运行中的流程", "sys:flow:running:terminate", 1);
 		seedMenuButton(page.getId(), 1200000000000000162L, "挂起或恢复流程", "sys:flow:running:active", 2);
+	}
+
+	private void seedGenDatasourcePage() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/gen-datasource"));
+		if (page == null) {
+			page = new SysMenu();
+			page.setId(1200000000000000163L);
+			page.setParentId(parent.getId());
+			page.setMenuName("生成数据源");
+			page.setPath("/system/gen-datasource");
+			page.setComponent("/system/gen-datasource");
+			page.setMenuType("C");
+			page.setPermission("sys:gen-ds:list");
+			page.setSort(19);
+			page.setIcon("ri:database-2-line");
+			page.setIsPublic(0);
+			page.setIsHide(0);
+			menuMapper.insert(page);
+		}
+		seedMenuButton(page.getId(), 1200000000000000164L, "保存生成数据源", "sys:gen-ds:save", 1);
+		seedMenuButton(page.getId(), 1200000000000000165L, "删除生成数据源", "sys:gen-ds:remove", 2);
+		seedMenuButton(page.getId(), 1200000000000000166L, "测试生成数据源", "sys:gen-ds:test", 3);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {
