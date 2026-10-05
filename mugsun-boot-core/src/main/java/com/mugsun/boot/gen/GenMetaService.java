@@ -1,6 +1,7 @@
 package com.mugsun.boot.gen;
 
 import com.mugsun.boot.gen.entity.GenColumn;
+import com.mugsun.boot.gen.entity.GenScheme;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.boot.gen.mapper.GenColumnMapper;
 import com.mugsun.boot.gen.mapper.GenTableMapper;
@@ -34,11 +35,14 @@ public class GenMetaService {
 	private final DataSource dataSource;
 	private final GenTableMapper tableMapper;
 	private final GenColumnMapper columnMapper;
+	private final GenSchemeService schemeService;
 
-	public GenMetaService(DataSource dataSource, GenTableMapper tableMapper, GenColumnMapper columnMapper) {
+	public GenMetaService(DataSource dataSource, GenTableMapper tableMapper, GenColumnMapper columnMapper,
+						  GenSchemeService schemeService) {
 		this.dataSource = dataSource;
 		this.tableMapper = tableMapper;
 		this.columnMapper = columnMapper;
+		this.schemeService = schemeService;
 	}
 
 	/** 导入库表为元数据配置：内省列 → 推断默认 → 落 gen_table + gen_column（已存在则重建列，表级配置沿用/更新） */
@@ -46,6 +50,21 @@ public class GenMetaService {
 	public Long importTable(String tableName, String moduleName, String basePackage, String tablePrefix, String author) {
 		// 保护表黑名单：sys_/flow_/biz_ 等平台表禁入低代码通道（在线表单/DDL 消费链信任 gen 元数据）
 		com.mugsun.boot.gen.DdlService.guardNotProtected(tableName);
+		GenScheme scheme = schemeService.enabledOrNull();
+		if (scheme != null) {
+			if (moduleName == null || moduleName.isBlank()) {
+				moduleName = scheme.getModuleName();
+			}
+			if (basePackage == null || basePackage.isBlank()) {
+				basePackage = scheme.getBasePackage();
+			}
+			if (tablePrefix == null || tablePrefix.isBlank()) {
+				tablePrefix = scheme.getTablePrefix();
+			}
+			if (author == null || author.isBlank()) {
+				author = scheme.getAuthor();
+			}
+		}
 		Table meta = introspect(tableName);
 		if (meta == null) {
 			throw new IllegalArgumentException("表不存在：" + tableName);
@@ -66,6 +85,9 @@ public class GenMetaService {
 		table.setTablePrefix(prefix);
 		if (table.getGenType() == null) {
 			table.setGenType("zip");
+		}
+		if (scheme != null && table.getParentMenuId() == null && scheme.getParentMenuId() != null) {
+			table.setParentMenuId(scheme.getParentMenuId());
 		}
 		if (table.getTplCategory() == null) {
 			table.setTplCategory("crud");

@@ -3007,3 +3007,22 @@ CREATE TABLE sys_gen_datasource (
 COMMENT ON TABLE sys_gen_datasource IS '代码生成数据源';
 COMMENT ON COLUMN sys_gen_datasource.connect_status IS '1 已连上 / 0 未连上';
 COMMENT ON COLUMN sys_gen_datasource.password IS '数据库口令，接口不回传';
+
+CREATE TABLE sys_gen_scheme (
+	id              BIGINT PRIMARY KEY,
+	tenant_id       VARCHAR(12),
+	scheme_name     VARCHAR(64)  NOT NULL,
+	scheme_code     VARCHAR(40)  NOT NULL,
+	module_name     VARCHAR(32)  NOT NULL,
+	base_package    VARCHAR(120) NOT NULL,
+	table_prefix    VARCHAR(20),
+	author          VARCHAR(32)  NOT NULL,
+	parent_menu_id  BIGINT,
+	remark          VARCHAR(200),
+	status          INT          NOT NULL DEFAULT 0,
+	create_time     TIMESTAMP,
+	update_time     TIMESTAMP,
+	is_deleted      INT          NOT NULL DEFAULT 0
+);
+COMMENT ON TABLE sys_gen_scheme IS '代码生成方案';
+COMMENT ON COLUMN sys_gen_scheme.status IS '1 启用 / 0 未启用，同一租户只启用一套';

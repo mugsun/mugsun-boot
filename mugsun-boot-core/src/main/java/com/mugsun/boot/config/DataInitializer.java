@@ -72,6 +72,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedJobServerPage();
 			seedFlowRunningPage();
 			seedGenDatasourcePage();
+			seedGenSchemePage();
 			return null;
 		});
 	}
@@ -354,6 +355,32 @@ public class DataInitializer implements CommandLineRunner {
 		seedMenuButton(page.getId(), 1200000000000000164L, "保存生成数据源", "sys:gen-ds:save", 1);
 		seedMenuButton(page.getId(), 1200000000000000165L, "删除生成数据源", "sys:gen-ds:remove", 2);
 		seedMenuButton(page.getId(), 1200000000000000166L, "测试生成数据源", "sys:gen-ds:test", 3);
+	}
+
+	private void seedGenSchemePage() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/gen-scheme"));
+		if (page == null) {
+			page = new SysMenu();
+			page.setId(1200000000000000167L);
+			page.setParentId(parent.getId());
+			page.setMenuName("生成方案");
+			page.setPath("/system/gen-scheme");
+			page.setComponent("/system/gen-scheme");
+			page.setMenuType("C");
+			page.setPermission("sys:gen-scheme:list");
+			page.setSort(18);
+			page.setIcon("ri:settings-4-line");
+			page.setIsPublic(0);
+			page.setIsHide(0);
+			menuMapper.insert(page);
+		}
+		seedMenuButton(page.getId(), 1200000000000000168L, "保存生成方案", "sys:gen-scheme:save", 1);
+		seedMenuButton(page.getId(), 1200000000000000169L, "删除生成方案", "sys:gen-scheme:remove", 2);
+		seedMenuButton(page.getId(), 1200000000000000170L, "启用生成方案", "sys:gen-scheme:enable", 3);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {

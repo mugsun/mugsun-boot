@@ -34,6 +34,7 @@ public final class TenantPackageModules {
 		GATED.put("/system/notice", Set.of("Notice"));
 		GATED.put("/system/oss", Set.of("Oss"));
 		GATED.put("/system/sms", Set.of("Sms"));
+		GATED.put("/system/gen-scheme", Set.of("GenScheme"));
 		GATED.put("/system/gen-datasource", Set.of("GenDatasource"));
 		GATED.put("/system/gen", Set.of("Gen"));
 		GATED.put("/system/form", Set.of("FormDesigner"));
