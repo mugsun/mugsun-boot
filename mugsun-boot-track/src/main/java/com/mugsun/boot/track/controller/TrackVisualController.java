@@ -65,11 +65,19 @@ public class TrackVisualController {
 	/** 草稿丢弃：{token, draftId} */
 	@PostMapping("/drafts/discard")
 	@SaCheckPermission(TrackConstants.PERM_VISUAL_EDIT)
-	public R<Void> discard(@RequestBody Map<String, Object> body) {
+	public R<Void> discard(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null) {
+			throw new ServiceException("请先选择要丢弃的草稿");
+		}
 		String token = body.get("token") == null ? null : body.get("token").toString();
 		String draftId = body.get("draftId") == null ? null : body.get("draftId").toString();
-		visualService.discardDraft(token, draftId);
-		return R.success("已丢弃");
+		if ("null".equals(token)) {
+			token = null;
+		}
+		if ("null".equals(draftId)) {
+			draftId = null;
+		}
+		return R.success(visualService.discardDraft(token, draftId));
 	}
 
 	/** 规则分页：appKey 必填 + status 可选（本租户行级隔离由 Flex 插件自动拼条件），update_time 倒序 */

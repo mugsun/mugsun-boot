@@ -235,14 +235,34 @@ public class TrackVisualService {
 		return rule;
 	}
 
-	/** 草稿丢弃：找到草稿 LREM 删除（不存在 400） */
-	public void discardDraft(String token, String draftId) {
-		requireToken(token);
-		String found = findDraft(token, draftId);
-		if (found == null) {
-			throw new ServiceException("草稿不存在或已处理");
+	/** 草稿丢弃：找到草稿 LREM 删除（不存在 400）。确认路径仍走 requireToken，这里单独说明下一步。 */
+	public String discardDraft(String token, String draftId) {
+		if (token == null || token.isBlank()) {
+			throw new ServiceException("请先进入圈选，再丢弃草稿");
 		}
-		redis.opsForList().remove(TrackConstants.VISUAL_DRAFT_KEY_PREFIX + token, 1, found);
+		if (draftId == null || draftId.isBlank()) {
+			throw new ServiceException("请先选择要丢弃的草稿");
+		}
+		String trimmed = token.trim();
+		Map<Object, Object> hash = redis.opsForHash().entries(TrackConstants.VISUAL_TOKEN_KEY_PREFIX + trimmed);
+		if (hash.isEmpty()) {
+			throw new ServiceException("圈选已经结束。请重新进入圈选后再丢弃");
+		}
+		String current = currentTenant();
+		if (current != null && !current.equals(String.valueOf(hash.get("tenantId")))) {
+			throw new ServiceException("这条圈选不属于当前账号。请用签发时的账号操作");
+		}
+		String found = findDraft(trimmed, draftId.trim());
+		if (found == null) {
+			throw new ServiceException("这个草稿不存在，或已经处理过。请刷新后再看");
+		}
+		Map<String, Object> draft = parseDraft(found);
+		redis.opsForList().remove(TrackConstants.VISUAL_DRAFT_KEY_PREFIX + trimmed, 1, found);
+		String name = draft.get("eventName") == null ? "" : String.valueOf(draft.get("eventName")).trim();
+		if (name.isEmpty()) {
+			name = "这条草稿";
+		}
+		return "已丢弃「" + name + "」。这条草稿不会再生成圈选规则";
 	}
 
 	// ==================== 规则 CRUD ====================
