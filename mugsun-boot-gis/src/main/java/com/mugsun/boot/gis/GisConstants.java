@@ -101,8 +101,8 @@ public final class GisConstants {
 	public static final String MSG_DISABLED = "地理信息模块未启用";
 	public static final String MSG_PROVIDER_UNKNOWN = "未知底图供应商";
 	public static final String MSG_PROVIDER_KEY = "请先配置该底图的访问密钥";
-	public static final String MSG_SCENE_MISSING = "场景不存在";
-	public static final String MSG_JSON_INVALID = "场景配置不是合法 JSON";
+	public static final String MSG_SCENE_MISSING = "这个场景不存在。请刷新列表后再打开";
+	public static final String MSG_JSON_INVALID = "场景配置不是合法内容。请回到地图里重新保存";
 	public static final String MSG_SEARCH_NO_KEY = "请先配置并启用底图密钥后再使用地名搜索";
 	public static final String MSG_SEARCH_PROVIDER = "请指定底图供应商";
 	public static final String MSG_SEARCH_KEYWORD = "请输入 2～64 个字的检索词";

@@ -54,4 +54,9 @@ public class GisScene extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	@Override
+	public String toString() {
+		return name + "|" + status + "|" + remark + "|" + sceneJson + "|" + (getId() == null ? "" : getId());
+	}
 }
