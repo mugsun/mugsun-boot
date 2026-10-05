@@ -141,7 +141,7 @@ public class FlowGraphService {
 	/** 并行分支（并行网关 nodeType 4）：fork 无条件全激活 + join 原生 AND-join，各分支汇聚到 join */
 	private String parallelGateway(TreeNode node, String nextCode, Ctx ctx, List<Map<String, Object>> nodes) {
 		if (node.branches() == null || node.branches().size() < 2) {
-			throw new ServiceException("并行分支「" + coalesce(node.name(), "") + "」至少需两个分支");
+			throw new ServiceException("并行分支「" + coalesce(node.name(), "未命名") + "」至少需两个分支。请补到至少两个分支后再发布");
 		}
 		String fork = ctx.next();
 		String join = ctx.next();
