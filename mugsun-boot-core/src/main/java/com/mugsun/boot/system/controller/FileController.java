@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mugsun.boot.common.constant.OssConstants;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysAttach;
 import com.mugsun.boot.system.mapper.SysAttachMapper;
 import com.mugsun.boot.system.service.OssService;
@@ -63,15 +64,24 @@ public class FileController {
 
 	/** 上传文件并登记附件（access=public 公开直取 / private 私有授权下载；登记由 FileRecorder 统一落库） */
 	@PostMapping("/upload")
-	public R<SysAttach> upload(@RequestParam("file") MultipartFile file,
+	public R<SysAttach> upload(@RequestParam(value = "file", required = false) MultipartFile file,
 							   @RequestParam(defaultValue = OssConstants.ACCESS_PRIVATE) String access) {
+		if (file == null || file.isEmpty()) {
+			throw new ServiceException("请选择一个有内容的文件再上传");
+		}
 		boolean isPublic = OssConstants.ACCESS_PUBLIC.equals(access);
 		String folder = isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE;
-		FileInfo info = fileStorageService.of(file)
-			.setPlatform(ossService.activePlatform())
-			.setPath(folder)
-			.putAttr(OssConstants.ATTR_ACCESS, isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE)
-			.upload();
+		FileInfo info;
+		try {
+			info = fileStorageService.of(file)
+				.setPlatform(ossService.activePlatform())
+				.setPath(folder)
+				.putAttr(OssConstants.ATTR_ACCESS, isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE)
+				.upload();
+		} catch (RuntimeException ex) {
+			log.warn("附件上传失败");
+			throw new ServiceException("文件没有上传成功。请到存储配置里检查当前启用的目录或地址，然后再试");
+		}
 		SysAttach attach = toAttach(info, isPublic);
 		// 私有文件不在响应中直接暴露可访问 url，需走授权下载
 		if (!isPublic) {
@@ -89,7 +99,7 @@ public class FileController {
 		String filename = param.filename();
 		if (filename == null || filename.isBlank() || filename.length() > OssConstants.PRESIGNED_FILENAME_MAX_LEN
 			|| filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
-			throw new ServiceException("文件名非法");
+			throw new ServiceException("文件名不能包含斜杠，也不能太长。请换一个文件名后再上传");
 		}
 		boolean isPublic = OssConstants.ACCESS_PUBLIC.equals(param.access());
 		String platform = ossService.activePlatform();
@@ -128,17 +138,17 @@ public class FileController {
 	@PostMapping("/create")
 	public R<SysAttach> create(@RequestBody CreateParam param) {
 		if (param.ticket() == null || param.ticket().isBlank()) {
-			throw new ServiceException("直传凭证缺失");
+			throw new ServiceException("上传凭证缺失。请重新选择文件再上传");
 		}
 		String json = redisTemplate.opsForValue().getAndDelete(OssConstants.PRESIGNED_TICKET_PREFIX + param.ticket());
 		if (json == null) {
-			throw new ServiceException("直传凭证无效或已过期，请重新上传");
+			throw new ServiceException("上传凭证已失效。请重新选择文件再上传");
 		}
 		JsonNode credential;
 		try {
 			credential = objectMapper.readTree(json);
 		} catch (Exception e) {
-			throw new ServiceException("直传凭证解析失败");
+			throw new ServiceException("上传凭证读不出来。请重新选择文件再上传");
 		}
 		String platform = credential.path("platform").asText();
 		String path = credential.path("path").asText();
@@ -172,7 +182,7 @@ public class FileController {
 	public R<String> download(@PathVariable Long id) {
 		SysAttach attach = attachMapper.selectOneById(id);
 		if (attach == null) {
-			throw new ServiceException("附件不存在");
+			throw new ServiceException("这个附件不存在，或已被删除。请刷新列表后再下载");
 		}
 		boolean cloudPrivate = OssConstants.ACCESS_PRIVATE.equals(attach.getAccess())
 			&& !OssConstants.CATEGORY_LOCAL.equals(ossService.categoryOf(attach.getPlatform()));
@@ -197,7 +207,7 @@ public class FileController {
 			throws java.io.IOException {
 		SysAttach attach = attachMapper.selectOneById(id);
 		if (attach == null) {
-			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND, "附件不存在");
+			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND, "这个附件不存在，或已被删除。请刷新列表后再下载");
 			return;
 		}
 		FileInfo fileInfo = new FileInfo();
@@ -216,7 +226,7 @@ public class FileController {
 			log.warn("文件下载失败 id={}: {}", id, e.getMessage());
 			response.reset();
 			// 存储平台下线/文件已物删 → 404（前端预览类调用据此静默降级，不污染错误监控）
-			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND, "文件不存在或存储平台已下线");
+			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND, "文件读不出来。请到存储配置里确认这套存储还在，然后再下载");
 		}
 	}
 
@@ -247,10 +257,18 @@ public class FileController {
 	 * 删除附件：经 fileStorageService.delete 物理删除并由 FileRecorder 级联销登记。
 	 * 物理删除失败不回退登记、明确报错回执（失败 id 上抛），杜绝「物删失败仅 warn、登记照删」的静默断层。
 	 */
+	@RepeatSubmit(message = "请勿重复删除。请刷新列表确认这些附件是否还在")
 	@PostMapping("/remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先勾选要删除的附件");
+		}
 		List<Long> failed = new ArrayList<>();
+		int removed = 0;
 		for (Long id : ids) {
+			if (id == null) {
+				continue;
+			}
 			SysAttach attach = attachMapper.selectOneById(id);
 			if (attach == null) {
 				continue;
@@ -276,11 +294,15 @@ public class FileController {
 			}
 			// recorder 已级联销登记；兜底幂等删（path 为空的历史登记行）
 			attachMapper.deleteById(id);
+			removed++;
 		}
 		if (!failed.isEmpty()) {
-			throw new ServiceException("附件物理删除失败，登记已保留 id=" + failed);
+			throw new ServiceException("有的附件没有从存储里删掉，列表里仍会保留。请确认存储还能用，然后再删一次");
 		}
-		return R.success("删除成功");
+		if (removed == 0) {
+			throw new ServiceException("这些附件不存在，或已被删除。请刷新列表后再试");
+		}
+		return R.success("已删除。列表里不会再出现这些附件");
 	}
 
 	/** FileInfo → 响应附件（登记行已由 recorder 落库，主键经 FileInfo.id 回传） */
