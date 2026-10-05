@@ -152,7 +152,7 @@ public class TrackReplayService {
 			throw new TrackCollectException(400, "这段回放的内容不是合法的 JSON。请改成 JSON 后再上传");
 		}
 		if (events == null || !events.isArray()) {
-			throw new TrackCollectException(400, "回放块内容须为 rrweb 事件数组");
+			throw new TrackCollectException(400, "这段回放须是一个事件列表。请把录制事件放进列表后再上传");
 		}
 		int eventCount = events.size();
 		long minTs = Long.MAX_VALUE;
