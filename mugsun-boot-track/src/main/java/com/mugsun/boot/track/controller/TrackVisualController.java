@@ -45,10 +45,10 @@ public class TrackVisualController {
 		return R.data(visualService.createToken(appKey, targetUrl, StpUtil.getLoginIdAsLong()));
 	}
 
-	/** 草稿列表（令牌有效期内；管理端 3s 轮询用）：令牌归属租户校验后返回草稿 JSON 列表 */
+	/** 草稿列表（令牌有效期内；管理端 3s 轮询用）：令牌归属租户校验后返回草稿 JSON 列表。token 可空，缺了由服务说明要先进入圈选 */
 	@GetMapping("/drafts")
 	@SaCheckPermission(TrackConstants.PERM_VISUAL_EDIT)
-	public R<List<Map<String, Object>>> drafts(@RequestParam String token) {
+	public R<List<Map<String, Object>>> drafts(@RequestParam(required = false) String token) {
 		return R.data(visualService.drafts(token));
 	}
 

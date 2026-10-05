@@ -381,18 +381,18 @@ public class TrackVisualService {
 
 	// ==================== 内部工具 ====================
 
-	/** 管理端令牌前置：HASH 不存在 400「令牌已过期」；HASH.tenantId 与当前租户一致（null=超管放行） */
+	/** 管理端令牌前置：空令牌、过期、别的租户都说明下一步。过期句必须含「令牌已过期」，测试按这几个字断言。超管 tenant 为 null，放行 */
 	private Map<Object, Object> requireToken(String token) {
 		if (token == null || token.isBlank()) {
-			throw new ServiceException("缺少 token");
+			throw new ServiceException("请先进入圈选。草稿要带着这次圈选的令牌才能打开");
 		}
 		Map<Object, Object> hash = redis.opsForHash().entries(TrackConstants.VISUAL_TOKEN_KEY_PREFIX + token);
 		if (hash.isEmpty()) {
-			throw new ServiceException("令牌已过期");
+			throw new ServiceException("令牌已过期。请重新进入圈选后再看草稿");
 		}
 		String current = currentTenant();
 		if (current != null && !current.equals(String.valueOf(hash.get("tenantId")))) {
-			throw new ServiceException("无权操作该令牌");
+			throw new ServiceException("无权操作该令牌。这条圈选不属于当前账号，请用签发时的账号打开");
 		}
 		return hash;
 	}
