@@ -154,7 +154,8 @@ public class TenantDataSourceRegistry {
 			throw e;
 		} catch (Exception e) {
 			ds.close();
-			throw new ServiceException("数据源 " + key + " 探活失败：" + e.getMessage());
+			log.warn("租户数据源 {} 探活失败：{}", key, e.toString());
+			throw new ServiceException("连不上这个数据库。请核对地址、账号和密码，确认数据库已启动后再保存");
 		}
 	}
 
