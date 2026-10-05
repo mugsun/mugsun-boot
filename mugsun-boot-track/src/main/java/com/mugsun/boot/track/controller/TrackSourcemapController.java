@@ -65,13 +65,20 @@ public class TrackSourcemapController {
 	/** 删除：{id} 删对象 + 逻辑删行（跨租户命中「不存在」） */
 	@PostMapping("/remove")
 	@SaCheckPermission(TrackConstants.PERM_APP_EDIT)
-	public R<Void> remove(@RequestBody Map<String, Object> body) {
-		Long id = body.get("id") == null ? null : Long.valueOf(body.get("id").toString());
-		if (id == null) {
-			throw new ServiceException("缺少 id");
+	public R<Void> remove(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null || body.get("id") == null || String.valueOf(body.get("id")).isBlank()
+			|| "null".equals(String.valueOf(body.get("id")))) {
+			throw new ServiceException("请先在列表里选择要删除的符号表");
 		}
-		sourcemapService.remove(id);
-		return R.success("已删除");
+		String text = String.valueOf(body.get("id")).trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("符号表编号请填写数字，可以从列表里复制");
+		}
+		String filename = sourcemapService.remove(Long.valueOf(text)).getFilename();
+		if (filename == null || filename.isBlank()) {
+			filename = "这个符号表";
+		}
+		return R.success("已删除「" + filename + "」。这个版本将不再用它还原堆栈");
 	}
 
 	/**

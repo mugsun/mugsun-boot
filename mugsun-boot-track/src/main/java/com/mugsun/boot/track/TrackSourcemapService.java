@@ -120,7 +120,7 @@ public class TrackSourcemapService {
 	}
 
 	/** 删除：删对象（尽力而为，失败记日志留人工）+ 逻辑删行（租户插件隔离，跨租户命中「不存在」） */
-	public void remove(long id) {
+	public TrackSourcemap remove(long id) {
 		TrackSourcemap row = requireRow(id);
 		try {
 			if (!storage.delete(row.getStoragePlatform(), row.getStorageBasePath(), row.getStorageKey())) {
@@ -130,6 +130,7 @@ public class TrackSourcemapService {
 			log.warn("sourcemap 对象删除异常 {}：{}", row.getStorageKey(), e.getMessage());
 		}
 		sourcemapMapper.deleteByQuery(QueryWrapper.create().where("id = ?", id));
+		return row;
 	}
 
 	/** 读取 .map 原文（raw 端点用；存储侧异常一律「不存在或已下线」，不暴露存储内部错误形态） */
@@ -149,7 +150,7 @@ public class TrackSourcemapService {
 	private TrackSourcemap requireRow(long id) {
 		TrackSourcemap row = sourcemapMapper.selectOneByQuery(QueryWrapper.create().where("id = ?", id));
 		if (row == null) {
-			throw new ServiceException("sourcemap 不存在或无权限");
+			throw new ServiceException("这个符号表不存在。请刷新列表后再试");
 		}
 		return row;
 	}
