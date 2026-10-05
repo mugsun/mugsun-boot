@@ -266,7 +266,7 @@ public class AuthController {
 		long exists = TenantContext.ignore(() -> userMapper.selectCountByQuery(
 			QueryWrapper.create().eq("tenant_id", tenantId).eq("username", dto.getUsername())));
 		if (exists > 0) {
-			throw new ServiceException("用户名已存在");
+			throw new ServiceException("用户名已存在。请换一个还没用过的用户名后再注册");
 		}
 		SysUser user = new SysUser();
 		user.setUsername(dto.getUsername());
