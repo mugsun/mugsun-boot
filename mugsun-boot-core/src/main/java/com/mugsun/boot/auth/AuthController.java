@@ -149,7 +149,7 @@ public class AuthController {
 		String username = dto.getUsername();
 		String ip = request.getRemoteAddr();
 		if (username == null || username.isBlank()) {
-			throw new ServiceException("账号或密码错误");
+			throw new ServiceException("账号或密码错误。请核对账号和密码后再登录");
 		}
 		com.mugsun.boot.client.entity.SysClient client = clientService.loadClient(dto.getClientId());
 		// 按 client 策略：图形验证码开关
@@ -171,8 +171,8 @@ public class AuthController {
 		}
 		if (user == null || rawPassword == null || !passwordEncoder.matches(rawPassword, user.getPassword())) {
 			loginLockService.recordFail(lockKey);
-			authLoginService.saveLoginLog(username, request, client.getClientId(), tenantId, 0, "账号或密码错误", "password");
-			throw new ServiceException("账号或密码错误");
+			authLoginService.saveLoginLog(username, request, client.getClientId(), tenantId, 0, "账号或密码错误。请核对账号和密码后再登录", "password");
+			throw new ServiceException("账号或密码错误。请核对账号和密码后再登录");
 		}
 		// 租户生命周期校验后置（密码通过后才判定），避免「租户不存在/停用」成为租户枚举预言机
 		String tenantInvalid = tenantValidator.validate(tenantId);

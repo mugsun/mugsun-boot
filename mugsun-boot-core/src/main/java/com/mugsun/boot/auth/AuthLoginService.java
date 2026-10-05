@@ -64,7 +64,7 @@ public class AuthLoginService {
 	public Map<String, Object> loginByPassword(String username, String passwordCipher, String tenantIdRaw,
 												 SysClient client, HttpServletRequest request) {
 		if (username == null || username.isBlank()) {
-			throw new ServiceException("账号或密码错误");
+			throw new ServiceException("账号或密码错误。请核对账号和密码后再登录");
 		}
 		String tenantId = (tenantIdRaw == null || tenantIdRaw.isBlank())
 			? TenantConstants.DEFAULT_TENANT_ID : tenantIdRaw;
@@ -80,8 +80,8 @@ public class AuthLoginService {
 		}
 		if (user == null || rawPassword == null || !passwordEncoder.matches(rawPassword, user.getPassword())) {
 			loginLockService.recordFail(lockKey);
-			saveLoginLog(username, request, client.getClientId(), tenantId, 0, "账号或密码错误", "password");
-			throw new ServiceException("账号或密码错误");
+			saveLoginLog(username, request, client.getClientId(), tenantId, 0, "账号或密码错误。请核对账号和密码后再登录", "password");
+			throw new ServiceException("账号或密码错误。请核对账号和密码后再登录");
 		}
 		String tenantInvalid = tenantValidator.validate(tenantId);
 		if (tenantInvalid != null) {

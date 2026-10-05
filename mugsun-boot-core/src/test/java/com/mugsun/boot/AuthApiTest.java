@@ -33,7 +33,7 @@ class AuthApiTest extends AbstractIntegrationTest {
 		JsonNode r = readBody(response);
 		assertThat(r.path("code").asInt()).isEqualTo(400);
 		assertThat(r.path("success").asBoolean()).isFalse();
-		assertThat(r.path("msg").asText()).isEqualTo("账号或密码错误");
+		assertThat(r.path("msg").asText()).isEqualTo("账号或密码错误。请核对账号和密码后再登录");
 		assertThat(r.path("data").isMissingNode() || r.path("data").isNull()).isTrue();
 	}
 
