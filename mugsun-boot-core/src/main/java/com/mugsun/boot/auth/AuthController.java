@@ -619,7 +619,7 @@ public class AuthController {
 		String oldPassword = decodePasswordNormalized(dto.oldPassword());
 		String newPassword = decodePasswordNormalized(dto.newPassword());
 		if (user == null || !passwordEncoder.matches(oldPassword, user.getPassword())) {
-			throw new ServiceException("原密码错误");
+			throw new ServiceException("原密码错误。请核对当前密码后再改");
 		}
 		// 等保：复杂度校验 + 历史密码防重
 		securityPolicyService.validateComplexity(newPassword);
