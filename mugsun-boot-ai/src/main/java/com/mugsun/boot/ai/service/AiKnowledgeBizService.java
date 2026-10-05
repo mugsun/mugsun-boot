@@ -482,17 +482,28 @@ public class AiKnowledgeBizService {
 		return db;
 	}
 
-	public void segmentStatus(Long id, Integer enabled) {
+	public String segmentStatus(Long id, Object enabledRaw) {
 		moduleService.requireEnabled();
+		if (id == null) {
+			throw new ServiceException("请先在列表里选择要改状态的分段");
+		}
 		AiKnowledgeSegment db = segmentMapper.selectOneById(id);
 		if (db == null) {
 			throw new ServiceException("这个分段不存在。请刷新列表后再试");
 		}
-		if (enabled != null) {
-			db.setEnabled(enabled);
-			db.sanitizeForUpdate();
-			segmentMapper.update(db);
+		require(db.getKnowledgeId());
+		if (enabledRaw == null || String.valueOf(enabledRaw).isBlank()) {
+			throw new ServiceException("状态请选择启用或停用");
 		}
+		String text = String.valueOf(enabledRaw).trim();
+		if (!"0".equals(text) && !"1".equals(text)) {
+			throw new ServiceException("状态请选择启用或停用");
+		}
+		int enabled = Integer.parseInt(text);
+		db.setEnabled(enabled);
+		db.sanitizeForUpdate();
+		segmentMapper.update(db);
+		return enabled == 1 ? "已启用。检索时会带上这段" : "已停用。检索时不会再带上这段";
 	}
 
 	public List<AiKnowledgeSegment> segments(Long knowledgeId, Long assetId) {

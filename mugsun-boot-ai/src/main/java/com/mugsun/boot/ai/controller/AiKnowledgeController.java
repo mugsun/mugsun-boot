@@ -156,12 +156,13 @@ public class AiKnowledgeController {
 
 	@PostMapping("/segment/status")
 	@SaCheckPermission(AiConstants.PERM_KB_DETAIL)
-	public R<Void> segmentStatus(@RequestBody Map<String, Object> body) {
-		Long id = Long.valueOf(String.valueOf(body.get("id")));
-		Integer enabled = body.get("status") == null && body.get("enabled") == null ? null
-			: Integer.valueOf(String.valueOf(body.get("status") != null ? body.get("status") : body.get("enabled")));
-		service.segmentStatus(id, enabled);
-		return R.success("ok");
+	public R<Void> segmentStatus(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null || body.get("id") == null || String.valueOf(body.get("id")).isBlank()
+			|| "null".equals(String.valueOf(body.get("id")))) {
+			throw new ServiceException("请先在列表里选择要改状态的分段");
+		}
+		Object enabled = body.get("enabled") != null ? body.get("enabled") : body.get("status");
+		return R.success(service.segmentStatus(parseSegmentId(body.get("id")), enabled));
 	}
 
 	@PostMapping("/hit-test")
@@ -222,6 +223,14 @@ public class AiKnowledgeController {
 			throw new ServiceException(emptyMessage);
 		}
 		return idList;
+	}
+
+	private static Long parseSegmentId(Object raw) {
+		String text = String.valueOf(raw).trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("分段编号请填写数字，可以从列表里复制");
+		}
+		return Long.valueOf(text);
 	}
 
 	private static Long parseId(Object raw) {
