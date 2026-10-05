@@ -2850,3 +2850,30 @@ WHERE menu_type = 'M'
   AND parent_id <> 0
   AND component = '/index/index'
   AND is_deleted = 0;
+
+-- 顶部菜单方案：按租户保存一组菜单，并指定其中一个为主页
+CREATE TABLE sys_top_menu (
+	id          BIGINT PRIMARY KEY,
+	tenant_id   VARCHAR(12),
+	code        VARCHAR(64) NOT NULL,
+	name        VARCHAR(64) NOT NULL,
+	icon        VARCHAR(64),
+	path        VARCHAR(128),
+	sort        INT NOT NULL DEFAULT 0,
+	is_main     INT NOT NULL DEFAULT 0,
+	create_time TIMESTAMP,
+	update_time TIMESTAMP,
+	is_deleted  INT NOT NULL DEFAULT 0
+);
+COMMENT ON TABLE sys_top_menu IS '顶部菜单方案';
+COMMENT ON COLUMN sys_top_menu.is_main IS '是否主页：0 否 / 1 是，同一租户同时只有一个';
+
+CREATE TABLE sys_top_menu_menu (
+	id          BIGINT PRIMARY KEY,
+	top_menu_id BIGINT NOT NULL,
+	menu_id     BIGINT NOT NULL,
+	create_time TIMESTAMP,
+	update_time TIMESTAMP,
+	is_deleted  INT NOT NULL DEFAULT 0
+);
+COMMENT ON TABLE sys_top_menu_menu IS '顶部菜单方案包含的菜单';

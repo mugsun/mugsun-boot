@@ -64,6 +64,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedCommonRole();
 			seedFronttestUser();
 			reanchorSeedMenus();
+			seedTopMenuPage();
 			return null;
 		});
 	}
@@ -150,6 +151,49 @@ public class DataInitializer implements CommandLineRunner {
 				+ " WHERE permission IN ('sys:user:add','sys:user:phone') AND is_deleted = 0) "
 				+ "AND is_deleted = 0 AND role_id NOT IN (SELECT id FROM " + role + ") "
 				+ "AND EXISTS (SELECT 1 FROM " + role + " WHERE role_code = 'datatest' AND is_deleted = 0)");
+	}
+
+	/** 顶部菜单方案页。基线已灌过的库靠这里补菜单和按钮权限。 */
+	private void seedTopMenuPage() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/top-menu"));
+		if (page == null) {
+			page = new SysMenu();
+			page.setId(1200000000000000143L);
+			page.setParentId(parent.getId());
+			page.setMenuName("顶部菜单");
+			page.setPath("/system/top-menu");
+			page.setComponent("/system/top-menu");
+			page.setMenuType("C");
+			page.setPermission("sys:top-menu:list");
+			page.setSort(43);
+			page.setIcon("ri:layout-top-line");
+			page.setIsPublic(0);
+			page.setIsHide(0);
+			menuMapper.insert(page);
+		}
+		seedMenuButton(page.getId(), 1200000000000000144L, "保存顶部菜单", "sys:top-menu:save", 1);
+		seedMenuButton(page.getId(), 1200000000000000145L, "删除顶部菜单", "sys:top-menu:remove", 2);
+		seedMenuButton(page.getId(), 1200000000000000146L, "配置顶部菜单", "sys:top-menu:grant", 3);
+	}
+
+	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {
+		if (menuMapper.selectCountByQuery(QueryWrapper.create().eq("permission", permission)) > 0) {
+			return;
+		}
+		SysMenu button = new SysMenu();
+		button.setId(id);
+		button.setParentId(parentId);
+		button.setMenuName(name);
+		button.setMenuType("F");
+		button.setPermission(permission);
+		button.setSort(sort);
+		button.setIsPublic(0);
+		button.setIsHide(0);
+		menuMapper.insert(button);
 	}
 
 	private void seed() {
