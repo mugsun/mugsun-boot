@@ -158,6 +158,26 @@ public class AiMcpTool extends BaseEntity {
 		};
 	}
 
+	/** 供重复提交按名称、协议和地址归并，不展开密钥原文。 */
+	@Override
+	public String toString() {
+		String url = sseUrl == null ? "" : sseUrl;
+		String note = description == null ? "" : description;
+		String cmd = command == null ? "" : command;
+		String env = envJson == null ? "" : envJson;
+		String key = apiKey == null ? "" : apiKey;
+		return (name == null ? "" : name) + "|"
+			+ (category == null ? "" : category) + "|"
+			+ (transport == null ? "" : transport) + "|"
+			+ (status == null ? "" : status) + "|"
+			+ url.length() + ":" + Integer.toHexString(url.hashCode()) + "|"
+			+ note.length() + ":" + Integer.toHexString(note.hashCode()) + "|"
+			+ cmd.length() + ":" + Integer.toHexString(cmd.hashCode()) + "|"
+			+ env.length() + ":" + Integer.toHexString(env.hashCode()) + "|"
+			+ key.length() + ":" + Integer.toHexString(key.hashCode()) + "|"
+			+ (getId() == null ? "" : getId());
+	}
+
 	public void setProtocolType(String protocolType) {
 		if (protocolType == null || protocolType.isBlank()) {
 			return;

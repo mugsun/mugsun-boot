@@ -358,7 +358,7 @@ public class AiFlowExecutor {
 					Map<String, Object> mcpRes = mcpBizService.invoke(toolId,
 						data.path("toolName").asText("echo"), args);
 					if (Boolean.FALSE.equals(mcpRes.get("ok"))) {
-						throw new ServiceException("MCP 调用失败: " + String.valueOf(mcpRes.get("error")));
+						throw new ServiceException(String.valueOf(mcpRes.get("error")));
 					}
 					output = objectMapper.writeValueAsString(mcpRes);
 					bindOut(vars, data, output);
