@@ -88,7 +88,7 @@ public class TrackIngestService {
 		// 3) 批量上限：条数超 batch-max 截断并计数（截断保留队首，后到先丢）
 		JsonNode events = root.path(TrackConstants.FIELD_EVENTS);
 		if (!events.isArray()) {
-			throw new TrackCollectException(400, "events 须为数组");
+			throw new TrackCollectException(400, "事件列表不对。请把要上报的事件放进一个列表里再发");
 		}
 		int size = events.size();
 		int batchMax = paramInt(TrackConstants.PARAM_BATCH_MAX, TrackConstants.DEFAULT_BATCH_MAX);
