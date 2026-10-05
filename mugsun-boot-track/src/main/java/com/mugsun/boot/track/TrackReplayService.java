@@ -109,7 +109,7 @@ public class TrackReplayService {
 		TrackApp app = appService.findCollectable(appKey)
 			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用。请到接入管理确认应用还在，并且采集是打开的"));
 		if (app.getReplayEnabled() == null || app.getReplayEnabled() != 1) {
-			throw new TrackCollectException(400, "应用未开启会话回放");
+			throw new TrackCollectException(400, "这个应用没有打开会话回放。请到接入管理打开后再上传这段回放");
 		}
 
 		// 3) 限流（独立键前缀，阈值 = collect × 2；回放块大频次低）
