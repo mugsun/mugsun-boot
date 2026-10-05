@@ -77,7 +77,7 @@ public class TrackApiBodyService {
 		String appKey = text(root, TrackConstants.FIELD_APP_KEY);
 		if (appKey == null || appKey.length() > TrackConstants.APP_KEY_MAX_LEN
 			|| !TrackConstants.REPLAY_PATH_SAFE.matcher(appKey).matches()) {
-			throw new TrackCollectException(400, "无效 app_key");
+			throw new TrackCollectException(400, "应用标识不对。请到接入管理里复制这个应用的标识后再上报");
 		}
 		String eventId = text(root, TrackConstants.FIELD_EVENT_ID);
 		if (eventId == null || eventId.length() > TrackConstants.EVENT_ID_MAX_LEN) {
@@ -95,7 +95,7 @@ public class TrackApiBodyService {
 
 		// 2) 应用校验：存在 + enabled=1 + api_body_enabled=1（本地缓存 30s，生效延迟见 TrackAppService javadoc）
 		TrackApp app = appService.findCollectable(appKey)
-			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用"));
+			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用。请到接入管理确认应用还在，并且采集是打开的"));
 		if (app.getApiBodyEnabled() == null || app.getApiBodyEnabled() != 1) {
 			throw new TrackCollectException(400, "应用未开启接口响应体采集");
 		}

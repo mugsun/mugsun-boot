@@ -78,7 +78,7 @@ public class TrackReplayService {
 		String appKey = text(root, TrackConstants.FIELD_APP_KEY);
 		if (appKey == null || appKey.length() > TrackConstants.APP_KEY_MAX_LEN
 			|| !TrackConstants.REPLAY_PATH_SAFE.matcher(appKey).matches()) {
-			throw new TrackCollectException(400, "无效 app_key");
+			throw new TrackCollectException(400, "应用标识不对。请到接入管理里复制这个应用的标识后再上报");
 		}
 		String sessionId = text(root, TrackConstants.FIELD_SESSION_ID);
 		if (sessionId == null || sessionId.length() > TrackConstants.SESSION_ID_MAX_LEN
@@ -105,7 +105,7 @@ public class TrackReplayService {
 
 		// 2) 应用校验：存在 + enabled=1 + replay_enabled=1（本地缓存 30s，生效延迟见 TrackAppService javadoc）
 		TrackApp app = appService.findCollectable(appKey)
-			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用"));
+			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用。请到接入管理确认应用还在，并且采集是打开的"));
 		if (app.getReplayEnabled() == null || app.getReplayEnabled() != 1) {
 			throw new TrackCollectException(400, "应用未开启会话回放");
 		}

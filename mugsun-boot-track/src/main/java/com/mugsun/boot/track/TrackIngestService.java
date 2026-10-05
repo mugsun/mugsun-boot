@@ -77,10 +77,10 @@ public class TrackIngestService {
 		// 1) appKey 校验：存在且 enabled=1（本地缓存 30s，多副本生效延迟见 TrackAppService javadoc）
 		String appKey = text(root, TrackConstants.FIELD_APP_KEY);
 		if (appKey == null || appKey.isBlank() || appKey.length() > TrackConstants.APP_KEY_MAX_LEN) {
-			throw new TrackCollectException(400, "无效 app_key");
+			throw new TrackCollectException(400, "应用标识不对。请到接入管理里复制这个应用的标识后再上报");
 		}
 		TrackApp app = appService.findCollectable(appKey)
-			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用"));
+			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用。请到接入管理确认应用还在，并且采集是打开的"));
 
 		// 2) IP+appKey 分钟窗限流（阈值 sys_param 热更；sys_param 平台全局无租户列，getValue 内部已 ignore）
 		assertRateLimit(appKey, ip);
