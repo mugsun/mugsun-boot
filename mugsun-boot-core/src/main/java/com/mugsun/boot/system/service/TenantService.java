@@ -14,12 +14,17 @@ import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysTenantMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
+import com.mugsun.boot.tenant.mapper.SysTenantPackageMapper;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -37,12 +42,14 @@ public class TenantService {
 	private final PasswordEncoder passwordEncoder;
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
+	private final SysTenantPackageMapper packageMapper;
 	private final Random random = new Random();
 
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
 						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
-						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService) {
+						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
+						 SysTenantPackageMapper packageMapper) {
 		this.tenantMapper = tenantMapper;
 		this.deptMapper = deptMapper;
 		this.postMapper = postMapper;
@@ -52,19 +59,18 @@ public class TenantService {
 		this.passwordEncoder = passwordEncoder;
 		this.tenantValidator = tenantValidator;
 		this.securityPolicyService = securityPolicyService;
+		this.packageMapper = packageMapper;
 	}
 
 	/** 创建租户并初始化默认数据，返回租户编号 */
 	@Transactional(rollbackFor = Exception.class)
 	public String create(SysTenant tenant) {
+		if (tenant == null) {
+			throw new ServiceException("请填写租户名称后再创建");
+		}
+		normalize(tenant, false);
 		String code = genCode();
 		tenant.setTenantCode(code);
-		if (tenant.getStatus() == null) {
-			tenant.setStatus(1);
-		}
-		if (tenant.getAccountCount() == null) {
-			tenant.setAccountCount(-1);
-		}
 		tenantMapper.insertSelective(tenant);
 		// 忽略当前会话租户条件，按新租户编号写入默认数据
 		TenantContext.ignore(() -> initDefaults(code, tenant.getTenantName()));
@@ -76,7 +82,17 @@ public class TenantService {
 	 * 用 UpdateEntity 显式追踪字段，支持将 package_id 置空以解绑套餐（Flex update(entity) 默认忽略 null）。
 	 */
 	public void update(SysTenant tenant) {
+		if (tenant == null || tenant.getId() == null) {
+			throw new ServiceException("这个租户不存在。请刷新列表后再编辑");
+		}
 		SysTenant exist = tenantMapper.selectOneById(tenant.getId());
+		if (exist == null) {
+			throw new ServiceException("这个租户不存在。请刷新列表后再编辑");
+		}
+		normalize(tenant, true);
+		if ("000000".equals(exist.getTenantCode()) && Integer.valueOf(0).equals(tenant.getStatus())) {
+			throw new ServiceException("平台租户不能停用。停用后所有人都会无法登录，请保持为正常");
+		}
 		SysTenant upd = com.mybatisflex.core.util.UpdateEntity.of(SysTenant.class, tenant.getId());
 		upd.setTenantName(tenant.getTenantName());
 		upd.setContactUser(tenant.getContactUser());
@@ -91,21 +107,83 @@ public class TenantService {
 		}
 	}
 
-	/** 逻辑删除租户并清缓存，避免被删租户在 TTL 内仍缓存有效 */
-	public void remove(java.util.List<Long> ids) {
-		java.util.List<SysTenant> tenants = tenantMapper.selectListByIds(ids);
-		tenantMapper.deleteBatchByIds(ids);
+	/** 逻辑删除租户并清缓存，避免被删租户在 TTL 内仍缓存有效。返回实际删除条数。 */
+	public int remove(List<Long> ids) {
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先选择要删除的租户");
+		}
+		LinkedHashSet<Long> distinct = new LinkedHashSet<>();
+		for (Long id : ids) {
+			if (id == null) {
+				throw new ServiceException("有租户不存在。请刷新列表后再删除");
+			}
+			distinct.add(id);
+		}
+		List<Long> idList = new ArrayList<>(distinct);
+		List<SysTenant> tenants = tenantMapper.selectListByIds(idList);
+		if (tenants.size() != idList.size()) {
+			throw new ServiceException("有租户不存在，或已经被删除。请刷新列表后再试");
+		}
+		for (SysTenant tenant : tenants) {
+			if ("000000".equals(tenant.getTenantCode())) {
+				String name = tenant.getTenantName() == null || tenant.getTenantName().isBlank()
+					? "平台租户" : tenant.getTenantName();
+				throw new ServiceException("「" + name + "」是平台租户，不能删除。请改其他租户");
+			}
+		}
+		tenantMapper.deleteBatchByIds(idList);
 		for (SysTenant tenant : tenants) {
 			tenantValidator.evict(tenant.getTenantCode());
 			purgeTenantData(tenant.getTenantCode());
 		}
+		return tenants.size();
 	}
 
-	/** 删掉建租户时初始化的部门、岗位、角色、用户。平台租户不在这里清。 */
+	private void normalize(SysTenant tenant, boolean updating) {
+		String name = tenant.getTenantName() == null ? "" : tenant.getTenantName().trim();
+		if (name.isEmpty()) {
+			throw new ServiceException("请填写租户名称");
+		}
+		if (name.length() > 64) {
+			throw new ServiceException("租户名称请控制在 64 个字以内");
+		}
+		tenant.setTenantName(name);
+		String contact = tenant.getContactUser() == null ? "" : tenant.getContactUser().trim();
+		if (contact.length() > 32) {
+			throw new ServiceException("联系人请控制在 32 个字以内");
+		}
+		tenant.setContactUser(contact.isEmpty() ? null : contact);
+		String phone = tenant.getContactPhone() == null ? "" : tenant.getContactPhone().trim();
+		if (!phone.isEmpty() && !phone.matches("^1\\d{10}$")) {
+			throw new ServiceException("联系电话请填写 11 位手机号。不需要联系电话可以留空");
+		}
+		tenant.setContactPhone(phone.isEmpty() ? null : phone);
+		if (tenant.getStatus() == null) {
+			tenant.setStatus(1);
+		} else if (tenant.getStatus() != 0 && tenant.getStatus() != 1) {
+			throw new ServiceException("状态只能选择正常或停用");
+		}
+		if (tenant.getAccountCount() == null) {
+			tenant.setAccountCount(-1);
+		} else if (tenant.getAccountCount() < -1) {
+			throw new ServiceException("账号上限请填 -1（不限制）或大于等于 0 的整数");
+		}
+		if (tenant.getPackageId() != null && packageMapper.selectOneById(tenant.getPackageId()) == null) {
+			throw new ServiceException(updating
+				? "这个套餐不存在。请重新选择套餐，或清空套餐表示不限功能"
+				: "这个套餐不存在。请重新选择套餐，或先不选套餐");
+		}
+	}
+
+	/** 删掉建租户时初始化的部门、岗位、角色、用户。平台租户不在这里清。跨租户清理必须忽略当前会话的租户条件。 */
 	private void purgeTenantData(String code) {
 		if (code == null || code.isBlank() || "000000".equals(code)) {
 			return;
 		}
+		TenantContext.ignore(() -> purgeTenantDataUnchecked(code));
+	}
+
+	private void purgeTenantDataUnchecked(String code) {
 		java.util.List<SysUser> users = userMapper.selectListByQuery(QueryWrapper.create().eq("tenant_id", code));
 		java.util.List<Long> userIds = new java.util.ArrayList<>();
 		for (SysUser user : users) {

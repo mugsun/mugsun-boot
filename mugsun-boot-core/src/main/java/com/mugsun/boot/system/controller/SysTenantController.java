@@ -1,10 +1,12 @@
 package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysTenant;
 import com.mugsun.boot.system.mapper.SysTenantMapper;
 import com.mugsun.boot.system.service.TenantService;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.web.bind.annotation.*;
 
@@ -46,28 +48,35 @@ public class SysTenantController {
 
 	@GetMapping("/detail")
 	public R<SysTenant> detail(@RequestParam Long id) {
-		return R.data(tenantMapper.selectOneById(id));
+		SysTenant tenant = tenantMapper.selectOneById(id);
+		if (tenant == null) {
+			throw new ServiceException("这个租户不存在。请刷新列表后再看");
+		}
+		return R.data(tenant);
 	}
 
 	/** 创建租户并初始化默认数据，返回租户编号 */
+	@RepeatSubmit
 	@PostMapping("/create")
 	public R<String> create(@RequestBody SysTenant tenant) {
-		return R.data(tenantService.create(tenant));
+		String code = tenantService.create(tenant);
+		R<String> result = R.data(code);
+		result.setMsg("已创建。编号 " + code + "。默认部门、岗位、角色和管理员已准备好，把编号交给对方即可登录");
+		return result;
 	}
 
 	/** 更新租户信息（含状态/期限/配额/套餐分配），不重新初始化默认数据 */
+	@RepeatSubmit
 	@PostMapping("/update")
 	public R<Void> update(@RequestBody SysTenant tenant) {
-		if (tenant.getId() == null || tenantMapper.selectOneById(tenant.getId()) == null) {
-			return R.fail("租户不存在");
-		}
 		tenantService.update(tenant);
-		return R.success("更新成功");
+		return R.success("已保存。列表里可以查看这名租户的状态和到期时间");
 	}
 
+	@RepeatSubmit
 	@PostMapping("/remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
-		tenantService.remove(ids);
-		return R.success("删除成功");
+		int count = tenantService.remove(ids);
+		return R.success("已删除 " + count + " 个租户。他们的部门、岗位、角色和用户也已清掉，列表里不会再出现");
 	}
 }
