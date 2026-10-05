@@ -47,7 +47,7 @@ public class FlowGraphService {
 	public String buildJson(GraphDesign design) {
 		if (design.flowCode() == null || design.flowCode().isBlank()
 			|| design.flowName() == null || design.flowName().isBlank()) {
-			throw new ServiceException("流程编码与名称不能为空");
+			throw new ServiceException("流程编码与名称不能为空。请填上编码和名称后再发布");
 		}
 		Ctx ctx = new Ctx(design.formKey());
 		List<Map<String, Object>> nodes = new ArrayList<>();

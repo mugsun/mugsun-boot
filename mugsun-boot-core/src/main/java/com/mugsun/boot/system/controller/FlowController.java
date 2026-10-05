@@ -69,7 +69,7 @@ public class FlowController {
 	@PostMapping("/design")
 	public R<Long> design(@RequestBody FlowDesign req) throws Exception {
 		if (req.flowCode() == null || req.flowCode().isBlank() || req.flowName() == null || req.flowName().isBlank()) {
-			throw new ServiceException("流程编码与名称不能为空");
+			throw new ServiceException("流程编码与名称不能为空。请填上编码和名称后再发布");
 		}
 		if (req.nodes() == null || req.nodes().isEmpty()) {
 			throw new ServiceException("至少设计一个审批节点");
