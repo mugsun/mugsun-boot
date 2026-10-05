@@ -68,6 +68,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedDataScopePage();
 			seedApiScopePage();
 			seedApiKeyLogButton();
+			seedUsualLogPage();
 			return null;
 		});
 	}
@@ -246,6 +247,31 @@ public class DataInitializer implements CommandLineRunner {
 			return;
 		}
 		seedMenuButton(page.getId(), 1200000000000000154L, "查看密钥调用记录", "sys:api-key:log", 4);
+	}
+
+	/** 通用日志页。基线已灌过的库靠这里补菜单。 */
+	private void seedUsualLogPage() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/usual-log"));
+		if (page != null) {
+			return;
+		}
+		page = new SysMenu();
+		page.setId(1200000000000000155L);
+		page.setParentId(parent.getId());
+		page.setMenuName("通用日志");
+		page.setPath("/system/usual-log");
+		page.setComponent("/system/usual-log");
+		page.setMenuType("C");
+		page.setPermission("sys:usual-log:list");
+		page.setSort(46);
+		page.setIcon("ri:file-list-2-line");
+		page.setIsPublic(0);
+		page.setIsHide(0);
+		menuMapper.insert(page);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {

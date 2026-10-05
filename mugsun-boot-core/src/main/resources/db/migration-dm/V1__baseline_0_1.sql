@@ -3209,3 +3209,22 @@ CREATE TABLE sys_api_key_log (
 COMMENT ON TABLE sys_api_key_log IS '密钥调用记录';
 COMMENT ON COLUMN sys_api_key_log.status IS '1 通过 / 0 拒绝';
 COMMENT ON COLUMN sys_api_key_log.params IS '调用摘要，不含密钥明文';
+
+-- 通用日志：按级别和业务编号留下业务流水，参数里的口令类内容要隐藏
+CREATE TABLE sys_usual_log (
+	id          BIGINT PRIMARY KEY,
+	tenant_id   VARCHAR(12),
+	log_level   VARCHAR(16) NOT NULL,
+	log_id      VARCHAR(64),
+	log_data    VARCHAR(1000),
+	request_uri VARCHAR(255),
+	method      VARCHAR(16),
+	remote_ip   VARCHAR(64),
+	user_agent  VARCHAR(512),
+	create_time TIMESTAMP,
+	update_time TIMESTAMP,
+	is_deleted  INT DEFAULT 0 NOT NULL
+);
+COMMENT ON TABLE sys_usual_log IS '通用日志';
+COMMENT ON COLUMN sys_usual_log.log_level IS 'info 信息 / debug 调试 / warn 警告 / error 错误';
+COMMENT ON COLUMN sys_usual_log.log_id IS '业务编号，例如被锁定的账号';

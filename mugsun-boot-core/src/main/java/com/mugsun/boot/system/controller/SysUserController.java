@@ -57,6 +57,7 @@ public class SysUserController {
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final NotifySendApi notifySendApi;
 	private final com.mugsun.boot.auth.LoginLockService loginLockService;
+	private final com.mugsun.boot.log.UsualLogService usualLogService;
 
 	public SysUserController(SysUserMapper userMapper, PasswordEncoder passwordEncoder, AuditService auditService,
 							 SysUserRoleMapper userRoleMapper,
@@ -66,7 +67,8 @@ public class SysUserController {
 							 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
 							 com.mugsun.boot.tenant.TenantValidator tenantValidator,
 							 NotifySendApi notifySendApi,
-							 com.mugsun.boot.auth.LoginLockService loginLockService) {
+							 com.mugsun.boot.auth.LoginLockService loginLockService,
+							 com.mugsun.boot.log.UsualLogService usualLogService) {
 		this.userMapper = userMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.auditService = auditService;
@@ -78,6 +80,7 @@ public class SysUserController {
 		this.tenantValidator = tenantValidator;
 		this.notifySendApi = notifySendApi;
 		this.loginLockService = loginLockService;
+		this.usualLogService = usualLogService;
 	}
 
 	@GetMapping("/page")
@@ -676,6 +679,8 @@ public class SysUserController {
 			minutes,
 			String.valueOf(StpUtil.getLoginId()));
 		StpUtil.kickout(id);
+		String reason = body.get("reason") == null ? "" : String.valueOf(body.get("reason")).trim();
+		usualLogService.record("warn", user.getUsername(), "锁定账号：" + reason, user.getTenantId());
 		return R.success("账号已锁定");
 	}
 
@@ -700,6 +705,10 @@ public class SysUserController {
 			throw new com.mugsun.core.tool.exception.ServiceException("无权解锁其他租户的账号");
 		}
 		loginLockService.clear(lockKey);
+		int colon = lockKey.indexOf(':');
+		String username = colon < 0 ? lockKey : lockKey.substring(colon + 1);
+		String tenant = colon < 0 ? com.mugsun.boot.tenant.TenantContext.current() : lockKey.substring(0, colon);
+		usualLogService.record("info", username, "已解锁账号", tenant);
 		return R.success("账号已解锁");
 	}
 
