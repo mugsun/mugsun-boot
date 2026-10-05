@@ -2952,3 +2952,8 @@ ALTER TABLE sys_dept ADD COLUMN full_name VARCHAR(128);
 ALTER TABLE sys_dept ADD COLUMN category VARCHAR(16);
 COMMENT ON COLUMN sys_dept.full_name IS '部门全称';
 COMMENT ON COLUMN sys_dept.category IS 'company 公司 / dept 部门 / team 小组';
+
+ALTER TABLE sys_api_key ADD COLUMN expire_time TIMESTAMP;
+ALTER TABLE sys_api_key ADD COLUMN api_path VARCHAR(255);
+COMMENT ON COLUMN sys_api_key.expire_time IS '到期时间，空表示不限制';
+COMMENT ON COLUMN sys_api_key.api_path IS '允许调用的路径，逗号分隔，空表示不限制';
