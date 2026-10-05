@@ -3,6 +3,7 @@ package com.mugsun.boot.system.controller;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.log.OperationLog;
 import com.mugsun.boot.system.entity.SysMenu;
@@ -148,19 +149,25 @@ public class SysTopMenuController {
 	@SaCheckPermission("sys:top-menu:remove")
 	@OperationLog("删除顶部菜单方案")
 	@Transactional(rollbackFor = Exception.class)
-	public R<Void> remove(@RequestBody List<Long> ids) {
-		if (ids == null || ids.isEmpty()) {
-			throw new ServiceException("请选择要删除的方案");
+	public R<Void> remove(@RequestBody(required = false) JsonNode body) {
+		List<Long> ids = schemeIds(body);
+		List<SysTopMenu> rows = new ArrayList<>();
+		for (Long id : ids) {
+			SysTopMenu row = topMenuMapper.selectOneById(id);
+			if (row == null) {
+				throw new ServiceException("这个方案不存在，或属于其他租户。请刷新列表后再试");
+			}
+			rows.add(row);
 		}
 		boolean removedHome = false;
-		for (Long id : ids) {
-			SysTopMenu row = requireOwn(id);
+		for (SysTopMenu row : rows) {
 			if (row.getIsMain() != null && row.getIsMain() == 1) {
 				removedHome = true;
 			}
-			topMenuMapper.deleteById(id);
-			linkMapper.deleteByQuery(QueryWrapper.create().eq("top_menu_id", id));
+			topMenuMapper.deleteById(row.getId());
+			linkMapper.deleteByQuery(QueryWrapper.create().eq("top_menu_id", row.getId()));
 		}
+		String name = rows.get(0).getName();
 		if (removedHome) {
 			SysTopMenu next = topMenuMapper.selectOneByQuery(
 				QueryWrapper.create().orderBy("sort", true).orderBy("id", true).limit(1));
@@ -168,10 +175,38 @@ public class SysTopMenuController {
 				next.setIsMain(1);
 				next.sanitizeForUpdate();
 				topMenuMapper.update(next);
-				return R.success("已删除。主页已改到「" + next.getName() + "」");
+				if (rows.size() == 1) {
+					return R.success("已删除「" + name + "」。主页已改到「" + next.getName() + "」。进入系统时会打开它");
+				}
+				return R.success("已删除 " + rows.size() + " 个方案。主页已改到「" + next.getName() + "」。进入系统时会打开它");
+			}
+			if (rows.size() == 1) {
+				return R.success("已删除「" + name + "」。现在没有顶部方案，侧栏会显示全部菜单");
+			}
+			return R.success("已删除 " + rows.size() + " 个方案。现在没有顶部方案，侧栏会显示全部菜单");
+		}
+		if (rows.size() == 1) {
+			return R.success("已删除「" + name + "」。顶部不会再出现这个方案");
+		}
+		return R.success("已删除 " + rows.size() + " 个方案。顶部不会再出现这些方案");
+	}
+
+	private static List<Long> schemeIds(JsonNode body) {
+		if (body == null || !body.isArray() || body.isEmpty()) {
+			throw new ServiceException("请先在列表里选择要删除的方案");
+		}
+		List<Long> ids = new ArrayList<>();
+		for (JsonNode node : body) {
+			String text = node == null || node.isNull() ? "" : node.asText("").trim();
+			if (!text.matches("\\d{1,19}")) {
+				throw new ServiceException("方案编号请填写数字，可以从列表里复制");
+			}
+			long id = Long.parseLong(text);
+			if (!ids.contains(id)) {
+				ids.add(id);
 			}
 		}
-		return R.success("已删除");
+		return ids;
 	}
 
 	/** 菜单树 + 当前方案已勾选的菜单，供配置弹窗回显。 */
