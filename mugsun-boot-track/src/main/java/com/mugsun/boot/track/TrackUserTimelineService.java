@@ -90,7 +90,7 @@ public class TrackUserTimelineService {
 			throw new ServiceException("请选择开始和结束时间，结束时间要晚于开始时间");
 		}
 		if (endTs - startTs > TrackConstants.TIMELINE_RANGE_MAX_MS) {
-			throw new ServiceException("时间范围不能超过 7 天");
+			throw new ServiceException("时间范围不能超过 7 天。请把开始和结束时间缩到 7 天以内再查");
 		}
 		long size = clampPageSize(pageSize);
 		// 游标解析：{receivedAtMs}_{rowId}（上一页末行位置；非法游标 400，防错位翻页）
