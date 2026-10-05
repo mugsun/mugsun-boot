@@ -102,7 +102,7 @@ public class TrackReplayQueryService {
 		TrackReplay replay = requireReplay(sessionId);
 		int lastSeq = replay.getLastSeq() == null ? -1 : replay.getLastSeq();
 		if (seq < 0 || seq > lastSeq) {
-			throw new ServiceException("回放块不存在");
+			throw new ServiceException("这一段回放对不上。请回到列表重新打开");
 		}
 		byte[] gz;
 		try {
