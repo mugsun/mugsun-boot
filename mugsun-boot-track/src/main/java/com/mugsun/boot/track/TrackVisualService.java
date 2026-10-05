@@ -262,37 +262,42 @@ public class TrackVisualService {
 	 * 改 selector = 重新圈选）；可编辑字段清空语义（传空串清空为 NULL，缺省 null 保持不变）。
 	 * 改事件名同步 upsert track_event_def（同 confirm 逻辑）；改后撞自然键唯一索引转 400「规则已存在」。
 	 */
-	public TrackVisualRule ruleSubmit(TrackVisualRule body, long userId) {
-		if (body.getId() == null) {
-			throw new ServiceException("缺少 id");
+	public String ruleSubmit(Long id, Map<String, Object> body, long userId) {
+		if (id == null) {
+			throw new ServiceException("请先在列表里打开要编辑的规则");
 		}
-		TrackVisualRule rule = visualRuleMapper.selectOneByQuery(QueryWrapper.create().where("id = ?", body.getId()));
+		TrackVisualRule rule = visualRuleMapper.selectOneByQuery(QueryWrapper.create().where("id = ?", id));
 		if (rule == null) {
-			throw new ServiceException("规则不存在或无权限");
+			throw new ServiceException("这个规则不存在。请刷新列表后再试");
 		}
 		String newName = rule.getEventName();
-		if (body.getEventName() != null) {
-			newName = body.getEventName().trim();
+		if (body != null && body.containsKey("eventName") && body.get("eventName") != null) {
+			newName = String.valueOf(body.get("eventName")).trim();
 			if (!TrackConstants.CUSTOM_EVENT_NAME.matcher(newName).matches()) {
-				throw new ServiceException("事件名不合法（字母开头，仅字母/数字/下划线，≤64 位）");
+				throw new ServiceException("事件名请用字母开头，后面只能是字母、数字或下划线，最长 64 位");
 			}
 		}
-		String newRoute = body.getRoutePath() == null ? rule.getRoutePath()
-			: normalizeNullable(body.getRoutePath(), TrackConstants.DIM_MAX_LEN, "routePath");
-		String newMatch = body.getMatchText() == null ? rule.getMatchText()
-			: normalizeNullable(body.getMatchText(), TrackConstants.VISUAL_MATCH_TEXT_MAX_LEN, "matchText");
+		String newRoute = rule.getRoutePath();
+		if (body != null && body.containsKey("routePath") && body.get("routePath") != null) {
+			newRoute = normalizeNullable(String.valueOf(body.get("routePath")), TrackConstants.DIM_MAX_LEN, "页面路径");
+		}
+		String newMatch = rule.getMatchText();
+		if (body != null && body.containsKey("matchText") && body.get("matchText") != null) {
+			newMatch = normalizeNullable(String.valueOf(body.get("matchText")), TrackConstants.VISUAL_MATCH_TEXT_MAX_LEN, "匹配文本");
+		}
 		Integer newStatus = rule.getStatus();
-		if (body.getStatus() != null) {
-			if (body.getStatus() != 0 && body.getStatus() != 1) {
-				throw new ServiceException("status 仅支持 0/1");
+		if (body != null && body.containsKey("status") && body.get("status") != null) {
+			String status = String.valueOf(body.get("status")).trim();
+			if (!"0".equals(status) && !"1".equals(status)) {
+				throw new ServiceException("状态请选择启用或停用");
 			}
-			newStatus = body.getStatus();
+			newStatus = Integer.valueOf(status);
 		}
 		boolean renamed = !Objects.equals(newName, rule.getEventName());
 		if (renamed || !Objects.equals(newRoute, rule.getRoutePath()) || !Objects.equals(newMatch, rule.getMatchText())) {
 			TrackVisualRule dup = findByNaturalKey(rule.getAppKey(), newName, rule.getSelector(), newRoute, newMatch);
 			if (dup != null && !Objects.equals(dup.getId(), rule.getId())) {
-				throw new ServiceException("规则已存在");
+				throw new ServiceException("规则已存在。请换一个事件名、页面路径或匹配文本");
 			}
 		}
 		// UpdateChain 显式列更新：route_path/match_text 清空语义需写 NULL（实体 update(ignoreNulls) 会跳过 null 列）
@@ -312,14 +317,21 @@ public class TrackVisualService {
 				.where("id = ?", rule.getId())
 				.update();
 		} catch (DuplicateKeyException e) {
-			throw new ServiceException("规则已存在");
+			throw new ServiceException("规则已存在。请换一个事件名、页面路径或匹配文本");
 		}
 		if (renamed) {
 			upsertEventDef(rule.getAppKey(), newName, rule.getTenantId());
 			eventDefService.evict(rule.getAppKey(), newName);
 		}
 		visualRuleService.evict(rule.getAppKey());
-		return rule;
+		String name = rule.getEventName();
+		if (name == null || name.isBlank()) {
+			name = "这条规则";
+		}
+		if (rule.getStatus() != null && rule.getStatus() == 0) {
+			return "已保存「" + name + "」。配置下发里不会再带上这条规则";
+		}
+		return "已保存「" + name + "」。配置下发会带上这条规则";
 	}
 
 	/** 规则删除（逻辑删除；缓存即时失效后 config 不再下发） */
@@ -486,7 +498,7 @@ public class TrackVisualService {
 			return null;
 		}
 		if (v.length() > maxLen) {
-			throw new ServiceException(field + " ≤" + maxLen + " 字");
+			throw new ServiceException(field + "请控制在 " + maxLen + " 个字以内");
 		}
 		return v;
 	}

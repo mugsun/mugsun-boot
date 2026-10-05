@@ -85,8 +85,16 @@ public class TrackVisualController {
 	/** 规则编辑：仅 eventName/routePath/matchText/status 可改（selector 只读，改 selector = 重新圈选） */
 	@PostMapping("/rule/submit")
 	@SaCheckPermission(TrackConstants.PERM_VISUAL_EDIT)
-	public R<TrackVisualRule> ruleSubmit(@RequestBody TrackVisualRule body) {
-		return R.data(visualService.ruleSubmit(body, StpUtil.getLoginIdAsLong()));
+	public R<Void> ruleSubmit(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null || body.get("id") == null || String.valueOf(body.get("id")).isBlank()
+			|| "null".equals(String.valueOf(body.get("id")))) {
+			throw new ServiceException("请先在列表里打开要编辑的规则");
+		}
+		String text = String.valueOf(body.get("id")).trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("规则编号请填写数字，可以从列表里复制");
+		}
+		return R.success(visualService.ruleSubmit(Long.valueOf(text), body, StpUtil.getLoginIdAsLong()));
 	}
 
 	/** 规则删除（逻辑删除；缓存即时失效后 config 不再下发） */
