@@ -59,7 +59,7 @@ public class TrackSourcemapController {
 	/** 分页列表：appKey 必填、release 精确可选；records 同 upload 投影（不下发 storage_key 绝对路径） */
 	@GetMapping("/page")
 	@SaCheckPermission(TrackConstants.PERM_APP_EDIT)
-	public R<Page<Map<String, Object>>> page(@RequestParam String appKey,
+	public R<Page<Map<String, Object>>> page(@RequestParam(required = false) String appKey,
 											 @RequestParam(required = false) String release,
 											 @RequestParam(defaultValue = "1") long pageNum,
 											 @RequestParam(defaultValue = "10") long pageSize) {

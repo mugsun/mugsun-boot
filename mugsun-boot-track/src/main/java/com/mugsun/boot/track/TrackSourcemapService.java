@@ -184,10 +184,21 @@ public class TrackSourcemapService {
 	}
 
 	private String requireAppKey(String appKey) {
-		if (appKey == null || appKey.isBlank() || appKey.length() > TrackConstants.APP_KEY_MAX_LEN) {
-			throw new ServiceException("缺少或非法 appKey");
+		if (appKey == null || appKey.isBlank()) {
+			throw new ServiceException("请先选择应用。符号表是按应用分开的");
 		}
-		return appKey.trim();
+		String key = appKey.trim();
+		if (key.isEmpty() || key.length() > TrackConstants.APP_KEY_MAX_LEN) {
+			throw new ServiceException("应用标识不对。请从应用列表里重新选择");
+		}
+		// 全局是否存在（不看租户）：完全没有这个应用才说明「不存在」。
+		// 别的租户有同名应用时仍返回标识，分页由租户插件滤成空列表，避免把「看不见」说成「应用没有」。
+		long found = com.mugsun.boot.tenant.TenantContext.ignore(() ->
+			appMapper.selectCountByQuery(QueryWrapper.create().eq("app_key", key)));
+		if (found == 0) {
+			throw new ServiceException("这个应用不存在。请刷新应用列表后再看");
+		}
+		return key;
 	}
 
 	/** 文件名校验：.map 后缀（大小写不敏感）、剥离路径段、对象键安全字符、≤{@value TrackConstants#SOURCEMAP_FILENAME_MAX_LEN} */
