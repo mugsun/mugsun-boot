@@ -54,4 +54,10 @@ public class HelpCatalog extends BaseEntity implements INode<HelpCatalog> {
 	public void setChildren(List<HelpCatalog> children) {
 		this.children = children;
 	}
+
+	/** 防重复提交按目录内容认同一条，不带临时子节点。 */
+	@Override
+	public String toString() {
+		return getId() + "|" + parentId + "|" + name + "|" + sort;
+	}
 }

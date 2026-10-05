@@ -39,4 +39,10 @@ public class HelpPageBinding extends BaseEntity {
 	public void setSort(Integer sort) {
 		this.sort = sort;
 	}
+
+	/** 防重复提交按路由和文档认同一条绑定。 */
+	@Override
+	public String toString() {
+		return getId() + "|" + docId + "|" + routePath + "|" + sort;
+	}
 }

@@ -59,4 +59,10 @@ public class HelpDoc extends BaseEntity {
 	public void setSort(Integer sort) {
 		this.sort = sort;
 	}
+
+	/** 防重复提交按文档内容认同一条，浏览量由服务端维护。 */
+	@Override
+	public String toString() {
+		return getId() + "|" + catalogId + "|" + title + "|" + sort + "|" + content;
+	}
 }
