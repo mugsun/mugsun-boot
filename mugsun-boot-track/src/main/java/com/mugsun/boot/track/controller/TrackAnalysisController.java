@@ -46,7 +46,7 @@ public class TrackAnalysisController {
 	 */
 	@GetMapping("/overview")
 	@SaCheckPermission(TrackConstants.PERM_OVERVIEW_LIST)
-	public R<Map<String, Object>> overview(@RequestParam String appKey,
+	public R<Map<String, Object>> overview(@RequestParam(required = false) String appKey,
 										   @RequestParam(required = false) Integer days) {
 		return R.data(analysisService.overview(appKey, days));
 	}
@@ -58,7 +58,7 @@ public class TrackAnalysisController {
 	 */
 	@GetMapping("/trend")
 	@SaCheckPermission(TrackConstants.PERM_OVERVIEW_LIST)
-	public R<List<Map<String, Object>>> trend(@RequestParam String appKey,
+	public R<List<Map<String, Object>>> trend(@RequestParam(required = false) String appKey,
 											  @RequestParam(required = false) Integer days,
 											  @RequestParam(required = false) String dimType,
 											  @RequestParam(required = false) String dimKey) {
@@ -68,7 +68,7 @@ public class TrackAnalysisController {
 	/** Top 页面：[{pagePath, pv, uv, avgDurationMs}]，按 pv 降序；pagePath 为路由模板（空回退原始路径） */
 	@GetMapping("/pages")
 	@SaCheckPermission(TrackConstants.PERM_OVERVIEW_LIST)
-	public R<List<Map<String, Object>>> pages(@RequestParam String appKey,
+	public R<List<Map<String, Object>>> pages(@RequestParam(required = false) String appKey,
 											  @RequestParam(required = false) Integer days,
 											  @RequestParam(required = false) Integer limit) {
 		return R.data(analysisService.pages(appKey, days, limit));
@@ -77,7 +77,7 @@ public class TrackAnalysisController {
 	/** 事件分析分页：records=[{eventName, eventCount, sessionCount, uv, lastTime(epoch ms)}]，按次数降序 */
 	@GetMapping("/events/page")
 	@SaCheckPermission(TrackConstants.PERM_EVENT_LIST)
-	public R<Page<Map<String, Object>>> eventsPage(@RequestParam String appKey,
+	public R<Page<Map<String, Object>>> eventsPage(@RequestParam(required = false) String appKey,
 												   @RequestParam(required = false) String eventName,
 												   @RequestParam(required = false) Integer days,
 												   @RequestParam(defaultValue = "1") long pageNum,
@@ -88,7 +88,7 @@ public class TrackAnalysisController {
 	/** 实时事件流（Redis Stream 尾部，不等落库）：[{id, eventId, eventName, ts, distinctId, sessionId, userId, urlPath}] */
 	@GetMapping("/events/realtime")
 	@SaCheckPermission(TrackConstants.PERM_EVENT_LIST)
-	public R<List<Map<String, Object>>> eventsRealtime(@RequestParam String appKey,
+	public R<List<Map<String, Object>>> eventsRealtime(@RequestParam(required = false) String appKey,
 													   @RequestParam(required = false) Integer limit) {
 		return R.data(analysisService.eventsRealtime(appKey, limit));
 	}
@@ -96,14 +96,14 @@ public class TrackAnalysisController {
 	/** 当前在线人数：{online, windowSeconds}（ZSET 5 分钟窗） */
 	@GetMapping("/online")
 	@SaCheckPermission(TrackConstants.PERM_OVERVIEW_LIST)
-	public R<Map<String, Object>> online(@RequestParam String appKey) {
+	public R<Map<String, Object>> online(@RequestParam(required = false) String appKey) {
 		return R.data(analysisService.online(appKey));
 	}
 
 	/** Web Vitals 分位：[{metric, count, avg, p50, p75, p95}]（直方图插值；CLS 千分制，其余毫秒） */
 	@GetMapping("/vitals")
 	@SaCheckPermission(TrackConstants.PERM_PERF_LIST)
-	public R<List<Map<String, Object>>> vitals(@RequestParam String appKey,
+	public R<List<Map<String, Object>>> vitals(@RequestParam(required = false) String appKey,
 											   @RequestParam(required = false) Integer days,
 											   @RequestParam(required = false) String routePath) {
 		return R.data(analysisService.vitals(appKey, days, routePath));
@@ -112,7 +112,7 @@ public class TrackAnalysisController {
 	/** 错误分组分页：records=[{fingerprint, eventCount, sessionCount, firstTime, lastTime, message}]，按最近发生降序 */
 	@GetMapping("/errors/page")
 	@SaCheckPermission(TrackConstants.PERM_ERROR_LIST)
-	public R<Page<Map<String, Object>>> errorsPage(@RequestParam String appKey,
+	public R<Page<Map<String, Object>>> errorsPage(@RequestParam(required = false) String appKey,
 												   @RequestParam(required = false) Integer days,
 												   @RequestParam(defaultValue = "1") long pageNum,
 												   @RequestParam(defaultValue = "10") long pageSize) {
@@ -122,7 +122,7 @@ public class TrackAnalysisController {
 	/** 错误组内明细：records=[{eventId, sessionId, distinctId, urlPath, routePath, time, message, release, stack, props(JSON 文本)}] */
 	@GetMapping("/errors/detail")
 	@SaCheckPermission(TrackConstants.PERM_ERROR_LIST)
-	public R<Page<Map<String, Object>>> errorDetail(@RequestParam String appKey,
+	public R<Page<Map<String, Object>>> errorDetail(@RequestParam(required = false) String appKey,
 													@RequestParam String fingerprint,
 													@RequestParam(required = false) Integer days,
 													@RequestParam(defaultValue = "1") long pageNum,
@@ -136,7 +136,7 @@ public class TrackAnalysisController {
 	 */
 	@GetMapping("/geo")
 	@SaCheckPermission(TrackConstants.PERM_OVERVIEW_LIST)
-	public R<Map<String, Object>> geo(@RequestParam String appKey,
+	public R<Map<String, Object>> geo(@RequestParam(required = false) String appKey,
 									  @RequestParam(required = false) Integer days) {
 		return R.data(analysisService.geo(appKey, days));
 	}

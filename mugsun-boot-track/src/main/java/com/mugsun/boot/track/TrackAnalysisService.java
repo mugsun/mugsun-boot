@@ -62,7 +62,7 @@ public class TrackAnalysisService {
 
 	/** 概览卡片 + 来源/设备/浏览器分布（缓存 {@value TrackConstants#ANALYSIS_CACHE_SECONDS}s） */
 	public Map<String, Object> overview(String appKey, Integer days) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		int d = clampDays(days);
 		return self.getObject().cachedOverview(appKey, d, currentTenant());
 	}
@@ -150,7 +150,7 @@ public class TrackAnalysisService {
 	 * 5m 表无 overview 维，等价取 event 维全量求和（全站口径；sessionCount 为多事件名求和仅供参考）。
 	 */
 	public List<Map<String, Object>> trend(String appKey, Integer days, String dimType, String dimKey) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		int d = clampDays(days);
 		String dim = assertDimType(dimType);
 		return self.getObject().cachedTrend(appKey, d, dim, dimKey, currentTenant());
@@ -199,7 +199,7 @@ public class TrackAnalysisService {
 
 	/** Top 页面（PV/UV/平均停留）：明细直算（分区裁剪）；UV 精确 identity 归并；平均停留 = $pageleave.duration_ms 均值 */
 	public List<Map<String, Object>> pages(String appKey, Integer days, Integer limit) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		int d = clampDays(days);
 		int top = clampLimit(limit, TrackConstants.ANALYSIS_TOP_LIMIT);
 		return self.getObject().cachedPages(appKey, d, top, currentTenant());
@@ -226,7 +226,7 @@ public class TrackAnalysisService {
 
 	/** Web Vitals 分位（直方图插值，非实时 percentile）：每 metric 返回 count/avg/p50/p75/p95 */
 	public List<Map<String, Object>> vitals(String appKey, Integer days, String routePath) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		int d = clampDays(days);
 		return self.getObject().cachedVitals(appKey, d, routePath, currentTenant());
 	}
@@ -337,7 +337,7 @@ public class TrackAnalysisService {
 
 	/** 事件分析分页：按事件名分组（次数/会话/UV/最近发生）；UV 为行级 user_id 口径（精确归并见 stats_day） */
 	public Page<Map<String, Object>> eventsPage(String appKey, String eventName, Integer days, long pageNum, long pageSize) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
 		int d = clampDays(days);
 		long size = clampPageSize(pageSize);
@@ -365,7 +365,7 @@ public class TrackAnalysisService {
 
 	/** 实时事件流：Redis Stream XREVRANGE 尾部（不等落库，§5.2 实时通道）；先校验本租户应用可见性 */
 	public List<Map<String, Object>> eventsRealtime(String appKey, Integer limit) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
 		assertAppVisible(appKey, tenant);
 		int top = clampLimit(limit, 100);
@@ -400,7 +400,7 @@ public class TrackAnalysisService {
 
 	/** 当前在线人数：ZSET 5 分钟窗 ZCOUNT（§5.2）；先校验本租户应用可见性 */
 	public Map<String, Object> online(String appKey) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
 		assertAppVisible(appKey, tenant);
 		long now = System.currentTimeMillis();
@@ -422,7 +422,7 @@ public class TrackAnalysisService {
 
 	/** 错误分组分页：按 error_fingerprint 聚合（次数/影响会话/首末次/最近消息） */
 	public Page<Map<String, Object>> errorsPage(String appKey, Integer days, long pageNum, long pageSize) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
 		int d = clampDays(days);
 		long size = clampPageSize(pageSize);
@@ -448,7 +448,7 @@ public class TrackAnalysisService {
 
 	/** 错误组内明细：原始堆栈/release/面包屑 props（props 原样 JSON 文本，前端自解析渲染） */
 	public Page<Map<String, Object>> errorDetail(String appKey, String fingerprint, Integer days, long pageNum, long pageSize) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		if (fingerprint == null || fingerprint.isBlank()) {
 			throw new ServiceException("缺少 fingerprint");
 		}
@@ -483,7 +483,7 @@ public class TrackAnalysisService {
 	 * 坐标点取最近 {@link TrackConstants#GEO_POINTS_MAX} 条有列事件。
 	 */
 	public Map<String, Object> geo(String appKey, Integer days) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
 		assertAppVisible(appKey, tenant);
 		int d = clampDays(days);
@@ -563,10 +563,22 @@ public class TrackAnalysisService {
 		}
 	}
 
-	private void assertAppKey(String appKey) {
-		if (appKey == null || appKey.isBlank() || appKey.length() > TrackConstants.APP_KEY_MAX_LEN) {
-			throw new ServiceException("缺少或非法 appKey");
+	private String assertAppKey(String appKey) {
+		if (appKey == null || appKey.isBlank()) {
+			throw new ServiceException("请先选择应用。分析是按应用分开的");
 		}
+		String key = appKey.trim();
+		if (key.length() > TrackConstants.APP_KEY_MAX_LEN) {
+			throw new ServiceException("应用标识不对。请从应用列表里重新选择");
+		}
+		// 原始 SQL 不看租户：完全没有这个应用才说明「不存在」。
+		// 别的租户有同名应用时仍返回标识，统计查询按租户滤成空结果；实时通道另做本租户校验。
+		Long found = jdbc.queryForObject(
+			"SELECT count(*) FROM track_app WHERE app_key = ? AND is_deleted = 0", Long.class, key);
+		if (found == null || found == 0) {
+			throw new ServiceException("这个应用不存在。请刷新应用列表后再看");
+		}
+		return key;
 	}
 
 	/** dimType 白名单（非法值 400，防拼接注入与脏维度） */
