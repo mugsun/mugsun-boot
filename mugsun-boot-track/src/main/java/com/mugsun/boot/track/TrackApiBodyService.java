@@ -212,7 +212,8 @@ public class TrackApiBodyService {
 				total += n;
 				if (total > maxBytes) {
 					metrics.dropped("api_body_oversize", 1);
-					throw new TrackCollectException(413, "响应体解压后超限");
+					throw new TrackCollectException(413, "这段响应体解压后太大。解压后最长 "
+						+ maxBytes + " 字节，请缩小后再上传");
 				}
 				out.write(chunk, 0, n);
 			}
