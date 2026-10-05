@@ -317,10 +317,10 @@ public class FlowGraphService {
 		try {
 			v = Integer.parseInt(r);
 		} catch (NumberFormatException e) {
-			throw new ServiceException("会签比例非法（须 0~100 整数）：" + nodeRatio);
+			throw new ServiceException("会签比例须为 0 到 100 的整数。请改成这个范围里的整数后再发布");
 		}
 		if (v < 0 || v > 100) {
-			throw new ServiceException("会签比例须为 0~100：" + nodeRatio);
+			throw new ServiceException("会签比例须为 0 到 100 的整数。请改成这个范围里的整数后再发布");
 		}
 		return r;
 	}
