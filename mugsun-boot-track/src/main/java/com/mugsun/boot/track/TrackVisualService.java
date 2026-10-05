@@ -423,7 +423,7 @@ public class TrackVisualService {
 			return PLAIN_MAPPER.readValue(raw, PLAIN_MAPPER.getTypeFactory()
 				.constructMapType(LinkedHashMap.class, String.class, Object.class));
 		} catch (JsonProcessingException e) {
-			throw new ServiceException("草稿数据损坏");
+			throw new ServiceException("这条圈选草稿读不出来。请重新进入圈选后再圈一次");
 		}
 	}
 
