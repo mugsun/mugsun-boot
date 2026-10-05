@@ -144,7 +144,7 @@ public class TrackAnalysisController {
 	/**
 	 * 漏斗分析（G103，§20.1）：{steps:[{eventName, count}...按入参序], days, windowHours, actor:"merged"}。
 	 * actor = identity 归并；有序非紧邻匹配；每层须在前一步后 windowHours（1/24/168，默认 24）小时内触达；
-	 * days 默认 7 上限 30；steps 逗号分隔 2..5 个合法事件名（转化率前端算）。
+	 * days 缺省 7，超出 1..30 会说明重新选择；steps 逗号分隔 2..5 个合法事件名（转化率前端算）。
 	 */
 	@GetMapping("/funnel")
 	@SaCheckPermission(TrackConstants.PERM_FUNNEL_LIST)

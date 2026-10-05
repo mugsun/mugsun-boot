@@ -60,7 +60,7 @@ public class TrackFunnelService {
 	public Map<String, Object> funnel(String appKey, String steps, Integer days, Long windowHours) {
 		appKey = assertAppKey(appKey);
 		List<String> stepList = parseSteps(steps);
-		int d = clampDays(days);
+		int d = assertDays(days);
 		long window = assertWindow(windowHours);
 		String tenant = currentTenant();
 		assertAppVisible(appKey, tenant);
@@ -159,12 +159,16 @@ public class TrackFunnelService {
 		return List.copyOf(deduped);
 	}
 
-	/** days 钳制：缺省/非法 7 天，上限 {@value TrackConstants#FUNNEL_DAYS_MAX}（照 clampDays 模式） */
-	private int clampDays(Integer days) {
-		if (days == null || days < 1) {
+	/** 统计天数：缺省 7 天；须在 1..{@value TrackConstants#FUNNEL_DAYS_MAX}，否则说明重新选择 */
+	private int assertDays(Integer days) {
+		if (days == null) {
 			return 7;
 		}
-		return Math.min(days, TrackConstants.FUNNEL_DAYS_MAX);
+		if (days < 1 || days > TrackConstants.FUNNEL_DAYS_MAX) {
+			throw new ServiceException("统计天数只支持 1 到 " + TrackConstants.FUNNEL_DAYS_MAX
+				+ " 天。请从今天、近 7 天或近 30 天里重新选择");
+		}
+		return days;
 	}
 
 	/** 转化窗口白名单：缺省 {@value TrackConstants#FUNNEL_WINDOW_DEFAULT_HOURS}h，
