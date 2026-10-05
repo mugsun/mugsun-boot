@@ -601,7 +601,7 @@ public class AuthController {
 		// 仅接受附件体系产物形态：公开区 URL（http(s)://…/file/… 或相对 /file/…），防 javascript:/data: 注入
 		if (avatar.isBlank() || avatar.length() > 255
 			|| !(avatar.startsWith("http://") || avatar.startsWith("https://") || avatar.startsWith("/file/"))) {
-			throw new ServiceException("头像地址不合法");
+			throw new ServiceException("头像地址不合法。请改成以 /file/、http:// 或 https:// 开头、并且不超过 255 个字符的附件公开地址后再保存");
 		}
 		long userId = StpUtil.getLoginIdAsLong();
 		// 实体未建模（SysUser 冻结），行级 SQL 落 avatar 列
