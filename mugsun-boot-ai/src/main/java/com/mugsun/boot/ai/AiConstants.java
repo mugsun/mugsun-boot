@@ -19,7 +19,7 @@ public final class AiConstants {
 	public static final String MSG_APP_MISSING = "这个应用不存在。请刷新列表后再试";
 	public static final String MSG_KB_MISSING = "这个知识库不存在。请刷新列表后再试";
 	public static final String MSG_DATASET_MISSING = "这个问数不存在。请刷新列表后再试";
-	public static final String MSG_DASHBOARD_MISSING = "仪表盘不存在";
+	public static final String MSG_DASHBOARD_MISSING = "这个仪表盘不存在。请从问数列表再进一次";
 	public static final String MSG_MCP_MISSING = "这个 MCP 不存在。请刷新列表后再试";
 	public static final String MSG_CHANNEL_MISSING = "这个渠道不存在。请刷新列表后再试";
 	public static final String MSG_SQL_UNSAFE = "仅允许只读 SELECT 查询";

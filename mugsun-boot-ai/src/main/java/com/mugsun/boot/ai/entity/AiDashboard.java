@@ -78,4 +78,25 @@ public class AiDashboard extends BaseEntity {
 	public void setEnabled(Integer enabled) {
 		this.enabled = enabled;
 	}
+
+	public String getDslJson() {
+		return dsl;
+	}
+
+	public void setDslJson(String dslJson) {
+		this.dsl = dslJson;
+	}
+
+	/** 供重复提交按名称和内容归并，不展开整段 DSL。 */
+	@Override
+	public String toString() {
+		String note = description == null ? "" : description;
+		String body = dsl == null ? "" : dsl;
+		return (name == null ? "" : name) + "|"
+			+ (enabled == null ? "" : enabled) + "|"
+			+ (datasetId == null ? "" : datasetId) + "|"
+			+ note.length() + ":" + Integer.toHexString(note.hashCode()) + "|"
+			+ body.length() + ":" + Integer.toHexString(body.hashCode()) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }
