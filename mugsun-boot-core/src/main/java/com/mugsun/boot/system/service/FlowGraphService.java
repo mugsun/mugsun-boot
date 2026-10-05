@@ -79,7 +79,7 @@ public class FlowGraphService {
 		try {
 			return objectMapper.writeValueAsString(root);
 		} catch (Exception e) {
-			throw new ServiceException("流程定义序列化失败：" + e.getMessage());
+			throw new ServiceException("流程定义序列化失败。请重新打开设计页后再发布");
 		}
 	}
 
