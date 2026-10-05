@@ -96,7 +96,7 @@ public class TrackReplayQueryService {
 
 	/**
 	 * 读取块内容：rrweb 事件数组 JSON 明文字节（服务端已解压）。
-	 * 对象不存在/平台下线/解压失败一律「回放数据不存在或已过期」（不暴露存储内部错误形态）。
+	 * 对象不存在/平台下线/解压失败一律说明这一段读不出来（不暴露存储内部错误形态）。
 	 */
 	public byte[] blockJson(String sessionId, int seq) {
 		TrackReplay replay = requireReplay(sessionId);
@@ -109,13 +109,13 @@ public class TrackReplayQueryService {
 			gz = storage.load(replay.getStoragePlatform(), replay.getStorageBasePath(), replay.getStorageKey(), seq);
 		} catch (Exception e) {
 			log.warn("回放块读取失败 session={} seq={}：{}", sessionId, seq, e.getMessage());
-			throw new ServiceException("回放数据不存在或已过期");
+			throw new ServiceException("这一段回放读不出来。请回到列表重新打开");
 		}
 		try {
 			return gunzip(gz);
 		} catch (IOException e) {
 			log.warn("回放块解压失败 session={} seq={}：{}", sessionId, seq, e.getMessage());
-			throw new ServiceException("回放数据不存在或已过期");
+			throw new ServiceException("这一段回放读不出来。请回到列表重新打开");
 		}
 	}
 
