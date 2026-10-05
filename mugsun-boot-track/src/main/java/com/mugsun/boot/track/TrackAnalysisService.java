@@ -63,7 +63,7 @@ public class TrackAnalysisService {
 	/** 概览卡片 + 来源/设备/浏览器分布（缓存 {@value TrackConstants#ANALYSIS_CACHE_SECONDS}s） */
 	public Map<String, Object> overview(String appKey, Integer days) {
 		appKey = assertAppKey(appKey);
-		int d = clampDays(days);
+		int d = assertDays(days);
 		return self.getObject().cachedOverview(appKey, d, currentTenant());
 	}
 
@@ -151,7 +151,7 @@ public class TrackAnalysisService {
 	 */
 	public List<Map<String, Object>> trend(String appKey, Integer days, String dimType, String dimKey) {
 		appKey = assertAppKey(appKey);
-		int d = clampDays(days);
+		int d = assertDays(days);
 		String dim = assertDimType(dimType);
 		return self.getObject().cachedTrend(appKey, d, dim, dimKey, currentTenant());
 	}
@@ -200,7 +200,7 @@ public class TrackAnalysisService {
 	/** Top 页面（PV/UV/平均停留）：明细直算（分区裁剪）；UV 精确 identity 归并；平均停留 = $pageleave.duration_ms 均值 */
 	public List<Map<String, Object>> pages(String appKey, Integer days, Integer limit) {
 		appKey = assertAppKey(appKey);
-		int d = clampDays(days);
+		int d = assertDays(days);
 		int top = clampLimit(limit, TrackConstants.ANALYSIS_TOP_LIMIT);
 		return self.getObject().cachedPages(appKey, d, top, currentTenant());
 	}
@@ -227,7 +227,7 @@ public class TrackAnalysisService {
 	/** Web Vitals 分位（直方图插值，非实时 percentile）：每 metric 返回 count/avg/p50/p75/p95 */
 	public List<Map<String, Object>> vitals(String appKey, Integer days, String routePath) {
 		appKey = assertAppKey(appKey);
-		int d = clampDays(days);
+		int d = assertDays(days);
 		return self.getObject().cachedVitals(appKey, d, routePath, currentTenant());
 	}
 
@@ -339,7 +339,7 @@ public class TrackAnalysisService {
 	public Page<Map<String, Object>> eventsPage(String appKey, String eventName, Integer days, long pageNum, long pageSize) {
 		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
-		int d = clampDays(days);
+		int d = assertDays(days);
 		long size = clampPageSize(pageSize);
 		OffsetDateTime from = LocalDate.now(ZoneOffset.UTC).minusDays(d - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
 		StringBuilder cond = new StringBuilder(" FROM track_event WHERE app_key = ? AND received_at >= ?");
@@ -424,7 +424,7 @@ public class TrackAnalysisService {
 	public Page<Map<String, Object>> errorsPage(String appKey, Integer days, long pageNum, long pageSize) {
 		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
-		int d = clampDays(days);
+		int d = assertDays(days);
 		long size = clampPageSize(pageSize);
 		OffsetDateTime from = LocalDate.now(ZoneOffset.UTC).minusDays(d - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
 		StringBuilder cond = new StringBuilder(" FROM track_event WHERE app_key = ? AND event_name = '"
@@ -453,7 +453,7 @@ public class TrackAnalysisService {
 			throw new ServiceException("请先从错误列表里打开一组错误。明细是按这组错误分开的");
 		}
 		String tenant = currentTenant();
-		int d = clampDays(days);
+		int d = assertDays(days);
 		long size = clampPageSize(pageSize);
 		OffsetDateTime from = LocalDate.now(ZoneOffset.UTC).minusDays(d - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
 		StringBuilder cond = new StringBuilder(" FROM track_event WHERE app_key = ? AND event_name = '"
@@ -486,7 +486,7 @@ public class TrackAnalysisService {
 		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
 		assertAppVisible(appKey, tenant);
-		int d = clampDays(days);
+		int d = assertDays(days);
 		return queryGeo(appKey, d, tenant);
 	}
 
@@ -592,11 +592,16 @@ public class TrackAnalysisService {
 		return dim;
 	}
 
-	private int clampDays(Integer days) {
-		if (days == null || days < 1) {
+	/** 统计天数：缺省 7 天；须在 1..{@value TrackConstants#ANALYSIS_DAYS_MAX}，否则说明改回这个范围 */
+	private int assertDays(Integer days) {
+		if (days == null) {
 			return 7;
 		}
-		return Math.min(days, TrackConstants.ANALYSIS_DAYS_MAX);
+		if (days < 1 || days > TrackConstants.ANALYSIS_DAYS_MAX) {
+			throw new ServiceException("统计天数只支持 1 到 " + TrackConstants.ANALYSIS_DAYS_MAX
+				+ " 天。请改到这个范围里再查");
+		}
+		return days;
 	}
 
 	private long clampPageSize(long pageSize) {
