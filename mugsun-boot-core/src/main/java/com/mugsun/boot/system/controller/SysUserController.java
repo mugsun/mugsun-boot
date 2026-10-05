@@ -598,7 +598,7 @@ public class SysUserController {
 				failList.add(new UserImportResult.FailRow(i + 2, username, e.getMessage()));
 			} catch (org.springframework.dao.DuplicateKeyException e) {
 				// 唯一约束冲突（用户名/手机号与他账号重复）：记失败行而非整批 500
-				failList.add(new UserImportResult.FailRow(i + 2, username, "与已有账号数据冲突（用户名或手机号重复）"));
+				failList.add(new UserImportResult.FailRow(i + 2, username, "与已有账号数据冲突（用户名或手机号重复）。请改一个还没用过的用户名或手机号后再导入"));
 			}
 		}
 		return R.data(new UserImportResult(success, failList.size(), failList));
