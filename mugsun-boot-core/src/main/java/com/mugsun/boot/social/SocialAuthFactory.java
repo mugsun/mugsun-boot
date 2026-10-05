@@ -59,7 +59,7 @@ public class SocialAuthFactory {
 			case "gitee" -> new AuthGiteeRequest(authConfig, stateCache);
 			case "qq" -> new AuthQqRequest(authConfig, stateCache);
 			case "wechat_open" -> new AuthWeChatOpenRequest(authConfig, stateCache);
-			default -> throw new ServiceException("暂不支持的第三方登录来源：" + source);
+			default -> throw new ServiceException("暂不支持的第三方登录来源。请改用 GitHub、Gitee、QQ 或微信，或联系管理员后再试");
 		};
 	}
 }
