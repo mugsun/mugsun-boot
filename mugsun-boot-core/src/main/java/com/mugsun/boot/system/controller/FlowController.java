@@ -391,16 +391,20 @@ public class FlowController {
 	@RepeatSubmit
 	@PostMapping("/task/operation/{taskId}")
 	public R<Void> operation(@PathVariable Long taskId, @RequestBody OperationParam param) {
-		flowService.taskOperation(taskId, param.op(), param.handlers(), param.message());
-		return R.success("操作成功");
+		if (param == null) {
+			throw new ServiceException("请先选择办理人。可以按用户名或昵称搜索");
+		}
+		return R.success(flowService.taskOperation(taskId, param.op(), param.handlers(), param.message()));
 	}
 
 	/** 抄送 */
 	@RepeatSubmit
 	@PostMapping("/task/copy/{taskId}")
 	public R<Void> copy(@PathVariable Long taskId, @RequestBody CopyParam param) {
-		flowService.copyTo(taskId, param.userIds());
-		return R.success("已抄送");
+		if (param == null) {
+			throw new ServiceException("请先选择抄送人。可以按用户名或昵称搜索");
+		}
+		return R.success(flowService.copyTo(taskId, param.userIds()));
 	}
 
 	private String msg(ActionParam param) {

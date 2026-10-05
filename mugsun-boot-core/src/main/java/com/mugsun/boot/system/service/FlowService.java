@@ -612,43 +612,74 @@ public class FlowService {
 	}
 
 	/** 转办/委派/加签/减签 单入口：目标办理人 handlers（减签为要移除的人）；目标须为本租户用户 */
-	public void taskOperation(Long taskId, String op, List<String> handlers, String message) {
+	public String taskOperation(Long taskId, String op, List<String> handlers, String message) {
+		String action = opName(op);
+		if (action == null) {
+			throw new ServiceException("请选择转办、委派、加签或减签");
+		}
+		if (message != null && message.trim().length() > 200) {
+			throw new ServiceException("审批意见请控制在 200 个字以内");
+		}
+		List<String> people = handlers == null ? List.of() : handlers.stream()
+			.filter(h -> h != null && !h.isBlank()).distinct().toList();
+		if (people.isEmpty()) {
+			throw new ServiceException("请先选择办理人。可以按用户名或昵称搜索");
+		}
+		if (people.size() > 20) {
+			throw new ServiceException("一次最多选择 20 人。请减少后再提交");
+		}
 		requireTaskInTenant(taskId);
-		if (handlers == null || handlers.isEmpty()) {
-			throw new ServiceException("请选择目标办理人");
+		assertHandlersInTenant(people);
+		FlowParams p = base().message(text(message, action));
+		try {
+			switch (op) {
+				case "transfer" -> FlowEngine.taskService().transfer(taskId, p.addHandlers(people));
+				case "depute" -> FlowEngine.taskService().depute(taskId, p.addHandlers(people));
+				case "addSignature" -> FlowEngine.taskService().addSignature(taskId, p.addHandlers(people));
+				case "reductionSignature" -> FlowEngine.taskService().reductionSignature(taskId, p.reductionHandlers(people));
+				default -> throw new ServiceException("请选择转办、委派、加签或减签");
+			}
+		} catch (ServiceException e) {
+			throw e;
+		} catch (RuntimeException e) {
+			log.warn("流程人员调整失败 {}", e.getClass().getSimpleName());
+			throw new ServiceException("这次" + action + "没有完成。请刷新待办，确认任务还在，并重新选择本租户的办理人后再试");
 		}
-		assertHandlersInTenant(handlers);
-		FlowParams p = base().message(text(message, opName(op)));
-		switch (op) {
-			case "transfer" -> FlowEngine.taskService().transfer(taskId, p.addHandlers(handlers));
-			case "depute" -> FlowEngine.taskService().depute(taskId, p.addHandlers(handlers));
-			case "addSignature" -> FlowEngine.taskService().addSignature(taskId, p.addHandlers(handlers));
-			case "reductionSignature" -> FlowEngine.taskService().reductionSignature(taskId, p.reductionHandlers(handlers));
-			default -> throw new ServiceException("不支持的操作：" + op);
-		}
+		return switch (op) {
+			case "transfer" -> "已转办给 " + people.size() + " 人。请让对方到待办里继续办理";
+			case "depute" -> "已委派给 " + people.size() + " 人。请让对方到待办里办理";
+			case "addSignature" -> "已加签 " + people.size() + " 人。他们可以在待办里看到";
+			default -> "已减签 " + people.size() + " 人。请刷新待办，确认当前办理人";
+		};
 	}
 
 	/** 抄送（应用层）：仅当前任务办理人可发起（与 taskButtons 同口径，防 IDOR 自我授权读实例）；
 	 *  被抄送人须为本租户用户。 */
-	public void copyTo(Long taskId, List<String> userIds) {
-		Task task = requireTaskInTenant(taskId);
-		if (userIds == null || userIds.isEmpty()) {
-			return;
+	public String copyTo(Long taskId, List<String> userIds) {
+		List<String> people = userIds == null ? List.of() : userIds.stream()
+			.filter(u -> u != null && !u.isBlank()).distinct().toList();
+		if (people.isEmpty()) {
+			throw new ServiceException("请先选择抄送人。可以按用户名或昵称搜索");
 		}
+		if (people.size() > 20) {
+			throw new ServiceException("一次最多抄送 20 人。请减少后再提交");
+		}
+		Task task = requireTaskInTenant(taskId);
 		List<String> flags = userFlags();
 		List<String> handlers = Db.selectListBySql(
 			"select u.processed_by as \"v\" from flow_user u "
 				+ "where u.associated = ? and u.type in ('1','2','3') and coalesce(u.del_flag,'0') <> '1'", taskId)
 			.stream().map(r -> r.getString("v")).collect(Collectors.toList());
 		if (handlers.stream().noneMatch(flags::contains) && !com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()) {
-			throw new ServiceException("仅该任务办理人可抄送");
+			throw new ServiceException("只有这条待办的办理人可以抄送。请刷新列表，确认它还在你的待办里");
 		}
-		assertHandlersInTenant(userIds);
+		assertHandlersInTenant(people);
 		Long instanceId = task.getInstanceId();
-		for (String u : userIds) {
+		for (String u : people) {
 			Db.updateBySql(RuntimeSql.insertFlowUser(DbDialects.current()),
 				IdUtil.getSnowflakeNextId(), USER_TYPE_COPY, u, instanceId);
 		}
+		return "已抄送给 " + people.size() + " 人。他们可以在我的抄送里看到";
 	}
 
 	/** 目标办理人/被抄送人归属校验：数字 id 须为本租户用户（角色码等非 id 标识交引擎匹配，租户边界由实例归属保证） */
@@ -667,7 +698,7 @@ public class FlowService {
 					+ DbDialects.current().limitOne(),
 				h, tenant).isEmpty();
 			if (!inTenant) {
-				throw new ServiceException("目标办理人不属于本租户");
+				throw new ServiceException("有办理人不存在，或不属于当前租户。请重新选择后再提交");
 			}
 		}
 	}
@@ -678,7 +709,7 @@ public class FlowService {
 	private Task requireTask(Long taskId) {
 		Task t = FlowEngine.taskService().getById(taskId);
 		if (t == null) {
-			throw new ServiceException("任务不存在或已处理");
+			throw new ServiceException("这条待办不存在，或已经办完。请刷新列表后再操作");
 		}
 		return t;
 	}
@@ -794,7 +825,7 @@ public class FlowService {
 			case "depute" -> "委派";
 			case "addSignature" -> "加签";
 			case "reductionSignature" -> "减签";
-			default -> op;
+			default -> null;
 		};
 	}
 }
