@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.WsConstants;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.common.tx.AfterCommit;
 import com.mugsun.boot.datascope.DataScopeContext;
 import com.mugsun.boot.gen.DbDialects;
@@ -35,9 +36,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -49,6 +53,10 @@ import java.util.stream.Collectors;
 public class SysNoticeController {
 
 	private static final String PERM_MANAGE = "sys:notice:manage";
+
+	private static final Set<String> CATEGORIES = Set.of("notice", "announcement", "warning");
+
+	private static final DateTimeFormatter RELEASE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
 	private static final Logger log = LoggerFactory.getLogger(SysNoticeController.class);
 
@@ -72,17 +80,37 @@ public class SysNoticeController {
 
 	// ============ 管理端 ============
 
-	/** 分页：置顶优先，再按时间倒序；支持按分类过滤 */
+	/** 分页：置顶优先，再按时间倒序；可按标题、分类和发布时间筛选 */
 	@GetMapping("/page")
 	@SaCheckPermission(PERM_MANAGE)
 	public R<Page<SysNotice>> page(@RequestParam(defaultValue = "1") long pageNum,
 								   @RequestParam(defaultValue = "10") long pageSize,
-								   @RequestParam(required = false) String category) {
+								   @RequestParam(required = false) String title,
+								   @RequestParam(required = false) String category,
+								   @RequestParam(required = false) String beginTime,
+								   @RequestParam(required = false) String endTime) {
 		QueryWrapper query = QueryWrapper.create().orderBy("is_top", false).orderBy("id", false);
+		if (title != null && !title.isBlank()) {
+			query.like("title", title.trim());
+		}
 		if (category != null && !category.isBlank()) {
+			if (!CATEGORIES.contains(category)) {
+				throw new ServiceException("分类请选择通知、公告或预警");
+			}
 			query.eq("category", category);
 		}
-		return R.data(noticeMapper.paginate(pageNum, pageSize, query));
+		LocalDateTime begin = parseReleaseTime(beginTime, "开始时间");
+		LocalDateTime end = parseReleaseTime(endTime, "结束时间");
+		if (begin != null && end != null && !end.isAfter(begin)) {
+			throw new ServiceException("结束时间要晚于开始时间。请重新选择后再查");
+		}
+		if (begin != null) {
+			query.ge("release_time", begin);
+		}
+		if (end != null) {
+			query.le("release_time", end);
+		}
+		return R.data(noticeMapper.paginate(pageNum, Math.min(pageSize, 500), query));
 	}
 
 	/** 置顶公告列表（非管理端用户同样按可见范围过滤，防定向公告标题经 top 旁路泄露） */
@@ -98,7 +126,7 @@ public class SysNoticeController {
 	public R<SysNotice> detail(@RequestParam Long id) {
 		SysNotice notice = noticeMapper.selectOneById(id);
 		if (notice == null || !visibleToMe(id)) {
-			return R.data(null);
+			throw new ServiceException("这条公告不存在，或你看不到。请刷新列表后再看");
 		}
 		notice.setScopeList(scopeMapper
 			.selectListByQuery(QueryWrapper.create().eq("notice_id", id))
@@ -109,12 +137,39 @@ public class SysNoticeController {
 	}
 
 	/** 新增/更新：主体 + 可见范围（先删旧再插新）；全员可见公告提交后实时推送在线用户 */
+	@RepeatSubmit(message = "请勿重复保存。请到列表里确认这条公告是否已经提交")
 	@PostMapping("/submit")
 	@SaCheckPermission(PERM_MANAGE)
 	@Transactional(rollbackFor = Exception.class)
 	public R<Void> submit(@RequestBody SysNotice notice) {
+		if (notice == null || notice.getTitle() == null || notice.getTitle().isBlank()) {
+			throw new ServiceException("请填写公告标题");
+		}
+		if (notice.getTitle().trim().length() > 255) {
+			throw new ServiceException("标题请控制在 255 字以内");
+		}
+		notice.setTitle(notice.getTitle().trim());
+		if (notice.getCategory() == null || !CATEGORIES.contains(notice.getCategory())) {
+			throw new ServiceException("请选择通知、公告或预警");
+		}
+		if (notice.getContent() != null && notice.getContent().length() > 20000) {
+			throw new ServiceException("内容请控制在 2 万字以内。请删掉多余部分后再提交");
+		}
 		if (notice.getAllVisible() == null) {
 			notice.setAllVisible(1);
+		}
+		if (notice.getAllVisible() != 0 && notice.getAllVisible() != 1) {
+			throw new ServiceException("可见范围请选择全部可见或指定范围");
+		}
+		if (notice.getIsTop() == null) {
+			notice.setIsTop(0);
+		}
+		if (notice.getIsTop() != 0 && notice.getIsTop() != 1) {
+			throw new ServiceException("置顶请选择是或否");
+		}
+		if (Integer.valueOf(0).equals(notice.getAllVisible())
+			&& (notice.getScopeList() == null || notice.getScopeList().isEmpty())) {
+			throw new ServiceException("指定范围时请至少选择一个员工或部门");
 		}
 		// 租户归属服务端裁定：新增置 null 交 Flex 填当前租户；更新以库内存量行为准（防请求体伪造 tenantId 跨租户注入公告/广播）
 		String authoritativeTenant;
@@ -129,7 +184,7 @@ public class SysNoticeController {
 		} else {
 			SysNotice exist = noticeMapper.selectOneById(notice.getId());
 			if (exist == null) {
-				throw new ServiceException("公告不存在");
+				throw new ServiceException("这条公告不存在，或已被删除。请刷新列表后再编辑");
 			}
 			authoritativeTenant = exist.getTenantId();
 			notice.sanitizeForUpdate();
@@ -151,18 +206,34 @@ public class SysNoticeController {
 		if (Integer.valueOf(1).equals(notice.getAllVisible())) {
 			pushNoticeNew(notice, authoritativeTenant);
 		}
-		return R.success("操作成功");
+		return R.success("已保存。可以在列表里查看这条公告");
 	}
 
+	@RepeatSubmit(message = "请勿重复删除。请刷新列表确认这些公告是否还在")
 	@PostMapping("/remove")
 	@SaCheckPermission(PERM_MANAGE)
 	@Transactional(rollbackFor = Exception.class)
 	public R<Void> remove(@RequestBody List<Long> ids) {
-		noticeMapper.deleteBatchByIds(ids);
-		for (Long id : ids) {
-			scopeMapper.deleteByQuery(QueryWrapper.create().eq("notice_id", id));
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先勾选要删除的公告");
 		}
-		return R.success("删除成功");
+		int removed = 0;
+		for (Long id : ids) {
+			if (id == null) {
+				continue;
+			}
+			SysNotice exist = noticeMapper.selectOneById(id);
+			if (exist == null) {
+				continue;
+			}
+			noticeMapper.deleteById(id);
+			scopeMapper.deleteByQuery(QueryWrapper.create().eq("notice_id", id));
+			removed++;
+		}
+		if (removed == 0) {
+			throw new ServiceException("这些公告不存在，或已被删除。请刷新列表后再试");
+		}
+		return R.success("已删除。列表里不会再出现这些公告");
 	}
 
 	/** 阅读记录分页（谁读了 + 次数 + 首末时间），装配昵称/部门 */
@@ -243,6 +314,21 @@ public class SysNoticeController {
 	}
 
 	// ============ 内部工具 ============
+
+	private LocalDateTime parseReleaseTime(String raw, String label) {
+		if (raw == null || raw.isBlank()) {
+			return null;
+		}
+		String text = raw.trim().replace('T', ' ');
+		if (text.length() == 16) {
+			text = text + ":00";
+		}
+		try {
+			return LocalDateTime.parse(text, RELEASE_TIME);
+		} catch (DateTimeParseException ex) {
+			throw new ServiceException(label + "请使用 2026-10-05 09:00:00 这样的格式");
+		}
+	}
 
 	/** 可见范围条件（非管理端）：all_visible=1 或命中本人/本部门范围；管理端不附加 */
 	private void applyVisibleScope(QueryWrapper query) {

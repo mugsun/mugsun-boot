@@ -118,7 +118,7 @@ class AppTodoInboxApiTest extends AbstractIntegrationTest {
 		Map<String, Object> notice = new HashMap<>();
 		notice.put("title", "app-inbox-" + System.currentTimeMillis());
 		notice.put("content", "移动端收件箱验收");
-		notice.put("category", "1");
+		notice.put("category", "notice");
 		notice.put("allVisible", 1);
 		JsonNode submit = readBody(post("/system/notice/submit", notice, token));
 		assertThat(submit.path("code").asInt()).as(submit.path("msg").asText()).isEqualTo(200);
