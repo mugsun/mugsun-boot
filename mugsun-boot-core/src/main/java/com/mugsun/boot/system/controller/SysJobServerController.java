@@ -82,9 +82,15 @@ public class SysJobServerController {
 	@PostMapping("/remove")
 	@SaCheckPermission("sys:job-server:remove")
 	@OperationLog("删除任务服务")
-	public R<Void> remove(@RequestBody Map<String, Object> body) {
-		registry.remove(longsOf(body.get("ids")));
-		return R.success("已删除");
+	public R<Void> remove(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null) {
+			throw new ServiceException("请先勾选要删除的任务服务");
+		}
+		List<SysJobServer> rows = registry.remove(serverIds(body.get("ids")));
+		if (rows.size() == 1) {
+			return R.success("已删除「" + rows.get(0).getServerName() + "」。定时任务里不能再切换到这套服务");
+		}
+		return R.success("已删除 " + rows.size() + " 套任务服务。定时任务里不能再切换到它们");
 	}
 
 	@PostMapping("/sync")
@@ -110,14 +116,18 @@ public class SysJobServerController {
 		}
 	}
 
-	private static List<Long> longsOf(Object raw) {
-		if (!(raw instanceof List<?> list)) {
-			return List.of();
+	private static List<Long> serverIds(Object raw) {
+		if (!(raw instanceof List<?> list) || list.isEmpty()) {
+			throw new ServiceException("请先勾选要删除的任务服务");
 		}
 		List<Long> ids = new ArrayList<>();
 		for (Object item : list) {
-			Long id = longOf(item);
-			if (id != null) {
+			String text = item == null ? "" : String.valueOf(item).trim();
+			if (!text.matches("\\d{1,19}")) {
+				throw new ServiceException("服务编号请填写数字，可以从列表里复制");
+			}
+			long id = Long.parseLong(text);
+			if (!ids.contains(id)) {
 				ids.add(id);
 			}
 		}

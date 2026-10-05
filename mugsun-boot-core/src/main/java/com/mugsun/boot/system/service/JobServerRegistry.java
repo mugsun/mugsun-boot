@@ -9,6 +9,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tech.powerjob.client.PowerJobClient;
 
 import java.net.URI;
@@ -123,25 +124,23 @@ public class JobServerRegistry {
 		return body;
 	}
 
-	public int remove(List<Long> ids) {
+	@Transactional(rollbackFor = Exception.class)
+	public List<SysJobServer> remove(List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {
 			throw new ServiceException("请先勾选要删除的任务服务");
 		}
-		int removed = 0;
+		List<SysJobServer> rows = new ArrayList<>();
 		for (Long id : ids) {
-			if (id == null) {
-				continue;
-			}
 			SysJobServer row = serverMapper.selectOneById(id);
-			if (row != null) {
-				serverMapper.deleteById(id);
-				removed++;
+			if (row == null) {
+				throw new ServiceException("这套任务服务不存在，或属于其他租户。请刷新列表后再试");
 			}
+			rows.add(row);
 		}
-		if (removed == 0) {
-			throw new ServiceException("这些任务服务不存在，或属于其他租户。请刷新列表后再删");
+		for (SysJobServer row : rows) {
+			serverMapper.deleteById(row.getId());
 		}
-		return removed;
+		return rows;
 	}
 
 	public Map<String, Object> sync(Long id) {
