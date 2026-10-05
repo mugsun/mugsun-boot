@@ -16,6 +16,9 @@ import org.dromara.warm.flow.core.entity.Instance;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -140,6 +143,65 @@ public class FlowController {
 		Instance ins = FlowEngine.insService().start(businessId,
 			FlowParams.build().flowCode("leave").handler(StpUtil.getLoginIdAsString()));
 		return R.data(ins.getId());
+	}
+
+	/** 发起请假：必须填写起止时间和理由，并随流程记下，方便审批时查看。 */
+	@PostMapping("/leave/start")
+	@RepeatSubmit(message = "请勿重复发起。请到审批中心的我发起里确认这张请假单是否已经提交")
+	public R<Long> startLeave(@RequestBody LeaveStart leave) {
+		if (leave == null || leave.businessId() == null || leave.businessId().isBlank()) {
+			throw new ServiceException("请填写业务单号。用字母或数字开头，方便以后在我发起里找到这张请假单");
+		}
+		String businessId = leave.businessId().trim();
+		if (!businessId.matches("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")) {
+			throw new ServiceException("业务单号请使用字母或数字开头，只能包含字母、数字、下划线或连字符");
+		}
+		LocalDateTime start = parseLeaveTime(leave.startTime(), "请选择开始时间");
+		LocalDateTime end = parseLeaveTime(leave.endTime(), "请选择结束时间");
+		if (!end.isAfter(start)) {
+			throw new ServiceException("结束时间要晚于开始时间。请重新选择后再提交");
+		}
+		if (leave.reason() == null || leave.reason().isBlank()) {
+			throw new ServiceException("请填写请假理由，说明为什么要请假");
+		}
+		String reason = leave.reason().trim();
+		if (reason.length() > 500) {
+			throw new ServiceException("请假理由请控制在 500 字以内");
+		}
+		flowService.assertLeaveBusinessFree(businessId);
+		Map<String, Object> variable = new LinkedHashMap<>();
+		variable.put("startTime", leave.startTime().trim());
+		variable.put("endTime", leave.endTime().trim());
+		variable.put("reason", reason);
+		try {
+			Instance ins = FlowEngine.insService().start(businessId, FlowParams.build()
+				.flowCode("leave")
+				.handler(StpUtil.getLoginIdAsString())
+				.variable(variable));
+			return R.data(ins.getId());
+		} catch (ServiceException ex) {
+			throw ex;
+		} catch (RuntimeException ex) {
+			throw new ServiceException("请假没有发起。请确认请假流程已发布，并换一个还没用过的业务单号后再试");
+		}
+	}
+
+	private static LocalDateTime parseLeaveTime(String raw, String emptyMessage) {
+		if (raw == null || raw.isBlank()) {
+			throw new ServiceException(emptyMessage + "。时间格式如 2026-10-05 09:00:00");
+		}
+		String text = raw.trim().replace('T', ' ');
+		if (text.length() == 16) {
+			text = text + ":00";
+		}
+		try {
+			return LocalDateTime.parse(text, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+		} catch (DateTimeParseException ex) {
+			throw new ServiceException("时间请使用 2026-10-05 09:00:00 这样的格式");
+		}
+	}
+
+	public record LeaveStart(String businessId, String startTime, String endTime, String reason) {
 	}
 
 	/** 发起指定流程码的实例（设计流程发起用）；可选 handlers=发起人自选的首个审批节点办理人、variable=发起业务数据 */

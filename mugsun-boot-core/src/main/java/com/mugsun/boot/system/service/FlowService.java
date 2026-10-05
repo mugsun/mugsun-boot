@@ -432,6 +432,18 @@ public class FlowService {
 			.map(r -> r.getString("v")).collect(Collectors.toSet());
 	}
 
+	/** 同一业务单号不能重复发起请假。 */
+	public void assertLeaveBusinessFree(String businessId) {
+		Row row = firstRow("select i.id from flow_instance i "
+			+ "join flow_definition d on d.id = i.definition_id "
+			+ "where i.business_id = ? and d.flow_code = 'leave' and coalesce(i.del_flag,'0') <> '1'"
+			+ DbDialects.current().limitOne(),
+			businessId);
+		if (row != null) {
+			throw new ServiceException("这个业务单号已经用来请过假。请换一个单号，或到审批中心的我发起里查看原来那张");
+		}
+	}
+
 	private Row firstRow(String sql, Object... args) {
 		List<Row> rows = Db.selectListBySql(sql, args);
 		return rows.isEmpty() ? null : rows.get(0);
@@ -471,13 +483,16 @@ public class FlowService {
 	public Map<String, Object> instanceForm(Long instanceId) {
 		Instance ins = FlowEngine.insService().getById(instanceId);
 		if (ins == null) {
-			throw new ServiceException("流程实例不存在");
+			throw new ServiceException("这个流程不存在，或属于其他租户。请刷新列表后再看");
 		}
 		assertInstanceAccess(instanceId);
 		Row start = firstRow("select form_path as \"fp\" from flow_node "
 			+ "where definition_id = ? and node_type = 0 and coalesce(del_flag,'0') <> '1'", ins.getDefinitionId());
 		Map<String, Object> payload = formPayload(start == null ? null : start.getString("fp"),
 			ins.getVariableMap(), null);
+		if (ins.getVariableMap() != null && !ins.getVariableMap().isEmpty()) {
+			payload.put("data", ins.getVariableMap());
+		}
 		payload.put("readonly", true);
 		return payload;
 	}
