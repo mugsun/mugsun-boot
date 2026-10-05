@@ -65,4 +65,10 @@ public class SysForm extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	/** 防重复提交按同一次表单内容认同一条。 */
+	@Override
+	public String toString() {
+		return name + "|" + formKey + "|" + status + "|" + remark + "|" + formSchema + "|" + formOption;
+	}
 }
