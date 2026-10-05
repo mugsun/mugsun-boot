@@ -191,7 +191,7 @@ public class FlowGraphService {
 
 	private void validateRule(Rule r) {
 		if (r == null || r.field() == null || r.field().isBlank() || r.op() == null || r.op().isBlank()) {
-			throw new ServiceException("条件规则缺少字段或运算符");
+			throw new ServiceException("条件规则缺少字段或运算符。请补上字段和运算符后再发布");
 		}
 		if (!OPS.contains(r.op())) {
 			throw new ServiceException("不支持的条件运算符：" + r.op());
