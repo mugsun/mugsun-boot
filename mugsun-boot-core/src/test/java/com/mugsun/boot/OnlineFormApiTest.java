@@ -74,22 +74,24 @@ class OnlineFormApiTest extends AbstractIntegrationTest {
 
 	@Test
 	void crossTenantDetailReturnsNull() {
-		// B 凭 A 的 tableId + 行 id 直读：范围过滤后查无此行，返 null（不 403 但绝不泄露数据与存在性）
+		// B 凭 A 的 tableId + 行 id 直读：范围过滤后查无此行，说明不存在，不泄露内容
 		JsonNode r = readBody(get("/system/online-form/detail?tableId=" + tableIdA + "&id=" + rowIdA, tokenB));
-		assertThat(r.path("code").asInt()).isEqualTo(200);
-		assertThat(r.path("data").isNull()).as("跨租户读应查无此行").isTrue();
+		assertThat(r.path("code").asInt()).isEqualTo(400);
+		assertThat(r.path("msg").asText()).contains("不存在");
+		assertThat(r.toString()).doesNotContain(TITLE_A);
 	}
 
 	@Test
 	void crossTenantUpdateIsRejectedAndValueUntouched() {
-		// B 凭 id 改 A 的行：编辑前范围校验查无此行 → 拒绝（现状为 IllegalArgumentException 走兜底 500，方向 fail-closed）
+		// B 凭 id 改 A 的行：编辑前范围校验查无此行，说明刷新后再保存，不泄露内容
 		Map<String, Object> tamper = new HashMap<>();
 		tamper.put("id", rowIdA);
 		tamper.put("title", "被B租户篡改");
 		ResponseEntity<String> response = post("/system/online-form/save?tableId=" + tableIdA, tamper, tokenB);
-		assertThat(response.getStatusCode().value()).isEqualTo(500);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		JsonNode r = readBody(response);
-		assertThat(r.path("code").asInt()).as("跨租户改应被拒绝").isEqualTo(500);
+		assertThat(r.path("code").asInt()).as("跨租户改应被拒绝").isEqualTo(400);
+		assertThat(r.path("msg").asText()).contains("不存在");
 		assertThat(r.path("success").asBoolean()).isFalse();
 
 		// 关键断言：A 侧原值未被污染
@@ -99,11 +101,13 @@ class OnlineFormApiTest extends AbstractIntegrationTest {
 
 	@Test
 	void crossTenantRemoveSilentlySparesRow() {
-		// B 凭 id 删 A 的行：DELETE/逻辑删 SQL 附加租户条件 0 行命中——接口佯装成功，行实际不被动
+		// B 凭 id 删 A 的行：范围内查不到，不能显示成已删除，行实际不被动
 		ResponseEntity<String> response = post("/system/online-form/remove?tableId=" + tableIdA,
 			List.of(rowIdA), tokenB);
 		JsonNode r = readBody(response);
-		assertThat(r.path("code").asInt()).isEqualTo(200);
+		assertThat(r.path("code").asInt()).isEqualTo(400);
+		assertThat(r.path("success").asBoolean()).isFalse();
+		assertThat(r.path("msg").asText()).contains("不存在");
 
 		// 关键断言：A 侧行仍在且内容原样
 		JsonNode after = readBody(get("/system/online-form/detail?tableId=" + tableIdA + "&id=" + rowIdA, tokenA));

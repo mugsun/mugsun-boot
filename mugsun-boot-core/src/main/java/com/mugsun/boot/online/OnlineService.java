@@ -11,6 +11,8 @@ import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -29,6 +31,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class OnlineService {
+
+	private static final Logger log = LoggerFactory.getLogger(OnlineService.class);
 
 	private final GenTableMapper tableMapper;
 	private final GenColumnMapper columnMapper;
@@ -90,13 +94,33 @@ public class OnlineService {
 	}
 
 	/** 运行时保存（新增/编辑）：仅可编辑列入库，落真实物理表结构化列 */
-	public void save(Long tableId, Map<String, Object> data) {
+	public String save(Long tableId, Map<String, Object> data) {
+		if (data == null) {
+			throw new ServiceException("请先填写内容再保存");
+		}
 		GenTable t = table(tableId);
 		List<GenColumn> cols = columns(tableId);
 		Set<String> names = physicalNames(t.getTableName());
 		String tableName = t.getTableName();
 		Object id = data.get("id");
 		boolean isNew = id == null || id.toString().isBlank();
+		if (isNew) {
+			for (GenColumn c : cols) {
+				if (!isOne(c.getIsRequired()) || !isOne(c.getIsEdit())) {
+					continue;
+				}
+				Object value = data.get(c.getColumnName());
+				if (value == null || value.toString().isBlank()) {
+					throw new ServiceException("请填写「" + label(c) + "」。用来在列表里区分这条记录");
+				}
+			}
+		}
+		for (GenColumn c : cols) {
+			if (!isOne(c.getIsEdit()) || !data.containsKey(c.getColumnName())) {
+				continue;
+			}
+			checkLength(tableName, c, data.get(c.getColumnName()));
+		}
 		Row row = isNew ? new Row() : Row.ofKey("id", parseId(id));
 		for (GenColumn c : cols) {
 			if (isOne(c.getIsEdit()) && data.containsKey(c.getColumnName())) {
@@ -114,31 +138,52 @@ public class OnlineService {
 			if (names.contains("tenant_id") && TenantContext.current() != null) {
 				row.set("tenant_id", TenantContext.current());
 			}
-			Db.insert(tableName, row);
-		} else {
-			// 编辑前校验目标行在当前租户 / 未删除范围内，防跨租户改
-			QueryWrapper scope = QueryWrapper.create().from(tableName).where("id = ?", parseId(id));
-			applyScope(scope, names);
-			if (Db.selectListByQuery(tableName, scope).isEmpty()) {
-				throw new IllegalArgumentException("记录不存在或无权限：" + id);
-			}
-			if (names.contains("update_time")) {
-				row.set("update_time", LocalDateTime.now());
-			}
-			Db.updateById(tableName, row);
+			writeRow(tableName, () -> Db.insert(tableName, row));
+			return "已新增。列表里可以查到这条记录";
+		}
+		QueryWrapper scope = QueryWrapper.create().from(tableName).where("id = ?", parseId(id));
+		applyScope(scope, names);
+		if (Db.selectListByQuery(tableName, scope).isEmpty()) {
+			throw new ServiceException("这条记录不存在，或已经被删除。请刷新列表后再保存");
+		}
+		if (names.contains("update_time")) {
+			row.set("update_time", LocalDateTime.now());
+		}
+		writeRow(tableName, () -> Db.updateById(tableName, row));
+		return "已保存。列表会显示最新内容";
+	}
+
+	private void writeRow(String tableName, Runnable action) {
+		try {
+			action.run();
+		} catch (ServiceException e) {
+			throw e;
+		} catch (RuntimeException e) {
+			log.warn("在线表单写入失败 table={} err={}", tableName, e.getClass().getSimpleName());
+			throw new ServiceException("这次没有保存成功。请检查必填项和字数后再试");
 		}
 	}
 
 	/** 运行时删除：有 is_deleted 列走逻辑删除，否则物理删除（均附加租户范围，防跨租户删） */
-	public void remove(Long tableId, List<Long> ids) {
+	public String remove(Long tableId, List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {
-			return;
+			throw new ServiceException("请先选择要删除的记录");
 		}
+		if (ids.stream().anyMatch(id -> id == null)) {
+			throw new ServiceException("有记录不存在。请刷新列表后再删除");
+		}
+		List<Long> distinct = ids.stream().distinct().toList();
 		GenTable t = table(tableId);
 		Set<String> names = physicalNames(t.getTableName());
 		String tableName = t.getTableName();
-		String placeholders = ids.stream().map(i -> "?").collect(Collectors.joining(","));
-		List<Object> params = new ArrayList<>(ids);
+		String placeholders = distinct.stream().map(i -> "?").collect(Collectors.joining(","));
+		QueryWrapper found = QueryWrapper.create().from(tableName);
+		found.and("id IN (" + placeholders + ")", distinct.toArray());
+		applyScope(found, names);
+		if (Db.selectListByQuery(tableName, found).size() != distinct.size()) {
+			throw new ServiceException("有记录不存在，或已经被删除。请刷新列表后再试");
+		}
+		List<Object> params = new ArrayList<>(distinct);
 		String tenantClause = "";
 		if (names.contains("tenant_id") && TenantContext.current() != null) {
 			tenantClause = " AND tenant_id = ?";
@@ -147,10 +192,11 @@ public class OnlineService {
 		if (!names.contains("is_deleted")) {
 			Db.updateBySql("DELETE FROM " + tableName + " WHERE id IN (" + placeholders + ")" + tenantClause,
 				params.toArray());
-			return;
+		} else {
+			Db.updateBySql("UPDATE " + tableName + " SET is_deleted = 1 WHERE id IN (" + placeholders + ")" + tenantClause,
+				params.toArray());
 		}
-		String sql = "UPDATE " + tableName + " SET is_deleted = 1 WHERE id IN (" + placeholders + ")" + tenantClause;
-		Db.updateBySql(sql, params.toArray());
+		return "已删除 " + distinct.size() + " 条记录。列表里不会再出现";
 	}
 
 	/** 无实体路径手工附加租户 + 逻辑删除范围条件，与 page/detail/save/remove 统一口径 */
@@ -169,10 +215,10 @@ public class OnlineService {
 	private GenTable table(Long tableId) {
 		GenTable t = tableMapper.selectOneById(tableId);
 		if (t == null) {
-			throw new ServiceException("在线表单不存在");
+			throw new ServiceException("这个在线表单不存在。请刷新表单列表后再打开");
 		}
 		if (!com.mugsun.boot.gen.GenNaming.isIdentifier(t.getTableName())) {
-			throw new ServiceException("非法表名");
+			throw new ServiceException("表名不合法。请回到代码生成里重新导入这张表");
 		}
 		guardRuntimeTable(t.getTableName());
 		return t;
@@ -185,11 +231,11 @@ public class OnlineService {
 	private void guardRuntimeTable(String tableName) {
 		String low = tableName.toLowerCase();
 		if ("gen_table".equals(low) || "gen_column".equals(low)) {
-			throw new ServiceException("元数据表不可作为在线表单");
+			throw new ServiceException("元数据表不能当作在线表单。请换一张业务表");
 		}
 		for (String p : RUNTIME_PROTECTED_PREFIXES) {
 			if (low.startsWith(p)) {
-				throw new ServiceException("平台系统表不可作为在线表单");
+				throw new ServiceException("平台系统表不能当作在线表单。请换一张业务表");
 			}
 		}
 	}
@@ -212,10 +258,10 @@ public class OnlineService {
 				}
 			}
 		} catch (java.sql.SQLException e) {
-			throw new IllegalStateException("读取表结构失败：" + e.getMessage());
+			throw new ServiceException("读取表结构失败。请确认这张表还在库里，或回到代码生成重新导入");
 		}
 		if (names.isEmpty()) {
-			throw new IllegalArgumentException("物理表不存在：" + tableName);
+			throw new ServiceException("库里已经没有「" + tableName + "」。请确认表还在，或先删掉这条生成配置");
 		}
 		return names;
 	}
@@ -225,8 +271,57 @@ public class OnlineService {
 		try {
 			return Long.valueOf(id.toString());
 		} catch (NumberFormatException e) {
-			throw new IllegalArgumentException("非法 id：" + id);
+			throw new ServiceException("记录编号不对。请刷新列表后再操作");
 		}
+	}
+
+	private String label(GenColumn column) {
+		if (column.getColumnComment() != null && !column.getColumnComment().isBlank()) {
+			return column.getColumnComment();
+		}
+		return column.getColumnName();
+	}
+
+	private void checkLength(String tableName, GenColumn column, Object value) {
+		if (value == null) {
+			return;
+		}
+		Integer limit = charLimit(tableName, column);
+		if (limit == null) {
+			return;
+		}
+		if (value.toString().length() > limit) {
+			throw new ServiceException("「" + label(column) + "」请控制在 " + limit + " 个字以内");
+		}
+	}
+
+	private Integer charLimit(String tableName, GenColumn column) {
+		if (column.getColumnType() != null) {
+			java.util.regex.Matcher matcher = java.util.regex.Pattern
+				.compile("(?i)(?:character\\s+varying|varchar|char)\\s*\\(\\s*(\\d+)\\s*\\)")
+				.matcher(column.getColumnType());
+			if (matcher.find()) {
+				return Integer.parseInt(matcher.group(1));
+			}
+		}
+		try (java.sql.Connection connection = dataSource.getConnection()) {
+			java.sql.DatabaseMetaData meta = connection.getMetaData();
+			for (String table : List.of(tableName, tableName.toLowerCase(), tableName.toUpperCase())) {
+				try (java.sql.ResultSet rs = meta.getColumns(connection.getCatalog(), connection.getSchema(), table,
+					column.getColumnName())) {
+					if (rs.next()) {
+						String typeName = rs.getString("TYPE_NAME");
+						int size = rs.getInt("COLUMN_SIZE");
+						if (typeName != null && typeName.toLowerCase().contains("char") && size > 0 && size <= 4000) {
+							return size;
+						}
+					}
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			log.warn("读取字段长度失败 table={} err={}", tableName, e.getClass().getSimpleName());
+		}
+		return null;
 	}
 
 	private List<GenColumn> columns(Long tableId) {

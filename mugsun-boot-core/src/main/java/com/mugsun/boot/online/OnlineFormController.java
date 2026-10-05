@@ -2,9 +2,11 @@ package com.mugsun.boot.online;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gen.GenMetaService;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.row.Row;
 import org.springframework.web.bind.annotation.*;
@@ -49,6 +51,12 @@ public class OnlineFormController {
 							 @RequestParam(defaultValue = "1") long pageNum,
 							 @RequestParam(defaultValue = "10") long pageSize,
 							 @RequestParam Map<String, String> params) {
+		if (pageNum < 1) {
+			throw new ServiceException("页码请从 1 开始");
+		}
+		if (pageSize < 1 || pageSize > 100) {
+			throw new ServiceException("每页条数请选择 1 到 100");
+		}
 		return R.data(onlineService.page(tableId, pageNum, pageSize, params));
 	}
 
@@ -56,22 +64,29 @@ public class OnlineFormController {
 	@SaCheckPermission("sys:online:list")
 	@GetMapping("/detail")
 	public R<Row> detail(@RequestParam Long tableId, @RequestParam String id) {
-		return R.data(onlineService.detail(tableId, id));
+		Row row = onlineService.detail(tableId, id);
+		if (row == null) {
+			throw new ServiceException("这条记录不存在，或已经被删除。请刷新列表后再打开");
+		}
+		return R.data(row);
 	}
 
 	/** 运行时保存（新增/编辑），落真实物理表 */
 	@SaCheckPermission("sys:online:edit")
+	@RepeatSubmit
 	@PostMapping("/save")
 	public R<Void> save(@RequestParam Long tableId, @RequestBody Map<String, Object> data) {
-		onlineService.save(tableId, data);
-		return R.success("操作成功");
+		if (data == null) {
+			throw new ServiceException("请先填写内容再保存");
+		}
+		return R.success(onlineService.save(tableId, data));
 	}
 
 	/** 运行时删除（逻辑/物理） */
 	@SaCheckPermission("sys:online:edit")
+	@RepeatSubmit
 	@PostMapping("/remove")
 	public R<Void> remove(@RequestParam Long tableId, @RequestBody List<Long> ids) {
-		onlineService.remove(tableId, ids);
-		return R.success("删除成功");
+		return R.success(onlineService.remove(tableId, ids));
 	}
 }
