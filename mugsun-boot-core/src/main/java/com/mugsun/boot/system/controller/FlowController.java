@@ -2,6 +2,7 @@ package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.service.FlowGraphService;
@@ -13,6 +14,7 @@ import org.dromara.warm.flow.core.FlowEngine;
 import org.dromara.warm.flow.core.dto.FlowParams;
 import org.dromara.warm.flow.core.entity.Definition;
 import org.dromara.warm.flow.core.entity.Instance;
+import org.dromara.warm.flow.core.exception.FlowException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.bind.annotation.*;
 
@@ -129,12 +131,48 @@ public class FlowController {
 
 	/** 删除定义 */
 	@PostMapping("/definition/remove")
-	public R<Void> removeDefinition(@RequestBody List<Long> ids) {
-		if (ids == null || ids.isEmpty()) {
-			throw new ServiceException("请选择要删除的定义");
+	public R<Void> removeDefinition(@RequestBody(required = false) JsonNode body) {
+		StpUtil.checkPermission("sys:flow:definition");
+		List<Long> ids = parseDefinitionIds(body);
+		List<Row> rows = flowService.definitionsByIds(ids);
+		if (rows.size() != ids.size()) {
+			throw new ServiceException("这个流程不存在。请刷新列表后再试");
 		}
-		FlowEngine.defService().removeDef(ids);
-		return R.success("已删除");
+		List<String> started = flowService.startedDefinitionNames(ids);
+		if (!started.isEmpty()) {
+			throw new ServiceException("「" + started.get(0) + "」已经有人发起过。请改为停用，不要删除");
+		}
+		String name = rows.get(0).getString("flowName");
+		try {
+			FlowEngine.defService().removeDef(ids);
+		} catch (FlowException ex) {
+			throw new ServiceException("「" + name + "」已经有人发起过。请改为停用，不要删除");
+		}
+		if (rows.size() == 1) {
+			return R.success("已删除「" + name + "」。列表里不会再出现，也不能再发起");
+		}
+		return R.success("已删除 " + rows.size() + " 个流程。列表里不会再出现，也不能再发起");
+	}
+
+	private List<Long> parseDefinitionIds(JsonNode body) {
+		if (body == null || !body.isArray() || body.isEmpty()) {
+			throw new ServiceException("请先在列表里选择要删除的流程");
+		}
+		List<Long> ids = new ArrayList<>();
+		for (JsonNode node : body) {
+			String text = node == null || node.isNull() ? "" : node.asText("").trim();
+			if (!text.matches("\\d{1,19}")) {
+				throw new ServiceException("流程编号请填写数字，可以从列表里复制");
+			}
+			long id = Long.parseLong(text);
+			if (!ids.contains(id)) {
+				ids.add(id);
+			}
+		}
+		if (ids.isEmpty()) {
+			throw new ServiceException("请先在列表里选择要删除的流程");
+		}
+		return ids;
 	}
 
 	/** 发起流程实例（沿用请假流程码 leave，兼容旧入口） */

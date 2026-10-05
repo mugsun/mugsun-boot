@@ -74,6 +74,39 @@ public class FlowService {
 				+ "from flow_definition where coalesce(del_flag, '0') <> '1' order by id desc");
 	}
 
+	/** 按编号取出仍在列表里的流程，供删除前核对。 */
+	public List<Row> definitionsByIds(List<Long> ids) {
+		if (ids == null || ids.isEmpty()) {
+			return List.of();
+		}
+		String in = ids.stream().map(id -> "?").collect(Collectors.joining(","));
+		return Db.selectListBySql(
+			"select id as \"id\", flow_name as \"flowName\" from flow_definition "
+				+ "where coalesce(del_flag, '0') <> '1' and id in (" + in + ")",
+			ids.toArray());
+	}
+
+	/** 这些流程里，已经有人发起过的名称。 */
+	public List<String> startedDefinitionNames(List<Long> ids) {
+		if (ids == null || ids.isEmpty()) {
+			return List.of();
+		}
+		String in = ids.stream().map(id -> "?").collect(Collectors.joining(","));
+		List<Row> rows = Db.selectListBySql(
+			"select distinct d.flow_name as \"flowName\" from flow_instance i "
+				+ "join flow_definition d on d.id = i.definition_id "
+				+ "where coalesce(i.del_flag, '0') <> '1' and i.definition_id in (" + in + ")",
+			ids.toArray());
+		List<String> names = new ArrayList<>();
+		for (Row row : rows) {
+			String name = row.getString("flowName");
+			if (name != null && !name.isBlank()) {
+				names.add(name);
+			}
+		}
+		return names;
+	}
+
 	/** 我的待办：按当前用户的角色码/用户标识匹配任务办理人（实例按发起人租户隔离，角色码跨租户同名不可穿透） */
 	public List<Row> myTodo() {
 		List<String> flags = userFlags();
