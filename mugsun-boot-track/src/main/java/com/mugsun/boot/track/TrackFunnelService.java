@@ -58,7 +58,7 @@ public class TrackFunnelService {
 
 	/** 漏斗查询：{steps:[{eventName, count}...按入参序], days, windowHours, actor:"merged"}（转化率前端算） */
 	public Map<String, Object> funnel(String appKey, String steps, Integer days, Long windowHours) {
-		assertAppKey(appKey);
+		appKey = assertAppKey(appKey);
 		List<String> stepList = parseSteps(steps);
 		int d = clampDays(days);
 		long window = assertWindow(windowHours);
@@ -198,9 +198,21 @@ public class TrackFunnelService {
 		}
 	}
 
-	private void assertAppKey(String appKey) {
-		if (appKey == null || appKey.isBlank() || appKey.length() > TrackConstants.APP_KEY_MAX_LEN) {
-			throw new ServiceException("缺少或非法 appKey");
+	private String assertAppKey(String appKey) {
+		if (appKey == null || appKey.isBlank()) {
+			throw new ServiceException("请先选择应用。漏斗是按应用分开的");
 		}
+		String key = appKey.trim();
+		if (key.length() > TrackConstants.APP_KEY_MAX_LEN) {
+			throw new ServiceException("应用标识不对。请从应用列表里重新选择");
+		}
+		// 原始 SQL 不看租户：完全没有这个应用才说明「不存在」。
+		// 别的租户有同名应用时仍返回标识，再由本租户校验说明无权访问。
+		Long found = jdbc.queryForObject(
+			"SELECT count(*) FROM track_app WHERE app_key = ? AND is_deleted = 0", Long.class, key);
+		if (found == null || found == 0) {
+			throw new ServiceException("这个应用不存在。请刷新应用列表后再看");
+		}
+		return key;
 	}
 }
