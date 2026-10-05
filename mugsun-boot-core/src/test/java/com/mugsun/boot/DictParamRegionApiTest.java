@@ -138,7 +138,7 @@ class DictParamRegionApiTest extends AbstractIntegrationTest {
 
 	@Test
 	void regionLazyTreeSubmitAndRemove() {
-		String code = "it" + TS.substring(TS.length() - 8);
+		String code = TS.substring(TS.length() - 10);
 		Map<String, Object> region = new HashMap<>();
 		region.put("code", code);
 		region.put("parentCode", "0");
