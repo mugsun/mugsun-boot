@@ -83,21 +83,23 @@ public class TrackReplayService {
 		String sessionId = text(root, TrackConstants.FIELD_SESSION_ID);
 		if (sessionId == null || sessionId.length() > TrackConstants.SESSION_ID_MAX_LEN
 			|| !TrackConstants.REPLAY_PATH_SAFE.matcher(sessionId).matches()) {
-			throw new TrackCollectException(400, "无效 session_id");
+			throw new TrackCollectException(400, "会话标识不对。请用字母、数字、下划线或短横线，最长 "
+				+ TrackConstants.SESSION_ID_MAX_LEN + " 位，再上传这段回放");
 		}
 		JsonNode seqNode = root.get("seq");
 		if (seqNode == null || !seqNode.isIntegralNumber()) {
-			throw new TrackCollectException(400, "无效 seq");
+			throw new TrackCollectException(400, "回放序号不对。请从 0 开始用整数编号后再上传");
 		}
 		long seq = seqNode.asLong();
 		if (seq < 0 || seq > TrackConstants.REPLAY_SEQ_MAX) {
-			throw new TrackCollectException(400, "seq 越界");
+			throw new TrackCollectException(400, "回放序号超出范围。请用 0 到 "
+				+ TrackConstants.REPLAY_SEQ_MAX + " 之间的整数后再上传");
 		}
 		// gzip 缺省按 true（原协议只有压缩块）；SDK pagehide 收尾块显式 gzip=false = base64(明文 JSON)
 		boolean gzipped = root.path("gzip").asBoolean(true);
 		String payload = text(root, "payload");
 		if (payload == null) {
-			throw new TrackCollectException(400, "payload 缺失");
+			throw new TrackCollectException(400, "这段回放没有内容。请带上录制内容后再上传");
 		}
 		if (payload.length() > TrackConstants.REPLAY_PAYLOAD_B64_MAX_LEN) {
 			throw new TrackCollectException(413, "回放块过大");
