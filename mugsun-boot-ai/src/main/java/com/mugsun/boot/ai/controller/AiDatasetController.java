@@ -2,6 +2,7 @@ package com.mugsun.boot.ai.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiDataset;
 import com.mugsun.boot.ai.entity.AiDatasetTable;
@@ -111,8 +112,19 @@ public class AiDatasetController {
 
 	@PostMapping("/table/save")
 	@SaCheckPermission(AiConstants.PERM_DATASET_CONFIG)
-	public R<AiDatasetTable> saveTable(@RequestBody AiDatasetTable body) {
-		return R.data(service.saveTable(body));
+	public R<AiDatasetTable> saveTable(@RequestBody(required = false) JsonNode body) {
+		if (body == null || !body.isObject()) {
+			throw new ServiceException("请先填写表名");
+		}
+		AiDatasetTable saved = service.saveTable(
+			optionalId(body, "id", "表编号请填写数字，可以从列表里复制"),
+			requiredId(body, "datasetId", "请先在列表里选择要配置的问数", "问数编号请填写数字，可以从列表里复制"),
+			optionalId(body, "datasourceId", "数据源编号请填写数字，可以从数据源列表里复制"),
+			text(body, "tableName"), text(body, "tableAlias"), text(body, "tableComment"),
+			text(body, "fieldsJson"), text(body, "relationsJson"));
+		R<AiDatasetTable> resp = R.data(saved);
+		resp.setMsg("已保存「" + saved.getTableName() + "」。问数时可以使用这张表");
+		return resp;
 	}
 
 	@GetMapping("/table/list")
@@ -126,8 +138,26 @@ public class AiDatasetController {
 
 	@PostMapping("/term/save")
 	@SaCheckPermission(AiConstants.PERM_DATASET_CONFIG)
-	public R<AiTerminology> saveTerm(@RequestBody AiTerminology body) {
-		return R.data(service.saveTerm(body));
+	public R<AiTerminology> saveTerm(@RequestBody(required = false) JsonNode body) {
+		if (body == null || !body.isObject()) {
+			throw new ServiceException("请填写术语");
+		}
+		AiTerminology saved = service.saveTerm(
+			optionalId(body, "id", "术语编号请填写数字，可以从列表里复制"),
+			optionalId(body, "datasetId", "问数编号请填写数字，可以从列表里复制"),
+			text(body, "name"), text(body, "content"), text(body, "synonyms"), text(body, "remark"));
+		R<AiTerminology> resp = R.data(saved);
+		resp.setMsg("已保存「" + saved.getName() + "」。问数时会带上这条术语");
+		return resp;
+	}
+
+	@GetMapping("/term/list")
+	@SaCheckPermission(AiConstants.PERM_DATASET_CONFIG)
+	public R<List<AiTerminology>> terms(@RequestParam(required = false) String datasetId) {
+		if (datasetId == null || datasetId.isBlank()) {
+			throw new ServiceException("请先在列表里选择要查看术语的问数");
+		}
+		return R.data(service.termsOf(parseId(datasetId, "问数编号请填写数字，可以从列表里复制")));
 	}
 
 	@PostMapping("/term/bind")
@@ -137,9 +167,26 @@ public class AiDatasetController {
 		if (datasetId == null || datasetId.isBlank() || terminologyId == null || terminologyId.isBlank()) {
 			throw new ServiceException("请先选择问数和术语");
 		}
-		service.bindTerm(parseId(datasetId, "问数编号请填写数字，可以从列表里复制"),
+		String name = service.bindTerm(parseId(datasetId, "问数编号请填写数字，可以从列表里复制"),
 			parseId(terminologyId, "术语编号请填写数字，可以从列表里复制"));
-		return R.success("已绑定。问数时会带上这条术语");
+		return R.success("已绑定「" + name + "」。问数时会带上这条术语");
+	}
+
+	@PostMapping("/term/remove")
+	@SaCheckPermission(AiConstants.PERM_DATASET_CONFIG)
+	public R<Void> removeTerm(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null) {
+			throw new ServiceException("请先选择要删除的术语");
+		}
+		Object rawDataset = body.get("datasetId");
+		Object rawId = body.get("id");
+		if (rawDataset == null || String.valueOf(rawDataset).isBlank()
+			|| rawId == null || String.valueOf(rawId).isBlank()) {
+			throw new ServiceException("请先选择要删除的术语");
+		}
+		return R.success(service.removeTerm(
+			parseId(rawDataset, "问数编号请填写数字，可以从列表里复制"),
+			parseId(rawId, "术语编号请填写数字，可以从列表里复制")));
 	}
 
 	@PostMapping("/ask")
@@ -227,6 +274,30 @@ public class AiDatasetController {
 			throw new ServiceException("请先选择要删除的问数");
 		}
 		return idList;
+	}
+
+	private static Long requiredId(JsonNode body, String field, String empty, String hint) {
+		JsonNode node = body.get(field);
+		if (node == null || node.isNull() || node.asText("").isBlank()) {
+			throw new ServiceException(empty);
+		}
+		return parseId(node.asText(), hint);
+	}
+
+	private static Long optionalId(JsonNode body, String field, String hint) {
+		JsonNode node = body.get(field);
+		if (node == null || node.isNull() || node.asText("").isBlank()) {
+			return null;
+		}
+		return parseId(node.asText(), hint);
+	}
+
+	private static String text(JsonNode body, String field) {
+		JsonNode node = body.get(field);
+		if (node == null || node.isNull()) {
+			return null;
+		}
+		return node.asText();
 	}
 
 	private static Long parseId(Object raw, String hint) {

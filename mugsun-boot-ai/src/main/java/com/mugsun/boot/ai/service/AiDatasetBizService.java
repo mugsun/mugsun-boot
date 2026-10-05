@@ -221,17 +221,40 @@ public class AiDatasetBizService {
 		}
 	}
 
-	public AiDatasetTable saveTable(AiDatasetTable body) {
+	public AiDatasetTable saveTable(Long id, Long datasetId, Long datasourceId, String tableName, String tableAlias,
+								   String tableComment, String fieldsJson, String relationsJson) {
 		moduleService.requireEnabled();
-		require(body.getDatasetId());
-		if (body.getId() == null) {
-			body.sanitizeForInsert();
-			tableMapper.insert(body);
-		} else {
-			body.sanitizeForUpdate();
-			tableMapper.update(body);
+		require(datasetId);
+		String name = normalizeTableName(tableName);
+		String alias = limit(tableAlias, 64, "别名请控制在 64 个字以内");
+		String comment = limit(tableComment, 255, "说明请控制在 255 个字以内");
+		if (datasourceId != null) {
+			datasourceBizService.requireRaw(datasourceId);
 		}
-		return body;
+		AiDatasetTable row;
+		if (id == null) {
+			row = new AiDatasetTable();
+			row.sanitizeForInsert();
+		} else {
+			row = tableMapper.selectOneById(id);
+			if (row == null || !datasetId.equals(row.getDatasetId())) {
+				throw new ServiceException("这张表不存在。请刷新后再试");
+			}
+			row.sanitizeForUpdate();
+		}
+		row.setDatasetId(datasetId);
+		row.setDatasourceId(datasourceId);
+		row.setTableName(name);
+		row.setTableAlias(alias);
+		row.setTableComment(comment);
+		row.setFieldsJson(fieldsJson);
+		row.setRelationsJson(relationsJson);
+		if (id == null) {
+			tableMapper.insert(row);
+		} else {
+			tableMapper.update(row);
+		}
+		return row;
 	}
 
 	public List<AiDatasetTable> tables(Long datasetId) {
@@ -239,27 +262,107 @@ public class AiDatasetBizService {
 		return tableMapper.selectListByQuery(QueryWrapper.create().eq("dataset_id", datasetId));
 	}
 
-	public AiTerminology saveTerm(AiTerminology body) {
+	public AiTerminology saveTerm(Long id, Long datasetId, String name, String content, String synonyms, String remark) {
 		moduleService.requireEnabled();
-		if (body.getId() == null) {
-			body.sanitizeForInsert();
-			body.setTenantId(TenantContext.current());
-			terminologyMapper.insert(body);
-		} else {
-			body.sanitizeForUpdate();
-			terminologyMapper.update(body);
+		if (datasetId != null) {
+			require(datasetId);
 		}
-		return body;
+		String termName = requireText(name, "请填写术语", 64, "术语请控制在 64 个字以内");
+		String body = content == null ? "" : content.trim();
+		if (body.isEmpty()) {
+			throw new ServiceException("请填写释义，说明这个词在问数里是什么意思");
+		}
+		if (body.length() > 2000) {
+			throw new ServiceException("释义请控制在 2000 字以内");
+		}
+		String syn = limit(synonyms, 512, "同义词请控制在 512 个字以内");
+		String note = limit(remark, 255, "备注请控制在 255 个字以内");
+		AiTerminology row;
+		if (id == null) {
+			row = new AiTerminology();
+			row.sanitizeForInsert();
+			row.setTenantId(TenantContext.current());
+		} else {
+			row = terminologyMapper.selectOneById(id);
+			if (row == null) {
+				throw new ServiceException("这条术语不存在。请刷新后再试");
+			}
+			row.sanitizeForUpdate();
+		}
+		row.setName(termName);
+		row.setContent(body);
+		if (syn != null) {
+			row.setSynonyms(syn);
+		}
+		row.setRemark(note);
+		if (id == null) {
+			terminologyMapper.insert(row);
+		} else {
+			terminologyMapper.update(row);
+		}
+		if (datasetId != null) {
+			bindIfAbsent(datasetId, row.getId());
+		}
+		return row;
 	}
 
-	public void bindTerm(Long datasetId, Long terminologyId) {
+	public List<AiTerminology> termsOf(Long datasetId) {
 		moduleService.requireEnabled();
 		require(datasetId);
+		List<Long> ids = termLinkMapper.selectListByQuery(QueryWrapper.create().eq("dataset_id", datasetId))
+			.stream().map(AiDatasetTerm::getTerminologyId).filter(Objects::nonNull).distinct().toList();
+		if (ids.isEmpty()) {
+			return List.of();
+		}
+		return terminologyMapper.selectListByQuery(QueryWrapper.create().in("id", ids).orderBy("id", false));
+	}
+
+	public String bindTerm(Long datasetId, Long terminologyId) {
+		moduleService.requireEnabled();
+		require(datasetId);
+		AiTerminology term = terminologyMapper.selectOneById(terminologyId);
+		if (term == null) {
+			throw new ServiceException("这条术语不存在。请刷新后再试");
+		}
+		if (!bindIfAbsent(datasetId, terminologyId)) {
+			throw new ServiceException("「" + term.getName() + "」已经在这份问数里。不用再绑一次");
+		}
+		return term.getName();
+	}
+
+	public String removeTerm(Long datasetId, Long terminologyId) {
+		moduleService.requireEnabled();
+		require(datasetId);
+		AiTerminology term = terminologyMapper.selectOneById(terminologyId);
+		if (term == null) {
+			throw new ServiceException("这条术语不存在。请刷新后再试");
+		}
+		AiDatasetTerm link = termLinkMapper.selectOneByQuery(QueryWrapper.create()
+			.eq("dataset_id", datasetId).eq("terminology_id", terminologyId));
+		if (link == null) {
+			throw new ServiceException("这条术语不在当前问数里。请刷新后再试");
+		}
+		termLinkMapper.deleteById(link.getId());
+		long others = termLinkMapper.selectCountByQuery(QueryWrapper.create().eq("terminology_id", terminologyId));
+		if (others == 0) {
+			terminologyMapper.deleteById(terminologyId);
+			return "已删除「" + term.getName() + "」。问数时不会再带上这条术语";
+		}
+		return "已从这份问数拿掉「" + term.getName() + "」。其他问数还在用它";
+	}
+
+	private boolean bindIfAbsent(Long datasetId, Long terminologyId) {
+		long linked = termLinkMapper.selectCountByQuery(QueryWrapper.create()
+			.eq("dataset_id", datasetId).eq("terminology_id", terminologyId));
+		if (linked > 0) {
+			return false;
+		}
 		AiDatasetTerm link = new AiDatasetTerm();
 		link.sanitizeForInsert();
 		link.setDatasetId(datasetId);
 		link.setTerminologyId(terminologyId);
 		termLinkMapper.insert(link);
+		return true;
 	}
 
 	public Map<String, Object> ask(Long datasetId, String question) {
@@ -475,6 +578,39 @@ public class AiDatasetBizService {
 		if (datasetMapper.selectCountByQuery(query) > 0) {
 			throw new ServiceException("已经有叫「" + name + "」的问数。请换一个名称，或打开原来那个");
 		}
+	}
+
+	private static String normalizeTableName(String raw) {
+		if (raw == null || raw.isBlank()) {
+			throw new ServiceException("请填写表名");
+		}
+		String name = raw.trim();
+		if (!name.matches("[A-Za-z_][A-Za-z0-9_]{0,63}")) {
+			throw new ServiceException("表名只能包含字母、数字和下划线。请重新选择");
+		}
+		return name;
+	}
+
+	private static String requireText(String raw, String empty, int max, String tooLong) {
+		if (raw == null || raw.isBlank()) {
+			throw new ServiceException(empty);
+		}
+		String text = raw.trim();
+		if (text.length() > max) {
+			throw new ServiceException(tooLong);
+		}
+		return text;
+	}
+
+	private static String limit(String raw, int max, String tooLong) {
+		if (raw == null || raw.isBlank()) {
+			return null;
+		}
+		String text = raw.trim();
+		if (text.length() > max) {
+			throw new ServiceException(tooLong);
+		}
+		return text;
 	}
 
 	private AiDataset require(Long id) {
