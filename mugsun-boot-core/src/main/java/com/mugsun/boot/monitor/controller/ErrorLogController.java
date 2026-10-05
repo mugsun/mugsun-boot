@@ -3,6 +3,7 @@ package com.mugsun.boot.monitor.controller;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.common.constant.MonitorConstants;
 import com.mugsun.boot.monitor.OperatorNameLookup;
 import com.mugsun.boot.monitor.entity.SysErrorLog;
@@ -20,7 +21,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
  * 错误日志管理：未捕获异常流水的查询与处理闭环（未处理 → 已处理/已忽略认领）。
@@ -87,24 +87,46 @@ public class ErrorLogController {
 	/** 认领处理：状态流转 0 → 1（已处理）/ 2（已忽略），携带处理备注与认领人留痕 */
 	@PostMapping("/handle")
 	@SaCheckPermission(MonitorConstants.PERM_ERROR_LOG_HANDLE)
-	public R<Void> handle(@RequestBody Map<String, Object> body) {
-		Long id = body.get("id") == null ? null : Long.valueOf(body.get("id").toString());
-		Integer status = body.get("status") == null ? null : Integer.valueOf(body.get("status").toString());
-		String note = body.get("note") == null ? null : body.get("note").toString();
-		if (id == null) {
-			throw new ServiceException("缺少 id");
+	public R<Void> handle(@RequestBody(required = false) JsonNode body) {
+		if (body == null || !body.isObject()) {
+			throw new ServiceException("请先在列表里选择要处理的错误日志");
 		}
-		if (status == null || (status != MonitorConstants.ERROR_STATUS_DONE
-			&& status != MonitorConstants.ERROR_STATUS_IGNORED)) {
-			throw new ServiceException("状态仅支持 1（已处理）/ 2（已忽略）");
+		JsonNode idNode = body.get("id");
+		if (idNode == null || idNode.isNull() || idNode.asText("").isBlank()) {
+			throw new ServiceException("请先在列表里选择要处理的错误日志");
 		}
+		String idText = idNode.asText().trim();
+		if (!idText.matches("\\d{1,19}")) {
+			throw new ServiceException("日志编号请填写数字，可以从列表里复制");
+		}
+		JsonNode statusNode = body.get("status");
+		if (statusNode == null || statusNode.isNull() || statusNode.asText("").isBlank()) {
+			throw new ServiceException("请选择已处理或已忽略");
+		}
+		String statusText = statusNode.asText().trim();
+		if (!"1".equals(statusText) && !"2".equals(statusText)) {
+			throw new ServiceException("请选择已处理或已忽略");
+		}
+		int status = Integer.parseInt(statusText);
+		String note = text(body, "note");
+		if (note != null) {
+			note = note.trim();
+			if (note.isEmpty()) {
+				note = null;
+			} else if (note.length() > 512) {
+				throw new ServiceException("备注请控制在 512 个字以内");
+			}
+		}
+		long id = Long.parseLong(idText);
 		SysErrorLog record = errorLogMapper.selectOneById(id);
 		if (record == null) {
-			throw new ServiceException("错误日志不存在");
+			throw new ServiceException("这条错误日志不存在。请刷新列表后再试");
 		}
-		// 乐观流转：仅待处理（0）可认领，已处理记录不被他人重复覆盖（留痕 handle_user/note 不被改写）
 		if (record.getStatus() != null && record.getStatus() != 0) {
-			throw new ServiceException("该记录已被处理");
+			if (Integer.valueOf(MonitorConstants.ERROR_STATUS_IGNORED).equals(record.getStatus())) {
+				throw new ServiceException("这条错误日志已经忽略。请刷新列表后再看");
+			}
+			throw new ServiceException("这条错误日志已经处理过。请刷新列表后再看");
 		}
 		SysErrorLog update = new SysErrorLog();
 		update.setId(id);
@@ -113,7 +135,19 @@ public class ErrorLogController {
 		update.setHandleNote(note);
 		update.setHandleTime(LocalDateTime.now());
 		errorLogMapper.update(update);
-		return R.success("已处理");
+		String label = labelOf(record);
+		if (status == MonitorConstants.ERROR_STATUS_IGNORED) {
+			return R.success("已忽略「" + label + "」。列表里会标成已忽略，不再等处理");
+		}
+		return R.success("已处理「" + label + "」。列表里会标成已处理");
+	}
+
+	private static String text(JsonNode body, String field) {
+		JsonNode node = body.get(field);
+		if (node == null || node.isNull()) {
+			return null;
+		}
+		return node.asText();
 	}
 
 	@DeleteMapping("/remove")
