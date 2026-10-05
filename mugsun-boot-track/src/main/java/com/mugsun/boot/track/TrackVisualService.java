@@ -323,13 +323,14 @@ public class TrackVisualService {
 	}
 
 	/** 规则删除（逻辑删除；缓存即时失效后 config 不再下发） */
-	public void ruleRemove(long id) {
+	public TrackVisualRule ruleRemove(long id) {
 		TrackVisualRule rule = visualRuleMapper.selectOneByQuery(QueryWrapper.create().where("id = ?", id));
 		if (rule == null) {
-			throw new ServiceException("规则不存在或无权限");
+			throw new ServiceException("这个规则不存在。请刷新列表后再试");
 		}
 		visualRuleMapper.deleteByQuery(QueryWrapper.create().where("id = ?", id));
 		visualRuleService.evict(rule.getAppKey());
+		return rule;
 	}
 
 	// ==================== 内部工具 ====================

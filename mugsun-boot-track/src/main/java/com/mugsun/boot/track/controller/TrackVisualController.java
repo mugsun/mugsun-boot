@@ -92,12 +92,19 @@ public class TrackVisualController {
 	/** 规则删除（逻辑删除；缓存即时失效后 config 不再下发） */
 	@PostMapping("/rule/remove")
 	@SaCheckPermission(TrackConstants.PERM_VISUAL_EDIT)
-	public R<Void> ruleRemove(@RequestBody Map<String, Object> body) {
-		Long id = body.get("id") == null ? null : Long.valueOf(body.get("id").toString());
-		if (id == null) {
-			throw new ServiceException("缺少 id");
+	public R<Void> ruleRemove(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null || body.get("id") == null || String.valueOf(body.get("id")).isBlank()
+			|| "null".equals(String.valueOf(body.get("id")))) {
+			throw new ServiceException("请先在列表里选择要删除的规则");
 		}
-		visualService.ruleRemove(id);
-		return R.success("已删除");
+		String text = String.valueOf(body.get("id")).trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("规则编号请填写数字，可以从列表里复制");
+		}
+		String name = visualService.ruleRemove(Long.valueOf(text)).getEventName();
+		if (name == null || name.isBlank()) {
+			name = "这条规则";
+		}
+		return R.success("已删除「" + name + "」。配置下发里不会再带上这条规则");
 	}
 }
