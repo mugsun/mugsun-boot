@@ -117,7 +117,7 @@ public class FlowGraphService {
 	/** 条件分支（排他网关 nodeType 3）：每分支一条带 skipCondition 的边，默认分支末位；各分支汇聚到续接节点 */
 	private String exclusiveGateway(TreeNode node, String nextCode, Ctx ctx, List<Map<String, Object>> nodes) {
 		if (node.branches() == null || node.branches().isEmpty()) {
-			throw new ServiceException("条件分支「" + coalesce(node.name(), "") + "」至少需一个分支");
+			throw new ServiceException("条件分支「" + coalesce(node.name(), "未命名") + "」至少需一个分支。请加上一个分支后再发布");
 		}
 		String code = ctx.next();
 		String cont = translate(node.childNode(), nextCode, ctx, nodes);
