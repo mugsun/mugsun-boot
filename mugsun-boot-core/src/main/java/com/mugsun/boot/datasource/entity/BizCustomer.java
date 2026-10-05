@@ -45,4 +45,9 @@ public class BizCustomer extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	@Override
+	public String toString() {
+		return name + "|" + phone + "|" + remark + "|" + (getId() == null ? "" : getId());
+	}
 }
