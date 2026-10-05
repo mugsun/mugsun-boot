@@ -304,7 +304,7 @@ public class FlowGraphService {
 		if (node.role() != null && !node.role().isBlank()) {
 			return FlowConstants.CANDIDATE_ROLE + node.role();
 		}
-		throw new ServiceException("审批节点「" + coalesce(node.name(), "") + "」未配置候选人");
+		throw new ServiceException("审批节点「" + coalesce(node.name(), "未命名") + "」未配置候选人。请为这个节点选上候选人后再发布");
 	}
 
 	/** 会签比例：0 或签 / 100 会签 / 1~99 票签；限 0~100 整数，防非法值透传引擎 */

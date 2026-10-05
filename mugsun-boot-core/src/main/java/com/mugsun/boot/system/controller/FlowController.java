@@ -564,7 +564,8 @@ public class FlowController {
 		if (dn.role() != null && !dn.role().isBlank()) {
 			return "role:" + dn.role();
 		}
-		throw new ServiceException("审批节点「" + dn.name() + "」未配置候选人");
+		String nodeName = dn.name() == null || dn.name().isBlank() ? "未命名" : dn.name().trim();
+		throw new ServiceException("审批节点「" + nodeName + "」未配置候选人。请为这个节点选上候选人后再发布");
 	}
 
 	/** 流程设计请求：流程码/名 + 绑定业务表单 formKey(可空) + 审批节点链 */
