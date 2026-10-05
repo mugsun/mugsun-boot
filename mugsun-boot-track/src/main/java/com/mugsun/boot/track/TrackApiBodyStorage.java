@@ -20,7 +20,7 @@ import java.time.format.DateTimeFormatter;
  * <p><b>平台坐标</b>：写入恒为默认存储平台（{@code fileStorageService.getDefaultPlatform()}，同回放/sourcemap 域）；
  * 读取/删除按同约定取当前默认平台，basePath 由 yaml 配置（{@link SpringFileStorageProperties}）按平台名还原。
  * 默认平台或其 basePath 变更后，变更前写入的存量对象在短保留期（≤{@value TrackConstants#API_BODY_MAX_RETENTION_DAYS} 天）
- * 内按新坐标寻址失败：读取按「body 未采集或已清理」诚实兜底，残留对象随事件清单到期自然孤儿化
+ * 内按新坐标寻址失败：读取按「这段响应体没有采到，或已经清理」诚实兜底，残留对象随事件清单到期自然孤儿化
  * （短周期小体量，可接受；日后如需跨平台变更完整寻址，补坐标登记表同 track_sourcemap 范式）。
  * <p><b>登记纪律</b>：上传 attr 带 {@link OssConstants#ATTR_INTERNAL_OBJECT} 内部对象标记，
  * AttachFileRecorder 据此跳过 sys_attach 登记（响应体非附件，元数据零登记）。

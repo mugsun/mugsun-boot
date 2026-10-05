@@ -23,7 +23,7 @@ import java.util.Set;
  * 接口响应体保留期清理任务（G102）：按 {@code track_app.api_body_retention_days} 逐应用到期线删对象。
  * <p><b>清单来源</b>（本域无元数据表）：track_event 中 props->>'body_ref' 非空的事件行——
  * 对象键 = api-body/{app_key}/{yyyyMM}/{event_id}.json.gz（yyyyMM 取事件 received_at 月）纯推导，逐个删对象。
- * 事件行本身不动（props.body_ref 留存：body 过期后读取按「body 未采集或已清理」诚实兜底，时间线仍可下钻事件）。
+ * 事件行本身不动（props.body_ref 留存：body 过期后读取按「这段响应体没有采到，或已经清理」诚实兜底，时间线仍可下钻事件）。
  * <p><b>到期线</b>：received_at 早于 now − api_body_retention_days；应用已删/缺省回退
  * {@value TrackConstants#API_BODY_DEFAULT_RETENTION_DAYS} 天（响应体高敏感，宁可早清不可滞留）。
  * 配套约束：body 保留上限 {@value TrackConstants#API_BODY_MAX_RETENTION_DAYS} 天 远短于事件明细默认 90 天，

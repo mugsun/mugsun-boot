@@ -60,7 +60,7 @@ public class TrackUserTimelineController {
 	/**
 	 * 接口响应体读取：JSON 明文（application/json，服务端已解压，前端零解压依赖，非 R 信封）。
 	 * 最高敏感操作：过响应体查看码 + 操作日志留痕「查看接口响应体」；
-	 * 未采集/已过保留期/跨租户一律 400「body 未采集或已清理」。
+	 * 未采集/已过保留期/跨租户一律 400，说明没有采到或已经清理，并请到接入管理确认。
 	 */
 	@GetMapping("/api-body")
 	@SaCheckPermission(TrackConstants.PERM_USER_VIEW_BODY)

@@ -168,7 +168,7 @@ public class TrackUserTimelineService {
 	 * 读取接口响应体明文（api-body 端点用）：按 event_id 查事件取 props.body_ref 推导对象键
 	 * （api-body/{app_key}/{yyyyMM}/{event_id}.json.gz，yyyyMM 取事件 received_at 月），
 	 * x-file-storage 读出后服务端解压直发明文。事件不存在/无 body_ref/对象已清理一律
-	 * 「body 未采集或已清理」（400，不暴露存储内部错误形态）。
+	 * 「这段响应体没有采到，或已经清理」（400，不暴露存储内部错误形态）。
 	 */
 	public byte[] bodyJson(String eventId) {
 		if (eventId == null || eventId.isBlank()) {
@@ -186,7 +186,7 @@ public class TrackUserTimelineService {
 				+ " FROM track_event e WHERE e.event_id = ?" + tenantFrag("e", tenant, args) + " LIMIT 1",
 			args.toArray());
 		if (rows.isEmpty() || rows.get(0).get("ref") == null) {
-			throw new ServiceException("body 未采集或已清理");
+			throw new ServiceException("这段响应体没有采到，或已经清理。请到接入管理确认打开了响应体采集，再重新查询");
 		}
 		Map<String, Object> row = rows.get(0);
 		long receivedAtMs = toEpochMs(row.get("received_at"));
@@ -195,7 +195,7 @@ public class TrackUserTimelineService {
 			gz = storage.load((String) row.get("app_key"), receivedAtMs, (String) row.get("ref"));
 		} catch (Exception e) {
 			log.warn("响应体读取失败 event={}：{}", eventId, e.getMessage());
-			throw new ServiceException("body 未采集或已清理");
+			throw new ServiceException("这段响应体没有采到，或已经清理。请到接入管理确认打开了响应体采集，再重新查询");
 		}
 		// 有界解压兜底（写时已按 sys_param 上限约束；读侧取参数与兜底默认的较大者，防参数调小后误杀存量）
 		long maxBytes = Math.max(paramLong(TrackConstants.PARAM_API_BODY_MAX_BYTES,
@@ -204,7 +204,7 @@ public class TrackUserTimelineService {
 			return gunzip(gz, maxBytes);
 		} catch (IOException e) {
 			log.warn("响应体解压失败 event={}：{}", eventId, e.getMessage());
-			throw new ServiceException("body 未采集或已清理");
+			throw new ServiceException("这段响应体没有采到，或已经清理。请到接入管理确认打开了响应体采集，再重新查询");
 		}
 	}
 
