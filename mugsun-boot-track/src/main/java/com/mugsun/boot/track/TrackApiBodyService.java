@@ -122,7 +122,8 @@ public class TrackApiBodyService {
 		} else {
 			if (decoded.length > maxBytes) {
 				metrics.dropped("api_body_oversize", 1);
-				throw new TrackCollectException(413, "响应体明文超限");
+				throw new TrackCollectException(413, "这段响应体的明文太大。明文最长 "
+					+ maxBytes + " 字节，请缩小后再上传");
 			}
 			storeBytes = gzip(decoded);
 		}
