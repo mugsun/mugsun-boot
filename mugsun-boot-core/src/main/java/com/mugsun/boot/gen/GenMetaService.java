@@ -68,7 +68,7 @@ public class GenMetaService {
 		}
 		Table meta = introspect(tableName);
 		if (meta == null) {
-			throw new IllegalArgumentException("表不存在：" + tableName);
+			throw new ServiceException("库里没有这张表。请刷新表列表，确认表还在后再导入");
 		}
 		String prefix = tablePrefix == null ? "" : tablePrefix.trim();
 		String stripped = GenNaming.stripPrefix(tableName, prefix);
@@ -118,11 +118,11 @@ public class GenMetaService {
 	public void syncTable(Long tableId) {
 		GenTable table = tableMapper.selectOneById(tableId);
 		if (table == null) {
-			throw new IllegalArgumentException("表配置不存在：" + tableId);
+			throw new ServiceException("这个生成配置不存在。请刷新列表后再同步");
 		}
 		Table meta = introspect(table.getTableName());
 		if (meta == null) {
-			throw new IllegalArgumentException("表不存在：" + table.getTableName());
+			throw new ServiceException("库里已经没有「" + table.getTableName() + "」。请确认表还在，或先删掉这条生成配置");
 		}
 		mergeColumns(tableId, meta.getColumns());
 	}
@@ -211,12 +211,24 @@ public class GenMetaService {
 
 	/** 删除导入的生成配置（表 + 字段）。只删元数据，不删业务表。 */
 	@Transactional(rollbackFor = Exception.class)
-	public void remove(Long tableId) {
+	public String remove(Long tableId) {
 		if (tableId == null) {
-			throw new com.mugsun.core.tool.exception.ServiceException("请选择要删除的配置");
+			throw new ServiceException("请先选择要删除的生成配置");
+		}
+		GenTable table = tableMapper.selectOneById(tableId);
+		if (table == null) {
+			throw new ServiceException("这个生成配置不存在。请刷新列表后再删除");
 		}
 		columnMapper.deleteByQuery(QueryWrapper.create().eq("table_id", tableId));
 		tableMapper.deleteById(tableId);
+		return "已删除「" + table.getTableName() + "」的生成配置。数据库里的业务表还在";
+	}
+
+	public boolean imported(String tableName) {
+		if (tableName == null || tableName.isBlank()) {
+			return false;
+		}
+		return tableMapper.selectCountByQuery(QueryWrapper.create().eq("table_name", tableName.trim())) > 0;
 	}
 
 	/** 已导入的表配置列表 */

@@ -2,6 +2,7 @@ package com.mugsun.boot.gen;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gen.entity.GenColumn;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.core.tool.api.R;
@@ -61,21 +62,28 @@ public class GenController {
 
 	/** 导入库表为元数据配置（内省列 + 智能推断落 gen_table/gen_column），返回表配置 id */
 	@SaCheckPermission("sys:gen:import")
+	@RepeatSubmit
 	@PostMapping("/import")
 	public R<Long> importTable(@RequestBody ImportParam param) {
-		if (param.tableName() == null || param.tableName().isBlank()) {
-			throw new ServiceException("表名不能为空");
+		if (param == null || param.tableName() == null || param.tableName().isBlank()) {
+			throw new ServiceException("请先选择要导入的表");
 		}
-		return R.data(metaService.importTable(param.tableName(), param.moduleName(),
-			param.basePackage(), param.tablePrefix(), param.author()));
+		boolean existed = metaService.imported(param.tableName());
+		Long id = metaService.importTable(param.tableName(), param.moduleName(),
+			param.basePackage(), param.tablePrefix(), param.author());
+		R<Long> body = R.data(id);
+		body.setMsg(existed
+			? "这张表已经导入过。配置已按当前库结构更新，改过的字段会保留"
+			: "已导入。可以打开配置继续改字段，预览和下载会用这份配置");
+		return body;
 	}
 
 	/** 删除导入的生成配置，不删数据库里的业务表 */
 	@SaCheckPermission("sys:gen:edit")
+	@RepeatSubmit
 	@PostMapping("/remove")
 	public R<Void> remove(@RequestParam Long tableId) {
-		metaService.remove(tableId);
-		return R.success("删除成功");
+		return R.success(metaService.remove(tableId));
 	}
 
 	/** 已导入的表配置列表 */
@@ -87,10 +95,11 @@ public class GenController {
 
 	/** 增量同步库表结构到元数据（保留已编辑的表级/字段级配置） */
 	@SaCheckPermission("sys:gen:edit")
+	@RepeatSubmit
 	@PostMapping("/sync")
 	public R<Void> sync(@RequestParam Long tableId) {
 		metaService.syncTable(tableId);
-		return R.success("同步成功");
+		return R.success("已按当前库表结构同步。你改过的字段配置会保留");
 	}
 
 	/** 读取某表元数据配置（表级 + 字段级） */
@@ -105,7 +114,7 @@ public class GenController {
 	@PostMapping("/meta/save")
 	public R<Void> saveMeta(@RequestBody MetaSaveParam param) {
 		metaService.saveConfig(param.table(), param.columns());
-		return R.success("配置已保存");
+		return R.success("字段配置已保存。预览和下载会用这份配置");
 	}
 
 	/** 按元数据预览生成的全栈产物（对齐平台规约），返回 文件类别→内容 */

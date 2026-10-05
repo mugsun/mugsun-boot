@@ -284,7 +284,7 @@ public class DdlService {
 	private GenTable table(Long tableId) {
 		GenTable t = tableMapper.selectOneById(tableId);
 		if (t == null) {
-			throw new ServiceException("表配置不存在：" + tableId);
+			throw new ServiceException("这个生成配置不存在。请刷新列表后再试");
 		}
 		return t;
 	}

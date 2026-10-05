@@ -5,6 +5,7 @@ import com.mugsun.boot.gen.entity.GenColumn;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.boot.gen.mapper.GenColumnMapper;
 import com.mugsun.boot.gen.mapper.GenTableMapper;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.codegen.Generator;
 import com.mybatisflex.codegen.config.GlobalConfig;
 import com.mybatisflex.codegen.entity.Column;
@@ -62,7 +63,7 @@ public class GenRenderService {
 	public List<Product> generate(Long tableId) {
 		GenTable t = tableMapper.selectOneById(tableId);
 		if (t == null) {
-			throw new IllegalArgumentException("表配置不存在：" + tableId);
+			throw new ServiceException("这个生成配置不存在。请刷新列表后再预览");
 		}
 		List<GenColumn> cols = columnMapper.selectListByQuery(
 			QueryWrapper.create().eq("table_id", tableId).orderBy("sort", true));
