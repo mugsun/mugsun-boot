@@ -53,9 +53,19 @@ public class AiDatasetBizService {
 
 	public Page<AiDataset> page(long pageNum, long pageSize, String name) {
 		moduleService.requireEnabled();
+		if (pageNum < 1) {
+			throw new ServiceException("页码请从 1 开始");
+		}
+		if (pageSize < 1 || pageSize > 100) {
+			throw new ServiceException("每页条数请在 1 到 100 之间");
+		}
 		QueryWrapper q = QueryWrapper.create().orderBy("id", false);
 		if (name != null && !name.isBlank()) {
-			q.like("name", name.trim());
+			String keyword = name.trim();
+			if (keyword.length() > 64) {
+				keyword = keyword.substring(0, 64);
+			}
+			q.like("name", keyword);
 		}
 		return datasetMapper.paginate(pageNum, pageSize, q);
 	}
@@ -67,28 +77,147 @@ public class AiDatasetBizService {
 
 	public AiDataset submit(AiDataset body) {
 		moduleService.requireEnabled();
-		if (body.getName() == null || body.getName().isBlank()) {
-			throw new ServiceException("请填写名称");
+		if (body == null) {
+			throw new ServiceException("请填写问数名称。用来在列表里区分");
 		}
+		String name = body.getName() == null ? "" : body.getName().trim();
+		if (name.isEmpty()) {
+			throw new ServiceException("请填写问数名称。用来在列表里区分");
+		}
+		if (name.length() > 64) {
+			throw new ServiceException("问数名称请控制在 64 个字以内");
+		}
+		String description = body.getDescription() == null ? "" : body.getDescription().trim();
+		if (description.length() > 200) {
+			throw new ServiceException("描述请控制在 200 个字以内");
+		}
+		if (body.getEnabled() != null && body.getEnabled() != 0 && body.getEnabled() != 1) {
+			throw new ServiceException("状态请选择启用或停用");
+		}
+		requireUnique(name, body.getId());
 		if (body.getId() == null) {
 			body.sanitizeForInsert();
 			body.setTenantId(TenantContext.current());
+			body.setName(name);
+			body.setDescription(description.isEmpty() ? null : description);
 			if (body.getEnabled() == null) {
 				body.setEnabled(AiConstants.FLAG_YES);
 			}
 			datasetMapper.insert(body);
-		} else {
-			body.sanitizeForUpdate();
-			datasetMapper.update(body);
+			return body;
 		}
-		return body;
+		AiDataset db = require(body.getId());
+		db.setName(name);
+		db.setDescription(description.isEmpty() ? null : description);
+		if (body.getEnabled() != null) {
+			db.setEnabled(body.getEnabled());
+		}
+		datasetMapper.update(db);
+		return db;
 	}
 
-	public void remove(List<Long> ids) {
+	public List<AiDataset> remove(List<Long> ids) {
 		moduleService.requireEnabled();
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先选择要删除的问数");
+		}
+		List<AiDataset> rows = new ArrayList<>();
 		for (Long id : ids) {
-			require(id);
-			datasetMapper.deleteById(id);
+			rows.add(require(id));
+		}
+		for (AiDataset row : rows) {
+			tableMapper.deleteByQuery(QueryWrapper.create().eq("dataset_id", row.getId()));
+			datasetMapper.deleteById(row.getId());
+		}
+		return rows;
+	}
+
+	public AiDataset copy(Long id) {
+		moduleService.requireEnabled();
+		AiDataset source = require(id);
+		String name = source.getName() + "-副本";
+		if (name.length() > 64) {
+			throw new ServiceException("复制后的名称会超过 64 个字。请先把原问数名称改短再复制");
+		}
+		requireUnique(name, null);
+		AiDataset copy = new AiDataset();
+		copy.sanitizeForInsert();
+		copy.setTenantId(TenantContext.current());
+		copy.setName(name);
+		copy.setDescription(source.getDescription());
+		copy.setDatasetType(source.getDatasetType());
+		copy.setModelId(source.getModelId());
+		copy.setEnabled(source.getEnabled());
+		copy.setMaxRows(source.getMaxRows());
+		copy.setTimeoutMs(source.getTimeoutMs());
+		copy.setIcon(source.getIcon());
+		datasetMapper.insert(copy);
+		for (AiDatasetTable table : tables(id)) {
+			AiDatasetTable row = new AiDatasetTable();
+			row.sanitizeForInsert();
+			row.setDatasetId(copy.getId());
+			row.setDatasourceId(table.getDatasourceId());
+			row.setTableName(table.getTableName());
+			row.setTableAlias(table.getTableAlias());
+			row.setTableComment(table.getTableComment());
+			row.setFieldsJson(table.getFieldsJson());
+			row.setRelationsJson(table.getRelationsJson());
+			tableMapper.insert(row);
+		}
+		return copy;
+	}
+
+	public Map<String, Object> config(Long id) {
+		moduleService.requireEnabled();
+		AiDataset dataset = require(id);
+		List<AiDatasetTable> rows = tables(id);
+		Map<String, Object> data = new LinkedHashMap<>();
+		data.put("tables", rows.stream().map(AiDatasetTable::getTableName).toList());
+		data.put("datasourceId", rows.isEmpty() || rows.get(0).getDatasourceId() == null
+			? null : String.valueOf(rows.get(0).getDatasourceId()));
+		data.put("bizDesc", dataset.getDescription() == null ? "" : dataset.getDescription());
+		return data;
+	}
+
+	public void saveConfig(Long id, Long datasourceId, List<String> tableNames, String bizDesc) {
+		moduleService.requireEnabled();
+		AiDataset dataset = require(id);
+		if (datasourceId == null) {
+			throw new ServiceException("请先选择数据源。选好后才能保存表");
+		}
+		datasourceBizService.requireRaw(datasourceId);
+		String description = bizDesc == null ? "" : bizDesc.trim();
+		if (description.length() > 200) {
+			throw new ServiceException("描述请控制在 200 个字以内");
+		}
+		List<String> names = new ArrayList<>();
+		if (tableNames != null) {
+			for (String raw : tableNames) {
+				if (raw == null || raw.isBlank()) {
+					continue;
+				}
+				String tableName = raw.trim();
+				if (!tableName.matches("[A-Za-z_][A-Za-z0-9_]{0,63}")) {
+					throw new ServiceException("表名只能包含字母、数字和下划线。请重新选择");
+				}
+				if (!names.contains(tableName)) {
+					names.add(tableName);
+				}
+			}
+		}
+		if (names.isEmpty()) {
+			throw new ServiceException("请至少选择一张表。没有表就没法问数");
+		}
+		dataset.setDescription(description.isEmpty() ? null : description);
+		datasetMapper.update(dataset);
+		tableMapper.deleteByQuery(QueryWrapper.create().eq("dataset_id", id));
+		for (String tableName : names) {
+			AiDatasetTable row = new AiDatasetTable();
+			row.sanitizeForInsert();
+			row.setDatasetId(id);
+			row.setDatasourceId(datasourceId);
+			row.setTableName(tableName);
+			tableMapper.insert(row);
 		}
 	}
 
@@ -136,9 +265,12 @@ public class AiDatasetBizService {
 	public Map<String, Object> ask(Long datasetId, String question) {
 		moduleService.requireEnabled();
 		AiDataset ds = require(datasetId);
+		if (question == null || question.isBlank()) {
+			throw new ServiceException("请先填写问题。用来生成查询");
+		}
 		List<AiDatasetTable> tables = tables(datasetId);
 		if (tables.isEmpty()) {
-			throw new ServiceException("请先配置问数表");
+			throw new ServiceException("还没有配置数据表。请先点配置，选好表后再问");
 		}
 		AiDatasetTable first = tables.get(0);
 		AiDatasource datasource = datasourceBizService.requireRaw(first.getDatasourceId());
@@ -180,7 +312,7 @@ public class AiDatasetBizService {
 		} catch (ServiceException e) {
 			throw e;
 		} catch (Exception e) {
-			throw new ServiceException("SQL 执行失败: " + e.getMessage());
+			throw new ServiceException("这次没有查出结果。请检查数据源能不能连上，再试一次");
 		}
 		Map<String, Object> resp = new HashMap<>();
 		resp.put("sql", sql);
@@ -228,24 +360,38 @@ public class AiDatasetBizService {
 
 	public Map<String, Object> analyze(Long datasetId, String question) {
 		moduleService.requireEnabled();
+		if (question == null || question.isBlank()) {
+			throw new ServiceException("请先填写要分析的问题");
+		}
 		AiDataset ds = require(datasetId);
 		AiModel model = ds.getModelId() != null ? modelBizService.requireRaw(ds.getModelId())
 			: modelBizService.requireDefaultChat();
-		String text = llmClient.chat(model, List.of(
-			Map.of("role", "user", "content", "请分析以下业务问题并给出要点（不执行 SQL）：" + question)
-		), 1024);
-		return Map.of("analysis", text);
+		try {
+			String text = llmClient.chat(model, List.of(
+				Map.of("role", "user", "content", "请分析以下业务问题并给出要点（不执行 SQL）：" + question)
+			), 1024);
+			return Map.of("analysis", text == null ? "" : text);
+		} catch (Exception ignored) {
+			throw new ServiceException("这次没有分析成功。请确认默认对话模型已激活，稍后再试");
+		}
 	}
 
 	public Map<String, Object> predict(Long datasetId, String question) {
 		moduleService.requireEnabled();
+		if (question == null || question.isBlank()) {
+			throw new ServiceException("请先填写要预测的问题");
+		}
 		AiDataset ds = require(datasetId);
 		AiModel model = ds.getModelId() != null ? modelBizService.requireRaw(ds.getModelId())
 			: modelBizService.requireDefaultChat();
-		String text = llmClient.chat(model, List.of(
-			Map.of("role", "user", "content", "请基于业务语境做趋势预测建议（占位，不保证准确）：" + question)
-		), 1024);
-		return Map.of("prediction", text);
+		try {
+			String text = llmClient.chat(model, List.of(
+				Map.of("role", "user", "content", "请基于业务语境做趋势预测建议（占位，不保证准确）：" + question)
+			), 1024);
+			return Map.of("prediction", text == null ? "" : text);
+		} catch (Exception ignored) {
+			throw new ServiceException("这次没有预测成功。请确认默认对话模型已激活，稍后再试");
+		}
 	}
 
 	public List<String> suggest(Long datasetId) {
@@ -269,8 +415,11 @@ public class AiDatasetBizService {
 		moduleService.requireEnabled();
 		AiDataset ds = require(datasetId);
 		List<AiDatasetTable> tables = tables(datasetId);
+		if (sqlRaw == null || sqlRaw.isBlank()) {
+			throw new ServiceException("请先填写要重跑的查询");
+		}
 		if (tables.isEmpty()) {
-			throw new ServiceException("请先配置问数表");
+			throw new ServiceException("还没有配置数据表。请先点配置，选好表后再重跑");
 		}
 		AiDatasource datasource = datasourceBizService.requireRaw(tables.get(0).getDatasourceId());
 		Set<String> allowed = resolveAllowedTables(datasource, tables);
@@ -295,7 +444,7 @@ public class AiDatasetBizService {
 		} catch (ServiceException e) {
 			throw e;
 		} catch (Exception e) {
-			throw new ServiceException("SQL 执行失败: " + e.getMessage());
+			throw new ServiceException("这次没有查出结果。请检查数据源能不能连上，再试一次");
 		}
 		return Map.of("sql", sql, "rows", rows, "message", "已重跑，共 " + rows.size() + " 行");
 	}
@@ -316,6 +465,16 @@ public class AiDatasetBizService {
 			}
 		}
 		return s.trim();
+	}
+
+	private void requireUnique(String name, Long id) {
+		QueryWrapper query = QueryWrapper.create().eq("name", name);
+		if (id != null) {
+			query.ne("id", id);
+		}
+		if (datasetMapper.selectCountByQuery(query) > 0) {
+			throw new ServiceException("已经有叫「" + name + "」的问数。请换一个名称，或打开原来那个");
+		}
 	}
 
 	private AiDataset require(Long id) {

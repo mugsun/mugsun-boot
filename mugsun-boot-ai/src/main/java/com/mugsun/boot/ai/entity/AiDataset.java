@@ -87,4 +87,14 @@ public class AiDataset extends BaseEntity {
 	public void setTimeoutMs(Integer timeoutMs) {
 		this.timeoutMs = timeoutMs;
 	}
+
+	/** 供重复提交按名称和启用状态归并，不展开描述原文。 */
+	@Override
+	public String toString() {
+		String note = description == null ? "" : description;
+		return (name == null ? "" : name) + "|"
+			+ (enabled == null ? "" : enabled) + "|"
+			+ note.length() + ":" + Integer.toHexString(note.hashCode()) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }

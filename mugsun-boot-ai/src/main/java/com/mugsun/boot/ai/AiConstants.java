@@ -18,7 +18,7 @@ public final class AiConstants {
 	public static final String MSG_SECRET_MISSING = "这把密钥不存在。请刷新列表后再试";
 	public static final String MSG_APP_MISSING = "这个应用不存在。请刷新列表后再试";
 	public static final String MSG_KB_MISSING = "这个知识库不存在。请刷新列表后再试";
-	public static final String MSG_DATASET_MISSING = "问数智能体不存在";
+	public static final String MSG_DATASET_MISSING = "这个问数不存在。请刷新列表后再试";
 	public static final String MSG_DASHBOARD_MISSING = "仪表盘不存在";
 	public static final String MSG_MCP_MISSING = "MCP 工具不存在";
 	public static final String MSG_CHANNEL_MISSING = "这个渠道不存在。请刷新列表后再试";
