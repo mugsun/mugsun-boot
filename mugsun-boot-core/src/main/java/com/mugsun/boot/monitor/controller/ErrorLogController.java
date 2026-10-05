@@ -118,8 +118,37 @@ public class ErrorLogController {
 
 	@DeleteMapping("/remove")
 	@SaCheckPermission(MonitorConstants.PERM_ERROR_LOG_REMOVE)
-	public R<Void> remove(@RequestParam Long id) {
-		errorLogMapper.deleteById(id);
-		return R.success("已删除");
+	public R<Void> remove(@RequestParam(required = false) String id) {
+		if (id == null || id.isBlank()) {
+			throw new ServiceException("请先在列表里选择要删除的错误日志");
+		}
+		String text = id.trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("日志编号请填写数字，可以从列表里复制");
+		}
+		SysErrorLog row = errorLogMapper.selectOneById(Long.parseLong(text));
+		if (row == null) {
+			throw new ServiceException("这条错误日志不存在。请刷新列表后再试");
+		}
+		errorLogMapper.deleteById(row.getId());
+		return R.success("已删除「" + labelOf(row) + "」。列表里不会再出现这条记录");
+	}
+
+	private static String labelOf(SysErrorLog row) {
+		String method = row.getRequestMethod() == null ? "" : row.getRequestMethod().trim();
+		String uri = row.getRequestUri() == null ? "" : row.getRequestUri().trim();
+		String label = (method + " " + uri).trim();
+		if (label.isEmpty()) {
+			String type = row.getExceptionClass() == null ? "" : row.getExceptionClass().trim();
+			int dot = type.lastIndexOf('.');
+			label = dot >= 0 ? type.substring(dot + 1) : type;
+		}
+		if (label.isEmpty()) {
+			return "这条错误日志";
+		}
+		if (label.length() > 80) {
+			return label.substring(0, 80);
+		}
+		return label;
 	}
 }
