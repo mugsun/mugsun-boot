@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.FieldMaskConstants;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.common.constant.NotifyConstants;
 import com.mugsun.boot.common.constant.UserConstants;
 import com.mugsun.boot.common.tx.AfterCommit;
@@ -195,13 +196,14 @@ public class SysUserController {
 		// 手机号/身份证的 明文/脱敏/不可见 由按角色决策的脱敏处理器统一裁决（绑权限码而非绑端点，与 page 表现一致）
 		// 行级：按 id 走 QueryWrapper 查询以经 @DataScope 方言注入数据范围（selectOneById 直查会绕过行级范围），越范围返 null
 		SysUser user = userMapper.selectOneByQuery(QueryWrapper.create().eq("id", id));
-		if (user != null) {
-			user.setPassword(null);
-			// 角色回显（建档弹窗编辑态）
-			user.setRoleIds(userRoleMapper.selectListByQuery(QueryWrapper.create().eq("user_id", id))
-				.stream().map(SysUserRole::getRoleId).toList());
-			enrichOrg(List.of(user));
+		if (user == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再看");
 		}
+		user.setPassword(null);
+		// 角色回显（建档弹窗编辑态）
+		user.setRoleIds(userRoleMapper.selectListByQuery(QueryWrapper.create().eq("user_id", id))
+			.stream().map(SysUserRole::getRoleId).toList());
+		enrichOrg(List.of(user));
 		return R.data(user);
 	}
 
@@ -209,20 +211,74 @@ public class SysUserController {
 	private void assertOrgValid(SysUser user) {
 		if (user.getDeptId() != null
 			&& deptMapper.selectCountByQuery(QueryWrapper.create().eq("id", user.getDeptId())) == 0) {
-			throw new com.mugsun.core.tool.exception.ServiceException("部门不存在");
+			throw new com.mugsun.core.tool.exception.ServiceException("这个部门不存在，或属于其他租户。请重新选择部门");
 		}
 		if (user.getPostId() != null
 			&& postMapper.selectCountByQuery(QueryWrapper.create().eq("id", user.getPostId())) == 0) {
-			throw new com.mugsun.core.tool.exception.ServiceException("岗位不存在");
+			throw new com.mugsun.core.tool.exception.ServiceException("这个岗位不存在，或属于其他租户。请重新选择岗位");
 		}
 		if (user.getLeaderId() != null) {
 			if (user.getId() != null && user.getLeaderId().equals(user.getId())) {
-				throw new com.mugsun.core.tool.exception.ServiceException("直属主管不能是本人");
+				throw new com.mugsun.core.tool.exception.ServiceException("直属主管不能选自己。请改选其他人，或先不填");
 			}
 			SysUser leader = userMapper.selectOneById(user.getLeaderId());
 			if (leader == null) {
-				throw new com.mugsun.core.tool.exception.ServiceException("直属主管不存在");
+				throw new com.mugsun.core.tool.exception.ServiceException("这位主管不存在，或属于其他租户。请重新选择");
 			}
+		}
+	}
+
+	private void normalizeUser(SysUser user) {
+		if (user.getId() == null) {
+			String username = user.getUsername() == null ? "" : user.getUsername().trim();
+			if (username.isEmpty()) {
+				throw new com.mugsun.core.tool.exception.ServiceException("请填写账号");
+			}
+			user.setUsername(username);
+			if (user.getStatus() == null) {
+				user.setStatus(1);
+			}
+		} else if (user.getUsername() != null && !user.getUsername().isBlank()) {
+			user.setUsername(user.getUsername().trim());
+		}
+		if (user.getUsername() != null && !user.getUsername().isBlank()
+			&& !user.getUsername().matches("^[A-Za-z][A-Za-z0-9_]{1,63}$")) {
+			throw new com.mugsun.core.tool.exception.ServiceException("账号请用字母开头，只能包含字母、数字和下划线，最长 64 位");
+		}
+		if (user.getStatus() != null && user.getStatus() != 0 && user.getStatus() != 1) {
+			throw new com.mugsun.core.tool.exception.ServiceException("状态只能选择启用或停用");
+		}
+		if (user.getSex() != null && user.getSex() != 0 && user.getSex() != 1 && user.getSex() != 2) {
+			throw new com.mugsun.core.tool.exception.ServiceException("性别只能选择未知、男或女");
+		}
+		if (user.getNickname() != null && user.getNickname().length() > 64) {
+			throw new com.mugsun.core.tool.exception.ServiceException("昵称请控制在 64 个字以内");
+		}
+		if (user.getRealName() != null && user.getRealName().length() > 64) {
+			throw new com.mugsun.core.tool.exception.ServiceException("真实姓名请控制在 64 个字以内");
+		}
+		if (user.getCode() != null && user.getCode().length() > 64) {
+			throw new com.mugsun.core.tool.exception.ServiceException("工号请控制在 64 个字以内");
+		}
+		if (user.getEmail() != null && !user.getEmail().isBlank()) {
+			String email = user.getEmail().trim();
+			if (email.length() > 128 || !email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+				throw new com.mugsun.core.tool.exception.ServiceException("邮箱格式不正确。请填写类似 name@example.com 的地址，不需要可以留空");
+			}
+			user.setEmail(email);
+		}
+		if (user.getPhone() != null && !user.getPhone().isBlank() && !user.getPhone().matches("^1\\d{10}$")) {
+			throw new com.mugsun.core.tool.exception.ServiceException("手机号请填写 11 位，以 1 开头。不需要手机号可以留空");
+		}
+	}
+
+	private void assertUsernameFree(String username, Long selfId) {
+		if (username == null || username.isBlank()) {
+			return;
+		}
+		SysUser taken = userMapper.selectOneByQuery(QueryWrapper.create().eq("username", username));
+		if (taken != null && (selfId == null || !taken.getId().equals(selfId))) {
+			throw new com.mugsun.core.tool.exception.ServiceException("账号「" + username + "」已经有人在用。请换一个账号，或编辑原来那个用户");
 		}
 	}
 
@@ -236,7 +292,7 @@ public class SysUserController {
 		}
 		if (!roleIds.isEmpty()
 			&& roleMapper.selectCountByQuery(QueryWrapper.create().in("id", roleIds)) != roleIds.size()) {
-			throw new com.mugsun.core.tool.exception.ServiceException("存在无效角色");
+			throw new com.mugsun.core.tool.exception.ServiceException("有角色不存在，或属于其他租户。请重新选择角色");
 		}
 		userRoleMapper.deleteByQuery(QueryWrapper.create().eq("user_id", userId));
 		for (Long roleId : roleIds) {
@@ -289,7 +345,7 @@ public class SysUserController {
 		assertTargetOperable(userId, true);
 		SysUser user = userMapper.selectOneById(userId);
 		if (user == null) {
-			throw new com.mugsun.core.tool.exception.ServiceException("用户不存在");
+			throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再设主管");
 		}
 		int next = (user.getIsLeader() != null && user.getIsLeader() == 1) ? 0 : 1;
 		SysUser patch = new SysUser();
@@ -307,7 +363,7 @@ public class SysUserController {
 	public R<List<SysUser>> leaderInfo(@RequestParam Long userId) {
 		SysUser user = userMapper.selectOneByQuery(QueryWrapper.create().eq("id", userId));
 		if (user == null) {
-			throw new com.mugsun.core.tool.exception.ServiceException("用户不存在");
+			throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再看主管");
 		}
 		if (user.getLeaderId() == null) {
 			return R.data(List.of());
@@ -354,6 +410,7 @@ public class SysUserController {
 	}
 
 	@PostMapping("/submit")
+	@RepeatSubmit
 	@OperationLog("保存用户")
 	public R<Void> submit(@RequestBody SysUser user) {
 		// 新增走 sys:user:add，编辑走 sys:user:edit（与前端按钮门控码对齐，避免"可见却越权失败"）
@@ -375,16 +432,12 @@ public class SysUserController {
 			&& (user.getIdCard().contains("*") || com.mugsun.boot.common.crypto.Sm4Util.looksLikeCipher(user.getIdCard()))) {
 			user.setIdCard(null);
 		}
-		if (user.getId() == null && (user.getUsername() == null || user.getUsername().isBlank())) {
-			throw new com.mugsun.core.tool.exception.ServiceException("请填写账号");
-		}
-		// 手机号格式校验（短信登录按号取人，脏号即冒注面）
-		if (user.getPhone() != null && !user.getPhone().isBlank() && !user.getPhone().matches("^1\\d{10}$")) {
-			throw new com.mugsun.core.tool.exception.ServiceException("手机号格式不正确");
-		}
+		boolean creating = user.getId() == null;
+		boolean defaultPassword = creating && (user.getPassword() == null || user.getPassword().isBlank());
+		normalizeUser(user);
 		// 部门/岗位归属校验（建档挂组织，防跨租户）
 		assertOrgValid(user);
-		if (user.getId() == null) {
+		if (creating) {
 			// 服务端清洗：审计字段与租户归属一律服务端裁定（Flex 仅对 null tenantId 才填充当前租户）
 			user.sanitizeForInsert();
 			user.setTenantId(null);
@@ -396,7 +449,12 @@ public class SysUserController {
 			user.setPassword(passwordEncoder.encode(raw));
 			tenantValidator.quotaLocked(com.mugsun.boot.tenant.TenantContext.current(), () -> {
 				tenantValidator.assertAccountQuota(com.mugsun.boot.tenant.TenantContext.current());
-				userMapper.insert(user);
+				assertUsernameFree(user.getUsername(), null);
+				try {
+					userMapper.insert(user);
+				} catch (org.springframework.dao.DuplicateKeyException ex) {
+					throw new com.mugsun.core.tool.exception.ServiceException("账号「" + user.getUsername() + "」已经有人用过。请换一个账号");
+				}
 				return null;
 			});
 			securityPolicyService.logPassword(user.getId(), user.getPassword());
@@ -407,15 +465,20 @@ public class SysUserController {
 			// 审计前后镜像恒脱敏读：与操作者角色无关，敏感字段永不落明文入审计
 			SysUser before = com.mugsun.boot.common.mask.FieldMaskContext.maskedRead(() -> userMapper.selectOneById(user.getId()));
 			if (before == null) {
-				throw new com.mugsun.core.tool.exception.ServiceException("用户不存在");
+				throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再编辑");
 			}
 			assertTargetOperable(user.getId(), true);
+			assertUsernameFree(user.getUsername(), user.getId());
 			if (user.getPassword() != null && !user.getPassword().isBlank()) {
 				user.setPassword(passwordEncoder.encode(user.getPassword()));
 			}
 			user.sanitizeForUpdate();
 			user.setTenantId(null);
-			userMapper.update(user);
+			try {
+				userMapper.update(user);
+			} catch (org.springframework.dao.DuplicateKeyException ex) {
+				throw new com.mugsun.core.tool.exception.ServiceException("账号「" + user.getUsername() + "」已经有人用过。请换一个账号");
+			}
 			SysUser after = com.mugsun.boot.common.mask.FieldMaskContext.maskedRead(() -> userMapper.selectOneById(user.getId()));
 			if (before != null) {
 				before.setPassword(null);
@@ -429,20 +492,37 @@ public class SysUserController {
 			// 编辑挂角色（roleIds 非 null 才同步，保持旧调用方兼容）
 			syncUserRoles(user.getId(), user.getRoleIds());
 		}
-		return R.success("操作成功");
+		return R.success(creating
+			? (defaultPassword
+				? "已创建。初始密码已设置，请把账号和初始密码交给对方登录"
+				: "已创建。请把账号和刚设置的密码交给对方登录")
+			: "已保存。列表里可以查看这名用户的部门和状态");
 	}
 
 	@PostMapping("/remove")
 	@SaCheckPermission("sys:user:remove")
+	@RepeatSubmit
 	@OperationLog("删除用户")
 	public R<Void> remove(@RequestBody List<Long> ids) {
+		if (ids == null || ids.isEmpty()) {
+			throw new com.mugsun.core.tool.exception.ServiceException("请先选择要删除的用户");
+		}
+		if (ids.stream().anyMatch(id -> id == null)) {
+			throw new com.mugsun.core.tool.exception.ServiceException("有用户不存在。请刷新列表后再删除");
+		}
+		List<SysUser> users = userMapper.selectListByIds(ids);
+		if (users.size() != ids.size()) {
+			throw new com.mugsun.core.tool.exception.ServiceException("有用户不存在，或已经被删除。请刷新列表后再试");
+		}
 		for (Long id : ids) {
 			assertTargetOperable(id, false);
-			userMapper.deleteById(id);
-			// 删除即回收会话（逻辑删可挡新登录，但旧 token 默认 30 天有效，必须同步踢）
-			StpUtil.kickout(id);
 		}
-		return R.success("删除成功");
+		for (SysUser user : users) {
+			userMapper.deleteById(user.getId());
+			// 删除即回收会话（逻辑删可挡新登录，但旧 token 默认 30 天有效，必须同步踢）
+			StpUtil.kickout(user.getId());
+		}
+		return R.success("已删除 " + users.size() + " 个用户。他们不能再登录，列表里不会再出现");
 	}
 
 	/**
@@ -670,7 +750,7 @@ public class SysUserController {
 		assertTargetOperable(id, false);
 		SysUser user = userMapper.selectOneById(id);
 		if (user == null || user.getUsername() == null) {
-			throw new com.mugsun.core.tool.exception.ServiceException("用户不存在");
+			throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再锁定");
 		}
 		Integer minutes = intOf(body.get("minutes"));
 		loginLockService.manualLock(
@@ -698,11 +778,11 @@ public class SysUserController {
 			assertTargetOperable(id, true);
 			SysUser user = userMapper.selectOneById(id);
 			if (user == null) {
-				throw new com.mugsun.core.tool.exception.ServiceException("用户不存在");
+				throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再解锁");
 			}
 			lockKey = loginLockService.keyOf(user.getTenantId(), user.getUsername());
 		} else if (!lockKey.startsWith(com.mugsun.boot.tenant.TenantContext.current() + ":")) {
-			throw new com.mugsun.core.tool.exception.ServiceException("无权解锁其他租户的账号");
+			throw new com.mugsun.core.tool.exception.ServiceException("这是其他租户的账号，不能在这里解锁。请切到对应租户后再试");
 		}
 		loginLockService.clear(lockKey);
 		int colon = lockKey.indexOf(':');
@@ -737,17 +817,25 @@ public class SysUserController {
 	/** 启用 / 停用用户（停用即踢全部在线端） */
 	@PostMapping("/status")
 	@SaCheckPermission("sys:user:edit")
+	@RepeatSubmit
 	@OperationLog("变更用户状态")
 	public R<Void> status(@RequestBody StatusParam param) {
+		if (param == null || param.id() == null) {
+			throw new com.mugsun.core.tool.exception.ServiceException("请选择要改状态的用户");
+		}
+		if (param.status() == null || (param.status() != 0 && param.status() != 1)) {
+			throw new com.mugsun.core.tool.exception.ServiceException("状态只能选择启用或停用");
+		}
 		assertTargetOperable(param.id(), false);
 		SysUser user = new SysUser();
 		user.setId(param.id());
 		user.setStatus(param.status());
 		userMapper.update(user);
-		if (param.status() != null && param.status() == 0) {
+		if (param.status() == 0) {
 			StpUtil.kickout(param.id());
+			return R.success("已停用。这名用户会被踢下线，启用前不能登录");
 		}
-		return R.success("操作成功");
+		return R.success("已启用。这名用户可以重新登录");
 	}
 
 	/** 查询用户已授权角色 id 集合（授权回显） */
@@ -799,7 +887,7 @@ public class SysUserController {
 	/** 用户归属校验：Flex 租户条件天然挡跨租户直查，null 即越界或不存在 */
 	private void assertUserInScope(Long userId) {
 		if (userId == null || userMapper.selectOneById(userId) == null) {
-			throw new com.mugsun.core.tool.exception.ServiceException("用户不存在");
+			throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再试");
 		}
 	}
 
@@ -811,10 +899,10 @@ public class SysUserController {
 	private void assertTargetOperable(Long userId, boolean allowSelf) {
 		assertUserInScope(userId);
 		if (!allowSelf && StpUtil.getLoginIdAsLong() == userId) {
-			throw new com.mugsun.core.tool.exception.ServiceException("不能对当前登录账号执行该操作");
+			throw new com.mugsun.core.tool.exception.ServiceException("不能对当前登录账号执行这个操作。请换一个账号登录后再试，或改其他用户");
 		}
 		if (!com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin() && holdsAdminRole(userId)) {
-			throw new com.mugsun.core.tool.exception.ServiceException("无权操作内置管理员账号");
+			throw new com.mugsun.core.tool.exception.ServiceException("这是内置管理员账号，当前身份不能修改。请使用平台超管，或改其他用户");
 		}
 	}
 
