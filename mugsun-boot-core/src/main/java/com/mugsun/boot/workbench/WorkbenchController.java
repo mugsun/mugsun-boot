@@ -3,14 +3,20 @@ package com.mugsun.boot.workbench;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.RuntimeSql;
 import com.mugsun.boot.workbench.entity.SysWorkbenchShortcut;
 import com.mugsun.boot.workbench.mapper.SysWorkbenchShortcutMapper;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -32,15 +38,18 @@ public class WorkbenchController {
 
 	/** 通知管理权限码：持有者（超管通配）不受可见范围限制，与 SysNoticeController 同口径 */
 	private static final String NOTICE_MANAGE = "sys:notice:manage";
+	private static final Logger log = LoggerFactory.getLogger(WorkbenchController.class);
 
 	private final SysWorkbenchShortcutMapper shortcutMapper;
+	private final ObjectMapper objectMapper;
 
 	/** 金仓：裸 sys_* 易进 SYS_CATALOG；配置后限定业务 schema */
 	@Value("${mugsun.db.default-schema:}")
 	private String defaultDbSchema;
 
-	public WorkbenchController(SysWorkbenchShortcutMapper shortcutMapper) {
+	public WorkbenchController(SysWorkbenchShortcutMapper shortcutMapper, ObjectMapper objectMapper) {
 		this.shortcutMapper = shortcutMapper;
+		this.objectMapper = objectMapper;
 	}
 
 	private String bizTable(String table) {
@@ -88,12 +97,54 @@ public class WorkbenchController {
 		return R.data(cfg == null ? null : cfg.getConfigJson());
 	}
 
-	/** 保存快捷入口（原子 upsert，按 user_id 归并，对齐 G43/G44） */
+	/** 保存快捷入口（原子 upsert，按当前登录用户归并） */
+	@RepeatSubmit
 	@PostMapping("/shortcuts")
 	public R<Void> saveShortcuts(@RequestBody Map<String, String> body) {
-		Db.updateBySql(RuntimeSql.upsertWorkbenchShortcut(DbDialects.current()),
-			IdUtil.getSnowflakeNextId(), StpUtil.getLoginIdAsLong(), body.get("configJson"));
-		return R.success("保存成功");
+		if (body == null || body.get("configJson") == null || body.get("configJson").isBlank()) {
+			throw new ServiceException("请先选择要放在首页的入口。可以多选，也可以全部取消后再保存");
+		}
+		String json = body.get("configJson").trim();
+		if (json.length() > 20000) {
+			throw new ServiceException("选择的入口太多。请少留几个再保存");
+		}
+		JsonNode node;
+		try {
+			node = objectMapper.readTree(json);
+		} catch (Exception e) {
+			throw new ServiceException("快捷入口不是合法内容。请回到首页重新选择后再保存");
+		}
+		if (!node.isArray()) {
+			throw new ServiceException("快捷入口需要是一组页面。请回到首页重新选择后再保存");
+		}
+		if (node.size() > 16) {
+			throw new ServiceException("首页最多放 16 个入口。请少选几个再保存");
+		}
+		for (JsonNode item : node) {
+			if (!item.isObject()) {
+				throw new ServiceException("有入口格式不对。请回到首页重新选择后再保存");
+			}
+			String name = item.path("name").asText("").trim();
+			String path = item.path("path").asText("").trim();
+			if (name.isEmpty() || name.length() > 64) {
+				throw new ServiceException("入口名称请控制在 64 个字以内。请回到首页重新选择");
+			}
+			if (!path.startsWith("/") || path.length() > 128 || path.contains("..")
+				|| path.contains("://") || path.contains("<") || path.contains(" ")) {
+				throw new ServiceException("有入口不是本系统的页面。请回到首页重新选择");
+			}
+		}
+		try {
+			Db.updateBySql(RuntimeSql.upsertWorkbenchShortcut(DbDialects.current()),
+				IdUtil.getSnowflakeNextId(), StpUtil.getLoginIdAsLong(), json);
+		} catch (RuntimeException e) {
+			log.warn("保存工作台入口失败: {}", e.getClass().getSimpleName());
+			throw new ServiceException("这次没有保存成功。请重新选择入口后再试");
+		}
+		if (node.isEmpty()) {
+			return R.success("已清空。首页会显示还没配置，点编辑可以再选");
+		}
+		return R.success("已保存 " + node.size() + " 个入口。回到首页就能点开");
 	}
 
 	/** 逻辑未删计数（表名为常量字面量，非用户输入）；tenant 非空时按租户过滤 */
