@@ -61,13 +61,21 @@ public class TrackAppController {
 	/** 删除应用（逻辑删除；缓存即时失效后采集端拒收） */
 	@PostMapping("/app/remove")
 	@SaCheckPermission(TrackConstants.PERM_APP_EDIT)
-	public R<Void> appRemove(@RequestBody Map<String, Object> body) {
-		Long id = body.get("id") == null ? null : Long.valueOf(body.get("id").toString());
-		if (id == null) {
-			throw new ServiceException("缺少 id");
+	public R<Void> appRemove(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null || body.get("id") == null || String.valueOf(body.get("id")).isBlank()
+			|| "null".equals(String.valueOf(body.get("id")))) {
+			throw new ServiceException("请先在列表里选择要删除的应用");
 		}
-		adminService.appRemove(id);
-		return R.success("已删除");
+		String text = String.valueOf(body.get("id")).trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("应用编号请填写数字，可以从列表里复制");
+		}
+		TrackApp removed = adminService.appRemove(Long.valueOf(text));
+		String name = removed.getAppName();
+		if (name == null || name.isBlank()) {
+			name = removed.getAppKey();
+		}
+		return R.success("已删除「" + name + "」。采集将不再接收这个应用");
 	}
 
 	// ==================== 事件定义治理 ====================

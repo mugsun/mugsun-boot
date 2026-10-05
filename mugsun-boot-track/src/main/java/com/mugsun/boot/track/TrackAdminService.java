@@ -148,13 +148,14 @@ public class TrackAdminService {
 	}
 
 	/** 删除应用（逻辑删除；缓存即时失效后采集端拒收） */
-	public void appRemove(long id) {
+	public TrackApp appRemove(long id) {
 		TrackApp app = appMapper.selectOneByQuery(QueryWrapper.create().where("id = ?", id));
 		if (app == null) {
-			throw new ServiceException("应用不存在或无权限");
+			throw new ServiceException("这个应用不存在。请刷新列表后再试");
 		}
 		appMapper.deleteByQuery(QueryWrapper.create().where("id = ?", id));
 		appService.evict(app.getAppKey());
+		return app;
 	}
 
 	// ==================== 事件定义治理 ====================
