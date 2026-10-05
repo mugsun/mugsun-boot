@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gis.GisAnalyzeService;
 import com.mugsun.boot.gis.Gis3dTilesSpec;
 import com.mugsun.boot.gis.GisConstants;
@@ -60,6 +61,12 @@ public class GisLayerController {
 								  @RequestParam(defaultValue = "20") long pageSize,
 								  @RequestParam(required = false) String name) {
 		moduleService.requireEnabled();
+		if (pageNum < 1) {
+			throw new ServiceException("页码请从 1 开始");
+		}
+		if (pageSize < 1 || pageSize > 100) {
+			throw new ServiceException("每页条数请选择 1 到 100");
+		}
 		QueryWrapper q = QueryWrapper.create().orderBy("id", false);
 		if (name != null && !name.isBlank()) {
 			q.like("name", name.trim());
@@ -110,15 +117,34 @@ public class GisLayerController {
 
 	@PostMapping("/submit")
 	@SaCheckPermission(GisConstants.PERM_LAYER_SAVE)
+	@RepeatSubmit
 	public R<GisLayer> submit(@RequestBody Map<String, Object> body) {
 		moduleService.requireEnabled();
+		if (body == null) {
+			throw new ServiceException("请先填写图层名称和数据。用来在列表和地图上区分");
+		}
 		String name = stringOf(body.get("name"));
 		if (name == null || name.isBlank()) {
-			throw new ServiceException(GisConstants.MSG_LAYER_NAME);
+			throw new ServiceException("请填写图层名称。用来在列表和地图上区分");
+		}
+		name = name.trim();
+		if (name.length() > 128) {
+			throw new ServiceException("图层名称请控制在 128 个字以内");
+		}
+		String remark = stringOf(body.get("remark"));
+		remark = remark == null ? "" : remark.trim();
+		if (remark.length() > 255) {
+			throw new ServiceException("备注请控制在 255 个字以内");
+		}
+		if (body.get("status") instanceof Number statusNum) {
+			int status = statusNum.intValue();
+			if (status != 0 && status != 1) {
+				throw new ServiceException("状态请选择启用或停用");
+			}
 		}
 		Object payload = body.containsKey("payload") ? body.get("payload") : body.get("dataJson");
 		if (payload == null) {
-			throw new ServiceException(GisConstants.MSG_LAYER_EMPTY);
+			throw new ServiceException("请先贴上地理数据，或填写服务地址。没有数据就没法在地图上显示");
 		}
 		String kind = stringOf(body.get("kind"));
 		if (kind == null || kind.isBlank()) {
@@ -159,8 +185,19 @@ public class GisLayerController {
 			featureCount = countVal instanceof Number n ? n.intValue() : 0;
 			bbox = encodeBbox(normalized.get("bbox"));
 		}
-		GisLayer row;
+		if (json.length() > 200000) {
+			throw new ServiceException("图层内容过长。请减少要素后再保存");
+		}
 		Long id = GisAnalyzeService.parseId(body.get("id"));
+		QueryWrapper duplicated = QueryWrapper.create().eq("name", name);
+		if (id != null) {
+			duplicated.ne("id", id);
+		}
+		if (layerMapper.selectCountByQuery(duplicated) > 0) {
+			throw new ServiceException("已经有叫「" + name + "」的图层。请换一个名称，或打开原来那个");
+		}
+		boolean creating = id == null;
+		GisLayer row;
 		if (id != null) {
 			row = require(id);
 		} else {
@@ -168,14 +205,14 @@ public class GisLayerController {
 			row.sanitizeForInsert();
 			row.setTenantId(TenantContext.current());
 		}
-		row.setName(name.trim());
+		row.setName(name);
 		row.setKind(kind);
 		row.setCrs(crs);
 		row.setDataJson(json);
 		row.setStyleJson(stringOf(body.get("styleJson")));
 		row.setFeatureCount(featureCount);
 		row.setBbox(bbox);
-		row.setRemark(stringOf(body.get("remark")));
+		row.setRemark(remark.isEmpty() ? null : remark);
 		Integer status = body.get("status") instanceof Number s ? s.intValue() : GisConstants.STATUS_ENABLE;
 		row.setStatus(status == 0 ? GisConstants.STATUS_DISABLE : GisConstants.STATUS_ENABLE);
 		if (row.getId() == null) {
@@ -188,31 +225,41 @@ public class GisLayerController {
 		featureStore.sync(row.getId(), row.getTenantId(), row.getKind(), row.getDataJson());
 		R<GisLayer> res = R.data(row);
 		if (!warnings.isEmpty()) {
-			// 结构化回传给前端逐条展示；msg 兼顾脚本与第三方调用方
 			row.setWarnings(warnings);
-			res.setMsg("保存成功，但有 " + warnings.size() + " 处几何被修复："
-				+ String.join("；", warnings.subList(0, Math.min(5, warnings.size()))));
+			res.setMsg("已保存。有 " + warnings.size() + " 处几何被自动修好："
+				+ String.join("；", warnings.subList(0, Math.min(5, warnings.size())))
+				+ "。请在地图上核对这几处");
+		} else {
+			res.setMsg(creating ? "已新增。列表里可以打开，也能叠加到地图" : "已保存。地图会用这份图层");
 		}
 		return res;
 	}
 
 	@PostMapping("/remove")
 	@SaCheckPermission(GisConstants.PERM_LAYER_REMOVE)
+	@RepeatSubmit
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		moduleService.requireEnabled();
-		if (ids != null) {
-			ids.forEach(id -> {
-				layerMapper.deleteById(id);
-				featureStore.dropLayer(id);
-			});
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先选择要删除的图层");
 		}
-		return R.success("删除成功");
+		if (ids.stream().anyMatch(id -> id == null)) {
+			throw new ServiceException("有图层不存在。请刷新列表后再删除");
+		}
+		List<Long> distinct = ids.stream().distinct().toList();
+		long found = layerMapper.selectCountByQuery(QueryWrapper.create().in("id", distinct));
+		if (found != distinct.size()) {
+			throw new ServiceException("有图层不存在，或已经被删除。请刷新列表后再试");
+		}
+		layerMapper.deleteBatchByIds(distinct);
+		distinct.forEach(featureStore::dropLayer);
+		return R.success("已删除 " + distinct.size() + " 个图层。列表和地图里不会再出现");
 	}
 
 	private GisLayer require(Long id) {
 		GisLayer row = layerMapper.selectOneById(id);
 		if (row == null) {
-			throw new ServiceException(GisConstants.MSG_LAYER_MISSING);
+			throw new ServiceException("这个图层不存在。请刷新列表后再试");
 		}
 		return row;
 	}
