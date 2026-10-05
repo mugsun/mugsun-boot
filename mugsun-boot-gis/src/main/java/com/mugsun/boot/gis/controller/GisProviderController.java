@@ -2,6 +2,7 @@ package com.mugsun.boot.gis.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gis.GisConstants;
 import com.mugsun.boot.gis.GisModuleService;
 import com.mugsun.boot.gis.entity.GisMapProvider;
@@ -77,52 +78,104 @@ public class GisProviderController {
 	}
 
 	@SaCheckPermission(GisConstants.PERM_PROVIDER_SAVE)
+	@RepeatSubmit
 	@PostMapping("/provider/submit")
 	public R<Void> submit(@RequestBody GisMapProvider body) {
 		moduleService.requireEnabled();
-		if (body.getProvider() == null || !GisConstants.PROVIDERS.contains(body.getProvider())) {
-			throw new ServiceException(GisConstants.MSG_PROVIDER_UNKNOWN);
+		if (body == null || body.getProvider() == null || !GisConstants.PROVIDERS.contains(body.getProvider())) {
+			throw new ServiceException("底图请从天地图、高德、百度或谷歌里选一个");
 		}
-		if (body.getApiKey() != null && body.getApiKey().isBlank()) {
-			body.setApiKey(null);
+		String key = blankToNull(body.getApiKey());
+		String secret = blankToNull(body.getSecret());
+		if (key != null && key.length() > 128) {
+			throw new ServiceException("密钥请控制在 128 个字以内。请到申请页面复制完整密钥后再贴");
 		}
-		if (body.getSecret() != null && body.getSecret().isBlank()) {
-			body.setSecret(null);
+		if (secret != null && secret.length() > 128) {
+			throw new ServiceException("安全密钥请控制在 128 个字以内");
+		}
+		String remark = body.getRemark() == null ? "" : body.getRemark().trim();
+		if (remark.length() > 255) {
+			throw new ServiceException("备注请控制在 255 个字以内");
+		}
+		String extra = blankToNull(body.getExtraJson());
+		if (extra != null && extra.length() > 20000) {
+			throw new ServiceException("附加配置过长。请删掉用不到的项后再保存");
+		}
+		if (body.getEnabled() != null && body.getEnabled() != 0 && body.getEnabled() != 1) {
+			throw new ServiceException("启用状态请选择开或关");
 		}
 		GisMapProvider exist = providerMapper.selectOneByQuery(
 			QueryWrapper.create().eq("provider", body.getProvider()));
-		if (exist == null) {
+		boolean creating = exist == null;
+		if (creating && key == null) {
+			throw new ServiceException("请先填写密钥。填完后地图才能用这个底图");
+		}
+		String label = providerLabel(body.getProvider());
+		if (creating) {
 			body.setId(null);
+			body.setApiKey(key);
+			body.setSecret(secret);
+			body.setRemark(remark.isEmpty() ? null : remark);
+			body.setExtraJson(extra);
 			body.sanitizeForInsert();
 			body.setTenantId(TenantContext.current());
 			if (body.getEnabled() == null) {
 				body.setEnabled(GisConstants.STATUS_ENABLE);
 			}
 			providerMapper.insertSelective(body);
-		} else {
-			exist.setEnabled(body.getEnabled() == null ? exist.getEnabled() : body.getEnabled());
-			exist.setExtraJson(body.getExtraJson());
-			exist.setRemark(body.getRemark());
-			if (body.getApiKey() != null) {
-				exist.setApiKey(body.getApiKey());
-			}
-			if (body.getSecret() != null) {
-				exist.setSecret(body.getSecret());
-			}
-			exist.sanitizeForUpdate();
-			providerMapper.update(exist);
+			return R.success("已保存「" + label + "」。地图会用这份密钥");
 		}
-		return R.success("操作成功");
+		exist.setEnabled(body.getEnabled() == null ? exist.getEnabled() : body.getEnabled());
+		exist.setExtraJson(extra == null ? exist.getExtraJson() : extra);
+		exist.setRemark(remark.isEmpty() ? exist.getRemark() : remark);
+		if (key != null) {
+			exist.setApiKey(key);
+		}
+		if (secret != null) {
+			exist.setSecret(secret);
+		}
+		exist.sanitizeForUpdate();
+		providerMapper.update(exist);
+		return R.success("已保存「" + label + "」。地图会用这份配置");
 	}
 
 	@SaCheckPermission(GisConstants.PERM_PROVIDER_REMOVE)
+	@RepeatSubmit
 	@PostMapping("/provider/remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		moduleService.requireEnabled();
-		if (ids != null) {
-			ids.forEach(providerMapper::deleteById);
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先选择要清除的底图");
 		}
-		return R.success("删除成功");
+		if (ids.stream().anyMatch(id -> id == null)) {
+			throw new ServiceException("有底图不存在。请刷新页面后再清除");
+		}
+		List<Long> distinct = ids.stream().distinct().toList();
+		List<GisMapProvider> rows = providerMapper.selectListByQuery(QueryWrapper.create().in("id", distinct));
+		if (rows.size() != distinct.size()) {
+			throw new ServiceException("有底图不存在，或已经被清除。请刷新页面后再试");
+		}
+		providerMapper.deleteBatchByIds(distinct);
+		if (rows.size() == 1) {
+			return R.success("已清除「" + providerLabel(rows.get(0).getProvider()) + "」。地图会改用其他已配置的底图");
+		}
+		return R.success("已清除 " + rows.size() + " 个底图。地图会改用其他已配置的底图");
+	}
+
+	private static String blankToNull(String value) {
+		if (value == null || value.isBlank()) {
+			return null;
+		}
+		return value.trim();
+	}
+
+	private static String providerLabel(String code) {
+		return switch (code) {
+			case "tianditu" -> "天地图";
+			case "amap" -> "高德";
+			case "baidu" -> "百度";
+			default -> "谷歌";
+		};
 	}
 
 	private void maskSecrets(GisMapProvider row) {

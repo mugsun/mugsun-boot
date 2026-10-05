@@ -76,4 +76,17 @@ public class GisMapProvider extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	@Override
+	public String toString() {
+		return provider + "|" + enabled + "|" + remark + "|" + mark(apiKey) + "|" + mark(secret) + "|"
+			+ (getId() == null ? "" : getId());
+	}
+
+	private static String mark(String value) {
+		if (value == null || value.isBlank()) {
+			return "";
+		}
+		return value.length() + ":" + Integer.toHexString(value.hashCode());
+	}
 }
