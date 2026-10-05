@@ -785,7 +785,7 @@ public class FlowService {
 			"select 1 from flow_his_task where instance_id = ? and approver = ?"
 				+ DbDialects.current().limitOne(), instanceId, me).isEmpty();
 		if (!participant && !handledBefore) {
-			throw new ServiceException("无权查看该流程");
+			throw new ServiceException("无权查看该流程。请换有权限的账号打开，或回到自己的待办列表");
 		}
 	}
 
