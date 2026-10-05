@@ -149,7 +149,7 @@ public class TrackReplayService {
 		try {
 			events = PLAIN_MAPPER.readTree(raw);
 		} catch (IOException e) {
-			throw new TrackCollectException(400, "回放块内容非合法 JSON");
+			throw new TrackCollectException(400, "这段回放的内容不是合法的 JSON。请改成 JSON 后再上传");
 		}
 		if (events == null || !events.isArray()) {
 			throw new TrackCollectException(400, "回放块内容须为 rrweb 事件数组");
