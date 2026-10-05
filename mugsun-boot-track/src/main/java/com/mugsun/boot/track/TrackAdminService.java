@@ -306,7 +306,7 @@ public class TrackAdminService {
 			return TrackConstants.REPLAY_DEFAULT_RETENTION_DAYS;
 		}
 		if (retentionDays < 1 || retentionDays > 30) {
-			throw new ServiceException("回放保留天数须 1..30");
+			throw new ServiceException("回放保留天数须 1..30。回放文件比事件大得多，请改到这个范围里再保存");
 		}
 		return retentionDays;
 	}
