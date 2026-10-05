@@ -317,7 +317,7 @@ public class TrackReplayService {
 		} catch (TrackCollectException e) {
 			throw e;
 		} catch (IOException e) {
-			throw new TrackCollectException(400, "gzip 解压失败");
+			throw new TrackCollectException(400, "这段回放的压缩内容损坏。请按约定压缩后再上传");
 		}
 	}
 
