@@ -87,7 +87,7 @@ public class TrackApiBodyService {
 		boolean gzipped = root.path("gzip").asBoolean(true);
 		String payload = text(root, "payload");
 		if (payload == null) {
-			throw new TrackCollectException(400, "payload 缺失");
+			throw new TrackCollectException(400, "这段响应体没有内容。请带上响应内容后再上传");
 		}
 		if (payload.length() > TrackConstants.API_BODY_PAYLOAD_B64_MAX_LEN) {
 			throw new TrackCollectException(413, "响应体过大");
@@ -115,7 +115,7 @@ public class TrackApiBodyService {
 		try {
 			decoded = Base64.getDecoder().decode(payload);
 		} catch (IllegalArgumentException e) {
-			throw new TrackCollectException(400, "payload base64 非法");
+			throw new TrackCollectException(400, "这段响应体的内容编码不对。请按约定编码后再上传");
 		}
 		byte[] storeBytes;
 		if (gzipped) {

@@ -127,7 +127,7 @@ public class TrackReplayService {
 		try {
 			decoded = Base64.getDecoder().decode(payload);
 		} catch (IllegalArgumentException e) {
-			throw new TrackCollectException(400, "payload base64 非法");
+			throw new TrackCollectException(400, "这段回放的内容编码不对。请按约定编码后再上传");
 		}
 		byte[] raw;
 		byte[] storeBytes;
