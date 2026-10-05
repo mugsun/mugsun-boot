@@ -318,7 +318,8 @@ public class TrackAdminService {
 			return TrackConstants.DEFAULT_ALERT_THRESHOLD;
 		}
 		if (threshold < 1 || threshold > TrackConstants.ALERT_THRESHOLD_MAX) {
-			throw new ServiceException("告警阈值须 1.." + TrackConstants.ALERT_THRESHOLD_MAX);
+			throw new ServiceException("告警阈值须 1.." + TrackConstants.ALERT_THRESHOLD_MAX
+				+ "。这是 10 分钟内同一类错误的次数，请改到这个范围里再保存");
 		}
 		return threshold;
 	}
