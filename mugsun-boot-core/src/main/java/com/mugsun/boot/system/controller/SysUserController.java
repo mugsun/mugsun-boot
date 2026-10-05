@@ -609,7 +609,7 @@ public class SysUserController {
 		String phone = trimToNull(row.getPhone());
 		// 手机号格式校验（与 submit 同规：短信登录按号取人，脏号即冒注面）
 		if (phone != null && !phone.matches("^1\\d{10}$")) {
-			throw new com.mugsun.core.tool.exception.ServiceException("手机号格式不正确");
+			throw new com.mugsun.core.tool.exception.ServiceException("手机号格式不正确。请改成 11 位、以 1 开头的手机号后再导入");
 		}
 		Integer status = row.getStatus();
 		if (status != null && status != 0 && status != 1) {
