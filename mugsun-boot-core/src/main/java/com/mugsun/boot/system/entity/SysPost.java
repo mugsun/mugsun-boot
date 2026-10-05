@@ -11,6 +11,7 @@ public class SysPost extends BaseEntity {
 
 	private String postCode;
 	private String postName;
+	private String category;
 	private Integer sort;
 	private String tenantId;
 
@@ -28,6 +29,14 @@ public class SysPost extends BaseEntity {
 
 	public void setPostName(String postName) {
 		this.postName = postName;
+	}
+
+	public String getCategory() {
+		return category;
+	}
+
+	public void setCategory(String category) {
+		this.category = category;
 	}
 
 	public Integer getSort() {

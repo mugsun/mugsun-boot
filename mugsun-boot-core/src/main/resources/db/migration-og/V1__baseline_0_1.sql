@@ -2944,3 +2944,6 @@ COMMENT ON COLUMN sys_data_audit.action IS 'create 新增 / update 修改 / dele
 COMMENT ON COLUMN sys_data_audit.http_method IS '触发这次变更的请求方法';
 COMMENT ON COLUMN sys_data_audit.request_path IS '触发这次变更的请求路径';
 COMMENT ON COLUMN sys_data_audit.client_ip IS '触发这次变更的来源地址';
+
+ALTER TABLE sys_post ADD COLUMN category VARCHAR(16);
+COMMENT ON COLUMN sys_post.category IS 'manage 管理 / tech 技术 / biz 业务';
