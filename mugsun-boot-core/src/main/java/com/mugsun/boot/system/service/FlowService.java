@@ -354,7 +354,7 @@ public class FlowService {
 	public List<Map<String, Object>> progress(Long instanceId) {
 		Instance ins = FlowEngine.insService().getById(instanceId);
 		if (ins == null) {
-			throw new ServiceException("流程实例不存在");
+			throw new ServiceException("流程实例不存在。请刷新列表，核对单号后再看");
 		}
 		assertInstanceAccess(instanceId);
 		Long defId = ins.getDefinitionId();
@@ -628,7 +628,7 @@ public class FlowService {
 	public String revoke(Long instanceId, String message) {
 		Instance ins = FlowEngine.insService().getById(instanceId);
 		if (ins == null) {
-			throw new ServiceException("流程实例不存在");
+			throw new ServiceException("流程实例不存在。请刷新列表，核对单号后再看");
 		}
 		assertInstanceTenant(ins);
 		Instance r = FlowEngine.taskService().revoke(instanceId,
@@ -753,11 +753,11 @@ public class FlowService {
 	 */
 	private void assertInstanceAccess(Long instanceId) {
 		if (instanceId == null) {
-			throw new ServiceException("流程实例不存在");
+			throw new ServiceException("流程实例不存在。请刷新列表，核对单号后再看");
 		}
 		Instance ins = FlowEngine.insService().getById(instanceId);
 		if (ins == null) {
-			throw new ServiceException("流程实例不存在");
+			throw new ServiceException("流程实例不存在。请刷新列表，核对单号后再看");
 		}
 		// 租户隔离：实例归属发起人所属租户，跨租户一律按不存在（角色码跨租户同名不可作为穿透凭据）
 		assertInstanceTenant(ins);
@@ -801,7 +801,7 @@ public class FlowService {
 				+ DbDialects.current().limitOne(),
 			ins.getCreateBy(), tenant).isEmpty();
 		if (!inTenant) {
-			throw new ServiceException("流程实例不存在");
+			throw new ServiceException("流程实例不存在。请刷新列表，核对单号后再看");
 		}
 	}
 
@@ -810,7 +810,7 @@ public class FlowService {
 		Task task = requireTask(taskId);
 		Instance ins = FlowEngine.insService().getById(task.getInstanceId());
 		if (ins == null) {
-			throw new ServiceException("流程实例不存在");
+			throw new ServiceException("流程实例不存在。请刷新列表，核对单号后再看");
 		}
 		assertInstanceTenant(ins);
 		return task;
