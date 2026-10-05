@@ -127,6 +127,6 @@ class PermissionGuardApiTest extends AbstractIntegrationTest {
 		ResponseEntity<String> response = post("/system/job/save", body, adminToken);
 		JsonNode r = readBody(response);
 		assertThat(r.path("code").asInt()).isEqualTo(400);
-		assertThat(r.path("msg").asText()).contains("处理器未注册");
+		assertThat(r.path("msg").asText()).contains("这个处理器没有注册");
 	}
 }

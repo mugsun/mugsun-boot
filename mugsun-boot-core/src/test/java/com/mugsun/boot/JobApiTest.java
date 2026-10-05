@@ -64,6 +64,6 @@ class JobApiTest extends AbstractIntegrationTest {
 		body.put("timeExpressionType", "API");
 		JsonNode r = readBody(post("/system/job/save", body, adminToken));
 		assertThat(r.path("code").asInt()).as("未注册处理器应业务失败").isNotEqualTo(200);
-		assertThat(r.path("msg").asText()).contains("处理器未注册");
+		assertThat(r.path("msg").asText()).contains("这个处理器没有注册");
 	}
 }
