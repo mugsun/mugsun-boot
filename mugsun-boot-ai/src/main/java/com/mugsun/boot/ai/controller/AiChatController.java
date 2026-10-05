@@ -41,14 +41,21 @@ public class AiChatController {
 
 	@PostMapping("/receive")
 	@SaCheckPermission(AiConstants.PERM_ASSISTANT_CHAT)
-	public R<Map<String, Object>> receive(@RequestBody Map<String, Object> body) {
-		String requestId = body.get("requestId") == null ? "" : body.get("requestId").toString();
-		return R.data(chatService.receiveAck(requestId));
+	public R<Map<String, Object>> receive(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null || body.get("requestId") == null || String.valueOf(body.get("requestId")).isBlank()) {
+			throw new ServiceException("请先发送问题。生成开始后才能确认收到");
+		}
+		Map<String, Object> data = chatService.receiveAck(String.valueOf(body.get("requestId")));
+		R<Map<String, Object>> resp = R.data(data);
+		resp.setMsg(Boolean.TRUE.equals(data.get("streaming"))
+			? "已确认收到。这条回答还在生成"
+			: "已确认收到。可以在会话里看到结果");
+		return resp;
 	}
 
 	@GetMapping(value = "/replay", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
 	@SaCheckPermission(AiConstants.PERM_ASSISTANT_CHAT)
-	public SseEmitter replay(@RequestParam String requestId) {
+	public SseEmitter replay(@RequestParam(required = false) String requestId) {
 		return chatService.replay(requestId);
 	}
 

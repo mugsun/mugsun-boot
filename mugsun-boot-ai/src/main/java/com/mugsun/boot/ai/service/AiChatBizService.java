@@ -395,13 +395,18 @@ public class AiChatBizService {
 	 */
 	public Map<String, Object> receiveAck(String requestId) {
 		moduleService.requireEnabled();
-		if (requestId == null || requestId.isBlank()) {
-			throw new ServiceException("requestId 不能为空");
+		String rid = requireRequestId(requestId, "请先发送问题。生成开始后才能确认收到",
+			"请求编号不对。请重新发送后再确认");
+		boolean streaming = stopFlags.containsKey(rid);
+		AiMessage msg = findAssistantByRequest(rid);
+		if (msg == null && !streaming) {
+			throw new ServiceException("没有这条生成记录。请重新发送后再确认");
 		}
-		boolean streaming = stopFlags.containsKey(requestId);
-		AiMessage msg = findAssistantByRequest(requestId);
+		if (msg != null) {
+			requireSession(msg.getSessionId());
+		}
 		Map<String, Object> out = new java.util.HashMap<>();
-		out.put("requestId", requestId);
+		out.put("requestId", rid);
 		out.put("acked", true);
 		out.put("streaming", streaming);
 		if (msg != null) {
@@ -410,7 +415,7 @@ public class AiChatBizService {
 			out.put("sessionId", msg.getSessionId());
 			out.put("contentLength", msg.getContent() == null ? 0 : msg.getContent().length());
 		} else {
-			out.put("status", streaming ? AiConstants.MSG_STATUS_STREAMING : "unknown");
+			out.put("status", AiConstants.MSG_STATUS_STREAMING);
 		}
 		return out;
 	}
@@ -420,38 +425,68 @@ public class AiChatBizService {
 	 * 仍在流式中时返回当前缓冲不可用提示。
 	 */
 	public SseEmitter replay(String requestId) {
-		moduleService.requireEnabled();
+		try {
+			moduleService.requireEnabled();
+		} catch (ServiceException e) {
+			return errorEmitter(e.getMessage());
+		}
 		if (requestId == null || requestId.isBlank()) {
-			throw new ServiceException("requestId 不能为空");
+			return errorEmitter("请先发送问题。生成开始后才能续传");
 		}
-		SseEmitter emitter = new SseEmitter(60_000L);
-		if (stopFlags.containsKey(requestId)) {
-			send(emitter, AiConstants.SSE_ERROR, Map.of("message", "流式尚未结束，请稍后 replay"));
-			emitter.complete();
-			return emitter;
+		String rid = requestId.trim();
+		if (!rid.matches("[A-Za-z0-9_-]{8,64}")) {
+			return errorEmitter("请求编号不对。请重新发送后再续传");
 		}
-		AiMessage msg = findAssistantByRequest(requestId);
+		if (stopFlags.containsKey(rid)) {
+			return errorEmitter("这条回答还在生成。请等它结束，或点停止后再续传");
+		}
+		AiMessage msg = findAssistantByRequest(rid);
 		if (msg == null) {
-			send(emitter, AiConstants.SSE_ERROR, Map.of("message", "找不到可续传消息"));
-			emitter.complete();
-			return emitter;
+			return errorEmitter("没有可续传的回答。请重新发送");
 		}
-		requireSession(msg.getSessionId());
+		try {
+			requireSession(msg.getSessionId());
+		} catch (ServiceException e) {
+			return errorEmitter(e.getMessage());
+		}
 		String content = msg.getContent() == null ? "" : msg.getContent();
 		String think = msg.getThinkContent() == null ? "" : msg.getThinkContent();
+		SseEmitter emitter = new SseEmitter(60_000L);
 		if (!think.isEmpty()) {
-			send(emitter, AiConstants.SSE_THINK, Map.of("content", think, "requestId", requestId, "replay", true));
+			send(emitter, AiConstants.SSE_THINK, Map.of("content", think, "requestId", rid, "replay", true));
 		}
 		if (!content.isEmpty()) {
-			send(emitter, AiConstants.SSE_CHUNK, Map.of("content", content, "requestId", requestId, "replay", true));
+			send(emitter, AiConstants.SSE_CHUNK, Map.of("content", content, "requestId", rid, "replay", true));
 		}
+		String done = content.isEmpty() && think.isEmpty()
+			? "这段回答还没有内容。请重新发送"
+			: "已取回这段回答。内容已经补在这条消息上";
 		send(emitter, AiConstants.SSE_DONE, Map.of(
-			"requestId", requestId,
+			"requestId", rid,
 			"messageId", msg.getId(),
 			"replay", true,
+			"message", done,
 			"status", msg.getStatus() == null ? "" : msg.getStatus()));
 		emitter.complete();
 		return emitter;
+	}
+
+	private SseEmitter errorEmitter(String message) {
+		SseEmitter emitter = new SseEmitter(60_000L);
+		send(emitter, AiConstants.SSE_ERROR, Map.of("message", message));
+		emitter.complete();
+		return emitter;
+	}
+
+	private static String requireRequestId(String requestId, String empty, String bad) {
+		if (requestId == null || requestId.isBlank()) {
+			throw new ServiceException(empty);
+		}
+		String rid = requestId.trim();
+		if (!rid.matches("[A-Za-z0-9_-]{8,64}")) {
+			throw new ServiceException(bad);
+		}
+		return rid;
 	}
 
 	private AiMessage findAssistantByRequest(String requestId) {
