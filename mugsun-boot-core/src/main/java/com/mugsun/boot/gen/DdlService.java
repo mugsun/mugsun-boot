@@ -263,7 +263,7 @@ public class DdlService {
 
 	private String validName(String name) {
 		if (!GenNaming.isIdentifier(name)) {
-			throw new ServiceException("非法标识符：" + name);
+			throw new ServiceException("名称请使用小写字母开头，只能包含小写字母、数字或下划线");
 		}
 		return name;
 	}
@@ -272,11 +272,11 @@ public class DdlService {
 	public static void guardNotProtected(String tn) {
 		String low = tn.toLowerCase();
 		if (PROTECTED_EXACT.contains(low)) {
-			throw new ServiceException("受保护的系统表不可建/重建：" + tn);
+			throw new ServiceException("受保护的系统表不可建或重建。请换一个业务表名，不要使用系统表前缀");
 		}
 		for (String p : PROTECTED) {
 			if (low.startsWith(p)) {
-				throw new ServiceException("受保护的系统表不可建/重建：" + tn);
+				throw new ServiceException("受保护的系统表不可建或重建。请换一个业务表名，不要使用系统表前缀");
 			}
 		}
 	}

@@ -77,7 +77,7 @@ class DdlApiTest extends AbstractIntegrationTest {
 			JsonNode r = readBody(post("/system/gen/ai/confirm",
 				confirmBody(TABLE_BAD_COL, List.of(column(evilColumn, "String"))), adminToken));
 			assertThat(r.path("code").asInt()).as("恶意列名应 400：" + evilColumn).isEqualTo(400);
-			assertThat(r.path("msg").asText()).contains("非法列名");
+			assertThat(r.path("msg").asText()).contains("字段名请使用");
 		}
 		assertThat(listedTableNames()).as("三次失败均不得落孤儿元数据").doesNotContain(TABLE_BAD_COL);
 	}
@@ -88,7 +88,7 @@ class DdlApiTest extends AbstractIntegrationTest {
 		JsonNode r = readBody(post("/system/gen/ai/confirm",
 			confirmBody("Gen_Inject_" + TS, List.of(column("x", "String"))), adminToken));
 		assertThat(r.path("code").asInt()).isEqualTo(400);
-		assertThat(r.path("msg").asText()).contains("非法");
+		assertThat(r.path("msg").asText()).contains("名称请使用");
 	}
 
 	// ---------- 前置构造辅助 ----------

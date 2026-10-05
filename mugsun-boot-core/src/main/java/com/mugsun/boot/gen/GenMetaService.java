@@ -5,6 +5,7 @@ import com.mugsun.boot.gen.entity.GenScheme;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.boot.gen.mapper.GenColumnMapper;
 import com.mugsun.boot.gen.mapper.GenTableMapper;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.codegen.Generator;
 import com.mybatisflex.codegen.config.GlobalConfig;
 import com.mybatisflex.codegen.entity.Column;
@@ -260,24 +261,24 @@ public class GenMetaService {
 	/** 表级元数据白名单校验：表名标识符+非保护表、包名/模块名/业务名/作者/实体名格式（产物路径与代码注入防线） */
 	private void validateTableMeta(GenTable table) {
 		if (!GenNaming.isIdentifier(table.getTableName())) {
-			throw new com.mugsun.core.tool.exception.ServiceException("非法表名：" + table.getTableName());
+			throw new ServiceException("表名请使用小写字母开头，只能包含小写字母、数字或下划线");
 		}
 		com.mugsun.boot.gen.DdlService.guardNotProtected(table.getTableName());
 		if (table.getBasePackage() != null && !table.getBasePackage().isBlank()
 			&& !table.getBasePackage().matches("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*){1,6}$")) {
-			throw new com.mugsun.core.tool.exception.ServiceException("非法基础包名：" + table.getBasePackage());
+			throw new ServiceException("基础包请使用小写字母和点，例如 com.example.demo");
 		}
 		if (table.getModuleName() != null && !table.getModuleName().isBlank()
 			&& !table.getModuleName().matches("^[a-z][a-z0-9-]{0,30}$")) {
-			throw new com.mugsun.core.tool.exception.ServiceException("非法模块名：" + table.getModuleName());
+			throw new ServiceException("模块名请使用小写字母开头，只能包含小写字母、数字或连字符");
 		}
 		if (table.getBusinessName() != null && !table.getBusinessName().isBlank()
 			&& !table.getBusinessName().matches("^[a-z][a-z0-9]{0,30}$")) {
-			throw new com.mugsun.core.tool.exception.ServiceException("非法业务名：" + table.getBusinessName());
+			throw new ServiceException("业务名请使用小写字母开头，只能包含小写字母或数字");
 		}
 		if (table.getEntityName() != null && !table.getEntityName().isBlank()
 			&& !table.getEntityName().matches("^[A-Z][A-Za-z0-9]{0,60}$")) {
-			throw new com.mugsun.core.tool.exception.ServiceException("非法实体名：" + table.getEntityName());
+			throw new ServiceException("实体名请使用大写字母开头，例如 ItemName");
 		}
 	}
 
@@ -285,15 +286,33 @@ public class GenMetaService {
 	@Transactional(rollbackFor = Exception.class)
 	public Long createDraft(GenTable table, List<GenColumn> columns) {
 		if (table == null || table.getTableName() == null || table.getTableName().isBlank()) {
-			throw new com.mugsun.core.tool.exception.ServiceException("表名不能为空");
+			throw new ServiceException("请填写表名。使用小写字母开头，只能包含小写字母、数字或下划线");
 		}
 		if (!GenNaming.isIdentifier(table.getTableName())) {
-			throw new com.mugsun.core.tool.exception.ServiceException("非法表名：" + table.getTableName());
+			throw new ServiceException("表名请使用小写字母开头，只能包含小写字母、数字或下划线");
+		}
+		if (columns == null || columns.stream().noneMatch(c -> c.getColumnName() != null && !c.getColumnName().isBlank())) {
+			throw new ServiceException("请至少添加一个字段。字段名使用小写字母开头，例如 item_name");
 		}
 		validateColumnNames(columns);
 		GenTable dup = tableMapper.selectOneByQuery(QueryWrapper.create().eq("table_name", table.getTableName()));
 		if (dup != null) {
-			throw new com.mugsun.core.tool.exception.ServiceException("表配置已存在：" + table.getTableName());
+			throw new ServiceException("这张表已经有配置。请换一个表名，或到动态表管理里编辑原来的字段");
+		}
+		GenScheme scheme = schemeService.enabledOrNull();
+		if (scheme != null) {
+			if (table.getModuleName() == null || table.getModuleName().isBlank()) {
+				table.setModuleName(scheme.getModuleName());
+			}
+			if (table.getBasePackage() == null || table.getBasePackage().isBlank()) {
+				table.setBasePackage(scheme.getBasePackage());
+			}
+			if (table.getFunctionAuthor() == null || table.getFunctionAuthor().isBlank()) {
+				table.setFunctionAuthor(scheme.getAuthor());
+			}
+			if ((table.getTablePrefix() == null || table.getTablePrefix().isBlank()) && scheme.getTablePrefix() != null) {
+				table.setTablePrefix(scheme.getTablePrefix());
+			}
 		}
 		if (table.getModuleName() == null || table.getModuleName().isBlank()) {
 			table.setModuleName("system");
@@ -337,19 +356,19 @@ public class GenMetaService {
 		}
 		for (GenColumn c : columns) {
 			if (!GenNaming.isIdentifier(c.getColumnName())) {
-				throw new com.mugsun.core.tool.exception.ServiceException("非法列名：" + c.getColumnName());
+				throw new ServiceException("字段名请使用小写字母开头，只能包含小写字母、数字或下划线");
 			}
 			if (c.getColumnNameOld() != null && !c.getColumnNameOld().isBlank()
 				&& !GenNaming.isIdentifier(c.getColumnNameOld())) {
-				throw new com.mugsun.core.tool.exception.ServiceException("非法旧列名：" + c.getColumnNameOld());
+				throw new ServiceException("原字段名请使用小写字母开头，只能包含小写字母、数字或下划线");
 			}
 			if (c.getJavaField() != null && !c.getJavaField().isBlank()
 				&& !c.getJavaField().matches("^[a-z][A-Za-z0-9]{0,60}$")) {
-				throw new com.mugsun.core.tool.exception.ServiceException("非法 Java 字段名：" + c.getJavaField());
+				throw new ServiceException("Java 字段名请使用小写字母开头的驼峰，例如 itemName");
 			}
 			if (c.getDictType() != null && !c.getDictType().isBlank()
 				&& !c.getDictType().matches("^[a-z][a-z0-9_]{0,60}$")) {
-				throw new com.mugsun.core.tool.exception.ServiceException("非法字典码：" + c.getDictType());
+				throw new ServiceException("字典编码请使用小写字母开头，只能包含小写字母、数字或下划线");
 			}
 		}
 	}

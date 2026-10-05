@@ -2,6 +2,7 @@ package com.mugsun.boot.gen;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gen.entity.GenColumn;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.core.tool.api.R;
@@ -63,6 +64,7 @@ public class GenModelingController {
 	/** 人工确认：持久化元数据；build=true 时建物理表（确认闸门，绝不自动落库；整体事务化，建表失败连带回滚元数据） */
 	@org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
 	@SaCheckPermission("sys:gen:ddl")
+	@RepeatSubmit(message = "请勿重复保存。请到动态表管理里确认这张表是否已经记下")
 	@PostMapping("/ai/confirm")
 	public R<Long> aiConfirm(@RequestBody ConfirmParam param) {
 		if (param.table() != null) {
