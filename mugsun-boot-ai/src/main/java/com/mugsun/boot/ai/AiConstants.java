@@ -8,7 +8,7 @@ public final class AiConstants {
 	public static final String PARAM_MODULE_ENABLED = "ai.module.enabled";
 
 	public static final String MSG_DISABLED = "AI 模块未启用";
-	public static final String MSG_MODEL_MISSING = "模型不存在";
+	public static final String MSG_MODEL_MISSING = "这个模型不存在。请刷新列表后再试";
 	public static final String MSG_MODEL_INACTIVE = "模型未通过探测激活，不可用";
 	public static final String MSG_BUILTIN_LOCKED = "内置配置不可删除";
 	public static final String MSG_VECTOR_MISSING = "向量库不存在";

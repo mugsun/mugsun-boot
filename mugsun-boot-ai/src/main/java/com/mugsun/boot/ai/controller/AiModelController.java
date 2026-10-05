@@ -7,15 +7,15 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiModel;
 import com.mugsun.boot.ai.service.AiModelBizService;
+import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/system/ai/model")
@@ -49,17 +49,21 @@ public class AiModelController {
 		return R.data(modelService.detail(id));
 	}
 
+	@RepeatSubmit
 	@PostMapping("/submit")
 	@SaCheckPermission(value = {AiConstants.PERM_MODEL_SAVE, AiConstants.PERM_MODEL_LIST}, mode = SaMode.OR)
-	public R<AiModel> submit(@RequestBody AiModel body) {
-		if (body.getId() == null) {
-			StpUtil.checkPermission(AiConstants.PERM_MODEL_SAVE);
-		} else {
-			StpUtil.checkPermission(AiConstants.PERM_MODEL_SAVE);
-		}
-		return R.data(modelService.submit(body));
+	public R<AiModel> submit(@RequestBody(required = false) AiModel body) {
+		StpUtil.checkPermission(AiConstants.PERM_MODEL_SAVE);
+		boolean create = body == null || body.getId() == null;
+		AiModel saved = modelService.submit(body);
+		R<AiModel> result = R.data(saved);
+		result.setMsg(create
+			? "已添加。可以点测试，通过后就能设为默认"
+			: "已保存。列表会显示最新内容");
+		return result;
 	}
 
+	@RepeatSubmit
 	@PostMapping("/remove")
 	@SaCheckPermission(AiConstants.PERM_MODEL_REMOVE)
 	public R<Void> remove(@RequestParam(required = false) String ids,
@@ -69,37 +73,65 @@ public class AiModelController {
 			Object v = body.get("ids") != null ? body.get("ids") : body.get("id");
 			raw = v == null ? null : String.valueOf(v);
 		}
-		if (raw == null || raw.isBlank()) {
-			throw new ServiceException("缺少模型 id");
+		if (raw == null || raw.isBlank() || "null".equals(raw)) {
+			throw new ServiceException("请先选择要删除的模型");
 		}
-		List<Long> idList = Arrays.stream(raw.split(",")).filter(s -> !s.isBlank())
-			.map(Long::valueOf).collect(Collectors.toList());
-		modelService.remove(idList);
-		return R.success("删除成功");
+		List<Long> idList = new ArrayList<>();
+		for (String part : raw.split(",")) {
+			if (part == null || part.isBlank()) {
+				continue;
+			}
+			idList.add(parseId(part));
+		}
+		List<AiModel> removed = modelService.remove(idList);
+		if (removed.size() == 1) {
+			return R.success("已删除「" + removed.get(0).getModelName() + "」。列表里不会再出现");
+		}
+		return R.success("已删除 " + removed.size() + " 个模型。列表里不会再出现");
 	}
 
+	@RepeatSubmit
 	@PostMapping("/default")
 	@SaCheckPermission(AiConstants.PERM_MODEL_DEFAULT)
-	public R<Void> setDefault(@RequestParam(required = false) Long id,
+	public R<Void> setDefault(@RequestParam(required = false) String id,
 							  @RequestBody(required = false) Map<String, Object> body) {
-		modelService.setDefault(requireId(id, body));
-		return R.success("已设为默认");
+		Object raw = id;
+		if (raw == null && body != null) {
+			raw = body.get("id");
+		}
+		if (raw == null || String.valueOf(raw).isBlank()) {
+			throw new ServiceException("请先在列表里选择要设为默认的模型");
+		}
+		modelService.setDefault(parseId(raw));
+		return R.success("已设为默认。同类型的其他模型不再是默认");
 	}
 
 	@PostMapping("/test")
 	@SaCheckPermission(AiConstants.PERM_MODEL_TEST)
-	public R<Map<String, Object>> test(@RequestParam(required = false) Long id,
+	public R<Map<String, Object>> test(@RequestParam(required = false) String id,
 										@RequestBody(required = false) Map<String, Object> body) {
-		return R.data(modelService.test(requireId(id, body)));
+		Object raw = id;
+		if (raw == null && body != null) {
+			raw = body.get("id");
+		}
+		if (raw == null || String.valueOf(raw).isBlank()) {
+			throw new ServiceException("请先在列表里选择要测试的模型");
+		}
+		Map<String, Object> data = modelService.test(parseId(raw));
+		R<Map<String, Object>> result = R.data(data);
+		result.setMsg(String.valueOf(data.get("message")));
+		if (!Boolean.TRUE.equals(data.get("ok"))) {
+			result.setSuccess(false);
+			result.setCode(400);
+		}
+		return result;
 	}
 
-	private static Long requireId(Long id, Map<String, Object> body) {
-		if (id != null) {
-			return id;
+	private static Long parseId(Object raw) {
+		String text = String.valueOf(raw).trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("模型编号请填写数字，可以从列表里复制");
 		}
-		if (body != null && body.get("id") != null) {
-			return Long.valueOf(String.valueOf(body.get("id")));
-		}
-		throw new ServiceException("缺少模型 id");
+		return Long.valueOf(text);
 	}
 }

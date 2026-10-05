@@ -173,4 +173,15 @@ public class AiModel extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	/** 供重复提交按名称和地址归并，不包含密钥。 */
+	@Override
+	public String toString() {
+		return (modelName == null ? "" : modelName) + "|"
+			+ (modelType == null ? "" : modelType) + "|"
+			+ (provider == null ? "" : provider) + "|"
+			+ (baseUrl == null ? "" : baseUrl) + "|"
+			+ (modelCode == null ? "" : modelCode) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }

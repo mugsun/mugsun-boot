@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class AiModelBizService {
@@ -28,11 +29,27 @@ public class AiModelBizService {
 		this.llmClient = llmClient;
 	}
 
+	private static final Set<String> TYPES = Set.of("chat", "embedding", "image", "audio");
+	private static final Set<String> PROVIDERS = Set.of(
+		"openai", "deepseek", "anthropic", "siliconflow", "volcengine", "ollama", "qianfan", "zhipu", "qwen", "custom");
+	private static final String TYPE_HINT = "类型请选择对话、向量、图像或音频";
+	private static final String PROVIDER_HINT = "提供商请从列表里选一个";
+
 	public Page<AiModel> page(long pageNum, long pageSize, String modelType, String name) {
 		moduleService.requireEnabled();
+		if (pageNum < 1) {
+			throw new ServiceException("页码请从 1 开始");
+		}
+		if (pageSize < 1 || pageSize > 100) {
+			throw new ServiceException("每页条数请在 1 到 100 之间");
+		}
 		QueryWrapper q = QueryWrapper.create().orderBy("id", false);
 		if (modelType != null && !modelType.isBlank()) {
-			q.eq("model_type", modelType.trim());
+			String type = modelType.trim();
+			if (!TYPES.contains(type)) {
+				throw new ServiceException(TYPE_HINT);
+			}
+			q.eq("model_type", type);
 		}
 		if (name != null && !name.isBlank()) {
 			q.like("model_name", name.trim());
@@ -65,12 +82,53 @@ public class AiModelBizService {
 
 	public AiModel submit(AiModel body) {
 		moduleService.requireEnabled();
-		if (body.getModelName() == null || body.getModelName().isBlank()) {
-			throw new ServiceException("请填写模型名称");
+		if (body == null) {
+			throw new ServiceException("请填写模型名称。用来在列表里区分");
 		}
-		if (body.getModelType() == null || body.getModelType().isBlank()) {
-			throw new ServiceException("请选择模型类型");
+		String name = body.getModelName() == null ? "" : body.getModelName().trim();
+		if (name.isEmpty()) {
+			throw new ServiceException("请填写模型名称。用来在列表里区分");
 		}
+		if (name.length() > 64) {
+			throw new ServiceException("模型名称请控制在 64 个字以内");
+		}
+		String type = body.getModelType() == null ? "" : body.getModelType().trim();
+		if (!TYPES.contains(type)) {
+			throw new ServiceException(TYPE_HINT);
+		}
+		String provider = body.getProvider() == null ? "" : body.getProvider().trim();
+		if (!PROVIDERS.contains(provider)) {
+			throw new ServiceException(PROVIDER_HINT);
+		}
+		String baseUrl = body.getBaseUrl() == null ? "" : body.getBaseUrl().trim();
+		if (baseUrl.isEmpty()) {
+			throw new ServiceException("请填写接口地址。需要以 http:// 或 https:// 开头");
+		}
+		if (baseUrl.length() > 255 || !(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))
+			|| baseUrl.contains(" ") || baseUrl.contains("<")) {
+			throw new ServiceException("接口地址需要以 http:// 或 https:// 开头，并且不要带空格");
+		}
+		String code = body.getModelCode() == null ? "" : body.getModelCode().trim();
+		if (!code.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")) {
+			throw new ServiceException("模型标识请用字母或数字开头，只能包含字母、数字、点、下划线、短横线或冒号");
+		}
+		String remark = body.getRemark() == null ? null : body.getRemark().trim();
+		if (remark != null && remark.length() > 255) {
+			throw new ServiceException("备注请控制在 255 个字以内");
+		}
+		if ("embedding".equals(type)) {
+			Integer dimensions = body.getDimensions();
+			if (dimensions == null || dimensions < 1 || dimensions > 8192) {
+				throw new ServiceException("向量维度请填 1 到 8192 之间的整数");
+			}
+		}
+		body.setModelName(name);
+		body.setModelType(type);
+		body.setProvider(provider);
+		body.setBaseUrl(baseUrl);
+		body.setModelCode(code);
+		body.setRemark(remark == null || remark.isEmpty() ? null : remark);
+		requireUniqueName(name, body.getId());
 		if (body.getId() == null) {
 			body.sanitizeForInsert();
 			body.setTenantId(TenantContext.current());
@@ -80,15 +138,15 @@ public class AiModelBizService {
 			if (body.getDefaultFlag() == null) {
 				body.setDefaultFlag(AiConstants.FLAG_NO);
 			}
-			if (body.getBuiltinFlag() == null) {
-				body.setBuiltinFlag(AiConstants.FLAG_NO);
-			}
+			body.setBuiltinFlag(AiConstants.FLAG_NO);
 			if (body.getVisionFlag() == null) {
 				body.setVisionFlag(AiConstants.FLAG_NO);
 			}
 			if (body.getApiKey() != null && !body.getApiKey().isBlank()) {
 				boolean ok = llmClient.probe(body);
 				body.setActivateFlag(ok ? AiConstants.FLAG_YES : AiConstants.FLAG_NO);
+			} else {
+				body.setActivateFlag(AiConstants.FLAG_NO);
 			}
 			modelMapper.insert(body);
 			mask(body);
@@ -113,25 +171,36 @@ public class AiModelBizService {
 		return body;
 	}
 
-	public void remove(List<Long> ids) {
+	public List<AiModel> remove(List<Long> ids) {
 		moduleService.requireEnabled();
 		if (ids == null || ids.isEmpty()) {
-			return;
+			throw new ServiceException("请先选择要删除的模型");
 		}
+		List<AiModel> rows = new java.util.ArrayList<>();
 		for (Long id : ids) {
+			if (id == null) {
+				throw new ServiceException("模型编号请填写数字，可以从列表里复制");
+			}
 			AiModel m = require(id);
 			if (Integer.valueOf(AiConstants.FLAG_YES).equals(m.getBuiltinFlag())) {
-				throw new ServiceException(AiConstants.MSG_BUILTIN_LOCKED);
+				throw new ServiceException("内置模型不能删除。可以改配置，或另外添加一个模型");
 			}
-			modelMapper.deleteById(id);
+			rows.add(m);
 		}
+		for (AiModel row : rows) {
+			modelMapper.deleteById(row.getId());
+		}
+		return rows;
 	}
 
 	public void setDefault(Long id) {
 		moduleService.requireEnabled();
+		if (id == null) {
+			throw new ServiceException("请先在列表里选择要设为默认的模型");
+		}
 		AiModel m = require(id);
 		if (!Integer.valueOf(AiConstants.FLAG_YES).equals(m.getActivateFlag())) {
-			throw new ServiceException(AiConstants.MSG_MODEL_INACTIVE);
+			throw new ServiceException("这个模型还没激活。请先测试通过后再设为默认");
 		}
 		List<AiModel> same = modelMapper.selectListByQuery(
 			QueryWrapper.create().eq("model_type", m.getModelType()).eq("default_flag", AiConstants.FLAG_YES));
@@ -147,12 +216,31 @@ public class AiModelBizService {
 
 	public Map<String, Object> test(Long id) {
 		moduleService.requireEnabled();
+		if (id == null) {
+			throw new ServiceException("请先在列表里选择要测试的模型");
+		}
 		AiModel m = require(id);
 		boolean ok = llmClient.probe(m);
 		m.setActivateFlag(ok ? AiConstants.FLAG_YES : AiConstants.FLAG_NO);
 		m.sanitizeForUpdate();
 		modelMapper.update(m);
-		return Map.of("ok", ok, "activateFlag", m.getActivateFlag());
+		Map<String, Object> resp = new java.util.HashMap<>();
+		resp.put("ok", ok);
+		resp.put("activateFlag", m.getActivateFlag());
+		resp.put("message", ok
+			? "已连通。这个模型可以设为默认"
+			: "这次没有连上。请检查地址和密钥后再试");
+		return resp;
+	}
+
+	private void requireUniqueName(String name, Long excludeId) {
+		QueryWrapper q = QueryWrapper.create().eq("model_name", name);
+		if (excludeId != null) {
+			q.ne("id", excludeId);
+		}
+		if (modelMapper.selectCountByQuery(q) > 0) {
+			throw new ServiceException("已经有叫「" + name + "」的模型。请换一个名称，或打开原来那个");
+		}
 	}
 
 	/** 内部取默认 chat 模型（含密钥，不脱敏） */
