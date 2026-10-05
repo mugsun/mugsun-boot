@@ -3186,3 +3186,26 @@ COMMENT ON TABLE sys_role_api_scope IS '角色已授权的接口权限';
 
 ALTER TABLE sys_login_log ADD grant_type VARCHAR(32);
 COMMENT ON COLUMN sys_login_log.grant_type IS 'password 密码 / sms 短信 / social 社交 / refresh_token 刷新';
+
+-- 密钥调用记录：每次校验留下路径、结果和耗时，SecretKey 不入库
+CREATE TABLE sys_api_key_log (
+	id          BIGINT PRIMARY KEY,
+	tenant_id   VARCHAR(12),
+	api_key_id  BIGINT,
+	access_key  VARCHAR(64),
+	key_name    VARCHAR(64),
+	request_uri VARCHAR(255),
+	method      VARCHAR(16),
+	remote_ip   VARCHAR(64),
+	user_agent  VARCHAR(512),
+	params      VARCHAR(1000),
+	cost_ms     INT,
+	status      INT DEFAULT 0 NOT NULL,
+	msg         VARCHAR(255),
+	create_time TIMESTAMP,
+	update_time TIMESTAMP,
+	is_deleted  INT DEFAULT 0 NOT NULL
+);
+COMMENT ON TABLE sys_api_key_log IS '密钥调用记录';
+COMMENT ON COLUMN sys_api_key_log.status IS '1 通过 / 0 拒绝';
+COMMENT ON COLUMN sys_api_key_log.params IS '调用摘要，不含密钥明文';

@@ -11,6 +11,7 @@ import com.mybatisflex.annotation.Table;
 @Table("sys_api_key")
 public class SysApiKey extends BaseEntity {
 
+	private String tenantId;
 	private String name;
 	private String accessKey;
 	@Column(typeHandler = Sm4TypeHandler.class)
@@ -18,6 +19,14 @@ public class SysApiKey extends BaseEntity {
 	private String scope;
 	private Integer status;
 	private String remark;
+
+	public String getTenantId() {
+		return tenantId;
+	}
+
+	public void setTenantId(String tenantId) {
+		this.tenantId = tenantId;
+	}
 
 	public String getName() {
 		return name;

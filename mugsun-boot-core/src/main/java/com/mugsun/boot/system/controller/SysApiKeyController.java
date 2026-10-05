@@ -3,9 +3,13 @@ package com.mugsun.boot.system.controller;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.mugsun.boot.system.entity.SysApiKey;
 import com.mugsun.boot.system.mapper.SysApiKeyMapper;
+import com.mugsun.boot.system.service.ApiKeyCallRecorder;
+import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.api.R;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.SecureRandom;
@@ -24,9 +28,11 @@ public class SysApiKeyController {
 	private static final SecureRandom RANDOM = new SecureRandom();
 
 	private final SysApiKeyMapper apiKeyMapper;
+	private final ApiKeyCallRecorder callRecorder;
 
-	public SysApiKeyController(SysApiKeyMapper apiKeyMapper) {
+	public SysApiKeyController(SysApiKeyMapper apiKeyMapper, ApiKeyCallRecorder callRecorder) {
 		this.apiKeyMapper = apiKeyMapper;
+		this.callRecorder = callRecorder;
 	}
 
 	@GetMapping("/page")
@@ -47,6 +53,7 @@ public class SysApiKeyController {
 	@PostMapping("/generate")
 	public R<SysApiKey> generate(@RequestBody SysApiKey param) {
 		SysApiKey key = new SysApiKey();
+		key.setTenantId(TenantContext.current());
 		key.setName(param.getName());
 		key.setScope(param.getScope());
 		key.setRemark(param.getRemark());
@@ -83,15 +90,48 @@ public class SysApiKeyController {
 		return R.success("删除成功");
 	}
 
-	/** 校验密钥：AK+SK 匹配且启用则通过，返回作用域 */
+	/** 校验密钥：AK+SK 匹配且启用则通过，并留下一条不含密钥明文的调用记录 */
 	@PostMapping("/verify")
-	public R<Map<String, Object>> verify(@RequestBody VerifyParam param) {
-		SysApiKey key = apiKeyMapper.selectOneByQuery(QueryWrapper.create().eq("access_key", param.accessKey()));
-		boolean valid = key != null && Integer.valueOf(1).equals(key.getStatus())
-			&& key.getSecretKey().equals(param.secretKey());
+	public R<Map<String, Object>> verify(@RequestBody(required = false) VerifyParam param, HttpServletRequest request) {
+		long start = System.nanoTime();
+		String accessKey = param == null || param.accessKey() == null ? "" : param.accessKey().trim();
+		String secretKey = param == null || param.secretKey() == null ? "" : param.secretKey();
+		if (accessKey.isEmpty()) {
+			throw new ServiceException("请填写 AccessKey");
+		}
+		if (secretKey.isBlank()) {
+			throw new ServiceException("请填写 SecretKey。请使用生成密钥时保存的值，不要使用列表里打码后的内容");
+		}
+		SysApiKey key;
+		if (TenantContext.isPlatformSuperAdmin()) {
+			key = TenantContext.ignore(() -> apiKeyMapper.selectOneByQuery(
+				QueryWrapper.create().eq("access_key", accessKey)));
+		} else {
+			QueryWrapper query = QueryWrapper.create().eq("access_key", accessKey);
+			String tenant = TenantContext.current();
+			if (tenant != null && !tenant.isBlank()) {
+				query.eq("tenant_id", tenant);
+			}
+			key = apiKeyMapper.selectOneByQuery(query);
+		}
+		boolean enabled = key != null && Integer.valueOf(1).equals(key.getStatus());
+		boolean valid = enabled && secretKey.equals(key.getSecretKey());
+		String message;
+		if (key == null) {
+			message = "没有找到这个 AccessKey。请到密钥管理核对标识后再试";
+		} else if (!enabled) {
+			message = "这个密钥已停用。请让管理员启用后再调用";
+		} else if (!valid) {
+			message = "SecretKey 不正确。请使用生成时保存的密钥，不要使用列表里打码后的值";
+		} else {
+			message = "校验通过";
+		}
+		int costMs = (int) ((System.nanoTime() - start) / 1_000_000L);
+		callRecorder.record(key, accessKey, true, request, valid, message, costMs);
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("valid", valid);
 		result.put("scope", valid && key.getScope() != null ? key.getScope() : "");
+		result.put("message", message);
 		return R.data(result);
 	}
 

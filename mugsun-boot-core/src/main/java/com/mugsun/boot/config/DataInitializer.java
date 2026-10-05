@@ -67,6 +67,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedTopMenuPage();
 			seedDataScopePage();
 			seedApiScopePage();
+			seedApiKeyLogButton();
 			return null;
 		});
 	}
@@ -233,6 +234,18 @@ public class DataInitializer implements CommandLineRunner {
 		seedMenuButton(page.getId(), 1200000000000000151L, "保存接口权限", "sys:api-scope:save", 1);
 		seedMenuButton(page.getId(), 1200000000000000152L, "删除接口权限", "sys:api-scope:remove", 2);
 		seedMenuButton(page.getId(), 1200000000000000153L, "授权接口权限", "sys:api-scope:grant", 3);
+	}
+
+	/** 密钥页上的调用记录按钮。基线已灌过的库靠这里补权限码。 */
+	private void seedApiKeyLogButton() {
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/open-platform/api-key"));
+		if (page == null) {
+			page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("component", "/system/api-key"));
+		}
+		if (page == null) {
+			return;
+		}
+		seedMenuButton(page.getId(), 1200000000000000154L, "查看密钥调用记录", "sys:api-key:log", 4);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {
