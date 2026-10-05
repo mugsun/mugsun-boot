@@ -587,7 +587,7 @@ public class TrackAnalysisService {
 		if (!TrackConstants.DIM_OVERVIEW.equals(dim) && !TrackConstants.DIM_EVENT.equals(dim)
 			&& !TrackConstants.DIM_PAGE.equals(dim) && !TrackConstants.DIM_REFERRER.equals(dim)
 			&& !TrackConstants.DIM_DEVICE.equals(dim)) {
-			throw new ServiceException("非法 dimType（overview/event/page/referrer/device）");
+			throw new ServiceException("分析维度不对。请从总览、事件、页面、来源或设备里重新选择");
 		}
 		return dim;
 	}
