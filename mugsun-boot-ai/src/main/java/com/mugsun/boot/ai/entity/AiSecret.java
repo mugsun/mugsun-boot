@@ -143,4 +143,17 @@ public class AiSecret extends BaseEntity {
 	public void setStatus(Integer status) {
 		this.status = status;
 	}
+
+	/** 供重复提交按说明和作用域归并，不包含密钥原文。 */
+	@Override
+	public String toString() {
+		String ips = allowIps == null ? "" : allowIps;
+		return (description == null ? "" : description) + "|"
+			+ (scope == null ? "" : scope) + "|"
+			+ (status == null ? "" : status) + "|"
+			+ (rateLimit == null ? "" : rateLimit) + "|"
+			+ ips.length() + ":" + Integer.toHexString(ips.hashCode()) + "|"
+			+ (expireTime == null ? "" : expireTime) + "|"
+			+ (getId() == null ? "" : getId());
+	}
 }

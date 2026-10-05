@@ -15,7 +15,7 @@ public final class AiConstants {
 	public static final String MSG_DS_MISSING = "数据源不存在";
 	public static final String MSG_PROMPT_MISSING = "这个提示词不存在。请刷新列表后再试";
 	public static final String MSG_SESSION_MISSING = "这个会话不存在。请刷新列表后再试";
-	public static final String MSG_SECRET_MISSING = "密钥不存在";
+	public static final String MSG_SECRET_MISSING = "这把密钥不存在。请刷新列表后再试";
 	public static final String MSG_APP_MISSING = "这个应用不存在。请刷新列表后再试";
 	public static final String MSG_KB_MISSING = "这个知识库不存在。请刷新列表后再试";
 	public static final String MSG_DATASET_MISSING = "问数智能体不存在";
@@ -23,7 +23,7 @@ public final class AiConstants {
 	public static final String MSG_MCP_MISSING = "MCP 工具不存在";
 	public static final String MSG_CHANNEL_MISSING = "渠道绑定不存在";
 	public static final String MSG_SQL_UNSAFE = "仅允许只读 SELECT 查询";
-	public static final String MSG_SECRET_ONCE = "明文密钥仅创建时返回一次";
+	public static final String MSG_SECRET_ONCE = "密钥只显示这一次。请立刻复制保存，关掉后无法再查看";
 	public static final String MSG_OPENAPI_AUTH = "无效的 API Key";
 	public static final String MSG_QUOTA_EXCEEDED = "已超出配额";
 

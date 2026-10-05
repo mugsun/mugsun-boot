@@ -27,8 +27,16 @@ public class AiSecretBizService {
 		this.mapper = mapper;
 	}
 
+	private static final java.util.Set<String> SCOPES = java.util.Set.of("tenant", "user", "app");
+
 	public Page<AiSecret> page(long pageNum, long pageSize) {
 		moduleService.requireEnabled();
+		if (pageNum < 1) {
+			throw new ServiceException("页码请从 1 开始");
+		}
+		if (pageSize < 1 || pageSize > 100) {
+			throw new ServiceException("每页条数请在 1 到 100 之间");
+		}
 		Page<AiSecret> page = mapper.paginate(pageNum, pageSize, QueryWrapper.create().orderBy("id", false));
 		page.getRecords().forEach(this::mask);
 		return page;
@@ -36,9 +44,37 @@ public class AiSecretBizService {
 
 	public Map<String, Object> create(AiSecret body) {
 		moduleService.requireEnabled();
-		if (body.getDescription() == null || body.getDescription().isBlank()) {
-			throw new ServiceException("请填写密钥说明");
+		if (body == null) {
+			throw new ServiceException("请填写密钥说明。用来在列表里区分");
 		}
+		String description = body.getDescription() == null ? "" : body.getDescription().trim();
+		if (description.isEmpty()) {
+			throw new ServiceException("请填写密钥说明。用来在列表里区分");
+		}
+		if (description.length() > 128) {
+			throw new ServiceException("密钥说明请控制在 128 个字以内");
+		}
+		String scope = body.getScope() == null || body.getScope().isBlank() ? "tenant" : body.getScope().trim();
+		if (!SCOPES.contains(scope)) {
+			throw new ServiceException("作用域请选择租户、用户或应用");
+		}
+		if (body.getRateLimit() != null && (body.getRateLimit() < 0 || body.getRateLimit() > 100000)) {
+			throw new ServiceException("限流请填 0 到 100000。0 表示不限制");
+		}
+		String allowIps = body.getAllowIps() == null ? null : body.getAllowIps().trim();
+		if (allowIps != null && !allowIps.isEmpty() && !validIps(allowIps)) {
+			throw new ServiceException("允许的地址请写成 IP 或网段，多个用英文逗号隔开");
+		}
+		if (body.getStatus() != null && body.getStatus() != 0 && body.getStatus() != 1) {
+			throw new ServiceException("状态请选择启用或停用");
+		}
+		if (body.getExpireTime() != null && body.getExpireTime().isBefore(LocalDateTime.now())) {
+			throw new ServiceException("过期时间已经过了。请改成以后的时间，或留空表示不过期");
+		}
+		body.setDescription(description);
+		body.setScope(scope);
+		body.setAllowIps(allowIps == null || allowIps.isEmpty() ? null : allowIps);
+		requireUniqueDescription(description, body.getId());
 		if (body.getId() != null) {
 			AiSecret db = require(body.getId());
 			db.setDescription(body.getDescription());
@@ -74,16 +110,32 @@ public class AiSecretBizService {
 		return resp;
 	}
 
-	public void remove(List<Long> ids) {
+	public java.util.List<AiSecret> remove(List<Long> ids) {
 		moduleService.requireEnabled();
-		for (Long id : ids) {
-			require(id);
-			mapper.deleteById(id);
+		if (ids == null || ids.isEmpty()) {
+			throw new ServiceException("请先选择要删除的密钥");
 		}
+		java.util.List<AiSecret> rows = new java.util.ArrayList<>();
+		for (Long id : ids) {
+			if (id == null) {
+				throw new ServiceException("密钥编号请填写数字，可以从列表里复制");
+			}
+			rows.add(require(id));
+		}
+		for (AiSecret row : rows) {
+			mapper.deleteById(row.getId());
+		}
+		return rows;
 	}
 
 	public void status(Long id, Integer status) {
 		moduleService.requireEnabled();
+		if (id == null) {
+			throw new ServiceException("请先在列表里选择要改状态的密钥");
+		}
+		if (status == null || (status != 0 && status != 1)) {
+			throw new ServiceException("状态请选择启用或停用");
+		}
 		AiSecret s = require(id);
 		s.setStatus(status);
 		s.sanitizeForUpdate();
@@ -116,6 +168,29 @@ public class AiSecretBizService {
 			}
 		}
 		throw new ServiceException(AiConstants.MSG_OPENAPI_AUTH);
+	}
+
+	private void requireUniqueDescription(String description, Long excludeId) {
+		QueryWrapper q = QueryWrapper.create().eq("description", description);
+		if (excludeId != null) {
+			q.ne("id", excludeId);
+		}
+		if (mapper.selectCountByQuery(q) > 0) {
+			throw new ServiceException("已经有说明为「" + description + "」的密钥。请换一个说明，或打开原来那把");
+		}
+	}
+
+	private static boolean validIps(String raw) {
+		if (raw.length() > 512) {
+			return false;
+		}
+		for (String part : raw.split(",")) {
+			String token = part.trim();
+			if (!token.matches("(\\d{1,3}\\.){3}\\d{1,3}(/\\d{1,2})?")) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private AiSecret require(Long id) {
