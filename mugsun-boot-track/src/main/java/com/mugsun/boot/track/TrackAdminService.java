@@ -13,6 +13,8 @@ import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
+
 /**
  * 埋点接入管理服务（track_app / track_event_def 读写唯一出口）：类级 {@link TrackDS} 路由埋点独立库，
  * Flex 租户行级插件对两表自动拼 tenant_id 条件（分页/按 id 读写均带隔离，跨租户操作命中「不存在」）。
@@ -173,31 +175,54 @@ public class TrackAdminService {
 	}
 
 	/** 事件定义认领：仅 displayName/description/status/owner 可改（事件名/归属由采集端自动注册，防伪造） */
-	public TrackEventDef eventDefSubmit(TrackEventDef body) {
-		if (body.getId() == null) {
-			throw new ServiceException("缺少 id（事件定义由采集端自动注册，仅支持认领编辑）");
+	public String eventDefSubmit(Long id, Map<String, Object> body) {
+		if (id == null) {
+			throw new ServiceException("请先在列表里打开要编辑的事件");
 		}
-		TrackEventDef def = eventDefMapper.selectOneByQuery(QueryWrapper.create().where("id = ?", body.getId()));
+		TrackEventDef def = eventDefMapper.selectOneByQuery(QueryWrapper.create().where("id = ?", id));
 		if (def == null) {
-			throw new ServiceException("事件定义不存在或无权限");
+			throw new ServiceException("这个事件不存在。请刷新列表后再试");
 		}
-		if (body.getDisplayName() != null) {
-			def.setDisplayName(body.getDisplayName());
+		if (body != null && body.containsKey("displayName") && body.get("displayName") != null) {
+			String displayName = String.valueOf(body.get("displayName")).trim();
+			if (displayName.length() > 64) {
+				throw new ServiceException("显示名请控制在 64 个字以内");
+			}
+			def.setDisplayName(displayName);
 		}
-		if (body.getDescription() != null) {
-			def.setDescription(body.getDescription());
+		if (body != null && body.containsKey("description") && body.get("description") != null) {
+			String description = String.valueOf(body.get("description")).trim();
+			if (description.length() > 255) {
+				throw new ServiceException("说明请控制在 255 个字以内");
+			}
+			def.setDescription(description);
 		}
-		if (body.getStatus() != null) {
-			def.setStatus(normalizeSwitch(body.getStatus(), "status"));
+		if (body != null && body.containsKey("owner") && body.get("owner") != null) {
+			String owner = String.valueOf(body.get("owner")).trim();
+			if (owner.length() > 64) {
+				throw new ServiceException("负责人请控制在 64 个字以内");
+			}
+			def.setOwner(owner);
 		}
-		if (body.getOwner() != null) {
-			def.setOwner(body.getOwner());
+		if (body != null && body.containsKey("status") && body.get("status") != null) {
+			String status = String.valueOf(body.get("status")).trim();
+			if (!"0".equals(status) && !"1".equals(status)) {
+				throw new ServiceException("状态请选择启用或停用");
+			}
+			def.setStatus(Integer.valueOf(status));
 		}
 		def.sanitizeForUpdate();
 		eventDefMapper.update(def, true);
 		// 采集端停用判定本地缓存主动失效（G105：停用/启用即时生效，不等 30s TTL）
 		eventDefService.evict(def.getAppKey(), def.getEventName());
-		return def;
+		String name = def.getEventName();
+		if (name == null || name.isBlank()) {
+			name = "这个事件";
+		}
+		if (def.getStatus() != null && def.getStatus() == 0) {
+			return "已保存「" + name + "」。采集将不再接收这个事件";
+		}
+		return "已保存「" + name + "」。采集会继续接收这个事件";
 	}
 
 	// ==================== 内部工具 ====================

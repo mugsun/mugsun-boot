@@ -94,7 +94,15 @@ public class TrackAppController {
 	/** 事件定义认领：仅 displayName/description/status/owner 可改 */
 	@PostMapping("/event-def/submit")
 	@SaCheckPermission(TrackConstants.PERM_APP_EDIT)
-	public R<TrackEventDef> eventDefSubmit(@RequestBody TrackEventDef body) {
-		return R.data(adminService.eventDefSubmit(body));
+	public R<Void> eventDefSubmit(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null || body.get("id") == null || String.valueOf(body.get("id")).isBlank()
+			|| "null".equals(String.valueOf(body.get("id")))) {
+			throw new ServiceException("请先在列表里打开要编辑的事件");
+		}
+		String text = String.valueOf(body.get("id")).trim();
+		if (!text.matches("\\d{1,19}")) {
+			throw new ServiceException("事件编号请填写数字，可以从列表里复制");
+		}
+		return R.success(adminService.eventDefSubmit(Long.valueOf(text), body));
 	}
 }
