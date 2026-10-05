@@ -68,4 +68,10 @@ public class MessageSendDTO {
 	public void setRecipientIds(List<Long> recipientIds) {
 		this.recipientIds = recipientIds;
 	}
+
+	/** 防重复提交按同一次发送内容认同一条。 */
+	@Override
+	public String toString() {
+		return templateId + "|" + title + "|" + content + "|" + type + "|" + params + "|" + recipientIds;
+	}
 }

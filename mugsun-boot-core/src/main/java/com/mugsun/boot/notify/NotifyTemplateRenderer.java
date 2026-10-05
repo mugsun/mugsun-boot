@@ -50,7 +50,7 @@ public class NotifyTemplateRenderer {
 			.filter(key -> params == null || !params.containsKey(key))
 			.collect(Collectors.toCollection(LinkedHashSet::new));
 		if (!missing.isEmpty()) {
-			throw new ServiceException("通知模板缺少参数: " + String.join(",", missing));
+			throw new ServiceException("还缺这些占位的值：" + String.join("、", missing) + "。请填上后再发送");
 		}
 		String result = template;
 		for (String key : required) {

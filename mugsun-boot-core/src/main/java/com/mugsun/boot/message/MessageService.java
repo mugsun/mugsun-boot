@@ -62,11 +62,11 @@ public class MessageService {
 		if (recipientIds == null || recipientIds.isEmpty()) {
 			return;
 		}
-		List<Long> ids = recipientIds.stream().distinct().toList();
+		List<Long> ids = recipientIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
 		long count = userMapper.selectCountByQuery(
 			com.mybatisflex.core.query.QueryWrapper.create().in("id", ids));
 		if (count != ids.size()) {
-			throw new ServiceException("收件人包含不存在或不属于本租户的用户");
+			throw new ServiceException("有收件人不存在，或不属于当前租户。请重新选择后再发");
 		}
 	}
 
@@ -86,32 +86,56 @@ public class MessageService {
 	}
 
 	private void doSend(MessageSendDTO dto, Long senderId, boolean skipRender) {
-		if (dto.getRecipientIds() == null || dto.getRecipientIds().isEmpty()) {
-			throw new ServiceException("请选择收件人");
+		if (dto == null || dto.getRecipientIds() == null || dto.getRecipientIds().isEmpty()) {
+			throw new ServiceException("请先选择收件人。可以按用户名或昵称搜索");
+		}
+		List<Long> recipientIds = dto.getRecipientIds().stream().filter(java.util.Objects::nonNull).distinct().toList();
+		if (recipientIds.isEmpty()) {
+			throw new ServiceException("请先选择收件人。可以按用户名或昵称搜索");
+		}
+		if (recipientIds.size() > 100) {
+			throw new ServiceException("一次最多发给 100 人。请减少收件人后再发");
 		}
 		String title = dto.getTitle();
-		String content = dto.getContent();
+		String content = dto.getContent() == null ? "" : dto.getContent();
 		if (dto.getTemplateId() != null) {
 			SysMessageTemplate tpl = templateMapper.selectOneById(dto.getTemplateId());
-			if (tpl != null) {
-				title = tpl.getTitle();
-				content = tpl.getContent();
+			if (tpl == null) {
+				throw new ServiceException("这个消息模板不存在。请刷新列表后再选");
 			}
+			title = tpl.getTitle();
+			content = tpl.getContent();
 		}
 		if (!skipRender) {
+			java.util.Set<String> missing = renderer.extractParams(title, content).stream()
+				.filter(key -> dto.getParams() == null || !dto.getParams().containsKey(key))
+				.collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+			if (!missing.isEmpty()) {
+				throw new ServiceException("还缺这些占位的值：" + String.join("、", missing) + "。请填上后再发送");
+			}
 			title = renderer.render(title, dto.getParams());
 			content = renderer.render(content, dto.getParams());
 		}
-		if (title == null || title.isBlank()) {
-			throw new ServiceException("消息标题不能为空");
+		title = title == null ? "" : title.trim();
+		if (title.isEmpty()) {
+			throw new ServiceException("请填写消息标题。用模板时，模板里也要有标题");
+		}
+		if (title.length() > 255) {
+			throw new ServiceException("消息标题请控制在 255 个字以内");
+		}
+		if (content != null && content.length() > 20000) {
+			throw new ServiceException("消息内容请控制在 20000 个字以内");
+		}
+		String type = dto.getType() == null || dto.getType().isBlank() ? "system" : dto.getType().trim();
+		if (!type.equals("system") && !type.equals("notice") && !type.equals("todo")) {
+			throw new ServiceException("类型请选择系统、通知或待办");
 		}
 		SysMessage message = new SysMessage();
 		message.setTitle(title);
 		message.setContent(content);
-		message.setType(dto.getType() == null || dto.getType().isBlank() ? "system" : dto.getType());
+		message.setType(type);
 		message.setSenderId(senderId);
 		messageMapper.insertSelective(message);
-		List<Long> recipientIds = dto.getRecipientIds().stream().distinct().toList();
 		recipientIds.forEach(uid -> {
 			SysMessageUser mu = new SysMessageUser();
 			mu.setMessageId(message.getId());
