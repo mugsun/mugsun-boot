@@ -109,11 +109,11 @@ public class TrackVisualService {
 	public void ingestDraft(JsonNode root, String ip) {
 		String token = text(root, "token");
 		if (token == null) {
-			throw new TrackCollectException(400, "缺少 token");
+			throw new TrackCollectException(400, "请先进入圈选。上报草稿要带着这次圈选的令牌");
 		}
 		String tokenKey = TrackConstants.VISUAL_TOKEN_KEY_PREFIX + token;
 		if (redis.opsForHash().entries(tokenKey).isEmpty()) {
-			throw new TrackCollectException(401, "令牌无效或已过期");
+			throw new TrackCollectException(401, "令牌无效或已过期。请重新进入圈选后再上报这条草稿");
 		}
 		assertDraftRateLimit(token, ip);
 
