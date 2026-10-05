@@ -63,7 +63,8 @@ public class TrackReplayQueryController {
 	 */
 	@GetMapping("/events")
 	@SaCheckPermission(TrackConstants.PERM_REPLAY_LIST)
-	public R<List<Map<String, Object>>> events(@RequestParam String appKey, @RequestParam String sessionId) {
+	public R<List<Map<String, Object>>> events(@RequestParam(required = false) String appKey,
+											  @RequestParam(required = false) String sessionId) {
 		return R.data(replayQueryService.sessionEvents(appKey, sessionId));
 	}
 

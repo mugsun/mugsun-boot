@@ -63,10 +63,9 @@ public class TrackReplayQueryService {
 
 	/** 回放会话分页：start_time 倒序；appKey/hasError 可选过滤；投影剔除存储坐标（内部实现细节不下发） */
 	public Page<Map<String, Object>> page(String appKey, Integer hasError, long pageNum, long pageSize) {
+		String key = requireAppKey(appKey);
 		QueryWrapper query = QueryWrapper.create().orderBy("start_time", false);
-		if (appKey != null && !appKey.isBlank()) {
-			query.eq("app_key", appKey.trim());
-		}
+		query.eq("app_key", key);
 		if (hasError != null) {
 			query.eq("has_error", hasError == 1 ? 1 : 0);
 		}
@@ -127,9 +126,7 @@ public class TrackReplayQueryService {
 	 * 会话不存在/跨租户 → 空数组（不报错；元信息非内容，本查询无审计留痕）。
 	 */
 	public List<Map<String, Object>> sessionEvents(String appKey, String sessionId) {
-		if (appKey == null || appKey.isBlank() || appKey.length() > TrackConstants.APP_KEY_MAX_LEN) {
-			throw new ServiceException("缺少或非法 appKey");
-		}
+		appKey = requireAppKey(appKey);
 		if (sessionId == null || sessionId.isBlank() || sessionId.length() > TrackConstants.SESSION_ID_MAX_LEN) {
 			throw new ServiceException("无效 sessionId");
 		}
@@ -209,6 +206,24 @@ public class TrackReplayQueryService {
 		}
 		args.add(tenant);
 		return " AND tenant_id = ?";
+	}
+
+	private String requireAppKey(String appKey) {
+		if (appKey == null || appKey.isBlank()) {
+			throw new ServiceException("请先选择应用。回放是按应用分开的");
+		}
+		String key = appKey.trim();
+		if (key.length() > TrackConstants.APP_KEY_MAX_LEN) {
+			throw new ServiceException("应用标识不对。请从应用列表里重新选择");
+		}
+		// 原始 SQL 不看租户：完全没有这个应用才说明「不存在」。
+		// 别的租户有同名应用时仍返回标识，列表由租户插件滤成空页。
+		Long found = jdbc.queryForObject(
+			"SELECT count(*) FROM track_app WHERE app_key = ? AND is_deleted = 0", Long.class, key);
+		if (found == null || found == 0) {
+			throw new ServiceException("这个应用不存在。请刷新应用列表后再看");
+		}
+		return key;
 	}
 
 	/** 有界解压（写时已约束 ≤{@value TrackConstants#REPLAY_BLOCK_MAX_BYTES}，读侧同界兜底） */
