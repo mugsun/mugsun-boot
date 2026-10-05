@@ -119,11 +119,14 @@ public class TrackVisualService {
 
 		String eventName = text(root, "event_name");
 		if (eventName == null || !TrackConstants.CUSTOM_EVENT_NAME.matcher(eventName).matches()) {
-			throw new TrackCollectException(400, "事件名不合法（字母开头，仅字母/数字/下划线，≤64 位）");
+			throw new TrackCollectException(400, "事件名请用字母开头，后面只能是字母、数字或下划线，最长 64 位。请改完再上报");
 		}
 		String selector = text(root, "selector");
-		if (selector == null || selector.length() > TrackConstants.VISUAL_SELECTOR_MAX_LEN) {
-			throw new TrackCollectException(400, "selector 必填且 ≤" + TrackConstants.VISUAL_SELECTOR_MAX_LEN + " 字");
+		if (selector == null) {
+			throw new TrackCollectException(400, "请先选中要圈的元素。没有选择器就无法上报这条草稿");
+		}
+		if (selector.length() > TrackConstants.VISUAL_SELECTOR_MAX_LEN) {
+			throw new TrackCollectException(400, "选择器最长 " + TrackConstants.VISUAL_SELECTOR_MAX_LEN + " 个字。请重新选择一个更短的元素后再上报");
 		}
 		String routePath = truncate(text(root, "route_path"), TrackConstants.DIM_MAX_LEN);
 		String matchText = truncate(text(root, "match_text"), TrackConstants.VISUAL_MATCH_TEXT_MAX_LEN);
