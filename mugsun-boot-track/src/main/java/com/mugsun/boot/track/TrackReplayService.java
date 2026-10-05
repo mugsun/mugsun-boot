@@ -181,7 +181,9 @@ public class TrackReplayService {
 		// 8) 会话累计体积（解压后口径）：超限 → 置封禁键 + 413；该会话后续块由步骤 4 一律丢弃
 		if (!accountSize(sessionId, raw.length)) {
 			metrics.dropped("replay_session_oversize", 1);
-			throw new TrackCollectException(413, "单会话回放体积超限");
+			long maxBytes = paramLong(TrackConstants.PARAM_REPLAY_SESSION_MAX, TrackConstants.DEFAULT_REPLAY_SESSION_MAX_BYTES);
+			throw new TrackCollectException(413, "单会话回放体积超限。这个会话已经超过 "
+				+ maxBytes + " 字节，后面的内容不再接收，请换一个新会话再录");
 		}
 
 		// 9) 入队（满 → 删幂等键放行重发 + 503；宁可丢块不拖垮存储/DB）
