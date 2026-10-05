@@ -613,7 +613,7 @@ public class SysUserController {
 		}
 		Integer status = row.getStatus();
 		if (status != null && status != 0 && status != 1) {
-			throw new com.mugsun.core.tool.exception.ServiceException("状态须为1或0");
+			throw new com.mugsun.core.tool.exception.ServiceException("状态须为1或0。请改成 1（启用）或 0（禁用）后再导入");
 		}
 		Long deptId = resolveDeptId(row.getDeptName());
 		Long postId = resolvePostId(row.getPostName());
