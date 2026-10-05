@@ -137,7 +137,8 @@ public class TrackReplayService {
 			storeBytes = decoded;
 		} else {
 			if (decoded.length > TrackConstants.REPLAY_BLOCK_MAX_BYTES) {
-				throw new TrackCollectException(413, "回放块明文超限");
+				throw new TrackCollectException(413, "这段回放的明文太大。明文最长 "
+					+ TrackConstants.REPLAY_BLOCK_MAX_BYTES + " 字节，请缩小后再上传");
 			}
 			raw = decoded;
 			storeBytes = gzip(raw);
@@ -307,7 +308,8 @@ public class TrackReplayService {
 			while ((n = gzip.read(chunk)) != -1) {
 				total += n;
 				if (total > TrackConstants.REPLAY_BLOCK_MAX_BYTES) {
-					throw new TrackCollectException(413, "回放块解压后超限");
+					throw new TrackCollectException(413, "这段回放解压后太大。解压后最长 "
+						+ TrackConstants.REPLAY_BLOCK_MAX_BYTES + " 字节，请缩小后再上传");
 				}
 				out.write(chunk, 0, n);
 			}
