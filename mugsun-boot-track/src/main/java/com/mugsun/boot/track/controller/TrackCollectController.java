@@ -82,20 +82,20 @@ public class TrackCollectController {
 				body = gunzip(body);
 			}
 			if (body.length == 0) {
-				throw new TrackCollectException(400, "请求体为空");
+				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发");
 			}
 			if (body.length > TrackConstants.COLLECT_PAYLOAD_MAX_BYTES) {
-				throw new TrackCollectException(413, "请求体过大");
+				throw new TrackCollectException(413, "请求体太大。请缩小后再发");
 			}
 			JsonNode root;
 			try {
 				root = PLAIN_MAPPER.readTree(body);
 			} catch (JsonProcessingException e) {
 				// 畸形 JSON 属客户端错误，转 400（不落入全局 500 兜底刷错误日志）
-				throw new TrackCollectException(400, "请求体 JSON 非法");
+				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发");
 			}
 			if (root == null || !root.isObject()) {
-				throw new TrackCollectException(400, "请求体须为 JSON 对象");
+				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发");
 			}
 			int accepted = ingestService.ingest(root, request.getRemoteAddr(), request.getHeader("User-Agent"));
 			return ResponseEntity.ok(R.data(Map.of("received", accepted)));
@@ -118,20 +118,20 @@ public class TrackCollectController {
 		try {
 			byte[] body = request.getInputStream().readAllBytes();
 			if (body.length == 0) {
-				throw new TrackCollectException(400, "请求体为空");
+				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发");
 			}
 			if (body.length > TrackConstants.REPLAY_ENVELOPE_MAX_BYTES) {
-				throw new TrackCollectException(413, "请求体过大");
+				throw new TrackCollectException(413, "请求体太大。请缩小后再发");
 			}
 			JsonNode root;
 			try {
 				root = PLAIN_MAPPER.readTree(body);
 			} catch (JsonProcessingException e) {
 				// 畸形 JSON 属客户端错误，转 400（不落入全局 500 兜底刷错误日志）
-				throw new TrackCollectException(400, "请求体 JSON 非法");
+				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发");
 			}
 			if (root == null || !root.isObject()) {
-				throw new TrackCollectException(400, "请求体须为 JSON 对象");
+				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发");
 			}
 			return ResponseEntity.ok(R.data(replayService.ingest(root, request.getRemoteAddr())));
 		} catch (TrackCollectException e) {
@@ -154,20 +154,20 @@ public class TrackCollectController {
 		try {
 			byte[] body = request.getInputStream().readAllBytes();
 			if (body.length == 0) {
-				throw new TrackCollectException(400, "请求体为空");
+				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发");
 			}
 			if (body.length > TrackConstants.API_BODY_ENVELOPE_MAX_BYTES) {
-				throw new TrackCollectException(413, "请求体过大");
+				throw new TrackCollectException(413, "请求体太大。请缩小后再发");
 			}
 			JsonNode root;
 			try {
 				root = PLAIN_MAPPER.readTree(body);
 			} catch (JsonProcessingException e) {
 				// 畸形 JSON 属客户端错误，转 400（不落入全局 500 兜底刷错误日志）
-				throw new TrackCollectException(400, "请求体 JSON 非法");
+				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发");
 			}
 			if (root == null || !root.isObject()) {
-				throw new TrackCollectException(400, "请求体须为 JSON 对象");
+				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发");
 			}
 			return ResponseEntity.ok(R.data(apiBodyService.ingest(root, request.getRemoteAddr())));
 		} catch (TrackCollectException e) {
@@ -189,20 +189,20 @@ public class TrackCollectController {
 		try {
 			byte[] body = request.getInputStream().readAllBytes();
 			if (body.length == 0) {
-				throw new TrackCollectException(400, "请求体为空");
+				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发");
 			}
 			if (body.length > TrackConstants.COLLECT_PAYLOAD_MAX_BYTES) {
-				throw new TrackCollectException(413, "请求体过大");
+				throw new TrackCollectException(413, "请求体太大。请缩小后再发");
 			}
 			JsonNode root;
 			try {
 				root = PLAIN_MAPPER.readTree(body);
 			} catch (JsonProcessingException e) {
 				// 畸形 JSON 属客户端错误，转 400（不落入全局 500 兜底刷错误日志）
-				throw new TrackCollectException(400, "请求体 JSON 非法");
+				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发");
 			}
 			if (root == null || !root.isObject()) {
-				throw new TrackCollectException(400, "请求体须为 JSON 对象");
+				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发");
 			}
 			visualService.ingestDraft(root, request.getRemoteAddr());
 			return ResponseEntity.ok(R.data(Map.of("received", true)));
