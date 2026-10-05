@@ -160,7 +160,7 @@ public class TrackApiBodyService {
 			}
 			if (count != null && count > limit) {
 				metrics.ratelimited();
-				throw new TrackCollectException(429, "请求过于频繁");
+				throw new TrackCollectException(429, "请求过于频繁。请等一分钟后再上传这段响应体");
 			}
 		} catch (TrackCollectException e) {
 			throw e;
