@@ -196,14 +196,27 @@ public class AiChatBizService {
 
 	public SseEmitter stream(Long sessionId, Long modelId, String content, String requestId, Long knowledgeId) {
 		moduleService.requireEnabled();
+		if (content == null || content.isBlank()) {
+			throw new ServiceException("请填写要发送的内容");
+		}
+		String text = content.trim();
+		if (text.length() > 8000) {
+			throw new ServiceException("内容请控制在 8000 字以内。可以分成几条再发送");
+		}
 		AiSession session = requireSession(sessionId);
 		AiModel model = modelId != null ? modelBizService.requireRaw(modelId) : (
 			session.getModelId() != null ? modelBizService.requireRaw(session.getModelId())
 				: modelBizService.requireDefaultChat());
 		if (!Integer.valueOf(AiConstants.FLAG_YES).equals(model.getActivateFlag())) {
-			throw new ServiceException(AiConstants.MSG_MODEL_INACTIVE);
+			throw new ServiceException("「" + model.getModelName() + "」还没激活。请先在大模型配置里探测通过，再用来发送");
 		}
-		String rid = requestId == null || requestId.isBlank() ? IdUtil.fastSimpleUUID() : requestId;
+		if (!AiConstants.MODEL_TYPE_CHAT.equals(model.getModelType())) {
+			throw new ServiceException("请选择对话模型。向量模型不能用来聊天");
+		}
+		String rid = requestId == null || requestId.isBlank() ? IdUtil.fastSimpleUUID() : requestId.trim();
+		if (!rid.matches("[A-Za-z0-9_-]{8,64}")) {
+			throw new ServiceException("请求编号不对。请重新发送");
+		}
 		AtomicBoolean stop = new AtomicBoolean(false);
 		stopFlags.put(rid, stop);
 
@@ -214,7 +227,7 @@ public class AiChatBizService {
 		userMsg.setTenantId(TenantContext.current());
 		userMsg.setUserId(StpUtil.getLoginIdAsLong());
 		userMsg.setRole(AiConstants.ROLE_USER);
-		userMsg.setContent(content);
+		userMsg.setContent(text);
 		userMsg.setStatus(AiConstants.MSG_STATUS_DONE);
 		userMsg.setRequestId(rid);
 		messageMapper.insert(userMsg);
@@ -241,7 +254,7 @@ public class AiChatBizService {
 		List<Map<String, Object>> refs = List.of();
 		if (knowledgeId != null) {
 			try {
-				refs = knowledgeBizService.hitTest(knowledgeId, content, 0);
+				refs = knowledgeBizService.hitTest(knowledgeId, text, 0);
 				if (!refs.isEmpty()) {
 					StringBuilder ctx = new StringBuilder("以下是相关知识库片段，请优先依据片段回答；若片段不足请明确说明。\n");
 					int i = 1;
@@ -269,6 +282,7 @@ public class AiChatBizService {
 		}
 		final String tid = tenantId;
 		final Long kbIdForSse = knowledgeId;
+		AtomicBoolean failed = new AtomicBoolean(false);
 		Thread.startVirtualThread(() -> TenantContext.execute(tid, () -> {
 			try {
 				if (!finalRefs.isEmpty()) {
@@ -314,16 +328,11 @@ public class AiChatBizService {
 						usageHolder[1] = u[1];
 						usageHolder[2] = u[2];
 					}
-				}), err -> TenantContext.execute(tid, () -> {
-					asst.setStatus(stop.get() ? AiConstants.MSG_STATUS_CANCELED : AiConstants.MSG_STATUS_FAILED);
-					asst.setContent(contentBuf.toString());
-					asst.setThinkContent(thinkBuf.toString());
-					asst.sanitizeForUpdate();
-					messageMapper.update(asst);
-					send(emitter, AiConstants.SSE_ERROR, Map.of("message", err.getMessage() == null ? "error" : err.getMessage()));
-					emitter.completeWithError(err);
-					stopFlags.remove(rid);
-				}), () -> TenantContext.execute(tid, () -> {
+				}), err -> TenantContext.execute(tid, () -> failStream(failed, asst, contentBuf, thinkBuf, emitter, rid, stop, err)),
+					() -> TenantContext.execute(tid, () -> {
+					if (failed.get()) {
+						return;
+					}
 					boolean canceled = stop.get();
 					asst.setContent(contentBuf.toString());
 					asst.setThinkContent(thinkBuf.toString());
@@ -347,9 +356,7 @@ public class AiChatBizService {
 					stopFlags.remove(rid);
 				}));
 			} catch (Exception e) {
-				send(emitter, AiConstants.SSE_ERROR, Map.of("message", e.getMessage() == null ? "error" : e.getMessage()));
-				emitter.completeWithError(e);
-				stopFlags.remove(rid);
+				failStream(failed, asst, contentBuf, thinkBuf, emitter, rid, stop, e);
 			}
 		}));
 		return emitter;
@@ -537,6 +544,37 @@ public class AiChatBizService {
 		BigDecimal c = BigDecimal.valueOf(completion == null ? 0 : completion).multiply(po)
 			.divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP);
 		return p.add(c);
+	}
+
+	private void failStream(AtomicBoolean failed, AiMessage asst, StringBuilder contentBuf, StringBuilder thinkBuf,
+							SseEmitter emitter, String rid, AtomicBoolean stop, Throwable err) {
+		if (!failed.compareAndSet(false, true)) {
+			return;
+		}
+		asst.setStatus(stop.get() ? AiConstants.MSG_STATUS_CANCELED : AiConstants.MSG_STATUS_FAILED);
+		String failure = streamFailure(err);
+		asst.setContent(contentBuf.length() == 0 ? failure : contentBuf.toString());
+		asst.setThinkContent(thinkBuf.toString());
+		asst.sanitizeForUpdate();
+		messageMapper.update(asst);
+		send(emitter, AiConstants.SSE_ERROR, Map.of("message", streamFailure(err), "requestId", rid));
+		emitter.complete();
+		stopFlags.remove(rid);
+	}
+
+	private static String streamFailure(Throwable err) {
+		Throwable cur = err;
+		while (cur != null) {
+			if (cur instanceof ServiceException) {
+				String message = cur.getMessage();
+				if (message != null && !message.isBlank() && !message.contains("Exception")
+					&& !message.startsWith("模型调用失败")) {
+					return message;
+				}
+			}
+			cur = cur.getCause();
+		}
+		return "模型没有回应。请检查模型地址是否可访问，然后再发送";
 	}
 
 	private void send(SseEmitter emitter, String event, Object data) {
