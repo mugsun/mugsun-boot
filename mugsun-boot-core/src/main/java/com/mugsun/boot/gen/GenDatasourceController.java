@@ -80,9 +80,15 @@ public class GenDatasourceController {
 	@SaCheckPermission("sys:gen-ds:remove")
 	@RepeatSubmit(message = "请勿重复删除。请刷新列表确认是否已经删掉")
 	@OperationLog("删除代码生成数据源")
-	public R<Void> remove(@RequestBody Map<String, Object> body) {
-		datasourceService.remove(longsOf(body.get("ids")));
-		return R.success("已删除");
+	public R<Void> remove(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null) {
+			throw new ServiceException("请先勾选要删除的数据源");
+		}
+		List<GenDatasource> rows = datasourceService.remove(datasourceIds(body.get("ids")));
+		if (rows.size() == 1) {
+			return R.success("已删除「" + rows.get(0).getDsName() + "」。代码生成里不能再选择这套数据源");
+		}
+		return R.success("已删除 " + rows.size() + " 套数据源。代码生成里不能再选择它们");
 	}
 
 	@PostMapping("/test")
@@ -107,14 +113,18 @@ public class GenDatasourceController {
 		}
 	}
 
-	private static List<Long> longsOf(Object raw) {
-		if (!(raw instanceof List<?> list)) {
-			return List.of();
+	private static List<Long> datasourceIds(Object raw) {
+		if (!(raw instanceof List<?> list) || list.isEmpty()) {
+			throw new ServiceException("请先勾选要删除的数据源");
 		}
 		List<Long> ids = new ArrayList<>();
 		for (Object item : list) {
-			Long id = longOf(item);
-			if (id != null) {
+			String text = item == null ? "" : String.valueOf(item).trim();
+			if (!text.matches("\\d{1,19}")) {
+				throw new ServiceException("数据源编号请填写数字，可以从列表里复制");
+			}
+			long id = Long.parseLong(text);
+			if (!ids.contains(id)) {
 				ids.add(id);
 			}
 		}

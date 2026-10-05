@@ -9,11 +9,13 @@ import com.mybatisflex.core.query.QueryWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,25 +134,23 @@ public class GenDatasourceService {
 		return body;
 	}
 
-	public int remove(List<Long> ids) {
+	@Transactional(rollbackFor = Exception.class)
+	public List<GenDatasource> remove(List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {
 			throw new ServiceException("请先勾选要删除的数据源");
 		}
-		int removed = 0;
+		List<GenDatasource> rows = new ArrayList<>();
 		for (Long id : ids) {
-			if (id == null) {
-				continue;
-			}
 			GenDatasource row = datasourceMapper.selectOneById(id);
-			if (row != null) {
-				datasourceMapper.deleteById(id);
-				removed++;
+			if (row == null) {
+				throw new ServiceException("这套数据源不存在，或属于其他租户。请刷新列表后再试");
 			}
+			rows.add(row);
 		}
-		if (removed == 0) {
-			throw new ServiceException("这些数据源不存在，或属于其他租户。请刷新列表后再删");
+		for (GenDatasource row : rows) {
+			datasourceMapper.deleteById(row.getId());
 		}
-		return removed;
+		return rows;
 	}
 
 	public Map<String, Object> test(Long id) {
