@@ -2897,3 +2897,30 @@ CREATE TABLE sys_data_scope (
 COMMENT ON TABLE sys_data_scope IS '数据权限规则';
 COMMENT ON COLUMN sys_data_scope.scope_type IS '1 全部 / 2 本部门 / 3 本部门及子部门 / 4 仅本人';
 COMMENT ON COLUMN sys_data_scope.status IS '1 启用 / 0 停用';
+
+-- 接口权限：启用后，除平台管理员外只有被授权的角色能调用该路径
+CREATE TABLE sys_api_scope (
+	id            BIGINT PRIMARY KEY,
+	resource_code VARCHAR(64)  NOT NULL,
+	scope_name    VARCHAR(64)  NOT NULL,
+	scope_path    VARCHAR(128) NOT NULL,
+	scope_type    INT          NOT NULL DEFAULT 1,
+	menu_id       BIGINT,
+	status        INT          NOT NULL DEFAULT 1,
+	remark        VARCHAR(255),
+	create_time   TIMESTAMP,
+	update_time   TIMESTAMP,
+	is_deleted    INT          NOT NULL DEFAULT 0
+);
+CREATE TABLE sys_role_api_scope (
+	id           BIGINT PRIMARY KEY,
+	role_id      BIGINT NOT NULL,
+	api_scope_id BIGINT NOT NULL,
+	create_time  TIMESTAMP,
+	update_time  TIMESTAMP,
+	is_deleted   INT NOT NULL DEFAULT 0
+);
+COMMENT ON TABLE sys_api_scope IS '接口权限规则';
+COMMENT ON COLUMN sys_api_scope.scope_type IS '1 系统接口 / 2 业务接口';
+COMMENT ON COLUMN sys_api_scope.status IS '1 启用 / 0 停用';
+COMMENT ON TABLE sys_role_api_scope IS '角色已授权的接口权限';

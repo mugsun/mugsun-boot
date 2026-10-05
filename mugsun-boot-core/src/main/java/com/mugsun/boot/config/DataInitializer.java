@@ -66,6 +66,7 @@ public class DataInitializer implements CommandLineRunner {
 			reanchorSeedMenus();
 			seedTopMenuPage();
 			seedDataScopePage();
+			seedApiScopePage();
 			return null;
 		});
 	}
@@ -205,6 +206,33 @@ public class DataInitializer implements CommandLineRunner {
 		}
 		seedMenuButton(page.getId(), 1200000000000000148L, "保存数据权限", "sys:data-scope:save", 1);
 		seedMenuButton(page.getId(), 1200000000000000149L, "删除数据权限", "sys:data-scope:remove", 2);
+	}
+
+	/** 接口权限页。基线已灌过的库靠这里补菜单和按钮权限。 */
+	private void seedApiScopePage() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/api-scope"));
+		if (page == null) {
+			page = new SysMenu();
+			page.setId(1200000000000000150L);
+			page.setParentId(parent.getId());
+			page.setMenuName("接口权限");
+			page.setPath("/system/api-scope");
+			page.setComponent("/system/api-scope");
+			page.setMenuType("C");
+			page.setPermission("sys:api-scope:list");
+			page.setSort(45);
+			page.setIcon("ri:route-line");
+			page.setIsPublic(0);
+			page.setIsHide(0);
+			menuMapper.insert(page);
+		}
+		seedMenuButton(page.getId(), 1200000000000000151L, "保存接口权限", "sys:api-scope:save", 1);
+		seedMenuButton(page.getId(), 1200000000000000152L, "删除接口权限", "sys:api-scope:remove", 2);
+		seedMenuButton(page.getId(), 1200000000000000153L, "授权接口权限", "sys:api-scope:grant", 3);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {
