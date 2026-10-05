@@ -203,7 +203,7 @@ public class FlowGraphService {
 		String v = r.value() == null ? "" : r.value();
 		// 比较值杜绝会破坏 warm-flow 条件解析（@@ / |）或换行的字符
 		if (v.contains("|") || v.contains(FlowConstants.SEPARATOR) || v.contains("\n") || v.contains("\r")) {
-			throw new ServiceException("条件值含非法字符（不能包含 | 或 @@ 或换行）");
+			throw new ServiceException("条件值含非法字符（不能包含 | 或 @@ 或换行）。请去掉这些字符后再发布");
 		}
 	}
 
