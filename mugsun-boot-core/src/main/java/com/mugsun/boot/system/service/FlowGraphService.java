@@ -198,7 +198,7 @@ public class FlowGraphService {
 		}
 		// 变量名限定为合法标识符：杜绝 SpEL 注入（如 T(Runtime)…）与破坏 @@/| 分隔的字符
 		if (!FIELD_PATTERN.matcher(r.field().trim()).matches()) {
-			throw new ServiceException("条件变量名非法（仅允许字母/数字/下划线，且非数字开头）：" + r.field());
+			throw new ServiceException("条件变量名非法。请改成以字母或下划线开头，并且只含字母、数字和下划线后再发布");
 		}
 		String v = r.value() == null ? "" : r.value();
 		// 比较值杜绝会破坏 warm-flow 条件解析（@@ / |）或换行的字符
