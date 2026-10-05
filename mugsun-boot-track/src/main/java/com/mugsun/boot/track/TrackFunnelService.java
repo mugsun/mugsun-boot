@@ -131,15 +131,17 @@ public class TrackFunnelService {
 	/** 步骤解析：逗号分隔 trim + 去重（保序）后 2..{@value TrackConstants#FUNNEL_STEPS_MAX} 个；
 	 *  每个须满足 {@link TrackConstants#CUSTOM_EVENT_NAME} 或 ∈ {@link TrackConstants#PREDEFINED_EVENTS}，否则 400 */
 	private List<String> parseSteps(String steps) {
-		if (steps == null || steps.isBlank()) {
-			throw new ServiceException("缺少 steps（逗号分隔事件名，2.." + TrackConstants.FUNNEL_STEPS_MAX + " 个）");
-		}
 		LinkedHashSet<String> deduped = new LinkedHashSet<>();
-		for (String part : steps.split(",")) {
-			String name = part.trim();
-			if (!name.isEmpty()) {
-				deduped.add(name);
+		if (steps != null) {
+			for (String part : steps.split(",")) {
+				String name = part.trim();
+				if (!name.isEmpty()) {
+					deduped.add(name);
+				}
 			}
+		}
+		if (deduped.isEmpty()) {
+			throw new ServiceException("请至少选择两个步骤。漏斗要按顺序看转化");
 		}
 		if (deduped.size() < 2 || deduped.size() > TrackConstants.FUNNEL_STEPS_MAX) {
 			throw new ServiceException("步骤数须 2.." + TrackConstants.FUNNEL_STEPS_MAX + "（去重后）");

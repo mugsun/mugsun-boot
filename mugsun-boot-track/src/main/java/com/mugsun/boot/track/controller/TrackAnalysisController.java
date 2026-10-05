@@ -149,7 +149,7 @@ public class TrackAnalysisController {
 	@GetMapping("/funnel")
 	@SaCheckPermission(TrackConstants.PERM_FUNNEL_LIST)
 	public R<Map<String, Object>> funnel(@RequestParam(required = false) String appKey,
-										 @RequestParam String steps,
+										 @RequestParam(required = false) String steps,
 										 @RequestParam(required = false) Integer days,
 										 @RequestParam(required = false) Long windowHours) {
 		return R.data(funnelService.funnel(appKey, steps, days, windowHours));
