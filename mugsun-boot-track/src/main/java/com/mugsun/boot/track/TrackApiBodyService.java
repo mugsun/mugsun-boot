@@ -80,8 +80,10 @@ public class TrackApiBodyService {
 			throw new TrackCollectException(400, "应用标识不对。请到接入管理里复制这个应用的标识后再上报");
 		}
 		String eventId = text(root, TrackConstants.FIELD_EVENT_ID);
-		if (eventId == null || eventId.length() > TrackConstants.EVENT_ID_MAX_LEN) {
-			throw new TrackCollectException(400, "无效 event_id");
+		if (eventId == null || eventId.length() > TrackConstants.EVENT_ID_MAX_LEN
+			|| !TrackConstants.REPLAY_PATH_SAFE.matcher(eventId).matches()) {
+			throw new TrackCollectException(400, "事件标识不对。请用字母、数字、下划线或短横线，最长 "
+				+ TrackConstants.EVENT_ID_MAX_LEN + " 位，再上传这段响应体");
 		}
 		// gzip 缺省按 true（与 replay 同语义）；gzip=false = base64(明文响应体)
 		boolean gzipped = root.path("gzip").asBoolean(true);
@@ -103,12 +105,7 @@ public class TrackApiBodyService {
 		// 3) 限流（独立键前缀，阈值 = collect 同级；body 频次远低于事件流但仍需防恶意打爆）
 		assertRateLimit(appKey, ip);
 
-		// 4) event_id 路径安全字符集（对象键文件名段，防路径穿越注入对象键）
-		if (!TrackConstants.REPLAY_PATH_SAFE.matcher(eventId).matches()) {
-			throw new TrackCollectException(400, "无效 event_id");
-		}
-
-		// 5) base64 解码 → 明文字节：gzip 体有界解压（防 zip 炸弹，解压后 ≤ sys_param 上限）；
+		// 4) base64 解码 → 明文字节：gzip 体有界解压（防 zip 炸弹，解压后 ≤ sys_param 上限）；
 		//    明文体同界长度兜底；落储字节恒为 gzip（明文体服务端补压，存储/读取单一口径）
 		long maxBytes = paramLong(TrackConstants.PARAM_API_BODY_MAX_BYTES, TrackConstants.DEFAULT_API_BODY_MAX_BYTES);
 		byte[] decoded;
