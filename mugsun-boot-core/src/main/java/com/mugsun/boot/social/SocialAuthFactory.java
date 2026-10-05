@@ -33,7 +33,7 @@ public class SocialAuthFactory {
 		String key = source == null ? "" : source.toLowerCase();
 		SocialProperties.ClientConfig cfg = properties.getType().get(key);
 		if (cfg == null) {
-			throw new ServiceException("不支持或未配置的第三方登录来源：" + source);
+			throw new ServiceException("不支持或未配置的第三方登录来源。请换一个已配置的来源，或联系管理员打开后再试");
 		}
 		if ("mock".equals(key)) {
 			// mock provider 仅 dev 联调：身份固定，生产开启即后门，独立开关缺省关闭
