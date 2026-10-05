@@ -28,7 +28,7 @@ public class DbSerialNumberGenerator extends AbstractSerialNumberGenerator {
 		SysSerialNumber locked = serialMapper.selectOneByQuery(
 			QueryWrapper.create().eq("code", info.code()).forUpdate());
 		if (locked == null) {
-			throw new ServiceException("单号规则不存在: " + info.code());
+			throw new ServiceException("这个单号规则不存在。请刷新列表核对编码后再生成");
 		}
 		GenerateResult result = loop(locked.getLastNumber(), locked.getLastTime(), info, count);
 		persist(result, count, false);

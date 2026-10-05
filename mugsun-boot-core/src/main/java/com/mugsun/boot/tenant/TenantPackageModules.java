@@ -52,6 +52,7 @@ public final class TenantPackageModules {
 		GATED.put("/system/message-template", Set.of("MessageTemplate"));
 		GATED.put("/system/message", Set.of("MessageSend"));
 		GATED.put("/system/mail-template", Set.of("MailTemplate"));
+		GATED.put("/system/serial-number", Set.of("SerialNumber"));
 		GATED.put("/system/client", Set.of("Client"));
 		GATED.put("/system/gis", Set.of("GisWorkspace", "GisProvider", "GisLayer", "GisScene", "GisAnalyze"));
 	}
@@ -99,6 +100,7 @@ public final class TenantPackageModules {
 		// 平台全局配置（表无 tenant_id）
 		"/system/notify",
 		"/system/mail-template",
+		"/system/serial-number",
 		"/system/message-template",
 		"/system/report",
 		"/system/data-audit",

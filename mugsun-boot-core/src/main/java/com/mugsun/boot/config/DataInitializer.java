@@ -74,6 +74,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedFlowRunningPage();
 			seedGenDatasourcePage();
 			seedGenSchemePage();
+			seedSerialNumberPage();
 			return null;
 		});
 	}
@@ -392,6 +393,36 @@ public class DataInitializer implements CommandLineRunner {
 		seedMenuButton(page.getId(), 1200000000000000168L, "保存生成方案", "sys:gen-scheme:save", 1);
 		seedMenuButton(page.getId(), 1200000000000000169L, "删除生成方案", "sys:gen-scheme:remove", 2);
 		seedMenuButton(page.getId(), 1200000000000000170L, "启用生成方案", "sys:gen-scheme:enable", 3);
+	}
+
+	/** 单号规则页。基线已灌过的库靠这里补菜单和按钮。 */
+	private void seedSerialNumberPage() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/serial-number"));
+		if (page == null) {
+			page = new SysMenu();
+			page.setId(1200000000000000171L);
+			page.setParentId(parent.getId());
+			page.setMenuName("单号规则");
+			page.setPath("/system/serial-number");
+			page.setComponent("/system/serial-number");
+			page.setMenuType("C");
+			page.setPermission("sys:serial:list");
+			page.setSort(43);
+			page.setIcon("ri:hashtag");
+			page.setIsPublic(0);
+			page.setIsHide(0);
+			menuMapper.insert(page);
+		} else if (page.getPermission() == null || page.getPermission().isBlank()) {
+			page.setPermission("sys:serial:list");
+			menuMapper.update(page);
+		}
+		seedMenuButton(page.getId(), 1200000000000000172L, "保存单号规则", "sys:serial:save", 1);
+		seedMenuButton(page.getId(), 1200000000000000173L, "删除单号规则", "sys:serial:remove", 2);
+		seedMenuButton(page.getId(), 1200000000000000174L, "生成单号", "sys:serial:generate", 3);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {

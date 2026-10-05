@@ -74,7 +74,7 @@ public final class RuntimeSql {
 		return "insert into " + com.mugsun.boot.config.BizTables.of("sys_serial_number_record")
 			+ " (id, serial_code, record_date, last_number, last_time, gen_count, create_time, is_deleted) "
 			+ "values (?, ?, ?, ?, ?, ?, " + ts + ", 0) "
-			+ "on conflict (serial_code, record_date) do update set "
+			+ "on conflict (serial_code, record_date) where is_deleted = 0 do update set "
 			+ "last_number = greatest(sys_serial_number_record.last_number, excluded.last_number), "
 			+ "last_time = excluded.last_time, "
 			+ "gen_count = sys_serial_number_record.gen_count + excluded.gen_count";

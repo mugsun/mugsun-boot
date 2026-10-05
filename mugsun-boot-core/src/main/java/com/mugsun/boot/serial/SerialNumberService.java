@@ -4,6 +4,8 @@ import com.mugsun.boot.serial.entity.SysSerialNumber;
 import com.mugsun.boot.serial.mapper.SysSerialNumberMapper;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +19,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class SerialNumberService {
+
+	private static final Logger log = LoggerFactory.getLogger(SerialNumberService.class);
 
 	/** 单次生成上限，防超大批量撑爆内存与自增 */
 	private static final int MAX_COUNT = 1000;
@@ -41,20 +45,27 @@ public class SerialNumberService {
 	/** 生成 count 个单号 */
 	public List<String> generate(String code, int count) {
 		if (count < 1 || count > MAX_COUNT) {
-			throw new ServiceException("生成数量须在 1~" + MAX_COUNT + " 之间");
+			throw new ServiceException("一次最多生成 1000 个。请把数量改到 1 到 1000");
 		}
 		SerialNumberGenerator generator = generators.get(provider);
 		if (generator == null) {
-			throw new ServiceException("未知单号策略: " + provider);
+			throw new ServiceException("单号生成方式还没配好。请联系管理员检查生成方式后再试");
 		}
-		return generator.generate(loadInfo(code), count);
+		try {
+			return generator.generate(loadInfo(code), count);
+		} catch (ServiceException ex) {
+			throw ex;
+		} catch (RuntimeException ex) {
+			log.warn("单号生成失败 code={}", code, ex);
+			throw new ServiceException("单号这次没有生成出来。请稍后再试");
+		}
 	}
 
 	/** 按 code 取规则并解析（末值运行时由各策略另查，此处仅解析格式配置） */
 	private SerialNumberInfo loadInfo(String code) {
 		SysSerialNumber rule = serialMapper.selectOneByQuery(QueryWrapper.create().eq("code", code));
 		if (rule == null) {
-			throw new ServiceException("单号规则不存在: " + code);
+			throw new ServiceException("这个单号规则不存在。请刷新列表核对编码后再生成");
 		}
 		return SerialNumberInfo.parse(rule);
 	}

@@ -89,7 +89,7 @@ public class RedisSerialNumberGenerator extends AbstractSerialNumberGenerator {
 		Long end = redisTemplate.execute(INCR_SCRIPT, List.of(key),
 			String.valueOf(sum), String.valueOf(info.initNumber()), String.valueOf(dbFloor(info)));
 		if (end == null) {
-			throw new ServiceException("单号自增失败: " + info.code());
+			throw new ServiceException("单号这次没有生成出来。请稍后再试");
 		}
 		refreshTtl(key, info.ruleType());
 

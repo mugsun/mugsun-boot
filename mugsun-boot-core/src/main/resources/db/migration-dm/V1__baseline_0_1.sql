@@ -1915,6 +1915,8 @@ FROM (
 	SELECT 1200000000000000141, '个人中心', '/system/user-center', '/system/user-center', 41, 'ri:user-line', 1 FROM DUAL
 	UNION ALL
 	SELECT 1200000000000000142, '菜单管理', '/system/menu', '/system/menu', 42, 'ri:menu-line', 0 FROM DUAL
+	UNION ALL
+	SELECT 1200000000000000171, '单号规则', '/system/serial-number', '/system/serial-number', 43, 'ri:hashtag', 0 FROM DUAL
 ) v
 JOIN sys_menu p ON p.path = '/system' AND p.is_deleted = 0
 WHERE NOT EXISTS (SELECT 1 FROM sys_menu x WHERE x.path = v.path AND x.is_deleted = 0);
