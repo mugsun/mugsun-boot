@@ -250,7 +250,7 @@ public class AuthController {
 	public R<Void> register(@RequestBody RegisterDTO dto) {
 		if (dto.getUsername() == null || dto.getUsername().isBlank()
 			|| dto.getPassword() == null || dto.getPassword().isBlank()) {
-			throw new ServiceException("用户名和密码不能为空");
+			throw new ServiceException("用户名和密码不能为空。请填上用户名和密码后再注册");
 		}
 		// 图形验证码前置（防批量注册/手机号冒注）
 		captchaService.verify(dto.getCaptchaUuid(), dto.getCaptchaCode());
