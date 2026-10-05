@@ -81,13 +81,13 @@ public class TrackUserTimelineService {
 										Long startTs, Long endTs, String cursor, Integer pageSize) {
 		appKey = assertAppKey(appKey);
 		if (userId == null && (distinctId == null || distinctId.isBlank())) {
-			throw new ServiceException("缺少 userId 或 distinctId");
+			throw new ServiceException("请先选择用户。也可以切到访客，填上访客标识");
 		}
-		if (distinctId != null && distinctId.length() > TrackConstants.DISTINCT_ID_MAX_LEN) {
-			throw new ServiceException("非法 distinctId");
+		if (distinctId != null && distinctId.trim().length() > TrackConstants.DISTINCT_ID_MAX_LEN) {
+			throw new ServiceException("访客标识太长。请核对后再查");
 		}
 		if (startTs == null || endTs == null || startTs < 0 || endTs <= startTs) {
-			throw new ServiceException("缺少或非法时间范围（startTs/endTs，epoch 毫秒）");
+			throw new ServiceException("请选择开始和结束时间，结束时间要晚于开始时间");
 		}
 		if (endTs - startTs > TrackConstants.TIMELINE_RANGE_MAX_MS) {
 			throw new ServiceException("时间范围不能超过 7 天");

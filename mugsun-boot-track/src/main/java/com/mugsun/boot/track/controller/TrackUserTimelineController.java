@@ -45,8 +45,8 @@ public class TrackUserTimelineController {
 	public R<Map<String, Object>> timeline(@RequestParam(required = false) String appKey,
 										   @RequestParam(required = false) Long userId,
 										   @RequestParam(required = false) String distinctId,
-										   @RequestParam Long startTs,
-										   @RequestParam Long endTs,
+										   @RequestParam(required = false) Long startTs,
+										   @RequestParam(required = false) Long endTs,
 										   @RequestParam(required = false) String cursor,
 										   @RequestParam(required = false) Integer pageSize) {
 		return R.data(timelineService.timeline(appKey, userId, distinctId, startTs, endTs, cursor, pageSize));
