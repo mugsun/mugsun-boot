@@ -57,7 +57,7 @@ public class SocialService {
 		callback.setState(state);
 		AuthResponse<AuthUser> response = authRequest.login(callback);
 		if (!response.ok() || response.getData() == null) {
-			throw new ServiceException("第三方授权失败：" + response.getMsg());
+			throw new ServiceException("第三方授权失败。请回到登录页，重新发起授权后再试");
 		}
 		return response.getData();
 	}
