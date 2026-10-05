@@ -469,7 +469,7 @@ public class TrackVisualService {
 				redis.expire(key, Duration.ofSeconds(TrackConstants.RATE_LIMIT_EXPIRE_SECONDS));
 			}
 			if (count != null && count > TrackConstants.VISUAL_DRAFT_RATE_LIMIT) {
-				throw new TrackCollectException(429, "请求过于频繁");
+				throw new TrackCollectException(429, "请求过于频繁。请等一分钟后再上报这条草稿");
 			}
 		} catch (TrackCollectException e) {
 			throw e;
