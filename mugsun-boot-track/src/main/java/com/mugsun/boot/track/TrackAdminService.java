@@ -295,7 +295,7 @@ public class TrackAdminService {
 			return 10;
 		}
 		if (sampleRate < 0 || sampleRate > 100) {
-			throw new ServiceException("回放采样率须 0..100");
+			throw new ServiceException("回放采样率须 0..100。0 表示只强制上传含错误的会话，请改到这个范围里再保存");
 		}
 		return sampleRate;
 	}
