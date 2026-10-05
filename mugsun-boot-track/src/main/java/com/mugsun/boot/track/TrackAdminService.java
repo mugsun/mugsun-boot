@@ -273,7 +273,7 @@ public class TrackAdminService {
 			return 100;
 		}
 		if (sampleRate < 1 || sampleRate > 100) {
-			throw new ServiceException("采样率须 1..100");
+			throw new ServiceException("采样率只支持 1 到 100。100 表示全量采集，请改到这个范围里再保存");
 		}
 		return sampleRate;
 	}
