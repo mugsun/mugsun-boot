@@ -1917,6 +1917,10 @@ FROM (
 	SELECT 1200000000000000142, '菜单管理', '/system/menu', '/system/menu', 42, 'ri:menu-line', 0 FROM DUAL
 	UNION ALL
 	SELECT 1200000000000000171, '单号规则', '/system/serial-number', '/system/serial-number', 43, 'ri:hashtag', 0 FROM DUAL
+	UNION ALL
+	SELECT 1200000000000000175, '通知渠道', '/system/notify-channel', '/system/notify-channel', 44, 'ri:router-line', 0 FROM DUAL
+	UNION ALL
+	SELECT 1200000000000000178, '通知模板', '/system/notify-template', '/system/notify-template', 45, 'ri:draft-line', 0 FROM DUAL
 ) v
 JOIN sys_menu p ON p.path = '/system' AND p.is_deleted = 0
 WHERE NOT EXISTS (SELECT 1 FROM sys_menu x WHERE x.path = v.path AND x.is_deleted = 0);

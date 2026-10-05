@@ -1680,7 +1680,9 @@ FROM (VALUES
 	(1200000000000000140, '缓存管理', '/system/cache', '/system/cache', 40, 'ri:database-2-line', 0),
 	(1200000000000000141, '个人中心', '/system/user-center', '/system/user-center', 41, 'ri:user-line', 1),
 	(1200000000000000142, '菜单管理', '/system/menu', '/system/menu', 42, 'ri:menu-line', 0),
-	(1200000000000000171, '单号规则', '/system/serial-number', '/system/serial-number', 43, 'ri:hashtag', 0)
+	(1200000000000000171, '单号规则', '/system/serial-number', '/system/serial-number', 43, 'ri:hashtag', 0),
+	(1200000000000000175, '通知渠道', '/system/notify-channel', '/system/notify-channel', 44, 'ri:router-line', 0),
+	(1200000000000000178, '通知模板', '/system/notify-template', '/system/notify-template', 45, 'ri:draft-line', 0)
 ) AS v(id, name, path, component, sort, icon, pub)
 JOIN sys_menu p ON p.path = '/system' AND p.is_deleted = 0
 WHERE NOT EXISTS (SELECT 1 FROM sys_menu x WHERE x.path = v.path AND x.is_deleted = 0);

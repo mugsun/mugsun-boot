@@ -88,4 +88,10 @@ public class SysNotifyTemplate extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	/** 防重复提交按模板内容认同一条。 */
+	@Override
+	public String toString() {
+		return getId() + "|" + code + "|" + name + "|" + subject + "|" + content + "|" + channels + "|" + status;
+	}
 }

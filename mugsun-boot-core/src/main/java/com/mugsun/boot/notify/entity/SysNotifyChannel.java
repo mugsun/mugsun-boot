@@ -71,4 +71,10 @@ public class SysNotifyChannel extends BaseEntity {
 	public void setRemark(String remark) {
 		this.remark = remark;
 	}
+
+	/** 防重复提交不带凭据，避免明文进日志。 */
+	@Override
+	public String toString() {
+		return getId() + "|" + channel + "|" + name + "|" + status + "|" + config + "|" + remark;
+	}
 }

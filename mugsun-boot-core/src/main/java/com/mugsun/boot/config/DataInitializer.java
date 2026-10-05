@@ -75,6 +75,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedGenDatasourcePage();
 			seedGenSchemePage();
 			seedSerialNumberPage();
+			seedNotifyPages();
 			return null;
 		});
 	}
@@ -423,6 +424,50 @@ public class DataInitializer implements CommandLineRunner {
 		seedMenuButton(page.getId(), 1200000000000000172L, "保存单号规则", "sys:serial:save", 1);
 		seedMenuButton(page.getId(), 1200000000000000173L, "删除单号规则", "sys:serial:remove", 2);
 		seedMenuButton(page.getId(), 1200000000000000174L, "生成单号", "sys:serial:generate", 3);
+	}
+
+	/** 通知渠道和通知模板页。基线已灌过的库靠这里补菜单和按钮。 */
+	private void seedNotifyPages() {
+		SysMenu parent = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system"));
+		if (parent == null) {
+			return;
+		}
+		SysMenu channel = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/notify-channel"));
+		if (channel == null) {
+			channel = new SysMenu();
+			channel.setId(1200000000000000175L);
+			channel.setParentId(parent.getId());
+			channel.setMenuName("通知渠道");
+			channel.setPath("/system/notify-channel");
+			channel.setComponent("/system/notify-channel");
+			channel.setMenuType("C");
+			channel.setPermission("sys:notify-channel:list");
+			channel.setSort(44);
+			channel.setIcon("ri:router-line");
+			channel.setIsPublic(0);
+			channel.setIsHide(0);
+			menuMapper.insert(channel);
+		}
+		seedMenuButton(channel.getId(), 1200000000000000176L, "保存通知渠道", "sys:notify-channel:save", 1);
+		seedMenuButton(channel.getId(), 1200000000000000177L, "删除通知渠道", "sys:notify-channel:remove", 2);
+		SysMenu template = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/notify-template"));
+		if (template == null) {
+			template = new SysMenu();
+			template.setId(1200000000000000178L);
+			template.setParentId(parent.getId());
+			template.setMenuName("通知模板");
+			template.setPath("/system/notify-template");
+			template.setComponent("/system/notify-template");
+			template.setMenuType("C");
+			template.setPermission("sys:notify:list");
+			template.setSort(45);
+			template.setIcon("ri:draft-line");
+			template.setIsPublic(0);
+			template.setIsHide(0);
+			menuMapper.insert(template);
+		}
+		seedMenuButton(template.getId(), 1200000000000000179L, "保存通知模板", "sys:notify:save", 1);
+		seedMenuButton(template.getId(), 1200000000000000180L, "删除通知模板", "sys:notify:remove", 2);
 	}
 
 	private void seedMenuButton(Long parentId, Long id, String name, String permission, int sort) {
