@@ -169,7 +169,7 @@ public class TrackReplayQueryService {
 		sessionId = requireSessionId(sessionId);
 		TrackReplay replay = replayMapper.selectOneByQuery(QueryWrapper.create().eq("session_id", sessionId));
 		if (replay == null || replay.getStorageKey() == null) {
-			throw new ServiceException("回放不存在");
+			throw new ServiceException("这个回放没有了。请回到列表重新打开");
 		}
 		return replay;
 	}
