@@ -119,7 +119,7 @@ public class TrackReplayService {
 		// 4) 会话超限封禁检查（此前块已把会话累计顶破上限：后续块一律 413 丢弃）
 		if (banned(sessionId)) {
 			metrics.dropped("replay_banned", 1);
-			throw new TrackCollectException(413, "该会话回放已超限截断");
+			throw new TrackCollectException(413, "这个会话的回放已经超限，后面的内容不再接收。请换一个新会话再录");
 		}
 
 		// 5) base64 解码 → rrweb JSON 明文字节：gzip 块有界解压（防 zip 炸弹，解压后 ≤1MB）；
