@@ -306,7 +306,7 @@ public class AuthController {
 	@PostMapping("/forget-code")
 	public R<Void> forgetCode(@RequestBody ForgetCodeDTO dto) {
 		if (dto.username() == null || dto.username().isBlank()) {
-			throw new ServiceException("账号不能为空");
+			throw new ServiceException("账号不能为空。请填上账号后再获取验证码");
 		}
 		captchaService.verify(dto.captchaUuid(), dto.captchaCode());
 		String tenantId = (dto.tenantId() == null || dto.tenantId().isBlank())
