@@ -54,17 +54,31 @@ public class MailService {
 	public String sendByTemplate(String to, String code, Map<String, String> params) {
 		SysMailTemplate tpl = templateMapper.selectOneByQuery(QueryWrapper.create().eq("code", code));
 		if (tpl == null) {
-			throw new ServiceException("邮件模板不存在: " + code);
+			throw new ServiceException("这个邮件模板不存在。请刷新列表核对编码后再发");
 		}
-		String content = renderer.render(tpl.getContent(), params);
-		send(to, renderer.render(tpl.getSubject(), params), content);
+		if (tpl.getStatus() != null && tpl.getStatus() == 0) {
+			throw new ServiceException("这个模板已停用。请先启用，再发送测试或正式邮件");
+		}
+		String content;
+		try {
+			content = renderer.render(tpl.getContent(), params);
+		} catch (ServiceException ex) {
+			throw new ServiceException("主题或内容里还有占位没有对应的值。目前只会替换 ${code}，请改成这个占位，或去掉其他占位");
+		}
+		String subject;
+		try {
+			subject = renderer.render(tpl.getSubject(), params);
+		} catch (ServiceException ex) {
+			throw new ServiceException("主题或内容里还有占位没有对应的值。目前只会替换 ${code}，请改成这个占位，或去掉其他占位");
+		}
+		send(to, subject, content);
 		return content;
 	}
 
 	/** 发送纯文本邮件；通道未配置/下发异常即明确报错（显式降级，不再静默吞错假成功） */
 	public void send(String to, String subject, String content) {
 		if (!isConfigured()) {
-			throw new ServiceException("邮件通道未配置");
+			throw new ServiceException("邮件通道还没配好。请先填写发信服务器、账号和密码，再发送");
 		}
 		try {
 			SimpleMailMessage msg = new SimpleMailMessage();
@@ -75,7 +89,8 @@ public class MailService {
 			mailSender.send(msg);
 			log.info("邮件已发送 to={} subject={}", to, subject);
 		} catch (Exception e) {
-			throw new ServiceException("邮件通道异常: " + e.getMessage());
+			log.warn("邮件发送失败 to={} {}", to, e.toString());
+			throw new ServiceException("邮件没发出去。请核对发信服务器、账号和密码后再试");
 		}
 	}
 }
