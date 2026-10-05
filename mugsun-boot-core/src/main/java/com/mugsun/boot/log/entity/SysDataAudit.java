@@ -16,6 +16,11 @@ public class SysDataAudit extends BaseEntity {
 	private String operator;
 	/** 字段级变更内容 JSON：[{label,old,new}] */
 	private String changeContent;
+	/** create / update / delete */
+	private String action;
+	private String httpMethod;
+	private String requestPath;
+	private String clientIp;
 
 	public String getBizTable() {
 		return bizTable;
@@ -63,5 +68,37 @@ public class SysDataAudit extends BaseEntity {
 
 	public void setChangeContent(String changeContent) {
 		this.changeContent = changeContent;
+	}
+
+	public String getAction() {
+		return action;
+	}
+
+	public void setAction(String action) {
+		this.action = action;
+	}
+
+	public String getHttpMethod() {
+		return httpMethod;
+	}
+
+	public void setHttpMethod(String httpMethod) {
+		this.httpMethod = httpMethod;
+	}
+
+	public String getRequestPath() {
+		return requestPath;
+	}
+
+	public void setRequestPath(String requestPath) {
+		this.requestPath = requestPath;
+	}
+
+	public String getClientIp() {
+		return clientIp;
+	}
+
+	public void setClientIp(String clientIp) {
+		this.clientIp = clientIp;
 	}
 }

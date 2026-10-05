@@ -69,6 +69,7 @@ public class DataInitializer implements CommandLineRunner {
 			seedApiScopePage();
 			seedApiKeyLogButton();
 			seedUsualLogPage();
+			seedDataAuditPermission();
 			seedJobServerPage();
 			seedFlowRunningPage();
 			seedGenDatasourcePage();
@@ -276,6 +277,16 @@ public class DataInitializer implements CommandLineRunner {
 		page.setIsPublic(0);
 		page.setIsHide(0);
 		menuMapper.insert(page);
+	}
+
+	/** 变更记录页补上查看权限。已有菜单但权限为空时补上，避免打开页面却被拒绝。 */
+	private void seedDataAuditPermission() {
+		SysMenu page = menuMapper.selectOneByQuery(QueryWrapper.create().eq("path", "/system/data-audit"));
+		if (page == null || (page.getPermission() != null && !page.getPermission().isBlank())) {
+			return;
+		}
+		page.setPermission("sys:data-audit:list");
+		menuMapper.update(page);
 	}
 
 	/** 任务服务页。基线已灌过的库靠这里补菜单和按钮。 */

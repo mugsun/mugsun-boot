@@ -2935,3 +2935,12 @@ CREATE TABLE sys_gen_scheme (
 );
 COMMENT ON TABLE sys_gen_scheme IS '代码生成方案';
 COMMENT ON COLUMN sys_gen_scheme.status IS '1 启用 / 0 未启用，同一租户只启用一套';
+
+ALTER TABLE sys_data_audit ADD COLUMN action VARCHAR(16);
+ALTER TABLE sys_data_audit ADD COLUMN http_method VARCHAR(16);
+ALTER TABLE sys_data_audit ADD COLUMN request_path VARCHAR(255);
+ALTER TABLE sys_data_audit ADD COLUMN client_ip VARCHAR(64);
+COMMENT ON COLUMN sys_data_audit.action IS 'create 新增 / update 修改 / delete 删除';
+COMMENT ON COLUMN sys_data_audit.http_method IS '触发这次变更的请求方法';
+COMMENT ON COLUMN sys_data_audit.request_path IS '触发这次变更的请求路径';
+COMMENT ON COLUMN sys_data_audit.client_ip IS '触发这次变更的来源地址';
