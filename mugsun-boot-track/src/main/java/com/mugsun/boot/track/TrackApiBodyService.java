@@ -92,7 +92,8 @@ public class TrackApiBodyService {
 			throw new TrackCollectException(400, "这段响应体没有内容。请带上响应内容后再上传");
 		}
 		if (payload.length() > TrackConstants.API_BODY_PAYLOAD_B64_MAX_LEN) {
-			throw new TrackCollectException(413, "响应体过大");
+			throw new TrackCollectException(413, "这段响应体太大。单段内容最长 "
+				+ TrackConstants.API_BODY_PAYLOAD_B64_MAX_LEN + " 个字，请缩小后再上传");
 		}
 
 		// 2) 应用校验：存在 + enabled=1 + api_body_enabled=1（本地缓存 30s，生效延迟见 TrackAppService javadoc）
