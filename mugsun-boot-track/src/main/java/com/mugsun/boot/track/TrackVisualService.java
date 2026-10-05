@@ -185,18 +185,32 @@ public class TrackVisualService {
 	 * LREM 草稿 → 失效配置/事件定义缓存 → 返回规则行。
 	 */
 	public TrackVisualRule confirmDraft(String token, String draftId, String eventName, long userId) {
-		Map<Object, Object> hash = requireToken(token);
+		if (token == null || token.isBlank()) {
+			throw new ServiceException("请先进入圈选，再确认草稿");
+		}
+		if (draftId == null || draftId.isBlank()) {
+			throw new ServiceException("请先选择要确认的草稿");
+		}
+		String trimmed = token.trim();
+		Map<Object, Object> hash = redis.opsForHash().entries(TrackConstants.VISUAL_TOKEN_KEY_PREFIX + trimmed);
+		if (hash.isEmpty()) {
+			throw new ServiceException("圈选已经结束。请重新进入圈选后再确认");
+		}
+		String current = currentTenant();
+		if (current != null && !current.equals(String.valueOf(hash.get("tenantId")))) {
+			throw new ServiceException("这条圈选不属于当前账号。请用签发时的账号操作");
+		}
 		String appKey = String.valueOf(hash.get("appKey"));
 		String tokenTenant = String.valueOf(hash.get("tenantId"));
-		String found = findDraft(token, draftId);
+		String found = findDraft(trimmed, draftId.trim());
 		if (found == null) {
-			throw new ServiceException("草稿不存在或已处理");
+			throw new ServiceException("这个草稿不存在，或已经处理过。请刷新后再看");
 		}
 		Map<String, Object> draft = parseDraft(found);
 		String name = eventName == null || eventName.isBlank()
 			? String.valueOf(draft.get("eventName")) : eventName.trim();
 		if (!TrackConstants.CUSTOM_EVENT_NAME.matcher(name).matches()) {
-			throw new ServiceException("事件名不合法（字母开头，仅字母/数字/下划线，≤64 位）");
+			throw new ServiceException("事件名请用字母开头，后面只能是字母、数字或下划线，最长 64 位");
 		}
 		String selector = String.valueOf(draft.get("selector"));
 		String routePath = draft.get("routePath") == null ? null : String.valueOf(draft.get("routePath"));
@@ -225,17 +239,17 @@ public class TrackVisualService {
 				visualRuleMapper.insertSelective(rule);
 			} catch (DuplicateKeyException e) {
 				// 管理端操作竞态可忽略：并发撞自然键唯一索引转友好提示
-				throw new ServiceException("规则已存在");
+				throw new ServiceException("规则已存在。请换一个事件名后再确认");
 			}
 		}
 		upsertEventDef(appKey, name, tokenTenant);
-		redis.opsForList().remove(TrackConstants.VISUAL_DRAFT_KEY_PREFIX + token, 1, found);
+		redis.opsForList().remove(TrackConstants.VISUAL_DRAFT_KEY_PREFIX + trimmed, 1, found);
 		visualRuleService.evict(appKey);
 		eventDefService.evict(appKey, name);
 		return rule;
 	}
 
-	/** 草稿丢弃：找到草稿 LREM 删除（不存在 400）。确认路径仍走 requireToken，这里单独说明下一步。 */
+	/** 草稿丢弃：找到草稿 LREM 删除（不存在 400） */
 	public String discardDraft(String token, String draftId) {
 		if (token == null || token.isBlank()) {
 			throw new ServiceException("请先进入圈选，再丢弃草稿");

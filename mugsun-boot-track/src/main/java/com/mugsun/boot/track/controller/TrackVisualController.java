@@ -55,11 +55,27 @@ public class TrackVisualController {
 	/** 草稿确认成规则：{token, draftId, eventName 可空（缺省取草稿值）} → 规则行（重复圈选 = 更新而非堆行） */
 	@PostMapping("/drafts/confirm")
 	@SaCheckPermission(TrackConstants.PERM_VISUAL_EDIT)
-	public R<TrackVisualRule> confirm(@RequestBody Map<String, Object> body) {
+	public R<TrackVisualRule> confirm(@RequestBody(required = false) Map<String, Object> body) {
+		if (body == null) {
+			throw new ServiceException("请先选择要确认的草稿");
+		}
 		String token = body.get("token") == null ? null : body.get("token").toString();
 		String draftId = body.get("draftId") == null ? null : body.get("draftId").toString();
 		String eventName = body.get("eventName") == null ? null : body.get("eventName").toString();
-		return R.data(visualService.confirmDraft(token, draftId, eventName, StpUtil.getLoginIdAsLong()));
+		if ("null".equals(token)) {
+			token = null;
+		}
+		if ("null".equals(draftId)) {
+			draftId = null;
+		}
+		TrackVisualRule rule = visualService.confirmDraft(token, draftId, eventName, StpUtil.getLoginIdAsLong());
+		String name = rule.getEventName();
+		if (name == null || name.isBlank()) {
+			name = "这条规则";
+		}
+		R<TrackVisualRule> resp = R.data(rule);
+		resp.setMsg("已确认为圈选规则「" + name + "」。配置下发会带上这条规则");
+		return resp;
 	}
 
 	/** 草稿丢弃：{token, draftId} */
