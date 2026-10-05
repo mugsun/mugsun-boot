@@ -362,7 +362,7 @@ public class AuthController {
 		if (!smsService.verifyCode(phone, code)) {
 			loginLockService.recordFail(lockKey);
 			authLoginService.saveLoginLog(phone, request, ClientConstants.DEFAULT_CLIENT_ID, TenantConstants.DEFAULT_TENANT_ID, 0, "短信验证码错误", "sms");
-			throw new ServiceException("手机号或验证码错误");
+			throw new ServiceException("手机号或验证码错误。请核对手机号和验证码后再登录");
 		}
 		SysUser user = TenantContext.ignore(() ->
 			userMapper.selectOneByQuery(QueryWrapper.create().eq("phone", phone).orderBy("id", false)));
@@ -370,7 +370,7 @@ public class AuthController {
 		if (user == null) {
 			loginLockService.recordFail(lockKey);
 			authLoginService.saveLoginLog(phone, request, ClientConstants.DEFAULT_CLIENT_ID, TenantConstants.DEFAULT_TENANT_ID, 0, "手机号未注册", "sms");
-			throw new ServiceException("手机号或验证码错误");
+			throw new ServiceException("手机号或验证码错误。请核对手机号和验证码后再登录");
 		}
 		// 登录层租户生命周期校验：停用/过期的租户禁止短信登录
 		String smsTenantInvalid = tenantValidator.validate(user.getTenantId());
