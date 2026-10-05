@@ -144,7 +144,7 @@ public class TrackFunnelService {
 			throw new ServiceException("请至少选择两个步骤。漏斗要按顺序看转化");
 		}
 		if (deduped.size() < 2) {
-			throw new ServiceException("只剩一个步骤。请再选一个不同的事件");
+			throw new ServiceException("步骤数不够。请再选一个不同的事件");
 		}
 		if (deduped.size() > TrackConstants.FUNNEL_STEPS_MAX) {
 			throw new ServiceException("步骤超过 " + TrackConstants.FUNNEL_STEPS_MAX
@@ -153,7 +153,7 @@ public class TrackFunnelService {
 		for (String name : deduped) {
 			if (!TrackConstants.CUSTOM_EVENT_NAME.matcher(name).matches()
 				&& !TrackConstants.PREDEFINED_EVENTS.contains(name)) {
-				throw new ServiceException("步骤事件名不合法: " + name);
+				throw new ServiceException("步骤事件名不合法。请从事件列表里重新选择");
 			}
 		}
 		return List.copyOf(deduped);
