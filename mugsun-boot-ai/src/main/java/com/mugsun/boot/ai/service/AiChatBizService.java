@@ -355,12 +355,32 @@ public class AiChatBizService {
 		return emitter;
 	}
 
-	public void stop(String requestId) {
+	public String stop(String requestId) {
 		moduleService.requireEnabled();
-		AtomicBoolean f = stopFlags.get(requestId);
-		if (f != null) {
-			f.set(true);
+		if (requestId == null || requestId.isBlank()) {
+			throw new ServiceException("请先发送问题。生成开始后才能停止");
 		}
+		String rid = requestId.trim();
+		if (!rid.matches("[A-Za-z0-9_-]{8,64}")) {
+			throw new ServiceException("请求编号不对。请重新发送，生成过程中再点停止");
+		}
+		AtomicBoolean flag = stopFlags.get(rid);
+		if (flag != null) {
+			flag.set(true);
+			return "已停止。这条回答不会再继续生成";
+		}
+		AiMessage msg = findAssistantByRequest(rid);
+		if (msg == null) {
+			throw new ServiceException("没有正在生成的回答。请先发送问题，生成过程中再点停止");
+		}
+		requireSession(msg.getSessionId());
+		if (AiConstants.MSG_STATUS_STREAMING.equals(msg.getStatus())) {
+			msg.setStatus(AiConstants.MSG_STATUS_CANCELED);
+			msg.sanitizeForUpdate();
+			messageMapper.update(msg);
+			return "已停止。这条回答不会再继续生成";
+		}
+		throw new ServiceException("这次生成已经结束。刷新会话后可以看到结果");
 	}
 
 	/**

@@ -49,8 +49,11 @@ public class AiChatController {
 
 	@PostMapping("/stop")
 	@SaCheckPermission(AiConstants.PERM_ASSISTANT_CHAT)
-	public R<Void> stop(@RequestParam String requestId) {
-		chatService.stop(requestId);
-		return R.success("ok");
+	public R<Void> stop(@RequestParam(required = false) String requestId,
+						@RequestBody(required = false) Map<String, Object> body) {
+		if ((requestId == null || requestId.isBlank()) && body != null && body.get("requestId") != null) {
+			requestId = String.valueOf(body.get("requestId"));
+		}
+		return R.success(chatService.stop(requestId));
 	}
 }
