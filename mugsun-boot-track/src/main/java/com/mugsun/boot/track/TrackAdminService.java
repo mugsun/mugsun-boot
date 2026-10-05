@@ -262,7 +262,7 @@ public class TrackAdminService {
 		}
 		String p = platform.trim();
 		if (p.length() > 16 || !p.matches("^[a-z]+$")) {
-			throw new ServiceException("非法 platform（小写字母，≤16 字）");
+			throw new ServiceException("平台请用小写字母，最长 16 位。例如 web、ios、android，请改完再保存");
 		}
 		return p;
 	}
