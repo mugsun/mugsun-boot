@@ -95,7 +95,7 @@ public class FlowGraphService {
 			case "condition" -> exclusiveGateway(node, nextCode, ctx, nodes);
 			case "parallel" -> parallelGateway(node, nextCode, ctx, nodes);
 			case "approval" -> approval(node, nextCode, ctx, nodes);
-			default -> throw new ServiceException("未知节点类型：" + node.type());
+			default -> throw new ServiceException("未知节点类型。请改成审批、条件或并行后再发布");
 		};
 	}
 
