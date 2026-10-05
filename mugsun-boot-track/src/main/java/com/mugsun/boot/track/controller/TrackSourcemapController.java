@@ -46,10 +46,14 @@ public class TrackSourcemapController {
 	 */
 	@PostMapping("/upload")
 	@SaCheckPermission(TrackConstants.PERM_APP_EDIT)
-	public R<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
-										 @RequestParam String appKey,
-										 @RequestParam String release) {
-		return R.data(sourcemapService.upload(file, appKey, release, StpUtil.getLoginIdAsLong()));
+	public R<Map<String, Object>> upload(@RequestParam(value = "file", required = false) MultipartFile file,
+										 @RequestParam(required = false) String appKey,
+										 @RequestParam(required = false) String release) {
+		Map<String, Object> data = sourcemapService.upload(file, appKey, release, StpUtil.getLoginIdAsLong());
+		String filename = data.get("filename") == null ? "这个符号表" : String.valueOf(data.get("filename"));
+		R<Map<String, Object>> resp = R.data(data);
+		resp.setMsg("上传成功。「" + filename + "」这个版本出错时会用它还原堆栈");
+		return resp;
 	}
 
 	/** 分页列表：appKey 必填、release 精确可选；records 同 upload 投影（不下发 storage_key 绝对路径） */

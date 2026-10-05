@@ -55,22 +55,35 @@ public class TrackSourcemapService {
 	 * operatorId 为上传操作人（控制器解析登录 id 传入，落 create_by 审计）。
 	 */
 	public Map<String, Object> upload(MultipartFile file, String appKey, String release, Long operatorId) {
-		String key = requireAppKey(appKey);
-		String rel = requireRelease(release);
+		if (appKey == null || appKey.isBlank()) {
+			throw new ServiceException("请先选择要上传符号表的应用");
+		}
+		String key = appKey.trim();
+		if (key.length() > TrackConstants.APP_KEY_MAX_LEN) {
+			throw new ServiceException("应用标识不对。请从应用列表里重新选择");
+		}
+		if (release == null || release.isBlank()) {
+			throw new ServiceException("请填写 Release。发布这个版本时用的就是这个名字");
+		}
+		String rel = release.trim();
+		if (rel.length() > TrackConstants.SOURCEMAP_RELEASE_MAX_LEN
+			|| !TrackConstants.SOURCEMAP_PATH_SAFE.matcher(rel).matches()) {
+			throw new ServiceException("Release 只能用字母、数字、点、横线和下划线，最长 128 位");
+		}
 		// 应用归属校验（租户插件自动隔离；他租户/不存在应用一律「不存在」）
 		TrackApp app = appMapper.selectOneByQuery(QueryWrapper.create().eq("app_key", key));
 		if (app == null) {
-			throw new ServiceException("应用不存在或无权限");
+			throw new ServiceException("这个应用不存在。请刷新应用列表后再上传");
 		}
 		String filename = requireMapFilename(file);
 		if (file.getSize() > TrackConstants.SOURCEMAP_MAX_BYTES) {
-			throw new ServiceException("sourcemap 大小不能超过 20MB");
+			throw new ServiceException("文件超过 20MB。请换一份更小的符号表");
 		}
 		byte[] bytes;
 		try {
 			bytes = file.getBytes();
 		} catch (IOException e) {
-			throw new ServiceException("读取上传文件失败");
+			throw new ServiceException("文件没有读出来。请重新选择后再上传");
 		}
 		assertValidSourcemap(bytes);
 
@@ -177,23 +190,14 @@ public class TrackSourcemapService {
 		return appKey.trim();
 	}
 
-	/** release 校验：必填、≤{@value TrackConstants#SOURCEMAP_RELEASE_MAX_LEN} 且为对象键安全字符（入对象键路径段，防路径穿越） */
-	private String requireRelease(String release) {
-		if (release == null || release.isBlank() || release.length() > TrackConstants.SOURCEMAP_RELEASE_MAX_LEN
-			|| !TrackConstants.SOURCEMAP_PATH_SAFE.matcher(release.trim()).matches()) {
-			throw new ServiceException("非法 release（字母/数字/.-_，≤128 字）");
-		}
-		return release.trim();
-	}
-
 	/** 文件名校验：.map 后缀（大小写不敏感）、剥离路径段、对象键安全字符、≤{@value TrackConstants#SOURCEMAP_FILENAME_MAX_LEN} */
 	private String requireMapFilename(MultipartFile file) {
 		if (file == null || file.isEmpty()) {
-			throw new ServiceException("上传文件为空");
+			throw new ServiceException("请先选择要上传的 .map 文件");
 		}
 		String name = file.getOriginalFilename();
 		if (name == null || name.isBlank()) {
-			throw new ServiceException("缺少文件名");
+			throw new ServiceException("请先选择要上传的 .map 文件");
 		}
 		// 老浏览器会上送全路径：剥离目录段只留文件名
 		String base = name.replace('\\', '/');
@@ -201,7 +205,7 @@ public class TrackSourcemapService {
 		if (base.length() > TrackConstants.SOURCEMAP_FILENAME_MAX_LEN
 			|| !base.toLowerCase().endsWith(TrackConstants.SOURCEMAP_SUFFIX)
 			|| !TrackConstants.SOURCEMAP_PATH_SAFE.matcher(base).matches()) {
-			throw new ServiceException("仅支持 .map 文件（文件名字母/数字/.-_，≤255 字）");
+			throw new ServiceException("请上传 .map 文件。文件名只能用字母、数字、点、横线和下划线，最长 255 位");
 		}
 		return base;
 	}
@@ -212,10 +216,10 @@ public class TrackSourcemapService {
 		try {
 			root = objectMapper.readTree(bytes);
 		} catch (Exception e) {
-			throw new ServiceException("sourcemap 非合法 JSON");
+			throw new ServiceException("这个文件不是合法的 JSON。请确认选的是构建产出的 .map");
 		}
 		if (root == null || !root.isObject() || !root.path("mappings").isTextual()) {
-			throw new ServiceException("非法 sourcemap：缺少 mappings 字段");
+			throw new ServiceException("这个符号表缺少 mappings 字段。请确认选的是构建产出的 .map");
 		}
 	}
 
