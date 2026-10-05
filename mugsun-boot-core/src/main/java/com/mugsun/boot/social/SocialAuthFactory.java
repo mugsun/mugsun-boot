@@ -28,7 +28,7 @@ public class SocialAuthFactory {
 	public AuthRequest getAuthRequest(String source) {
 		// 总开关：社交登录未启用时一切来源拒绝（修复 enabled 死开关）
 		if (!properties.isEnabled()) {
-			throw new ServiceException("第三方登录未启用");
+			throw new ServiceException("第三方登录未启用。请联系管理员打开后再试");
 		}
 		String key = source == null ? "" : source.toLowerCase();
 		SocialProperties.ClientConfig cfg = properties.getType().get(key);
