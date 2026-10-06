@@ -76,7 +76,7 @@ public class CaptchaService {
 		}
 		redisTemplate.delete(key);
 		if (!cached.equalsIgnoreCase(code)) {
-			throw new ServiceException("验证码错误");
+			throw new ServiceException("验证码错误。请核对后再填，或刷新验证码再试");
 		}
 	}
 }
