@@ -100,7 +100,7 @@ public class TwoFactorService {
 			Long ttl = redis.getExpire(KEY + token, java.util.concurrent.TimeUnit.SECONDS);
 			redis.opsForValue().set(KEY + token, uid + ":" + real + ":" + attempts,
 				Duration.ofSeconds(ttl == null || ttl < 0 ? 60 : ttl));
-			throw new ServiceException("验证码错误");
+			throw new ServiceException("验证码错误。请核对后再填");
 		}
 		redis.delete(KEY + token);
 		return Long.parseLong(uid);
