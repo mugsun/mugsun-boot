@@ -321,7 +321,7 @@ public class AuthController {
 		if (dto.username() == null || dto.username().isBlank()
 			|| dto.code() == null || dto.code().isBlank()
 			|| dto.newPassword() == null || dto.newPassword().isBlank()) {
-			throw new ServiceException("账号、验证码与新密码不能为空");
+			throw new ServiceException("账号、验证码与新密码不能为空。请填上账号、验证码和新密码后再重置");
 		}
 		String tenantId = (dto.tenantId() == null || dto.tenantId().isBlank())
 			? TenantConstants.DEFAULT_TENANT_ID : dto.tenantId().trim();
