@@ -67,7 +67,7 @@ public class CaptchaService {
 			return;
 		}
 		if (uuid == null || uuid.isBlank() || code == null || code.isBlank()) {
-			throw new ServiceException("请输入验证码");
+			throw new ServiceException("请输入验证码。请填上图形验证码后再继续");
 		}
 		String key = KEY_PREFIX + uuid;
 		String cached = redisTemplate.opsForValue().get(key);
