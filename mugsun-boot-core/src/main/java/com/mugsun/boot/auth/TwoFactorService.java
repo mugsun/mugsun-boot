@@ -79,7 +79,7 @@ public class TwoFactorService {
 	/** 校验二次验证码，返回 userId；错码累计达上限即烧毁挑战 */
 	public Long verify(String token, String code) {
 		if (token == null || token.isBlank() || code == null || code.isBlank()) {
-			throw new ServiceException("请输入验证码");
+			throw new ServiceException("请输入验证码。请填上后再继续");
 		}
 		String v = redis.opsForValue().get(KEY + token);
 		if (v == null) {
