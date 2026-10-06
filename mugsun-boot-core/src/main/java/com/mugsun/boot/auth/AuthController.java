@@ -442,7 +442,7 @@ public class AuthController {
 		String code = body.get("code");
 		String state = body.get("state");
 		if (source == null || source.isBlank() || code == null || code.isBlank()) {
-			throw new ServiceException("社交来源与授权码不能为空");
+			throw new ServiceException("社交来源与授权码不能为空。请填上来源和授权码后再登录或绑定");
 		}
 		boolean autoRegister = "app".equalsIgnoreCase(body.get("clientType"));
 		String token = socialService.loginByCode(source, code, state, autoRegister);
@@ -463,7 +463,7 @@ public class AuthController {
 		String code = body.get("code");
 		String state = body.get("state");
 		if (source == null || source.isBlank() || code == null || code.isBlank()) {
-			throw new ServiceException("社交来源与授权码不能为空");
+			throw new ServiceException("社交来源与授权码不能为空。请填上来源和授权码后再登录或绑定");
 		}
 		socialService.bindByCode(StpUtil.getLoginIdAsLong(), source, code, state);
 		return R.success("绑定成功");
