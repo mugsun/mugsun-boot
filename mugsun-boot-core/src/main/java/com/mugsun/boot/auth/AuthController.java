@@ -134,7 +134,7 @@ public class AuthController {
 		try {
 			return decodePassword(raw);
 		} catch (Exception e) {
-			throw new ServiceException("请求参数无效");
+			throw new ServiceException("请求参数无效。请刷新页面后再试");
 		}
 	}
 
