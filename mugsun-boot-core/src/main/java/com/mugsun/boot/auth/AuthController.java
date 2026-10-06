@@ -584,7 +584,7 @@ public class AuthController {
 	public R<Void> updateInfo(@RequestBody UpdateInfoDTO dto) {
 		SysUser user = TenantContext.ignore(() -> userMapper.selectOneById(StpUtil.getLoginIdAsLong()));
 		if (user == null) {
-			throw new ServiceException("用户不存在");
+			throw new ServiceException("用户不存在。请刷新页面后再修改");
 		}
 		if (dto.nickname() != null && !dto.nickname().isBlank()) {
 			user.setNickname(dto.nickname());
