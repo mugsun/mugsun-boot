@@ -97,7 +97,7 @@ public class ForgetPasswordService {
 				redis.delete(attemptKey);
 				throw new ServiceException("验证码错误次数过多，请重新获取");
 			}
-			throw new ServiceException("验证码错误");
+			throw new ServiceException("验证码错误。请核对后再填");
 		}
 		redis.delete(codeKey);
 		redis.delete(attemptKey);
