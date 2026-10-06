@@ -501,7 +501,7 @@ public class AuthController {
 	public R<Void> switchTenant(@PathVariable String tenantId) {
 		// 仅平台超管（平台租户 000000 + admin 角色）可切换租户视图，杜绝自助注册用户凭 000000 会话跨租户逃逸
 		if (!TenantContext.isPlatformSuperAdmin()) {
-			throw new ServiceException("仅平台超管可切换租户视图");
+			throw new ServiceException("仅平台超管可切换租户视图。请联系管理员");
 		}
 		StpUtil.getSession().set(TenantContext.SWITCH_KEY, tenantId);
 		return R.success("已切换租户视图");
