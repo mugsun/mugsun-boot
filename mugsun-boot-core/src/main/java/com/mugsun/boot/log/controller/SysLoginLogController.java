@@ -92,7 +92,7 @@ public class SysLoginLogController {
 	}
 
 	/**
-	 * 解锁账号：按日志行的 租户+账号 维度清除登录失败计数与锁定标记（对齐 RuoYi 登录日志解锁入口）。
+	 * 解锁账号：按日志行的 租户+账号 维度清除登录失败计数与锁定标记。
 	 * 同步清 phone 维度键——短信登录锁键为 phone:手机号，与账号密码锁键（租户:账号）是两个维度。
 	 */
 	@PostMapping("/unlock")
