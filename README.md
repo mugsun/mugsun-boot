@@ -33,18 +33,9 @@ mvn -pl mugsun-boot-server -am spring-boot:run
 
 ## 架构
 
-```mermaid
-flowchart TB
-  PC["mugsun-pc :3006"] -->|HTTP / WebSocket| BOOT["mugsun-boot-server :8080"]
-  SDK["@mugsun/track-web"] -->|/track/collect| BOOT
-  BOOT --> CORE["mugsun-boot-core"]
-  BOOT -.-> GIS["mugsun-boot-gis"]
-  BOOT -.-> TRK["mugsun-boot-track"]
-  BOOT -.-> AI["mugsun-boot-ai"]
-  BOOT --> PG[("PostgreSQL")]
-  BOOT --> RD[("Redis")]
-  CORE --> DEPS["mugsun-core BOM / starters"]
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso.png" alt="Architecture" width="100%" />
+</p>
 
 ```text
 mugsun-boot/
