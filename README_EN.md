@@ -47,13 +47,9 @@ Admin UI: [mugsun-pc](https://github.com/mugsun/mugsun-pc). Full walkthrough: [d
 
 ## Shape
 
-```mermaid
-flowchart TB
-  PC["mugsun-pc :3006"] -->|HTTP / WS| BOOT["mugsun-boot :8080"]
-  TRACK["@mugsun/track-web"] -->|/track/collect| BOOT
-  BOOT --> PG[("PostgreSQL")]
-  BOOT --> RD[("Redis")]
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso-en.jpg" alt="Architecture" width="100%" />
+</p>
 
 > **Screenshot placeholder** — Swagger / admin shots go here when ready. See [Demo](https://docs.mugsun.com/en/demo).
 

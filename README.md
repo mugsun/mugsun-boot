@@ -34,7 +34,7 @@ mvn -pl mugsun-boot-server -am spring-boot:run
 ## 架构
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso.png" alt="Architecture" width="100%" />
+  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso-zh.jpg" alt="Architecture" width="100%" />
 </p>
 
 ```text
