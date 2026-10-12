@@ -19,7 +19,7 @@
 | 运行时 | JDK 21；Maven 3.9+ |
 | 框架 | Spring Boot 3.5.13 |
 | 数据层 | PostgreSQL 16（PostGIS + pgvector）；Redis 7（默认库号 `3`） |
-| 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core)（须平级 clone 并本地 `mvn install`；尚未发布至中央仓库） |
+| 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0`（已发布至 [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)） |
 | 许可 | [Apache-2.0](./LICENSE) |
 | 文档 | [docs.mugsun.com/boot](https://docs.mugsun.com/boot/) |
 
@@ -27,14 +27,15 @@
 
 ## 部署
 
-前置条件：JDK 21、Maven 3.9+、Docker；与本仓库平级克隆 `mugsun-core`。
+前置条件：JDK 21、Maven 3.9+、Docker。`mugsun-core` 0.1.0 已发布至 Maven Central，构建时由 Maven 自动解析，无需平级 clone。
 
 ```bash
-cd ../mugsun-core && mvn clean install -DskipTests && cd ../mugsun-boot
 docker compose up -d
 cp config/application-local.yml.example config/application-local.yml
 mvn -pl mugsun-boot-server -am spring-boot:run
 ```
+
+**本地 install（离线或未同步 Central 时的回退）：** 平级克隆 [mugsun-core](https://github.com/mugsun/mugsun-core) 后执行 `cd ../mugsun-core && mvn clean install -DskipTests`，再返回本仓库构建。
 
 健康检查：http://localhost:8080/ping
 
@@ -121,7 +122,7 @@ Maven Profile：
 
 | 仓库 | 与本仓库的关系 |
 | --- | --- |
-| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM 与 starter；构建前须 `mvn install` |
+| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM 与 starter；默认经 Maven Central 引入，本地 install 仅作离线/开发回退 |
 | [mugsun-pc](https://github.com/mugsun/mugsun-pc) | 管理端；CORS / OAuth 回跳默认 `MUGSUN_FRONT_URL=http://localhost:3006` |
 | [mugsun-track](https://github.com/mugsun/mugsun-track) | 浏览器 SDK；由本仓库 track 模块接收采集流量 |
 | cloud / uniappx-ui | 规划或商业意向，非本仓库已开源依赖 |

@@ -19,7 +19,7 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 | Runtime | JDK 21; Maven 3.9+ |
 | Framework | Spring Boot 3.5.13 |
 | Data stores | PostgreSQL 16 (PostGIS + pgvector); Redis 7 (default database index `3`) |
-| Dependency | [mugsun-core](https://github.com/mugsun/mugsun-core) (clone as a sibling and `mvn install` locally; not yet published to Maven Central) |
+| Dependency | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0` (published to [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)) |
 | License | [Apache-2.0](./LICENSE) |
 | Docs | [docs.mugsun.com/en/boot](https://docs.mugsun.com/en/boot/) |
 
@@ -27,14 +27,15 @@ Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway, Sp
 
 ## Deployment
 
-Prerequisites: JDK 21, Maven 3.9+, Docker; clone `mugsun-core` as a sibling of this repository.
+Prerequisites: JDK 21, Maven 3.9+, Docker. `mugsun-core` 0.1.0 is on Maven Central and is resolved automatically; a sibling clone is not required.
 
 ```bash
-cd ../mugsun-core && mvn clean install -DskipTests && cd ../mugsun-boot
 docker compose up -d
 cp config/application-local.yml.example config/application-local.yml
 mvn -pl mugsun-boot-server -am spring-boot:run
 ```
+
+**Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, run `cd ../mugsun-core && mvn clean install -DskipTests`, then return to this repository to build.
 
 Health check: http://localhost:8080/ping
 
@@ -121,7 +122,7 @@ Open-source line: `boot` · `core` · `pc` · `track` · [mugsun-docs](https://g
 
 | Repository | Relationship |
 | --- | --- |
-| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM and starters; `mvn install` required before build |
+| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM and starters; pulled from Maven Central by default; local install is an offline / development fallback |
 | [mugsun-pc](https://github.com/mugsun/mugsun-pc) | Admin UI; CORS / OAuth redirect default `MUGSUN_FRONT_URL=http://localhost:3006` |
 | [mugsun-track](https://github.com/mugsun/mugsun-track) | Browser SDK; ingest handled by this repository’s track module |
 | cloud / uniappx-ui | Planned or commercial intent; not open-source dependencies of this repository |
