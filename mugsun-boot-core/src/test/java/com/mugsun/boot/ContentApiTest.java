@@ -87,7 +87,7 @@ class ContentApiTest extends AbstractIntegrationTest {
 	@Test
 	void changelogSubmitRecentAndRemove() {
 		Map<String, Object> log = new HashMap<>();
-		log.put("version", "it-" + TS);
+		log.put("version", "v1.2." + TS.substring(TS.length() - 4));
 		log.put("type", "feature");
 		log.put("title", "IT更新日志-" + TS);
 		log.put("content", "<p>集成测试</p>");
