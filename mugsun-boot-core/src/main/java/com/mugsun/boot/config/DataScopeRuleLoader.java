@@ -2,9 +2,8 @@ package com.mugsun.boot.config;
 
 import com.mugsun.boot.datascope.DataScopeRuleIndex;
 import com.mugsun.boot.system.entity.SysDataScope;
-import com.mugsun.boot.system.mapper.SysDataScopeMapper;
+import com.mugsun.boot.system.service.DataScopeService;
 import com.mugsun.boot.tenant.TenantContext;
-import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -18,10 +17,10 @@ import java.util.List;
 @Order(20)
 public class DataScopeRuleLoader implements CommandLineRunner {
 
-	private final SysDataScopeMapper dataScopeMapper;
+	private final DataScopeService dataScopeService;
 
-	public DataScopeRuleLoader(SysDataScopeMapper dataScopeMapper) {
-		this.dataScopeMapper = dataScopeMapper;
+	public DataScopeRuleLoader(DataScopeService dataScopeService) {
+		this.dataScopeService = dataScopeService;
 	}
 
 	@Override
@@ -30,8 +29,7 @@ public class DataScopeRuleLoader implements CommandLineRunner {
 	}
 
 	public void reload() {
-		List<SysDataScope> rows = TenantContext.ignore(() ->
-			dataScopeMapper.selectListByQuery(QueryWrapper.create().eq("status", 1)));
+		List<SysDataScope> rows = TenantContext.ignore(dataScopeService::listEnabled);
 		DataScopeRuleIndex.replace(rows.stream()
 			.map(row -> new DataScopeRuleIndex.Hit(
 				row.getTableName(), row.getDeptColumn(), row.getUserColumn(),

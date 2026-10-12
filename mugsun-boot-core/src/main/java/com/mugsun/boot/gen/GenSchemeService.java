@@ -2,7 +2,7 @@ package com.mugsun.boot.gen;
 
 import com.mugsun.boot.gen.entity.GenScheme;
 import com.mugsun.boot.gen.mapper.GenSchemeMapper;
-import com.mugsun.boot.system.mapper.SysMenuMapper;
+import com.mugsun.boot.system.service.MenuService;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -28,11 +28,11 @@ public class GenSchemeService {
 	private static final Pattern PREFIX = Pattern.compile("^[a-z][a-z0-9_]{0,19}$");
 
 	private final GenSchemeMapper schemeMapper;
-	private final SysMenuMapper menuMapper;
+	private final MenuService menuService;
 
-	public GenSchemeService(GenSchemeMapper schemeMapper, SysMenuMapper menuMapper) {
+	public GenSchemeService(GenSchemeMapper schemeMapper, MenuService menuService) {
 		this.schemeMapper = schemeMapper;
-		this.menuMapper = menuMapper;
+		this.menuService = menuService;
 	}
 
 	public Page<GenScheme> page(long pageNum, long pageSize, String name) {
@@ -170,7 +170,7 @@ public class GenSchemeService {
 		if (parentMenuId == null) {
 			return null;
 		}
-		if (menuMapper.selectOneById(parentMenuId) == null) {
+		if (!menuService.exists(parentMenuId)) {
 			throw new ServiceException("上级菜单不存在，或属于其他租户。请从菜单管理复制编号，或留空");
 		}
 		return parentMenuId;

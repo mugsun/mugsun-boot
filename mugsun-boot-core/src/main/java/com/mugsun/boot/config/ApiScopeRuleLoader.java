@@ -4,11 +4,8 @@ import com.mugsun.boot.common.perm.ApiScopeIndex;
 import com.mugsun.boot.system.entity.SysApiScope;
 import com.mugsun.boot.system.entity.SysRole;
 import com.mugsun.boot.system.entity.SysRoleApiScope;
-import com.mugsun.boot.system.mapper.SysApiScopeMapper;
-import com.mugsun.boot.system.mapper.SysRoleApiScopeMapper;
-import com.mugsun.boot.system.mapper.SysRoleMapper;
+import com.mugsun.boot.system.service.ApiScopeService;
 import com.mugsun.boot.tenant.TenantContext;
-import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -26,15 +23,10 @@ import java.util.Set;
 @Order(21)
 public class ApiScopeRuleLoader implements CommandLineRunner {
 
-	private final SysApiScopeMapper apiScopeMapper;
-	private final SysRoleApiScopeMapper linkMapper;
-	private final SysRoleMapper roleMapper;
+	private final ApiScopeService apiScopeService;
 
-	public ApiScopeRuleLoader(SysApiScopeMapper apiScopeMapper, SysRoleApiScopeMapper linkMapper,
-							  SysRoleMapper roleMapper) {
-		this.apiScopeMapper = apiScopeMapper;
-		this.linkMapper = linkMapper;
-		this.roleMapper = roleMapper;
+	public ApiScopeRuleLoader(ApiScopeService apiScopeService) {
+		this.apiScopeService = apiScopeService;
 	}
 
 	@Override
@@ -44,10 +36,10 @@ public class ApiScopeRuleLoader implements CommandLineRunner {
 
 	public void reload() {
 		TenantContext.ignore(() -> {
-			List<SysApiScope> rows = apiScopeMapper.selectListByQuery(QueryWrapper.create().eq("status", 1));
-			List<SysRoleApiScope> links = linkMapper.selectListByQuery(QueryWrapper.create());
+			List<SysApiScope> rows = apiScopeService.listEnabled();
+			List<SysRoleApiScope> links = apiScopeService.listAllRoleLinks();
 			Map<Long, SysRole> roles = new HashMap<>();
-			for (SysRole role : roleMapper.selectAll()) {
+			for (SysRole role : apiScopeService.listAllRoles()) {
 				roles.put(role.getId(), role);
 			}
 			Map<Long, Set<String>> grants = new HashMap<>();

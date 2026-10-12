@@ -3,7 +3,7 @@ package com.mugsun.boot.tenant;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysTenant;
-import com.mugsun.boot.system.mapper.SysTenantMapper;
+import com.mugsun.boot.system.service.TenantService;
 import com.mugsun.boot.tenant.entity.SysTenantPackage;
 import com.mugsun.boot.tenant.mapper.SysTenantPackageMapper;
 import com.mugsun.core.tool.api.R;
@@ -28,13 +28,13 @@ public class TenantPackageController {
 	private static final Pattern MENU_KEY = Pattern.compile("^[A-Za-z][A-Za-z0-9_]{0,63}$");
 
 	private final SysTenantPackageMapper packageMapper;
-	private final SysTenantMapper tenantMapper;
+	private final TenantService tenantService;
 	private final TenantValidator tenantValidator;
 
-	public TenantPackageController(SysTenantPackageMapper packageMapper, SysTenantMapper tenantMapper,
+	public TenantPackageController(SysTenantPackageMapper packageMapper, TenantService tenantService,
 								   TenantValidator tenantValidator) {
 		this.packageMapper = packageMapper;
-		this.tenantMapper = tenantMapper;
+		this.tenantService = tenantService;
 		this.tenantValidator = tenantValidator;
 	}
 
@@ -112,7 +112,7 @@ public class TenantPackageController {
 		if (packages.size() != idList.size()) {
 			throw new ServiceException("有套餐不存在，或已经被删除。请刷新列表后再试");
 		}
-		List<SysTenant> bound = tenantMapper.selectListByQuery(QueryWrapper.create().in("package_id", idList));
+		List<SysTenant> bound = tenantService.listByPackageIds(idList);
 		if (!bound.isEmpty()) {
 			SysTenant tenant = bound.get(0);
 			String packageName = packages.stream()
