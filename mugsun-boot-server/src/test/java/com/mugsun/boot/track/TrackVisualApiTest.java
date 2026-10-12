@@ -33,7 +33,7 @@ class TrackVisualApiTest extends AbstractTrackIntegrationTest {
 
 	private static final String APP_V = "it-visual-a";
 	private static final String APP_V_B = "it-visual-b";
-	private static final String LOW_USERNAME = "it-visual-lowpriv";
+	private static final String LOW_USERNAME = "it_visual_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-visual-noperm";
 

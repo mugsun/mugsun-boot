@@ -40,7 +40,7 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_FUNNEL = "ak_test_funnel_01";
 	private static final String APP_RETENTION = "ak_test_retention_01";
 	private static final String APP_B = "ak_test_funnel_b";
-	private static final String LOW_USERNAME = "it-g103-lowpriv";
+	private static final String LOW_USERNAME = "it_g103_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-g103-noperm";
 

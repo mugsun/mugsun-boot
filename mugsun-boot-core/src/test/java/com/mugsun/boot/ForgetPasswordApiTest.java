@@ -38,7 +38,7 @@ class ForgetPasswordApiTest extends AbstractIntegrationTest {
 	void forgetResetFullChain() {
 		// 建带邮箱的独立账号
 		String adminToken = loginAdmin();
-		String username = "it-forget-" + System.currentTimeMillis() % 100000;
+		String username = "it_forget_" + System.currentTimeMillis() % 100000;
 		Map<String, Object> user = new HashMap<>();
 		user.put("username", username);
 		user.put("nickname", "忘记密码验证");

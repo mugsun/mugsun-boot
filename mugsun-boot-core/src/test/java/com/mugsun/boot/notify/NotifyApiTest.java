@@ -56,7 +56,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class NotifyApiTest extends AbstractIntegrationTest {
 
-	private static final String FANOUT_USERNAME = "it-notify-fanout";
+	private static final String FANOUT_USERNAME = "it_notify_fanout";
 	private static final String FANOUT_NICKNAME = "通知集成测试";
 	private static final String FANOUT_EMAIL = "notify-fanout@test.local";
 	private static final String FANOUT_PHONE = "13800009999";

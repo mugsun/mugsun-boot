@@ -63,8 +63,9 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 	private static final String LOCAL_STORAGE_PATH =
 		new java.io.File("target/it-files-oss").getAbsolutePath() + "/";
 
+	/** MinIO 官方镜像已从 Docker Hub/Quay 下架，改用可匿名拉取的 pgsty/silo（API 兼容）。 */
 	private static final GenericContainer<?> MINIO = new GenericContainer<>(
-		DockerImageName.parse("minio/minio:latest"))
+		DockerImageName.parse("pgsty/silo:RELEASE.2026-09-16T00-00-00Z"))
 		.withExposedPorts(9000)
 		.withEnv("MINIO_ROOT_USER", MINIO_ROOT_USER)
 		.withEnv("MINIO_ROOT_PASSWORD", MINIO_ROOT_PASSWORD)

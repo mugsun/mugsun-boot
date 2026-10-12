@@ -43,7 +43,7 @@ class TrackReplayApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_R = "it-replay-a";
 	private static final String APP_R_OFF = "it-replay-off";
 	private static final String APP_R_B = "it-replay-b";
-	private static final String LOW_USERNAME = "it-replay-lowpriv";
+	private static final String LOW_USERNAME = "it_replay_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-replay-noperm";
 	/** 本地存储落盘根（基座动态属性 dromara.x-file-storage.local-plus[0].storage-path） */

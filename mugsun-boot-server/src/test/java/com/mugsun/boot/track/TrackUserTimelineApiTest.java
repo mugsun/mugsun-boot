@@ -50,7 +50,7 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_OFF = "it-g102-off";
 	private static final String APP_CLEAN = "it-g102-clean";
 	private static final String APP_B = "it-g102-b";
-	private static final String LOW_USERNAME = "it-g102-lowpriv";
+	private static final String LOW_USERNAME = "it_g102_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-g102-noperm";
 	/** 本地存储落盘根（基座动态属性 dromara.x-file-storage.local-plus[0].storage-path） */
