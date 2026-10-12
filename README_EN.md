@@ -2,7 +2,7 @@
 
 [简体中文](./README.md) | English
 
-A mid-office backend service intended for private deployment. It provides system administration and workflow foundations; geographic information, behavioral analytics, and AI capabilities are available as optional modules.
+This repository is the mugsun mid-office monolithic backend. Infrastructure is provided by Docker Compose; the application is served as an executable JAR. System administration and workflow live in the core module. GIS, analytics, and AI capabilities are assembled as optional modules.
 
 [Documentation](https://docs.mugsun.com/en/boot/) · [Getting started](https://docs.mugsun.com/en/guide/getting-started) · [Security checklist](https://docs.mugsun.com/en/boot/security-checklist)
 
@@ -11,9 +11,23 @@ A mid-office backend service intended for private deployment. It provides system
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green)
 
-## Requirements and startup
+## Overview
 
-Requires JDK 21, Maven 3.9 or later, Docker, and a sibling clone of [mugsun-core](https://github.com/mugsun/mugsun-core). core is not published to Maven Central; install it locally before building this repository.
+| Item | Detail |
+| --- | --- |
+| Coordinates | `com.mugsun:mugsun-boot:0.1.0` |
+| Runtime | JDK 21; Maven 3.9+ |
+| Framework | Spring Boot 3.5.13 |
+| Data stores | PostgreSQL 16 (PostGIS + pgvector); Redis 7 (default database index `3`) |
+| Dependency | [mugsun-core](https://github.com/mugsun/mugsun-core) (clone as a sibling and `mvn install` locally; not yet published to Maven Central) |
+| License | [Apache-2.0](./LICENSE) |
+| Docs | [docs.mugsun.com/en/boot](https://docs.mugsun.com/en/boot/) |
+
+Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway, Spring AI 1.1.2 (AI module).
+
+## Deployment
+
+Prerequisites: JDK 21, Maven 3.9+, Docker; clone `mugsun-core` as a sibling of this repository.
 
 ```bash
 cd ../mugsun-core && mvn clean install -DskipTests && cd ../mugsun-boot
@@ -22,60 +36,95 @@ cp config/application-local.yml.example config/application-local.yml
 mvn -pl mugsun-boot-server -am spring-boot:run
 ```
 
-The service listens on http://localhost:8080 by default. Health check: `GET /ping`. Initial administrator username is `admin`; initial password is `123456`, overridable via `MUGSUN_INIT_PASSWORD`. The password must be changed for production use. Under the `prod` profile, the process refuses to start if no initial password is injected. Admin UI: [mugsun-pc](https://github.com/mugsun/mugsun-pc). Procedures: [Getting started](https://docs.mugsun.com/en/guide/getting-started). A public demonstration environment is not available.
+Health check: http://localhost:8080/ping
 
-## Overview
+Default initial account: `admin` / `123456` (override with `MUGSUN_INIT_PASSWORD`). Production deployments must change the password. The `prod` profile refuses to start without an injected initial password.
 
-This repository delivers a monolithic application backed by PostgreSQL and Redis. Authentication, authorization, multi-tenancy, workflow, and the open platform reside in the core module. Geographic information, behavioral analytics, and AI are optional and may be reduced via Maven profiles or environment variables.
+Admin console: [mugsun-pc](https://github.com/mugsun/mugsun-pc) (development default port `3006`, proxied to this service on `8080`). Walkthrough: [Documentation · Getting started](https://docs.mugsun.com/en/guide/getting-started).
 
-The free open-source line comprises boot, core, pc, and track. The microservice edition (`cloud`) and uniappx-ui remain in planning or commercial arrangement and are not published open-source dependencies of this repository.
+Package:
 
-Technology baseline (current POM): JDK 21, Spring Boot 3.5.13, this repository and core at 0.1.0, MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway. PostgreSQL 16 is preferred (compose image includes PostGIS and pgvector). Redis defaults to logical database 3.
+```bash
+mvn -pl mugsun-boot-server -am package -DskipTests
+# Artifact: mugsun-boot-server/target/mugsun-boot.jar
+```
 
-## Architecture
+Compose ports: `5432` (PostgreSQL), `6379` (Redis). Development database credentials default to the JDBC settings (`mugsun` / `mugsun`). Without Docker, see `scripts/init-db.sql`.
+
+Local configuration path: `optional:file:./config/application-local.yml` (gitignored). The working directory must be the repository root. Production injection: [Configuration](https://docs.mugsun.com/en/boot/configuration).
+
+OpenAPI: http://localhost:8080/swagger-ui/index.html (disabled under `prod`).
+
+## Composition
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso-en.jpg" alt="Architecture" width="100%" />
+  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso-en.jpg" alt="Architecture diagram" width="100%" />
 </p>
 
 ```text
 mugsun-boot/
-  mugsun-boot-core/
-  mugsun-boot-gis/       # optional
-  mugsun-boot-track/     # optional
-  mugsun-boot-ai/        # optional
-  mugsun-boot-server/    # default profile: full
+  mugsun-boot-core/     # auth, system, workflow, tenant, open platform, …
+  mugsun-boot-gis/      # optional: layers, spatial queries, vector tiles
+  mugsun-boot-track/    # optional: ingest, aggregation, replay-related APIs
+  mugsun-boot-ai/       # optional: models, chat, knowledge base, MCP (Spring AI)
+  mugsun-boot-server/   # assembly shell; default profile = full
 ```
 
-Default profile: `full`. Core-only: `-Pbasic,'!full'`. Additional profiles and `MUGSUN_*_ENABLED` flags are described in [可选模块装配.md](docs/可选模块装配.md) (Chinese).
+Maven profiles:
 
-## Modules
-
-The core module covers users and permissions, data-scope controls, audit, messaging, files, code generation and online forms, Warm-Flow, and the open platform (OAuth2 authorization code with PKCE, API keys). Transport and audit paths include SM-related capabilities; verify against the [security checklist](https://docs.mugsun.com/en/boot/security-checklist) before production.
-
-The track module provides `/track/collect` and analytics APIs, forming an end-to-end path with [mugsun-track](https://github.com/mugsun/mugsun-track) and mugsun-pc. GIS and AI modules are within the supported surface only when enabled.
-
-The PowerJob worker is disabled by default. OpenAPI: http://localhost:8080/swagger-ui/index.html (disabled under `prod`).
-
-## Related repositories
-
-| Repository | Description |
+| Profile | Description |
 | --- | --- |
-| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM and starters |
-| [mugsun-pc](https://github.com/mugsun/mugsun-pc) | Administration UI |
-| [mugsun-track](https://github.com/mugsun/mugsun-track) | Browser SDK |
-| [mugsun-docs](https://github.com/mugsun/mugsun-docs) | Documentation site |
+| `full` (default) | Assembles core + gis + track + ai |
+| `basic` | Core only; disable full: `-Pbasic,'!full'` |
+| `gis-only` / `track-only` / `ai-only` | Core + one optional module; disable full |
+| `kingbase` / `dameng` | Domestic database drivers |
 
-## Local build notes
+Runtime flags (classes may still be on the classpath):
 
-Build and run from the repository root so `config/application-local.yml` can be loaded.
+- `MUGSUN_GIS_ENABLED=false`
+- `MUGSUN_TRACK_ENABLED=false`
+- `MUGSUN_AI_ENABLED=false`
 
-```bash
-mvn -pl mugsun-boot-server -am package -DskipTests
-java -jar mugsun-boot-server/target/mugsun-boot.jar
-```
+Module assembly notes: [docs/可选模块装配.md](docs/可选模块装配.md) (Chinese).
 
-Compose maps PostgreSQL `5432` and Redis `6379` by default. Initial credentials are for local verification only. Configuration reference: [Documentation](https://docs.mugsun.com/en/boot/configuration).
+## Scope
+
+**Core module (`mugsun-boot-core`)**
+
+- Authentication and authorization: users, roles, menus, departments, data scope; login and operation audit
+- Multi-tenancy, messaging, file storage, code generation, online forms
+- Workflow (Warm-Flow)
+- Open platform: OAuth2 (including PKCE), API Key
+- Transport and audit paths include national-cryptography related capabilities; review the [security checklist](https://docs.mugsun.com/en/boot/security-checklist) before production
+
+**Optional modules**
+
+- `mugsun-boot-track`: `/track/collect`, config delivery, and analytics APIs; forms a vertical slice with the browser SDK and admin console
+- `mugsun-boot-gis`: spatial data and vector tiles (requires PostGIS)
+- `mugsun-boot-ai`: models, chat, knowledge base, and MCP (Spring AI)
+
+**Runtime conventions**
+
+- PowerJob Worker is disabled by default; enable only with a separate Server and `POWERJOB_ENABLED=true`
+- Demo credentials are for local use only; `fronttest` lab seeding requires an explicit switch and is off by default
+
+**Not provided**
+
+- An open-sourced microservice `cloud` distribution
+- A publicly accessible demo environment (see [Demo](https://docs.mugsun.com/en/demo))
+
+APIs and configuration keys are defined in source and documentation.
+
+## Related projects
+
+Open-source line: `boot` · `core` · `pc` · `track` · [mugsun-docs](https://github.com/mugsun/mugsun-docs).
+
+| Repository | Relationship |
+| --- | --- |
+| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM and starters; `mvn install` required before build |
+| [mugsun-pc](https://github.com/mugsun/mugsun-pc) | Admin UI; CORS / OAuth redirect default `MUGSUN_FRONT_URL=http://localhost:3006` |
+| [mugsun-track](https://github.com/mugsun/mugsun-track) | Browser SDK; ingest handled by this repository’s track module |
+| cloud / uniappx-ui | Planned or commercial intent; not open-source dependencies of this repository |
 
 ## License
 

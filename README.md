@@ -2,7 +2,7 @@
 
 **中文** | [English](./README_EN.md)
 
-可私有化部署的中后台后端服务。提供系统管理与工作流等基础能力；地理信息、行为分析与人工智能以可选模块提供。
+本仓库为 mugsun 中后台单体后端。基础设施由 Docker Compose 提供，应用以可执行 JAR 对外服务。系统管理与工作流位于核心模块；地理信息、行为分析与人工智能能力以可选模块装配。
 
 [文档](https://docs.mugsun.com/boot/) · [快速开始](https://docs.mugsun.com/guide/getting-started) · [安全清单](https://docs.mugsun.com/boot/security-checklist)
 
@@ -11,9 +11,23 @@
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green)
 
-## 运行环境与启动
+## 概述
 
-需要 JDK 21、Maven 3.9 及以上、Docker，并与 [mugsun-core](https://github.com/mugsun/mugsun-core) 仓库并列克隆。core 尚未发布至 Maven Central，构建前须执行本地安装。
+| 项 | 说明 |
+| --- | --- |
+| 坐标 | `com.mugsun:mugsun-boot:0.1.0` |
+| 运行时 | JDK 21；Maven 3.9+ |
+| 框架 | Spring Boot 3.5.13 |
+| 数据层 | PostgreSQL 16（PostGIS + pgvector）；Redis 7（默认库号 `3`） |
+| 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core)（须平级 clone 并本地 `mvn install`；尚未发布至中央仓库） |
+| 许可 | [Apache-2.0](./LICENSE) |
+| 文档 | [docs.mugsun.com/boot](https://docs.mugsun.com/boot/) |
+
+技术组件（以当前 POM 为准）：MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway、Spring AI 1.1.2（AI 模块）。
+
+## 部署
+
+前置条件：JDK 21、Maven 3.9+、Docker；与本仓库平级克隆 `mugsun-core`。
 
 ```bash
 cd ../mugsun-core && mvn clean install -DskipTests && cd ../mugsun-boot
@@ -22,61 +36,96 @@ cp config/application-local.yml.example config/application-local.yml
 mvn -pl mugsun-boot-server -am spring-boot:run
 ```
 
-服务默认监听 http://localhost:8080 。健康检查：`GET /ping`。初始管理员账号为 `admin`，初始口令为 `123456`，可通过环境变量 `MUGSUN_INIT_PASSWORD` 覆盖。生产环境须修改口令；在 `prod` 配置下未注入初始口令时，进程将拒绝启动。管理端见 [mugsun-pc](https://github.com/mugsun/mugsun-pc)。操作说明见 [快速开始](https://docs.mugsun.com/guide/getting-started)。公网演示环境尚未提供。
+健康检查：http://localhost:8080/ping
 
-## 概述
+默认初始账号：`admin` / `123456`（可通过环境变量 `MUGSUN_INIT_PASSWORD` 覆盖）。生产环境必须更换口令；`prod` 配置未注入初始口令时拒绝启动。
 
-本仓库以单体应用形式交付：依赖 PostgreSQL 与 Redis，输出可执行服务。认证、权限、多租户、工作流与开放平台位于 core 模块；地理信息、行为分析与人工智能为可选模块，可通过 Maven profile 或环境变量裁剪。
+管理端见 [mugsun-pc](https://github.com/mugsun/mugsun-pc)（开发默认端口 `3006`，代理至本服务 `8080`）。逐步说明见 [文档 · 快速开始](https://docs.mugsun.com/guide/getting-started)。
 
-免费开源组成部分为 boot、core、pc、track。微服务版本（cloud）与 uniappx-ui 尚处于规划或商业安排阶段，不作为本仓库的已发布开源依赖。
+打包：
 
-技术基线（以当前 POM 为准）：JDK 21、Spring Boot 3.5.13、本仓库与 core 版本 0.1.0、MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway。数据库主推 PostgreSQL 16（compose 镜像包含 PostGIS 与 pgvector）；Redis 默认使用逻辑库号 3。
+```bash
+mvn -pl mugsun-boot-server -am package -DskipTests
+# 产物：mugsun-boot-server/target/mugsun-boot.jar
+```
 
-## 架构
+Compose 暴露端口：`5432`（PostgreSQL）、`6379`（Redis）。开发库账号默认与 JDBC 配置一致（`mugsun` / `mugsun`）。无 Docker 时可参考 `scripts/init-db.sql`。
+
+本地配置文件路径：`optional:file:./config/application-local.yml`（已列入 `.gitignore`）。工作目录须为本仓库根目录。生产配置注入说明见 [配置](https://docs.mugsun.com/boot/configuration)。
+
+OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
+
+## 组成
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso-zh.jpg" alt="Architecture" width="100%" />
+  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso-zh.jpg" alt="架构示意" width="100%" />
 </p>
 
 ```text
 mugsun-boot/
-  mugsun-boot-core/      # 认证、系统管理、流程、租户、开放平台等
-  mugsun-boot-gis/       # 可选：地理信息
-  mugsun-boot-track/     # 可选：行为分析
-  mugsun-boot-ai/        # 可选：人工智能（Spring AI）
-  mugsun-boot-server/    # 装配入口；默认 profile 为 full
+  mugsun-boot-core/     # 认证、系统、流程、租户、开放平台等
+  mugsun-boot-gis/      # 可选：图层、空间查询、矢量瓦片
+  mugsun-boot-track/    # 可选：采集摄入、聚合、回放相关 API
+  mugsun-boot-ai/       # 可选：模型、对话、知识库、MCP（Spring AI）
+  mugsun-boot-server/   # 装配壳；默认 profile = full
 ```
 
-默认 profile 为 `full`。仅核心能力时使用 `-Pbasic,'!full'`。另提供 `gis-only`、`track-only`、`ai-only` 及信创数据库相关 profile。运行期可通过 `MUGSUN_GIS_ENABLED`、`MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED` 控制模块启用状态。详见 [可选模块装配](docs/可选模块装配.md)。
+Maven Profile：
 
-## 模块说明
-
-core 模块覆盖用户与权限、数据权限、审计、消息、文件、代码生成与在线表单、Warm-Flow 工作流、开放平台（OAuth2 授权码与 PKCE、API 密钥）等。传输与审计链路包含国密相关能力；上线前须按 [安全清单](https://docs.mugsun.com/boot/security-checklist) 核对。
-
-track 模块提供 `/track/collect` 及分析相关接口，与 [mugsun-track](https://github.com/mugsun/mugsun-track)、mugsun-pc 组成采集至展示的完整路径。gis 与 ai 模块仅在启用后纳入对外能力范围。
-
-PowerJob Worker 默认关闭，启用时须另行部署 Server 并设置 `POWERJOB_ENABLED=true`。OpenAPI 文档地址：http://localhost:8080/swagger-ui/index.html（`prod` 环境关闭）。接口与配置项以源码及文档为准。
-
-## 相关仓库
-
-| 仓库 | 说明 |
+| Profile | 说明 |
 | --- | --- |
-| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM 与 starter；构建前须本地安装 |
-| [mugsun-pc](https://github.com/mugsun/mugsun-pc) | 管理端；默认前端地址由 `MUGSUN_FRONT_URL` 配置（开发环境常用 `http://localhost:3006`） |
-| [mugsun-track](https://github.com/mugsun/mugsun-track) | 浏览器端采集 SDK |
-| [mugsun-docs](https://github.com/mugsun/mugsun-docs) | 文档站点 |
+| `full`（默认） | 装配 core + gis + track + ai |
+| `basic` | 仅核心；须同时关闭 full：`-Pbasic,'!full'` |
+| `gis-only` / `track-only` / `ai-only` | 核心 + 单一可选模块；须关闭 full |
+| `kingbase` / `dameng` | 信创数据库驱动 |
 
-## 本地构建说明
+运行时可通过环境变量关闭能力（JAR 仍可能包含对应类路径）：
 
-须在本仓库根目录执行构建与启动，以便加载 `config/application-local.yml`（该文件已列入 gitignore）。
+- `MUGSUN_GIS_ENABLED=false`
+- `MUGSUN_TRACK_ENABLED=false`
+- `MUGSUN_AI_ENABLED=false`
 
-```bash
-mvn -pl mugsun-boot-server -am package -DskipTests
-java -jar mugsun-boot-server/target/mugsun-boot.jar
-```
+模块装配说明见 [docs/可选模块装配.md](docs/可选模块装配.md)。
 
-compose 默认映射端口：PostgreSQL `5432`，Redis `6379`。开发库账号默认与 JDBC 配置一致。无 Docker 时可使用 `scripts/init-db.sql`。初始账号仅用于本地验证；`fronttest` 账号默认不创建。配置说明见 [文档 · 配置](https://docs.mugsun.com/boot/configuration)。
+## 能力范围
 
-## 许可证
+**核心模块（mugsun-boot-core）**
+
+- 认证与权限：用户、角色、菜单、部门、数据权限；登录与操作审计
+- 多租户、消息、文件存储、代码生成、在线表单
+- 工作流（Warm-Flow）
+- 开放平台：OAuth2（含 PKCE）、API Key
+- 传输与审计链路含国密相关能力；上线前须对照 [安全清单](https://docs.mugsun.com/boot/security-checklist)
+
+**可选模块**
+
+- `mugsun-boot-track`：`/track/collect`、配置下发与分析相关 API，与浏览器 SDK、管理端看板构成完整链路
+- `mugsun-boot-gis`：空间数据与矢量瓦片（依赖 PostGIS）
+- `mugsun-boot-ai`：模型、对话、知识库与 MCP（Spring AI）
+
+**运行约定**
+
+- PowerJob Worker 默认关闭；启用须独立部署 Server，并设置 `POWERJOB_ENABLED=true`
+- 演示口令仅用于本地；`fronttest` 实验室数据须显式打开开关后方可播种，默认关闭
+
+**暂未提供**
+
+- 已开源的微服务 `cloud` 发行版
+- 可公开访问的在线演示环境（见 [演示说明](https://docs.mugsun.com/demo)）
+
+接口与配置键以源码及文档为准。
+
+## 关联项目
+
+开源主线：`boot` · `core` · `pc` · `track` · [mugsun-docs](https://github.com/mugsun/mugsun-docs)。
+
+| 仓库 | 与本仓库的关系 |
+| --- | --- |
+| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM 与 starter；构建前须 `mvn install` |
+| [mugsun-pc](https://github.com/mugsun/mugsun-pc) | 管理端；CORS / OAuth 回跳默认 `MUGSUN_FRONT_URL=http://localhost:3006` |
+| [mugsun-track](https://github.com/mugsun/mugsun-track) | 浏览器 SDK；由本仓库 track 模块接收采集流量 |
+| cloud / uniappx-ui | 规划或商业意向，非本仓库已开源依赖 |
+
+## 许可
 
 [Apache-2.0](./LICENSE)
