@@ -892,7 +892,7 @@ public class SysUserController {
 	}
 
 	/**
-	 * 目标用户操作保护（对齐 RuoYi checkUserAllowed）：
+	 * 目标用户操作保护（禁止对超级管理员账号执行危险操作）：
 	 * 内置 admin 角色持有者仅平台超管可操作（防租户内改密/停用/删除管理员致账号接管）；
 	 * allowSelf=false 时禁止操作自己（防自杀/自锁）。
 	 */
