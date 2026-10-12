@@ -211,7 +211,7 @@ class TrackReplayApiTest extends AbstractTrackIntegrationTest {
 	void replayDisabledAppRejected() {
 		ResponseEntity<String> resp = postReplay(APP_R_OFF, block(uuid(), 0, List.of(rrweb(2, 1000))));
 		assertThat(resp.getStatusCode().value()).as("回放关闭应用应拒收").isEqualTo(400);
-		assertThat(readBody(resp).path("msg").asText()).contains("未开启会话回放");
+		assertThat(readBody(resp).path("msg").asText()).contains("没有打开会话回放");
 
 		JsonNode off = readBody(get("/track/config?app_key=" + APP_R_OFF, null)).path("data");
 		assertThat(off.path("replayEnabled").asBoolean()).as("关闭应用下发 replayEnabled=false").isFalse();
@@ -249,7 +249,7 @@ class TrackReplayApiTest extends AbstractTrackIntegrationTest {
 			ResponseEntity<String> third = postReplay(APP_R,
 				block(sessionId, 2, List.of(rrweb(2, 3000))));
 			assertThat(third.getStatusCode().value()).as("封禁会话后续块一律 413").isEqualTo(413);
-			assertThat(readBody(third).path("msg").asText()).contains("超限截断");
+			assertThat(readBody(third).path("msg").asText()).contains("回放已经超限");
 
 			awaitUntil("首块元数据落库", () -> trackLong(
 				"SELECT count(*) AS c FROM track_replay WHERE session_id = ? AND is_deleted = 0", sessionId) == 1L);

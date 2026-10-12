@@ -310,7 +310,7 @@ class GisApiTest extends AbstractIntegrationTest {
 		JsonNode saved = readBody(post("/system/gis/layer/submit",
 			Map.of("name", "IT自相交-" + System.currentTimeMillis(), "payload", bowtie), adminToken));
 		assertThat(saved.path("code").asInt()).isEqualTo(200);
-		assertThat(saved.path("msg").asText()).contains("几何被修复");
+		assertThat(saved.path("msg").asText()).contains("几何被自动修好");
 		long fixedId = saved.path("data").path("id").asLong();
 
 		// 修复后的图层必须能正常查：拓扑闸门的意义就在这里
