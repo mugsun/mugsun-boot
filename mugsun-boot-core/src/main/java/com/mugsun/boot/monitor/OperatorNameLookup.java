@@ -1,7 +1,6 @@
 package com.mugsun.boot.monitor;
 
-import com.mugsun.boot.system.mapper.SysUserMapper;
-import com.mybatisflex.core.query.QueryWrapper;
+import com.mugsun.boot.system.service.UserService;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -16,10 +15,10 @@ import java.util.Set;
 @Component
 public class OperatorNameLookup {
 
-	private final SysUserMapper userMapper;
+	private final UserService userService;
 
-	public OperatorNameLookup(SysUserMapper userMapper) {
-		this.userMapper = userMapper;
+	public OperatorNameLookup(UserService userService) {
+		this.userService = userService;
 	}
 
 	public Map<String, String> namesOf(Collection<String> operators) {
@@ -34,9 +33,7 @@ public class OperatorNameLookup {
 			}
 		}
 		if (!ids.isEmpty()) {
-			userMapper.selectListByQuery(QueryWrapper.create().in("id", ids)).forEach(u -> names.put(
-				String.valueOf(u.getId()),
-				u.getNickname() == null || u.getNickname().isBlank() ? u.getUsername() : u.getNickname()));
+			userService.displayNamesByIds(ids).forEach((id, name) -> names.put(String.valueOf(id), name));
 		}
 		return names;
 	}

@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ContentApiTest extends AbstractIntegrationTest {
 
 	private static final String TS = String.valueOf(System.currentTimeMillis());
-	private static final String LOW_USERNAME = "it-cnt-none-" + TS;
+	private static final String LOW_USERNAME = "it_cnt_none_" + TS;
 	private static final String LOW_PASSWORD = "123456";
 
 	private String adminToken;
@@ -87,7 +87,7 @@ class ContentApiTest extends AbstractIntegrationTest {
 	@Test
 	void changelogSubmitRecentAndRemove() {
 		Map<String, Object> log = new HashMap<>();
-		log.put("version", "it-" + TS);
+		log.put("version", "v1.2." + TS.substring(TS.length() - 4));
 		log.put("type", "feature");
 		log.put("title", "IT更新日志-" + TS);
 		log.put("content", "<p>集成测试</p>");

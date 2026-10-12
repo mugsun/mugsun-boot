@@ -74,7 +74,7 @@ class AuthApiTest extends AbstractIntegrationTest {
 	@Test
 	void registerAssignsDefaultRole() {
 		// 自助注册（验证码 + SM2 密文密码同真实链路）→ 自动挂内置普通用户角色 user，登录可见工作台
-		String username = "it-reg-" + System.currentTimeMillis() % 100000;
+		String username = "it_reg_" + System.currentTimeMillis() % 100000;
 		JsonNode captcha = readBody(get("/auth/captcha", null));
 		String publicKey = readBody(get("/auth/sm2-public-key", null)).path("data").path("publicKey").asText();
 		Map<String, Object> body = new HashMap<>();

@@ -14,7 +14,7 @@ import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysTenantMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
-import com.mugsun.boot.tenant.mapper.SysTenantPackageMapper;
+import com.mugsun.boot.tenant.TenantPackageService;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
@@ -42,14 +42,14 @@ public class TenantService {
 	private final PasswordEncoder passwordEncoder;
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
-	private final SysTenantPackageMapper packageMapper;
+	private final TenantPackageService packageService;
 	private final Random random = new Random();
 
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
 						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
 						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
-						 SysTenantPackageMapper packageMapper) {
+						 TenantPackageService packageService) {
 		this.tenantMapper = tenantMapper;
 		this.deptMapper = deptMapper;
 		this.postMapper = postMapper;
@@ -59,7 +59,7 @@ public class TenantService {
 		this.passwordEncoder = passwordEncoder;
 		this.tenantValidator = tenantValidator;
 		this.securityPolicyService = securityPolicyService;
-		this.packageMapper = packageMapper;
+		this.packageService = packageService;
 	}
 
 	/** 创建租户并初始化默认数据，返回租户编号 */
@@ -105,6 +105,14 @@ public class TenantService {
 		if (exist != null) {
 			tenantValidator.evict(exist.getTenantCode());
 		}
+	}
+
+	/** 按套餐 id 查绑定租户（套餐删除前占用检查）。 */
+	public List<SysTenant> listByPackageIds(java.util.Collection<Long> packageIds) {
+		if (packageIds == null || packageIds.isEmpty()) {
+			return List.of();
+		}
+		return tenantMapper.selectListByQuery(QueryWrapper.create().in("package_id", packageIds));
 	}
 
 	/** 逻辑删除租户并清缓存，避免被删租户在 TTL 内仍缓存有效。返回实际删除条数。 */
@@ -168,7 +176,7 @@ public class TenantService {
 		} else if (tenant.getAccountCount() < -1) {
 			throw new ServiceException("账号上限请填 -1（不限制）或大于等于 0 的整数");
 		}
-		if (tenant.getPackageId() != null && packageMapper.selectOneById(tenant.getPackageId()) == null) {
+		if (tenant.getPackageId() != null && packageService.getById(tenant.getPackageId()) == null) {
 			throw new ServiceException(updating
 				? "这个套餐不存在。请重新选择套餐，或清空套餐表示不限功能"
 				: "这个套餐不存在。请重新选择套餐，或先不选套餐");

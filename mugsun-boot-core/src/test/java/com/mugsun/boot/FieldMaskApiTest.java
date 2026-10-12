@@ -25,9 +25,9 @@ class FieldMaskApiTest extends AbstractIntegrationTest {
 
 	private static final String ROLE_MASKED = "it-fm-mask-" + TS;
 	private static final String ROLE_NOVIEW = "it-fm-noview-" + TS;
-	private static final String VIEW_MASKED = "it-fm-vm-" + TS;
-	private static final String VIEW_NOVIEW = "it-fm-vn-" + TS;
-	private static final String TARGET = "it-fm-target-" + TS;
+	private static final String VIEW_MASKED = "it_fm_vm_" + TS;
+	private static final String VIEW_NOVIEW = "it_fm_vn_" + TS;
+	private static final String TARGET = "it_fm_target_" + TS;
 	/** 目标手机号（138 + 时间戳后 8 位，符合 ^1\d{10}$ 且唯一）；脱敏形态 138****后4位 */
 	private static final String TARGET_PHONE = "138" + TS.substring(TS.length() - 8);
 	private static final String MASKED_PHONE = "138****" + TS.substring(TS.length() - 4);

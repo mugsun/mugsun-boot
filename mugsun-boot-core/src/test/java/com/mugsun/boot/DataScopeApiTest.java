@@ -35,15 +35,15 @@ class DataScopeApiTest extends AbstractIntegrationTest {
 	private static final String ROLE_NONE = "it-ds-none-" + TS;
 
 	// 观察员账号（各绑不同数据范围角色）
-	private static final String VIEW_ALL = "it-ds-va-" + TS;
-	private static final String VIEW_DEPT = "it-ds-vd-" + TS;
-	private static final String VIEW_SELF = "it-ds-vs-" + TS;
-	private static final String VIEW_BOTH = "it-ds-vb-" + TS;
-	private static final String VIEW_NONE = "it-ds-vn-" + TS;
+	private static final String VIEW_ALL = "it_ds_va_" + TS;
+	private static final String VIEW_DEPT = "it_ds_vd_" + TS;
+	private static final String VIEW_SELF = "it_ds_vs_" + TS;
+	private static final String VIEW_BOTH = "it_ds_vb_" + TS;
+	private static final String VIEW_NONE = "it_ds_vn_" + TS;
 	// 纯数据行账号（不授角色）
-	private static final String WORKER_A1 = "it-ds-wa1-" + TS;
-	private static final String WORKER_A2 = "it-ds-wa2-" + TS;
-	private static final String WORKER_B1 = "it-ds-wb1-" + TS;
+	private static final String WORKER_A1 = "it_ds_wa1_" + TS;
+	private static final String WORKER_A2 = "it_ds_wa2_" + TS;
+	private static final String WORKER_B1 = "it_ds_wb1_" + TS;
 
 	private String adminToken;
 	private long deptAId;
@@ -177,6 +177,8 @@ class DataScopeApiTest extends AbstractIntegrationTest {
 	private long createDept(String deptName) {
 		Map<String, Object> dept = new HashMap<>();
 		dept.put("deptName", deptName);
+		dept.put("fullName", deptName + "（全称）");
+		dept.put("category", "dept");
 		dept.put("parentId", 0);
 		dept.put("sort", 90);
 		JsonNode r = readBody(post("/system/dept/submit", dept, adminToken));

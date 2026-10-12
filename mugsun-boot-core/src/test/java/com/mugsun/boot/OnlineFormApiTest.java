@@ -27,7 +27,7 @@ class OnlineFormApiTest extends AbstractIntegrationTest {
 	private static final String TABLE_B = "gen_it_olb_" + TS;
 	private static final String TITLE_A = "租户A机密-" + TS;
 	private static final String TITLE_B = "租户B数据-" + TS;
-	private static final String LOW_USERNAME = "it-ol-none-" + TS;
+	private static final String LOW_USERNAME = "it_ol_none_" + TS;
 	private static final String LOW_PASSWORD = "123456";
 
 	private String tokenA;

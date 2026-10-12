@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReportApiTest extends AbstractIntegrationTest {
 
 	private static final String TS = String.valueOf(System.currentTimeMillis());
-	private static final String LOW_USERNAME = "it-rpt-none-" + TS;
+	private static final String LOW_USERNAME = "it_rpt_none_" + TS;
 	private static final String LOW_PASSWORD = "123456";
 
 	private String adminToken;

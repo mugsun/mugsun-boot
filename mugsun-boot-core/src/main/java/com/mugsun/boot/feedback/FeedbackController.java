@@ -7,7 +7,7 @@ import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.feedback.entity.SysFeedback;
 import com.mugsun.boot.feedback.mapper.SysFeedbackMapper;
 import com.mugsun.boot.system.entity.SysAttach;
-import com.mugsun.boot.system.mapper.SysAttachMapper;
+import com.mugsun.boot.system.service.AttachService;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -26,11 +26,11 @@ import java.util.List;
 public class FeedbackController {
 
 	private final SysFeedbackMapper feedbackMapper;
-	private final SysAttachMapper attachMapper;
+	private final AttachService attachService;
 
-	public FeedbackController(SysFeedbackMapper feedbackMapper, SysAttachMapper attachMapper) {
+	public FeedbackController(SysFeedbackMapper feedbackMapper, AttachService attachService) {
 		this.feedbackMapper = feedbackMapper;
-		this.attachMapper = attachMapper;
+		this.attachService = attachService;
 	}
 
 	/** 用户提交反馈 */
@@ -54,7 +54,7 @@ public class FeedbackController {
 		feedback.setContent(content);
 		feedback.setContact(contact.isEmpty() ? null : contact);
 		if (feedback.getAttachId() != null) {
-			SysAttach attach = attachMapper.selectOneById(feedback.getAttachId());
+			SysAttach attach = attachService.getById(feedback.getAttachId());
 			if (attach == null) {
 				throw new ServiceException("这个附件不存在。请重新选择图片后再提交");
 			}
@@ -132,7 +132,7 @@ public class FeedbackController {
 			}
 		}
 		if (!attachIds.isEmpty()) {
-			attachMapper.deleteBatchByIds(attachIds);
+			attachService.deleteBatchByIds(attachIds);
 		}
 		return R.success("已删除 " + rows.size() + " 条反馈。列表里不会再出现");
 	}

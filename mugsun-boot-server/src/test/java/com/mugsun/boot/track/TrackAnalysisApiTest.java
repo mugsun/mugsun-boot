@@ -36,7 +36,7 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 
 	private static final String APP_A = "it-ana-a";
 	private static final String APP_B = "it-ana-b";
-	private static final String LOW_USERNAME = "it-track-lowpriv";
+	private static final String LOW_USERNAME = "it_track_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-track-noperm";
 

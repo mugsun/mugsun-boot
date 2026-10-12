@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PermissionGuardApiTest extends AbstractIntegrationTest {
 
 	private static final String ROLE_CODE = "it-no-perm";
-	private static final String LOW_USERNAME = "it-lowpriv";
+	private static final String LOW_USERNAME = "it_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 
 	private String lowToken;
@@ -89,7 +89,7 @@ class PermissionGuardApiTest extends AbstractIntegrationTest {
 	void writeApiIsForbiddenForLowPrivilegeUser() {
 		// /system/user/submit 内联自守卫 sys:user:add —— 无码即拒
 		Map<String, Object> body = new HashMap<>();
-		body.put("username", "it-hack");
+		body.put("username", "it_hack");
 		body.put("nickname", "越权尝试");
 		body.put("status", 1);
 		ResponseEntity<String> response = post("/system/user/submit", body, lowToken);

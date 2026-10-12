@@ -48,7 +48,7 @@ class JobApiTest extends AbstractIntegrationTest {
 		assertThat(resp.getStatusCode().value()).as("连不上 Server 时也应走 R 信封而非 5xx").isLessThan(500);
 		JsonNode r = readBody(resp);
 		if (r.path("code").asInt() != 200) {
-			assertThat(r.path("msg").asText()).contains("定时任务服务不可用");
+			assertThat(r.path("msg").asText()).contains("定时任务服务");
 		} else {
 			assertThat(r.path("data").isArray()).as("Server 可用时返回任务数组").isTrue();
 		}

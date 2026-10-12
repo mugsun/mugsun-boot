@@ -30,7 +30,7 @@ class TrackGeoApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_A = "ak_test_geo_01";
 	private static final String APP_B = "ak_test_geo_b";
 	private static final String APP_IN = "ak_test_geo_in";
-	private static final String LOW_USERNAME = "it-g106-lowpriv";
+	private static final String LOW_USERNAME = "it_g106_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-g106-noperm";
 

@@ -50,7 +50,7 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_OFF = "it-g102-off";
 	private static final String APP_CLEAN = "it-g102-clean";
 	private static final String APP_B = "it-g102-b";
-	private static final String LOW_USERNAME = "it-g102-lowpriv";
+	private static final String LOW_USERNAME = "it_g102_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-g102-noperm";
 	/** 本地存储落盘根（基座动态属性 dromara.x-file-storage.local-plus[0].storage-path） */
@@ -324,7 +324,7 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 	void bodyDisabledAppRejectedAndConfig() {
 		ResponseEntity<String> resp = postApiBodyGzip(APP_OFF, uuid(), BODY_JSON);
 		assertThat(resp.getStatusCode().value()).as("body 采集关闭应用应拒收").isEqualTo(400);
-		assertThat(readBody(resp).path("msg").asText()).contains("未开启接口响应体采集");
+		assertThat(readBody(resp).path("msg").asText()).contains("没有打开响应体采集");
 		assertThat(bodyFile(APP_OFF, "never")).as("拒收不落对象").doesNotExist();
 
 		JsonNode on = readBody(get("/track/config?app_key=" + APP_T, null)).path("data");
@@ -410,7 +410,7 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		// 事件行不动：body 过期后读取诚实 400（清单留存，清理幂等可重入）
 		JsonNode read = readBody(get("/system/track/user/api-body?eventId=" + expiredEvent, adminToken));
 		assertThat(read.path("code").asInt()).as("body 已清理应 400").isEqualTo(400);
-		assertThat(read.path("msg").asText()).contains("未采集或已清理");
+		assertThat(read.path("msg").asText()).contains("没有采到，或已经清理");
 	}
 
 	/** ⑪ body 读取审计留痕：sys_oper_log 写「查看接口响应体」（标题/URI/操作人/参数含事件） */

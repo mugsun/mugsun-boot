@@ -47,7 +47,7 @@ class TrackAlertSourcemapApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_ALERT = "it-g101-alert";
 	private static final String APP_OFF = "it-g101-off";
 	private static final int ALERT_THRESHOLD = 3;
-	private static final String LOW_USERNAME = "it-g101-lowpriv";
+	private static final String LOW_USERNAME = "it_g101_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-g101-noperm";
 	/** 本地存储落盘根（基座动态属性 dromara.x-file-storage.local-plus[0].storage-path） */

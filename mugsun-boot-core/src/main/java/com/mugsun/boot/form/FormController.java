@@ -7,7 +7,7 @@ import com.mugsun.boot.form.entity.SysForm;
 import com.mugsun.boot.form.entity.SysFormData;
 import com.mugsun.boot.form.mapper.SysFormDataMapper;
 import com.mugsun.boot.form.mapper.SysFormMapper;
-import com.mugsun.boot.system.mapper.SysUserMapper;
+import com.mugsun.boot.system.service.UserService;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -27,12 +27,12 @@ public class FormController {
 
 	private final SysFormMapper formMapper;
 	private final SysFormDataMapper formDataMapper;
-	private final SysUserMapper userMapper;
+	private final UserService userService;
 
-	public FormController(SysFormMapper formMapper, SysFormDataMapper formDataMapper, SysUserMapper userMapper) {
+	public FormController(SysFormMapper formMapper, SysFormDataMapper formDataMapper, UserService userService) {
 		this.formMapper = formMapper;
 		this.formDataMapper = formDataMapper;
-		this.userMapper = userMapper;
+		this.userService = userService;
 	}
 
 	@GetMapping("/page")
@@ -220,9 +220,7 @@ public class FormController {
 		if (ids.isEmpty()) {
 			return;
 		}
-		java.util.Map<Long, String> names = new java.util.HashMap<>();
-		userMapper.selectListByQuery(QueryWrapper.create().in("id", ids)).forEach(u -> names.put(
-			u.getId(), u.getNickname() == null || u.getNickname().isBlank() ? u.getUsername() : u.getNickname()));
+		java.util.Map<Long, String> names = userService.displayNamesByIds(ids);
 		for (SysFormData row : records) {
 			if (row.getSubmitter() != null) {
 				row.setSubmitterName(names.getOrDefault(row.getSubmitter(), String.valueOf(row.getSubmitter())));
