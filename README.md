@@ -131,4 +131,4 @@ Maven Profile：
 
 ## 许可
 
-[Apache-2.0](./LICENSE)
+[Apache-2.0](./LICENSE) · 版权见 [NOTICE](./NOTICE) · © 2026 北京定旭晨 / mugsun
