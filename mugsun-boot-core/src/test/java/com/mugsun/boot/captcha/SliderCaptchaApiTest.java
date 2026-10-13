@@ -233,6 +233,7 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	@org.junit.jupiter.api.Timeout(value = 120, threadMode = org.junit.jupiter.api.Timeout.ThreadMode.SEPARATE_THREAD)
 	void concurrentLegitSmsCodeAtMostTenPassQuota() throws Exception {
 		String phone = "13800000022";
 		props.getRateLimit().setSmsPhonePerMinute(100);
@@ -266,6 +267,7 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	@org.junit.jupiter.api.Timeout(value = 120, threadMode = org.junit.jupiter.api.Timeout.ThreadMode.SEPARATE_THREAD)
 	void concurrentVerifyOnlyOneWins() throws Exception {
 		JsonNode c = challenge("login", PLATFORM_TENANT);
 		String id = c.path("data").path("captchaId").asText();
