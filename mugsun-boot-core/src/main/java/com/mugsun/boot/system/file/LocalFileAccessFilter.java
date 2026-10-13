@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * 本地存储直出访问控制：x-file-storage enable-access 注册的静态资源映射本身不鉴权，
@@ -19,6 +21,10 @@ import java.io.IOException;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class LocalFileAccessFilter extends OncePerRequestFilter {
+
+	/** 浏览器可能内联执行的类型：一律强制下载 + CSP sandbox，防存储型 XSS */
+	private static final Set<String> ACTIVE_EXTS = Set.of("html", "htm", "xhtml", "xht", "shtml", "svg", "svgz",
+		"xml", "xsl", "xslt", "js", "mjs", "swf");
 
 	private final LocalFileAccessProperties properties;
 	private final LocalFileUrlSigner signer;
@@ -47,6 +53,11 @@ public class LocalFileAccessFilter extends OncePerRequestFilter {
 		}
 		if (isPublic(relPath) || signer.verify(relPath, request.getParameter(LocalFileUrlSigner.PARAM_EXPIRE),
 			request.getParameter(LocalFileUrlSigner.PARAM_SIGN))) {
+			response.setHeader("X-Content-Type-Options", "nosniff");
+			if (isActive(relPath)) {
+				response.setHeader("Content-Disposition", "attachment");
+				response.setHeader("Content-Security-Policy", "sandbox");
+			}
 			chain.doFilter(request, response);
 			return;
 		}
@@ -70,6 +81,15 @@ public class LocalFileAccessFilter extends OncePerRequestFilter {
 			return null;
 		}
 		return rel;
+	}
+
+	static boolean isActive(String relPath) {
+		int slash = relPath.lastIndexOf('/');
+		int dot = relPath.lastIndexOf('.');
+		if (dot <= slash) {
+			return false;
+		}
+		return ACTIVE_EXTS.contains(relPath.substring(dot + 1).toLowerCase(Locale.ROOT));
 	}
 
 	private boolean isPublic(String relPath) {
