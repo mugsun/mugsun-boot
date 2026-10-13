@@ -205,7 +205,8 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 			h.add("X-Forwarded-For", "198.51.100." + (i + 10));
 			JsonNode r = readBody(rest.exchange("/auth/captcha/verify", HttpMethod.POST,
 				new HttpEntity<>(verifyBody(id, 1), h), String.class));
-			assertThat(r.path("code").asInt()).isEqualTo(CaptchaCodes.FAILED);
+			// 伪造 XFF 仍按真实 IP 计数：第 5 次失败即锁定，直接 40012
+			assertThat(r.path("code").asInt()).isEqualTo(i < 4 ? CaptchaCodes.FAILED : CaptchaCodes.RATE_LIMITED);
 		}
 		HttpHeaders h = new HttpHeaders();
 		h.setContentType(MediaType.APPLICATION_JSON);
@@ -364,6 +365,10 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		java.io.InputStream in = status < 400 ? conn.getInputStream() : conn.getErrorStream();
 		resp = in == null ? "" : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
 		boolean rejected = status >= 400 || !resp.contains("\"code\":200");
+		if (status == 200 && !resp.isEmpty()) {
+			// 能读到响应时必须是标准 R JSON 40011
+			assertThat(resp).contains("\"code\":" + CaptchaCodes.FAILED);
+		}
 		assertThat(rejected).as("status=" + status + " body=" + resp).isTrue();
 		assertThat(resp).doesNotContain("captchaToken");
 	}

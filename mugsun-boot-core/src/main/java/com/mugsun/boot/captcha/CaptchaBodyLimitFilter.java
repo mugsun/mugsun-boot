@@ -19,7 +19,7 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * 验证码校验接口请求体上限：声明了 Content-Length 的超限请求直接拒绝；
- * 分块传输（无 Content-Length）在读取时限长，超出即中断解析。
+ * 分块传输（无 Content-Length）先限长读入，超出同样回标准 R JSON（HTTP 200 + 40011）。
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -38,13 +38,82 @@ public class CaptchaBodyLimitFilter extends OncePerRequestFilter {
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 		throws ServletException, IOException {
 		if (request.getContentLengthLong() > MAX_BODY_BYTES) {
-			response.setStatus(HttpServletResponse.SC_OK);
-			response.setContentType("application/json;charset=UTF-8");
-			response.getWriter().write("{\"code\":" + CaptchaCodes.FAILED + ",\"success\":false,\"data\":null,\"msg\":\""
-				+ CaptchaCodes.MSG_FAILED + "\"}");
+			reject(response);
 			return;
 		}
-		chain.doFilter(new Bounded(request), response);
+		// 先按上限读入（含分块传输），超限统一回标准 R JSON（HTTP 200 + 40011），不进入业务解析
+		byte[] body = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
+		if (body.length > MAX_BODY_BYTES) {
+			reject(response);
+			return;
+		}
+		chain.doFilter(new Cached(request, body), response);
+	}
+
+	private static void reject(HttpServletResponse response) throws IOException {
+		response.setStatus(HttpServletResponse.SC_OK);
+		response.setContentType("application/json;charset=UTF-8");
+		response.setHeader("Connection", "close");
+		response.getWriter().write("{\"code\":" + CaptchaCodes.FAILED + ",\"success\":false,\"data\":null,\"msg\":\""
+			+ CaptchaCodes.MSG_FAILED + "\"}");
+		response.flushBuffer();
+	}
+
+	/** 已读入的请求体回放 */
+	static final class Cached extends HttpServletRequestWrapper {
+
+		private final byte[] body;
+
+		Cached(HttpServletRequest request, byte[] body) {
+			super(request);
+			this.body = body;
+		}
+
+		@Override
+		public ServletInputStream getInputStream() {
+			java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(body);
+			return new ServletInputStream() {
+				@Override
+				public int read() {
+					return in.read();
+				}
+
+				@Override
+				public int read(byte[] b, int off, int len) {
+					return in.read(b, off, len);
+				}
+
+				@Override
+				public boolean isFinished() {
+					return in.available() == 0;
+				}
+
+				@Override
+				public boolean isReady() {
+					return true;
+				}
+
+				@Override
+				public void setReadListener(ReadListener listener) {
+					throw new UnsupportedOperationException();
+				}
+			};
+		}
+
+		@Override
+		public BufferedReader getReader() {
+			return new BufferedReader(new InputStreamReader(getInputStream(), StandardCharsets.UTF_8));
+		}
+
+		@Override
+		public int getContentLength() {
+			return body.length;
+		}
+
+		@Override
+		public long getContentLengthLong() {
+			return body.length;
+		}
 	}
 
 	static final class Bounded extends HttpServletRequestWrapper {

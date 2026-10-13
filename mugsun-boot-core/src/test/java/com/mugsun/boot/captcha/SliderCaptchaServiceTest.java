@@ -228,12 +228,20 @@ class SliderCaptchaServiceTest {
 
 	@Test
 	void failuresLockIpAndLockedRequestsSkipVerification() {
-		for (int i = 0; i < 5; i++) {
+		for (int i = 0; i < 4; i++) {
 			ChallengeVO c = challenge();
 			now.addAndGet(900);
 			assertThat(code(() -> svc.verify(pointer(c.captchaId(), 1, 320, humanTrack(1, 850), 850), IP, UA)))
 				.isEqualTo(CaptchaCodes.FAILED);
 		}
+		assertThat(lockedAudit).isEmpty();
+		// 第 5 次失败即触发锁定：verify 本身直接回 40012 + retryAfter（不再先回一次 40011）
+		ChallengeVO c5 = challenge();
+		now.addAndGet(900);
+		CaptchaException locked = (CaptchaException) catchCaptcha(() ->
+			svc.verify(pointer(c5.captchaId(), 1, 320, humanTrack(1, 850), 850), IP, UA));
+		assertThat(locked.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat((Long) locked.getData().get("retryAfter")).isEqualTo(600L);
 		assertThat(lockedAudit).containsExactly("203.0.113.7/pointer");
 		try {
 			challenge();
@@ -347,8 +355,9 @@ class SliderCaptchaServiceTest {
 			ChallengeVO c = keyboardChallenge();
 			now.addAndGet(2000);
 			long end = now.get();
+			int expected = i < 2 ? CaptchaCodes.FAILED : CaptchaCodes.RATE_LIMITED;
 			assertThat(code(() -> svc.verify(new VerifyRequest(c.captchaId(), "keyboard", 320, end - 1500, end, null,
-				new VerifyRequest.Answer(1.0), 12), IP, UA))).isEqualTo(CaptchaCodes.FAILED);
+				new VerifyRequest.Answer(1.0), 12), IP, UA))).isEqualTo(expected);
 		}
 		assertThat(lockedAudit).containsExactly("203.0.113.7/keyboard");
 		assertThat(code(this::challenge)).isEqualTo(CaptchaCodes.RATE_LIMITED);

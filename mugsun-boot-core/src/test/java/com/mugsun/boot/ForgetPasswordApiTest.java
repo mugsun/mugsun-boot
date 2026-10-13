@@ -22,16 +22,24 @@ class ForgetPasswordApiTest extends AbstractIntegrationTest {
 	private StringRedisTemplate redis;
 
 	@Test
-	void forgetCodeFailsExplicitlyWhenMailNotConfigured() {
+	void forgetCodeResponseDoesNotLeakAccountOrChannelState() {
+		// 测试环境未配置邮件通道：存在的账号与不存在的账号对外响应必须完全一致（都按成功处理）
+		JsonNode existing = forgetCode(ADMIN_USERNAME);
+		JsonNode missing = forgetCode("no_such_user_" + System.nanoTime() % 100000);
+		assertThat(existing.path("code").asInt()).isEqualTo(200);
+		assertThat(missing.path("code").asInt()).isEqualTo(200);
+		assertThat(existing.path("msg").asText()).isEqualTo(missing.path("msg").asText());
+		assertThat(existing.path("msg").asText()).doesNotContain("通道");
+		assertThat(existing.path("data")).isEqualTo(missing.path("data"));
+	}
+
+	private JsonNode forgetCode(String username) {
 		JsonNode captcha = readBody(get("/auth/captcha", null));
 		Map<String, Object> body = new HashMap<>();
-		body.put("username", ADMIN_USERNAME);
+		body.put("username", username);
 		body.put("captchaUuid", captcha.path("data").path("captchaUuid").asText());
 		body.put("captchaCode", captcha.path("data").path("captchaCode").asText());
-		ResponseEntity<String> response = post("/auth/forget-code", body, null);
-		JsonNode r = readBody(response);
-		assertThat(r.path("code").asInt()).isEqualTo(400);
-		assertThat(r.path("msg").asText()).contains("邮件通道未配置");
+		return readBody(post("/auth/forget-code", body, null));
 	}
 
 	@Test

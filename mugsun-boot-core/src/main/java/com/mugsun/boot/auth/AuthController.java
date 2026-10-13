@@ -153,7 +153,7 @@ public class AuthController {
 		}
 		com.mugsun.boot.client.entity.SysClient client = clientService.loadClient(dto.getClientId());
 		if (captchaGate.isSlider()) {
-			// 滑块：按服务端解析的租户/客户端判定（客户端开关 AND 租户开关），需要时核销一次性 captchaToken
+			// 滑块：按服务端解析的租户/客户端判定（滑块模式：全局开关 AND 租户开关，客户端开关不参与；旧数字码模式才看客户端开关），需要时核销一次性 captchaToken
 			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_LOGIN, client,
 				com.mugsun.boot.captcha.CaptchaGate.normalizeTenant(dto.getTenantId()), dto.getCaptchaToken(), request);
 		} else if (Integer.valueOf(1).equals(client.getCaptchaEnabled())) {
@@ -349,17 +349,17 @@ public class AuthController {
 	/** 短信登录：发送验证码（开发回显） */
 	@PostMapping("/sms-code")
 	public R<Map<String, Object>> smsCode(@RequestBody Map<String, String> body, HttpServletRequest request) {
-		String phone = body.get("phone");
-		if (phone == null || phone.isBlank()) {
+		String phone = com.mugsun.boot.system.service.SmsService.normalizePhone(body.get("phone"));
+		if (phone == null) {
 			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
+		// 发码频控先于核销：超额时不消耗 captchaToken（单手机号每天、单 IP 每小时，叠加 SmsService 同号 60s 节流）
+		captchaGate.assertSmsQuota(phone, request);
 		// 滑块模式：验证码拦在发短信这一步（防短信轰炸）；是否需要只看全局开关，不采信请求里的 tenantId
 		if (captchaGate.isSlider()) {
 			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_SMS, captchaGate.resolveClient(body.get("clientId")),
 				com.mugsun.boot.captcha.CaptchaGate.NO_TENANT, body.get("captchaToken"), request);
 		}
-		// 发码频控：单手机号每天、单 IP 每小时（叠加 SmsService 同号 60s 节流）
-		captchaGate.assertSmsQuota(phone.trim(), request);
 		smsService.sendCode(phone);
 		Map<String, Object> resp = new java.util.HashMap<>();
 		if (smsService.isShowCode()) {
@@ -371,9 +371,9 @@ public class AuthController {
 	/** 短信登录：校验验证码 + 按手机号查用户 + 发 token */
 	@PostMapping("/sms-login")
 	public R<Map<String, Object>> smsLogin(@RequestBody Map<String, String> body, HttpServletRequest request) {
-		String phone = body.get("phone");
+		String phone = com.mugsun.boot.system.service.SmsService.normalizePhone(body.get("phone"));
 		String code = body.get("code");
-		if (phone == null || phone.isBlank()) {
+		if (phone == null) {
 			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
 		// 旧数字码模式：短信登录也需图形码（滑块模式已前移到 /auth/sms-code）

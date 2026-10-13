@@ -128,7 +128,10 @@ public class SliderCaptchaService {
 			ok = false;
 		}
 		if (!ok) {
-			recordFailure(ipKey, mode, parts[3]);
+			// 触发锁定的那次失败直接回 40012 + retryAfter，不再多给一次 40011
+			if (recordFailure(ipKey, mode, parts[3])) {
+				throw CaptchaException.rateLimited(props.getRateLimit().getLockSeconds());
+			}
 			throw CaptchaException.failed();
 		}
 		String token = randomHex();
@@ -304,7 +307,8 @@ public class SliderCaptchaService {
 		}
 	}
 
-	private void recordFailure(String ipKey, String mode, String tenantId) {
+	/** 记录一次失败；返回 true 表示本次失败触发了锁定 */
+	private boolean recordFailure(String ipKey, String mode, String tenantId) {
 		CaptchaProperties.RateLimit rl = props.getRateLimit();
 		int max = MODE_KEYBOARD.equals(mode) ? rl.getKeyboardFailMax() : rl.getVerifyFailMax();
 		long fails = store.increment(K_FAIL + mode + ":" + ipKey, rl.getFailWindowSeconds());
@@ -313,7 +317,9 @@ public class SliderCaptchaService {
 			store.put(K_LOCK + ipKey, mode, rl.getLockSeconds());
 			store.delete(K_FAIL + mode + ":" + ipKey);
 			audit.locked(ipKey, mode, tenantId, rl.getLockSeconds());
+			return true;
 		}
+		return false;
 	}
 
 	private void takeGlobalToken() {
