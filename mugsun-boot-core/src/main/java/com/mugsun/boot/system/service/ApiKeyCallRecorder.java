@@ -1,5 +1,6 @@
 package com.mugsun.boot.system.service;
 
+import com.mugsun.boot.common.web.ClientIpResolver;
 import com.mugsun.boot.system.entity.SysApiKey;
 import com.mugsun.boot.system.entity.SysApiKeyLog;
 import com.mugsun.boot.system.mapper.SysApiKeyLogMapper;
@@ -61,16 +62,9 @@ public class ApiKeyCallRecorder {
 		return "accessKey=" + ak + "，SecretKey 已隐藏";
 	}
 
-	private static String ipOf(HttpServletRequest request) {
-		if (request == null) {
-			return "";
-		}
-		String forwarded = request.getHeader("X-Forwarded-For");
-		if (forwarded != null && !forwarded.isBlank()) {
-			int comma = forwarded.indexOf(',');
-			return (comma < 0 ? forwarded : forwarded.substring(0, comma)).trim();
-		}
-		return request.getRemoteAddr();
+	/** 不信任 X-Forwarded-For，除非 remoteAddr 属于可信代理（见 {@link ClientIpResolver}）。 */
+	static String ipOf(HttpServletRequest request) {
+		return ClientIpResolver.clientIp(request);
 	}
 
 	private static String cut(String value, int max) {
