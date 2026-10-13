@@ -31,9 +31,11 @@ public class AiChannelBizService {
 	private final AiModuleService moduleService;
 	private final AiChannelBindMapper mapper;
 	private final AiOutboundProperties outbound;
+	private final com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients;
 
 	public AiChannelBizService(AiModuleService moduleService, AiChannelBindMapper mapper,
-							   AiOutboundProperties outbound) {
+							   AiOutboundProperties outbound, com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients) {
+		this.outboundWebClients = outboundWebClients;
 		this.moduleService = moduleService;
 		this.mapper = mapper;
 		this.outbound = outbound;
@@ -147,7 +149,7 @@ public class AiChannelBizService {
 			return result(false, "Webhook 地址不允许访问内网或元数据地址。请换成公网地址，或让管理员加入出站白名单", bind, content);
 		}
 		try {
-			WebClient.create()
+			outboundWebClients.create()
 				.post().uri(url)
 				.contentType(MediaType.APPLICATION_JSON)
 				.bodyValue(Map.of(

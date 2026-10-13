@@ -46,12 +46,15 @@ public class AiFlowExecutor {
 	private final AiMcpBizService mcpBizService;
 	private final AiChannelBizService channelBizService;
 	private final WebClient.Builder webClientBuilder;
+	private final com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients;
 
 	public AiFlowExecutor(ObjectMapper objectMapper, AiAppRunMapper runMapper,
 						  AiAppNodeRunMapper nodeRunMapper, AiModelBizService modelBizService,
 						  AiLlmClient llmClient, AiKnowledgeBizService knowledgeBizService,
 						  AiDatasourceBizService datasourceBizService, AiMcpBizService mcpBizService,
-						  AiChannelBizService channelBizService, WebClient.Builder webClientBuilder) {
+						  AiChannelBizService channelBizService, WebClient.Builder webClientBuilder,
+						  com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients) {
+		this.outboundWebClients = outboundWebClients;
 		this.objectMapper = objectMapper;
 		this.runMapper = runMapper;
 		this.nodeRunMapper = nodeRunMapper;
@@ -294,7 +297,7 @@ public class AiFlowExecutor {
 				case "http" -> {
 					String url = UrlSafetyGate.guard(render(data.path("url").asText(), vars));
 					String method = data.path("method").asText("GET");
-					WebClient client = webClientBuilder.build();
+					WebClient client = outboundWebClients.createStrict();
 					if ("POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method) || "PATCH".equalsIgnoreCase(method)) {
 						String body = data.path("body").asText("{}");
 						output = client.method(org.springframework.http.HttpMethod.valueOf(method.toUpperCase(Locale.ROOT)))
