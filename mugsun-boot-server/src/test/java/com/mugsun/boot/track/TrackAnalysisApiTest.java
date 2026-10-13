@@ -134,6 +134,8 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(cards.path("sessionCount").asLong()).as("今日活跃会话 s1/s2（昨日未造会话）").isEqualTo(2L);
 		assertThat(cards.path("eventCount").asLong()).as("今日9+昨日2").isEqualTo(11L);
 		assertThat(cards.has("avgSessionDurationMs")).isTrue();
+		assertThat(cards.has("settledSessionCount")).as("下发已结算会话数").isTrue();
+		assertThat(cards.path("settledSessionCount").asLong()).isGreaterThanOrEqualTo(0L);
 		assertThat(cards.has("bounceRate")).isTrue();
 
 		JsonNode referrer = data.path("referrerDist");

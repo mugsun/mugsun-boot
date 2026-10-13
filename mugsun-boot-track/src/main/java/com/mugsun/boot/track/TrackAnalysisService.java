@@ -120,6 +120,8 @@ public class TrackAnalysisService {
 		cards.put("eventCount", eventCount);
 		cards.put("avgSessionDurationMs", num(sess, "avgDur"));
 		cards.put("bounceRate", bounceRate);
+		// 已结算会话数：0 表示时长/跳出率尚未定稿（会话静默 30 分钟才结算），前端据此显示占位而非 0
+		cards.put("settledSessionCount", settledSessions);
 
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("cards", cards);
