@@ -39,6 +39,8 @@ public class SliderCaptchaService {
 	static final String K_GLOBAL = PREFIX + "rl:global:";
 	static final String K_SMS_PHONE = PREFIX + "rl:sms-phone:";
 	static final String K_SMS_IP = PREFIX + "rl:sms-ip:";
+	static final String K_SMS_BURST_PHONE = PREFIX + "rl:sms-burst-phone:";
+	static final String K_SMS_BURST_IP = PREFIX + "rl:sms-burst-ip:";
 
 	public static final String MODE_POINTER = "pointer";
 	public static final String MODE_KEYBOARD = "keyboard";
@@ -132,6 +134,11 @@ public class SliderCaptchaService {
 			if (recordFailure(ipKey, mode, parts[3])) {
 				throw CaptchaException.rateLimited(props.getRateLimit().getLockSeconds());
 			}
+			// 并发下锁可能由另一请求（或另一输入模式）刚刚设置：只要失败时 IP 已处于锁定，一律 40012
+			long left = store.ttlSeconds(K_LOCK + ipKey);
+			if (left > 0) {
+				throw CaptchaException.rateLimited(left);
+			}
 			throw CaptchaException.failed();
 		}
 		String token = randomHex();
@@ -140,17 +147,62 @@ public class SliderCaptchaService {
 		return new TokenVO(token, ttl);
 	}
 
-	/** 发送短信前的频控：单手机号每天、单 IP 每小时（与验证码开关无关，始终生效） */
-	public void assertSmsQuota(String phone, String ip) {
+	/** 发短信第〇步：宽松短窗口频率限制（每个请求都计数，含无 token；60 秒窗口到期自动恢复，不会长时间锁死） */
+	public void hitSmsBurst(String phone, String ip) {
+		CaptchaProperties.RateLimit rl = props.getRateLimit();
+		String ipKey = K_SMS_BURST_IP + safeIp(ip);
+		if (rl.getSmsIpPerMinute() > 0 && store.increment(ipKey, 60) > rl.getSmsIpPerMinute()) {
+			throw CaptchaException.rateLimited(store.ttlSeconds(ipKey));
+		}
+		String phoneKey = K_SMS_BURST_PHONE + hash(phone);
+		if (rl.getSmsPhonePerMinute() > 0 && store.increment(phoneKey, 60) > rl.getSmsPhonePerMinute()) {
+			throw CaptchaException.rateLimited(store.ttlSeconds(phoneKey));
+		}
+	}
+
+	/** 发短信第一步：只读检查单 IP 每小时、单手机号每天配额，不计数（无 token/无效 token 的请求不消耗配额） */
+	public void checkSmsQuota(String phone, String ip) {
 		CaptchaProperties.RateLimit rl = props.getRateLimit();
 		String ipKey = K_SMS_IP + safeIp(ip);
-		if (store.increment(ipKey, 3600) > rl.getSmsIpPerHour()) {
+		if (store.count(ipKey) >= rl.getSmsIpPerHour()) {
 			throw CaptchaException.rateLimited(store.ttlSeconds(ipKey));
 		}
 		String phoneKey = K_SMS_PHONE + hash(phone);
-		if (store.increment(phoneKey, 86400) > rl.getSmsPhonePerDay()) {
+		if (store.count(phoneKey) >= rl.getSmsPhonePerDay()) {
 			throw CaptchaException.rateLimited(store.ttlSeconds(phoneKey));
 		}
+	}
+
+	/**
+	 * 发短信第三步（token 已核销后）：原子「未超上限才计数」。先 IP 后手机号；
+	 * 手机号已满时 IP 计数不回退（偏保守）。并发下每个号码至多 sms-phone-per-day 次通过。
+	 */
+	public void takeSmsQuota(String phone, String ip) {
+		CaptchaProperties.RateLimit rl = props.getRateLimit();
+		String ipKey = K_SMS_IP + safeIp(ip);
+		if (store.incrementIfBelow(ipKey, rl.getSmsIpPerHour(), 3600) < 0) {
+			throw CaptchaException.rateLimited(store.ttlSeconds(ipKey));
+		}
+		String phoneKey = K_SMS_PHONE + hash(phone);
+		if (store.incrementIfBelow(phoneKey, rl.getSmsPhonePerDay(), 86400) < 0) {
+			throw CaptchaException.rateLimited(store.ttlSeconds(phoneKey));
+		}
+	}
+
+	/** 检查 + 计数（无验证码步骤时使用） */
+	public void assertSmsQuota(String phone, String ip) {
+		checkSmsQuota(phone, ip);
+		takeSmsQuota(phone, ip);
+	}
+
+	/** 短信下发失败：计数不回退，写审计（号码只记哈希） */
+	public void smsSendFailed(String phone, String ip, String reason) {
+		audit.smsSendFailed(safeIp(ip), hash(phone), reason);
+	}
+
+	/** 仅供测试：当前手机号计数 */
+	long smsPhoneCount(String phone) {
+		return store.count(K_SMS_PHONE + hash(phone));
 	}
 
 	/** 业务接口核销：先删后比，scene/clientId/tenantId 必须严格相等 */

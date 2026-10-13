@@ -327,7 +327,7 @@ public class AuthController {
 			captchaService.verify(dto.captchaUuid(), dto.captchaCode());
 		}
 		forgetPasswordService.sendCode(dto.username().trim(), tenantId);
-		return R.success("若账号存在且已绑定邮箱，验证码已发送");
+		return R.success("如账号存在，验证码已发送至绑定邮箱");
 	}
 
 	/** 忘记密码：凭邮箱验证码重置密码（新密码 SM2 解密 + 复杂度/历史校验，重置即全端下线） */
@@ -353,14 +353,24 @@ public class AuthController {
 		if (phone == null) {
 			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
-		// 发码频控先于核销：超额时不消耗 captchaToken（单手机号每天、单 IP 每小时，叠加 SmsService 同号 60s 节流）
-		captchaGate.assertSmsQuota(phone, request);
-		// 滑块模式：验证码拦在发短信这一步（防短信轰炸）；是否需要只看全局开关，不采信请求里的 tenantId
+		// ⓪ 宽松短窗口频率限制：手机号/IP 每分钟（含无 token 请求，60 秒自动恢复）
+		captchaGate.hitSmsBurst(phone, request);
+		// ① 只读查配额（不计数）：已超额时不消耗 captchaToken
+		captchaGate.checkSmsQuota(phone, request);
+		// ② 滑块模式：原子核销 captchaToken（防短信轰炸）；是否需要只看全局开关，不采信请求里的 tenantId。无/无效 token 不计数
 		if (captchaGate.isSlider()) {
 			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_SMS, captchaGate.resolveClient(body.get("clientId")),
 				com.mugsun.boot.captcha.CaptchaGate.NO_TENANT, body.get("captchaToken"), request);
 		}
-		smsService.sendCode(phone);
+		// ③ 原子「未超上限才计数」（单手机号每天、单 IP 每小时；叠加 SmsService 同号 60s 节流）
+		captchaGate.takeSmsQuota(phone, request);
+		// ④ 发送；失败不退计数，写审计
+		try {
+			smsService.sendCode(phone);
+		} catch (RuntimeException e) {
+			captchaGate.smsSendFailed(phone, request, e);
+			throw e;
+		}
 		Map<String, Object> resp = new java.util.HashMap<>();
 		if (smsService.isShowCode()) {
 			resp.put("code", smsService.peekCode(phone));

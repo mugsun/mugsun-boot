@@ -55,6 +55,8 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 	@AfterEach
 	void restoreLimits() {
 		props.getRateLimit().setSmsIpPerHour(20);
+		props.getRateLimit().setSmsPhonePerMinute(5);
+		props.getRateLimit().setSmsIpPerMinute(30);
 	}
 
 	private JsonNode challenge(String scene, String tenantId) {
@@ -169,6 +171,73 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		Map<String, Object> body = new HashMap<>();
 		body.put("phone", "13800000000");
 		assertThat(readBody(post("/auth/sms-code", body, null)).path("code").asInt()).isEqualTo(CaptchaCodes.REQUIRED);
+	}
+
+	@Test
+	void smsBurstLimitAppliesToRequestsWithoutToken() {
+		Map<String, Object> body = new HashMap<>();
+		body.put("phone", "13800000023");
+		for (int i = 0; i < 5; i++) {
+			assertThat(readBody(post("/auth/sms-code", body, null)).path("code").asInt()).isEqualTo(CaptchaCodes.REQUIRED);
+		}
+		JsonNode r = readBody(post("/auth/sms-code", body, null));
+		assertThat(r.path("code").asInt()).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat(r.path("data").path("retryAfter").asLong()).isBetween(1L, 60L);
+		assertThat(slider.smsPhoneCount("13800000023")).isZero();
+	}
+
+	@Test
+	void smsCodeWithoutValidTokenDoesNotConsumeQuota() {
+		String phone = "13800000021";
+		props.getRateLimit().setSmsPhonePerMinute(100);
+		for (int i = 0; i < 15; i++) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("phone", phone);
+			if (i % 2 == 1) {
+				body.put("captchaToken", "0123456789abcdef0123456789abcdef");
+			}
+			assertThat(readBody(post("/auth/sms-code", body, null)).path("code").asInt()).isEqualTo(CaptchaCodes.REQUIRED);
+		}
+		assertThat(slider.smsPhoneCount(phone)).isZero();
+		// 合法请求仍可通过配额（测试环境短信通道未配置，发送失败不退计数）
+		Map<String, Object> body = new HashMap<>();
+		body.put("phone", phone);
+		body.put("captchaToken", token("sms", PLATFORM_TENANT));
+		assertThat(readBody(post("/auth/sms-code", body, null)).path("code").asInt()).isNotEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat(slider.smsPhoneCount(phone)).isEqualTo(1);
+	}
+
+	@Test
+	void concurrentLegitSmsCodeAtMostTenPassQuota() throws Exception {
+		String phone = "13800000022";
+		props.getRateLimit().setSmsPhonePerMinute(100);
+		List<String> tokens = new ArrayList<>();
+		for (int i = 0; i < 20; i++) {
+			tokens.add(token("sms", PLATFORM_TENANT));
+		}
+		ExecutorService pool = Executors.newFixedThreadPool(20);
+		CountDownLatch go = new CountDownLatch(1);
+		AtomicInteger limited = new AtomicInteger();
+		List<java.util.concurrent.Future<?>> fs = new ArrayList<>();
+		for (String t : tokens) {
+			fs.add(pool.submit(() -> {
+				go.await();
+				Map<String, Object> body = new HashMap<>();
+				body.put("phone", phone);
+				body.put("captchaToken", t);
+				if (readBody(post("/auth/sms-code", body, null)).path("code").asInt() == CaptchaCodes.RATE_LIMITED) {
+					limited.incrementAndGet();
+				}
+				return null;
+			}));
+		}
+		go.countDown();
+		for (java.util.concurrent.Future<?> f : fs) {
+			f.get(30, TimeUnit.SECONDS);
+		}
+		pool.shutdown();
+		assertThat(slider.smsPhoneCount(phone)).isEqualTo(10);
+		assertThat(limited.get()).isEqualTo(10);
 	}
 
 	@Test

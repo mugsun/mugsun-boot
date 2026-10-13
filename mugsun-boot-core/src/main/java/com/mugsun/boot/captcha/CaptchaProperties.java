@@ -135,6 +135,14 @@ public class CaptchaProperties {
 		/** 发送短信验证码：单手机号每天上限、单 IP 每小时上限（叠加原有同号 60s 节流） */
 		private int smsPhonePerDay = 10;
 		private int smsIpPerHour = 20;
+		/** 发送短信短窗口频率限制（对所有 sms-code 请求计数，含无 token；60 秒窗口自动恢复） */
+		private int smsPhonePerMinute = 5;
+		private int smsIpPerMinute = 30;
+
+		public int getSmsPhonePerMinute() { return smsPhonePerMinute; }
+		public void setSmsPhonePerMinute(int v) { this.smsPhonePerMinute = v; }
+		public int getSmsIpPerMinute() { return smsIpPerMinute; }
+		public void setSmsIpPerMinute(int v) { this.smsIpPerMinute = v; }
 
 		public int getChallengePerMinute() { return challengePerMinute; }
 		public void setChallengePerMinute(int v) { this.challengePerMinute = v; }

@@ -336,6 +336,121 @@ class SliderCaptchaServiceTest {
 	}
 
 	@Test
+	void smsBurstLimitRecoversAfterWindow() {
+		for (int i = 0; i < 5; i++) {
+			svc.hitSmsBurst("13800000030", IP);
+		}
+		CaptchaException e = (CaptchaException) catchCaptcha(() -> svc.hitSmsBurst("13800000030", IP));
+		assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat((Long) e.getData().get("retryAfter")).isBetween(1L, 60L);
+		// 日配额不受影响
+		assertThat(svc.smsPhoneCount("13800000030")).isZero();
+		now.addAndGet(61_000);
+		svc.hitSmsBurst("13800000030", IP);
+	}
+
+	@Test
+	void smsQuotaCheckIsReadOnly() {
+		for (int i = 0; i < 50; i++) {
+			svc.checkSmsQuota("13800000009", IP);
+		}
+		assertThat(svc.smsPhoneCount("13800000009")).isZero();
+		svc.takeSmsQuota("13800000009", IP);
+		assertThat(svc.smsPhoneCount("13800000009")).isEqualTo(1);
+	}
+
+	@Test
+	void smsQuotaConcurrentTakeNeverExceedsLimit() throws Exception {
+		int threads = 20;
+		java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+		java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+		java.util.concurrent.atomic.AtomicInteger ok = new java.util.concurrent.atomic.AtomicInteger();
+		java.util.concurrent.atomic.AtomicInteger limited = new java.util.concurrent.atomic.AtomicInteger();
+		List<java.util.concurrent.Future<?>> fs = new ArrayList<>();
+		for (int i = 0; i < threads; i++) {
+			fs.add(pool.submit(() -> {
+				go.await();
+				try {
+					svc.checkSmsQuota("13800000010", IP);
+					svc.takeSmsQuota("13800000010", IP);
+					ok.incrementAndGet();
+				} catch (CaptchaException e) {
+					assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED);
+					assertThat(e.getData()).containsKey("retryAfter");
+					limited.incrementAndGet();
+				}
+				return null;
+			}));
+		}
+		go.countDown();
+		for (java.util.concurrent.Future<?> f : fs) {
+			f.get(10, java.util.concurrent.TimeUnit.SECONDS);
+		}
+		pool.shutdown();
+		assertThat(ok.get()).isEqualTo(10);
+		assertThat(limited.get()).isEqualTo(10);
+		assertThat(svc.smsPhoneCount("13800000010")).isEqualTo(10);
+	}
+
+	@Test
+	void failureWhileIpLockedByConcurrentRequestReturns40012() {
+		// 模拟并发：本请求通过入口锁检查后、记失败前，另一请求刚把 IP 锁上
+		CaptchaStore racy = new MemoryCaptchaStore(now::get) {
+			@Override
+			public String take(String key) {
+				String v = super.take(key);
+				if (key.contains(":challenge:")) {
+					put(SliderCaptchaService.K_LOCK + IP, "keyboard", 600);
+				}
+				return v;
+			}
+		};
+		SliderCaptchaService s2 = new SliderCaptchaService(racy, props,
+			new PuzzleRenderer(props, new BackgroundLibrary(props)), CaptchaAuditSink.NOOP, now::get);
+		ChallengeVO c = s2.challenge("login", "web", "000000", "pointer", IP);
+		now.addAndGet(900);
+		CaptchaException e = (CaptchaException) catchCaptcha(() ->
+			s2.verify(pointer(c.captchaId(), 1, 320, humanTrack(1, 850), 850), IP, UA));
+		assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat((Long) e.getData().get("retryAfter")).isBetween(1L, 600L);
+	}
+
+	@Test
+	void staleFailCounterAboveMaxLocksOnNextFailure() {
+		// 旧计数（例如调低 verify-fail-max 前留下的）已超过上限：下一次失败即锁定并回 40012
+		store.put(SliderCaptchaService.K_FAIL + "pointer:" + IP, "7", 600);
+		ChallengeVO c = challenge();
+		now.addAndGet(900);
+		assertThat(code(() -> svc.verify(pointer(c.captchaId(), 1, 320, humanTrack(1, 850), 850), IP, UA)))
+			.isEqualTo(CaptchaCodes.RATE_LIMITED);
+	}
+
+	@Test
+	void pointerAndKeyboardFailuresCountedSeparately() {
+		// pointer 失败 4 次 + keyboard 失败 2 次：均未达各自上限，不锁定
+		for (int i = 0; i < 4; i++) {
+			ChallengeVO c = challenge();
+			now.addAndGet(900);
+			assertThat(code(() -> svc.verify(pointer(c.captchaId(), 1, 320, humanTrack(1, 850), 850), IP, UA)))
+				.isEqualTo(CaptchaCodes.FAILED);
+		}
+		for (int i = 0; i < 2; i++) {
+			ChallengeVO c = keyboardChallenge();
+			now.addAndGet(2000);
+			long end = now.get();
+			assertThat(code(() -> svc.verify(new VerifyRequest(c.captchaId(), "keyboard", 320, end - 1500, end, null,
+				new VerifyRequest.Answer(1.0), 12), IP, UA))).isEqualTo(CaptchaCodes.FAILED);
+		}
+		assertThat(lockedAudit).isEmpty();
+		// 第 5 次 pointer 失败才锁定，且直接 40012
+		ChallengeVO c = challenge();
+		now.addAndGet(900);
+		assertThat(code(() -> svc.verify(pointer(c.captchaId(), 1, 320, humanTrack(1, 850), 850), IP, UA)))
+			.isEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat(lockedAudit).containsExactly("203.0.113.7/pointer");
+	}
+
+	@Test
 	void smsQuotaPerIpAndPhone() {
 		props.getRateLimit().setSmsIpPerHour(3);
 		props.getRateLimit().setSmsPhonePerDay(2);
@@ -344,8 +459,9 @@ class SliderCaptchaServiceTest {
 		CaptchaException phone = (CaptchaException) catchCaptcha(() -> svc.assertSmsQuota("13800000001", IP));
 		assertThat(phone.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED);
 		assertThat(phone.getData()).containsKey("retryAfter");
-		// IP 计数已到 3，再换号也被拦
-		assertThat(code(() -> svc.assertSmsQuota("13800000002", IP))).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		// 被拒的那次不计数：IP 计数仍为 2，换号还能发 1 次，之后 IP 达到 3 被拦
+		assertThat(code(() -> svc.assertSmsQuota("13800000002", IP))).isEqualTo(200);
+		assertThat(code(() -> svc.assertSmsQuota("13800000003", IP))).isEqualTo(CaptchaCodes.RATE_LIMITED);
 		assertThat(code(() -> svc.assertSmsQuota("13800000002", "198.51.100.3"))).isEqualTo(200);
 	}
 

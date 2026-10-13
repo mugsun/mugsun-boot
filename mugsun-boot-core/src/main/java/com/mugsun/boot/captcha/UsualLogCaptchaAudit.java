@@ -22,4 +22,14 @@ public class UsualLogCaptchaAudit implements CaptchaAuditSink {
 			// 审计失败不影响主流程
 		}
 	}
+
+	@Override
+	public void smsSendFailed(String ip, String phoneHash, String reason) {
+		try {
+			usualLogService.record("warn", "captcha",
+				"短信验证码下发失败（配额已计数）：ip=" + ip + " phone#=" + phoneHash + " reason=" + reason, null);
+		} catch (RuntimeException ignored) {
+			// 审计失败不影响主流程
+		}
+	}
 }

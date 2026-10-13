@@ -96,9 +96,24 @@ public class CaptchaGate {
 		}
 	}
 
-	/** 发送短信前的频控（与验证码开关、类型无关） */
-	public void assertSmsQuota(String phone, HttpServletRequest request) {
-		slider.assertSmsQuota(phone, ClientIpResolver.clientIp(request));
+	/** 发短信⓪：短窗口频率限制（所有请求计数，自动恢复） */
+	public void hitSmsBurst(String phone, HttpServletRequest request) {
+		slider.hitSmsBurst(phone, ClientIpResolver.clientIp(request));
+	}
+
+	/** 发短信①：只读检查配额（不计数） */
+	public void checkSmsQuota(String phone, HttpServletRequest request) {
+		slider.checkSmsQuota(phone, ClientIpResolver.clientIp(request));
+	}
+
+	/** 发短信③：token 核销后原子计数，超限 40012 */
+	public void takeSmsQuota(String phone, HttpServletRequest request) {
+		slider.takeSmsQuota(phone, ClientIpResolver.clientIp(request));
+	}
+
+	/** 发短信失败审计（计数不回退） */
+	public void smsSendFailed(String phone, HttpServletRequest request, Exception e) {
+		slider.smsSendFailed(phone, ClientIpResolver.clientIp(request), e.getClass().getSimpleName() + ": " + e.getMessage());
 	}
 
 	/** 滑块模式下的业务前置校验；不需要验证码时直接放行 */

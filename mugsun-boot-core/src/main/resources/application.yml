@@ -184,6 +184,8 @@ mugsun:
       lock-seconds: 600
       sms-phone-per-day: 10        # 发送短信：单手机号每天
       sms-ip-per-hour: 20          # 发送短信：单 IP 每小时
+      sms-phone-per-minute: 5      # 发送短信短窗口：单手机号每分钟（含无 token 请求，自动恢复）
+      sms-ip-per-minute: 30        # 发送短信短窗口：单 IP 每分钟
   sms:
     show-code: false         # 短信验证码回显仅 dev profile 开启（生产开启=未认证接管任意账号）
   crypto:

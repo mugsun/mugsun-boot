@@ -16,7 +16,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.Map;
 import java.util.Random;
 
 /**
@@ -35,16 +34,18 @@ public class ForgetPasswordService {
 	private final MailService mailService;
 	private final SecurityPolicyService securityPolicyService;
 	private final PasswordEncoder passwordEncoder;
+	private final ForgetMailSender mailSender;
 	private final Random random = new Random();
 
 	public ForgetPasswordService(StringRedisTemplate redis, SysUserMapper userMapper,
 								 MailService mailService, SecurityPolicyService securityPolicyService,
-								 PasswordEncoder passwordEncoder) {
+								 PasswordEncoder passwordEncoder, ForgetMailSender mailSender) {
 		this.redis = redis;
 		this.userMapper = userMapper;
 		this.mailService = mailService;
 		this.securityPolicyService = securityPolicyService;
 		this.passwordEncoder = passwordEncoder;
+		this.mailSender = mailSender;
 	}
 
 	/** 发送重置验证码：账号不存在/未绑邮箱/通道未配置/下发失败均静默成功（防枚举、不泄露通道状态），仅日志留痕 */
@@ -67,15 +68,8 @@ public class ForgetPasswordService {
 		String code = String.valueOf(100000 + random.nextInt(900000));
 		String codeKey = codeKey(tenantId, username);
 		redis.opsForValue().set(codeKey, code, Duration.ofSeconds(AuthConstants.FORGET_CODE_EXPIRE_SECONDS));
-		try {
-			mailService.sendByTemplate(user.getEmail(), AuthConstants.FORGET_MAIL_TEMPLATE, Map.of("code", code));
-		} catch (Exception e) {
-			// 下发失败即焚码（不留「未送达却可重置」的悬空码）；对外仍返回统一话术，错误只进日志
-			redis.delete(codeKey);
-			log.warn("忘记密码验证码下发失败 tenant={} username={}: {}", tenantId, username, e.toString());
-			return;
-		}
-		log.info("忘记密码验证码已下发 tenant={} username={}", tenantId, username);
+		// 异步下发：响应时间不随账号是否存在/邮件通道耗时变化（防计时侧信道枚举账号）
+		mailSender.send(user.getEmail(), code, codeKey, tenantId, username);
 	}
 
 	/** 凭验证码重置密码：复杂度/历史防重 + BCrypt 落库 + 密码历史记录 + 全端下线（旧会话一律作废） */

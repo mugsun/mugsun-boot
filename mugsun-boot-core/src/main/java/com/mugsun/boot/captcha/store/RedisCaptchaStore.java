@@ -43,6 +43,26 @@ public class RedisCaptchaStore implements CaptchaStore {
 		return n == null ? 0 : n;
 	}
 
+	/** 未达上限才 INCR（同一脚本内判断、自增、设过期），已达上限返回 -1 不改计数 */
+	private static final DefaultRedisScript<Long> INCR_IF_BELOW = new DefaultRedisScript<>(
+		"local cur = tonumber(redis.call('GET', KEYS[1]) or '0') "
+			+ "if cur >= tonumber(ARGV[1]) then return -1 end "
+			+ "local n = redis.call('INCR', KEYS[1]) "
+			+ "if n == 1 or redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end "
+			+ "return n", Long.class);
+
+	@Override
+	public long count(String key) {
+		String v = redis.opsForValue().get(key);
+		return v == null ? 0 : Long.parseLong(v);
+	}
+
+	@Override
+	public long incrementIfBelow(String key, long max, long ttlSeconds) {
+		Long n = redis.execute(INCR_IF_BELOW, List.of(key), String.valueOf(max), String.valueOf(Math.max(1, ttlSeconds)));
+		return n == null ? -1 : n;
+	}
+
 	@Override
 	public long ttlSeconds(String key) {
 		Long t = redis.getExpire(key, TimeUnit.SECONDS);

@@ -54,6 +54,29 @@ public class MemoryCaptchaStore implements CaptchaStore {
 	}
 
 	@Override
+	public long count(String key) {
+		String v = peek(key);
+		return v == null ? 0 : Long.parseLong(v);
+	}
+
+	@Override
+	public long incrementIfBelow(String key, long max, long ttlSeconds) {
+		long now = clock.getAsLong();
+		long[] result = {-1};
+		slots.compute(key, (k, old) -> {
+			boolean fresh = old == null || old.expireAtMs() <= now;
+			long cur = fresh ? 0 : Long.parseLong(old.value());
+			if (cur >= max) {
+				return fresh ? null : old;
+			}
+			result[0] = cur + 1;
+			long exp = fresh ? now + Math.max(1, ttlSeconds) * 1000 : old.expireAtMs();
+			return new Slot(String.valueOf(cur + 1), exp);
+		});
+		return result[0];
+	}
+
+	@Override
 	public long ttlSeconds(String key) {
 		Slot s = slots.get(key);
 		if (!alive(s)) {

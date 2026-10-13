@@ -16,6 +16,15 @@ public interface CaptchaStore {
 	/** 自增计数；首次创建时设置过期 */
 	long increment(String key, long ttlSeconds);
 
+	/** 只读取计数（不存在/过期为 0），不改变计数 */
+	long count(String key);
+
+	/**
+	 * 原子「未达上限才自增」：当前值 &lt; max 时自增并（首次/缺失过期时）设过期，返回自增后的值；
+	 * 已达上限返回 -1 且不改变计数。
+	 */
+	long incrementIfBelow(String key, long max, long ttlSeconds);
+
 	/** 剩余秒数；不存在返回 0 */
 	long ttlSeconds(String key);
 
