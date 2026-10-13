@@ -269,7 +269,8 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(row.path("sessionId").asText()).isEqualTo(S1);
 	}
 
-	/** errors/detail：按显示的发生时间 ts 倒序（非接收顺序），同 ts 用 id 定序；pageSize=1 逐页翻仍单调不重 */
+	/** errors/detail：按显示的发生时间 ts 倒序（非接收顺序），同 ts 用 id 定序；pageSize=1 逐页翻仍单调不重；
+	 *  errors/page 分组代表消息同口径按 ts 取最晚 */
 	@Test
 	void errorDetailOrderedByTs() {
 		String fp = "fp-order-" + UUID.randomUUID().toString().substring(0, 8);
@@ -307,6 +308,18 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(times).as("按显示时间严格非增").isSortedAccordingTo(java.util.Comparator.reverseOrder());
 		assertThat(messages.get(0)).as("先收到且 ts 最晚的在首位").isEqualTo("late");
 		assertThat(messages.get(3)).isEqualTo("earliest");
+
+		// 分组代表消息同口径：取 ts 最晚的 "late"（它最先被接收；按接收时间会错取后到的旧事件）
+		JsonNode groups = readBody(get("/system/track/errors/page?appKey=" + APP_ORDER + "&days=7", adminToken)).path("data");
+		JsonNode group = null;
+		for (JsonNode g : groups.path("records")) {
+			if (fp.equals(g.path("fingerprint").asText())) {
+				group = g;
+			}
+		}
+		assertThat(group).as("应有该指纹分组").isNotNull();
+		assertThat(group.path("eventCount").asLong()).isEqualTo(4L);
+		assertThat(group.path("message").asText()).as("代表消息按 ts 取最晚").isEqualTo("late");
 	}
 
 	/** events/page：按事件名分组计数；eventName 过滤；realtime：Redis Stream 尾部含新事件（不等落库） */
