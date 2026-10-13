@@ -5,6 +5,8 @@ import com.mugsun.boot.gis.engine.GisMapEngines;
 import com.mugsun.boot.gis.engine.GisUpstreamHttp;
 import com.mugsun.boot.gis.entity.GisMapProvider;
 import com.mugsun.boot.gis.mapper.GisMapProviderMapper;
+import com.mugsun.boot.gis.xyz.GisXyzTemplate;
+import com.mugsun.boot.gis.xyz.GisXyzTileService;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.http.HttpHeaders;
@@ -37,8 +39,11 @@ public class GisTileService {
 	private final GisMapProviderMapper providerMapper;
 	private final GisMapEngines engines;
 	private final GisUpstreamHttp http;
+	private final GisXyzTileService xyz;
 
-	public GisTileService(GisMapProviderMapper providerMapper, GisMapEngines engines, GisUpstreamHttp http) {
+	public GisTileService(GisMapProviderMapper providerMapper, GisMapEngines engines, GisUpstreamHttp http,
+						  GisXyzTileService xyz) {
+		this.xyz = xyz;
 		this.providerMapper = providerMapper;
 		this.engines = engines;
 		this.http = http;
@@ -52,6 +57,9 @@ public class GisTileService {
 			throw new ServiceException("缩放级别超出范围");
 		}
 		GisMapProvider cfg = providerMapper.selectOneByQuery(QueryWrapper.create().eq("provider", provider));
+		if (GisConstants.PROVIDER_XYZ.equals(provider)) {
+			return fetchXyz(cfg, z, x, y);
+		}
 		if (cfg == null || cfg.getApiKey() == null || cfg.getApiKey().isBlank()) {
 			return emptyTile();
 		}
@@ -83,6 +91,36 @@ public class GisTileService {
 				.body(resp.body());
 		} catch (ServiceException e) {
 			return emptyTile();
+		} catch (Exception e) {
+			return emptyTile();
+		}
+	}
+
+	/** 自定义 XYZ：白名单 + DNS 校验 + 不跟随重定向 + 限大小，均在 GisXyzTileService 内完成 */
+	private ResponseEntity<byte[]> fetchXyz(GisMapProvider cfg, int z, int x, int y) {
+		if (!xyz.available()) {
+			return emptyTile();
+		}
+		if (cfg != null && cfg.getEnabled() != null && cfg.getEnabled() != GisConstants.STATUS_ENABLE) {
+			return emptyTile();
+		}
+		try {
+			GisXyzTemplate t = xyz.effective(cfg);
+			if (t == null) {
+				return emptyTile();
+			}
+			GisUpstreamHttp.LimitedBytes resp = xyz.fetch(t, z, x, y, cfg == null ? null : cfg.getApiKey());
+			if (resp.status() != 200) {
+				return emptyTile();
+			}
+			String parsed = resp.contentType().contains("/") ? resp.contentType().split(";")[0].trim() : "";
+			if (!parsed.toLowerCase(Locale.ROOT).startsWith("image/")) {
+				return emptyTile();
+			}
+			return ResponseEntity.ok()
+				.contentType(MediaType.parseMediaType(parsed))
+				.header(HttpHeaders.CACHE_CONTROL, "private, max-age=86400")
+				.body(resp.body());
 		} catch (Exception e) {
 			return emptyTile();
 		}

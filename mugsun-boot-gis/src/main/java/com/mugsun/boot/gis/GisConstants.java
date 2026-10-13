@@ -17,9 +17,16 @@ public final class GisConstants {
 	public static final String PROVIDER_AMAP = "amap";
 	public static final String PROVIDER_BAIDU = "baidu";
 	public static final String PROVIDER_GOOGLE = "google";
+	/** 自定义 XYZ 瓦片（免密钥可用，域名受部署级白名单约束） */
+	public static final String PROVIDER_XYZ = "xyz";
 
 	public static final List<String> PROVIDERS = List.of(
-		PROVIDER_TIANDITU, PROVIDER_AMAP, PROVIDER_BAIDU, PROVIDER_GOOGLE);
+		PROVIDER_TIANDITU, PROVIDER_AMAP, PROVIDER_BAIDU, PROVIDER_GOOGLE, PROVIDER_XYZ);
+
+	/** 需要访问密钥的厂商底图（xyz 的密钥可空） */
+	public static boolean requiresKey(String provider) {
+		return !PROVIDER_XYZ.equals(provider);
+	}
 
 	/** 底图样式：矢量 / 影像 / 影像注记 / 矢量注记 */
 	public static final String STYLE_VEC = "vec";
@@ -100,6 +107,8 @@ public final class GisConstants {
 
 	public static final String MSG_DISABLED = "地理信息模块未启用";
 	public static final String MSG_PROVIDER_UNKNOWN = "未知底图供应商";
+	public static final String MSG_XYZ_NO_SEARCH = "自定义瓦片底图不提供地名检索，请切换到天地图、高德、百度或谷歌后再搜索";
+	public static final String MSG_XYZ_DISABLED = "自定义瓦片底图未启用：部署配置 mugsun.gis.xyz.allowed-hosts 为空";
 	public static final String MSG_PROVIDER_KEY = "请先配置该底图的访问密钥";
 	public static final String MSG_SCENE_MISSING = "这个场景不存在。请刷新列表后再打开";
 	public static final String MSG_JSON_INVALID = "场景配置不是合法内容。请回到地图里重新保存";

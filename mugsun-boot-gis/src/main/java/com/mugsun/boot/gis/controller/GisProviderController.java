@@ -7,6 +7,10 @@ import com.mugsun.boot.gis.GisConstants;
 import com.mugsun.boot.gis.GisModuleService;
 import com.mugsun.boot.gis.entity.GisMapProvider;
 import com.mugsun.boot.gis.mapper.GisMapProviderMapper;
+import com.mugsun.boot.gis.engine.GisUpstreamHttp;
+import com.mugsun.boot.gis.xyz.GisXyzPresets;
+import com.mugsun.boot.gis.xyz.GisXyzTemplate;
+import com.mugsun.boot.gis.xyz.GisXyzTileService;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.boot.tenant.TenantContext;
@@ -32,10 +36,13 @@ public class GisProviderController {
 
 	private final GisModuleService moduleService;
 	private final GisMapProviderMapper providerMapper;
+	private final GisXyzTileService xyz;
 
-	public GisProviderController(GisModuleService moduleService, GisMapProviderMapper providerMapper) {
+	public GisProviderController(GisModuleService moduleService, GisMapProviderMapper providerMapper,
+								 GisXyzTileService xyz) {
 		this.moduleService = moduleService;
 		this.providerMapper = providerMapper;
+		this.xyz = xyz;
 	}
 
 	@GetMapping("/status")
@@ -54,9 +61,21 @@ public class GisProviderController {
 				GisMapProvider row = byCode.get(code);
 				Map<String, Object> item = new LinkedHashMap<>();
 				item.put("provider", code);
-				boolean configured = row != null && row.getApiKey() != null && !row.getApiKey().isBlank();
+				boolean configured;
+				boolean on;
+				if (GisConstants.PROVIDER_XYZ.equals(code)) {
+					GisXyzTemplate t = xyzEffective(row);
+					configured = t != null;
+					on = configured && (row == null || Integer.valueOf(GisConstants.STATUS_ENABLE).equals(row.getEnabled()));
+					item.put("attribution", t == null ? "" : t.attribution());
+					item.put("maxZoom", t == null ? null : t.maxZoom());
+				} else {
+					configured = row != null && row.getApiKey() != null && !row.getApiKey().isBlank();
+					on = row != null && Integer.valueOf(GisConstants.STATUS_ENABLE).equals(row.getEnabled());
+					item.put("attribution", vendorAttribution(code));
+				}
 				item.put("configured", configured);
-				item.put("enabled", row != null && Integer.valueOf(GisConstants.STATUS_ENABLE).equals(row.getEnabled()));
+				item.put("enabled", on);
 				item.put("id", row == null ? null : row.getId());
 				providers.add(item);
 			}
@@ -83,7 +102,7 @@ public class GisProviderController {
 	public R<Void> submit(@RequestBody GisMapProvider body) {
 		moduleService.requireEnabled();
 		if (body == null || body.getProvider() == null || !GisConstants.PROVIDERS.contains(body.getProvider())) {
-			throw new ServiceException("底图请从天地图、高德、百度或谷歌里选一个");
+			throw new ServiceException("底图请从天地图、高德、百度、谷歌或自定义瓦片里选一个");
 		}
 		String key = blankToNull(body.getApiKey());
 		String secret = blankToNull(body.getSecret());
@@ -101,13 +120,24 @@ public class GisProviderController {
 		if (extra != null && extra.length() > 20000) {
 			throw new ServiceException("附加配置过长。请删掉用不到的项后再保存");
 		}
+		boolean isXyz = GisConstants.PROVIDER_XYZ.equals(body.getProvider());
+		if (isXyz) {
+			if (!xyz.available()) {
+				throw new ServiceException(GisConstants.MSG_XYZ_DISABLED);
+			}
+			// 校验并规范化模板：https、{z}{x}{y}、白名单域名、非 IP；归属文本去尖括号
+			extra = extra == null ? null : xyz.normalize(extra);
+		}
 		if (body.getEnabled() != null && body.getEnabled() != 0 && body.getEnabled() != 1) {
 			throw new ServiceException("启用状态请选择开或关");
 		}
 		GisMapProvider exist = providerMapper.selectOneByQuery(
 			QueryWrapper.create().eq("provider", body.getProvider()));
 		boolean creating = exist == null;
-		if (creating && key == null) {
+		if (creating && isXyz && extra == null) {
+			throw new ServiceException("请先选择预设或填写瓦片地址");
+		}
+		if (creating && key == null && GisConstants.requiresKey(body.getProvider())) {
 			throw new ServiceException("请先填写密钥。填完后地图才能用这个底图");
 		}
 		String label = providerLabel(body.getProvider());
@@ -162,6 +192,104 @@ public class GisProviderController {
 		return R.success("已清除 " + rows.size() + " 个底图。地图会改用其他已配置的底图");
 	}
 
+	/** 自定义瓦片的当前配置、预设与部署白名单（白名单只读，由运维在 yml 里改） */
+	@SaCheckPermission(GisConstants.PERM_PROVIDER_LIST)
+	@GetMapping("/provider/xyz")
+	public R<Map<String, Object>> xyzConfig() {
+		moduleService.requireEnabled();
+		GisMapProvider row = providerMapper.selectOneByQuery(
+			QueryWrapper.create().eq("provider", GisConstants.PROVIDER_XYZ));
+		Map<String, Object> data = new LinkedHashMap<>();
+		data.put("available", xyz.available());
+		data.put("allowedHosts", xyz.props().getAllowedHosts());
+		data.put("usingDefault", row == null);
+		GisXyzTemplate cur = xyzEffective(row);
+		data.put("current", cur == null ? null : templateMap(cur));
+		List<Map<String, Object>> presets = new ArrayList<>();
+		GisXyzPresets.all().forEach((code, t) -> {
+			Map<String, Object> m = templateMap(t);
+			m.put("code", code);
+			presets.add(m);
+		});
+		data.put("presets", presets);
+		return R.data(data);
+	}
+
+	/** 测试取一张瓦片（走与正式取图同一条受限链路），可带未保存的草稿配置 */
+	@SaCheckPermission(GisConstants.PERM_PROVIDER_SAVE)
+	@RepeatSubmit
+	@PostMapping("/provider/test")
+	public R<Map<String, Object>> test(@RequestBody GisMapProvider body) {
+		moduleService.requireEnabled();
+		if (body == null || !GisConstants.PROVIDER_XYZ.equals(body.getProvider())) {
+			throw new ServiceException("目前只支持测试自定义瓦片");
+		}
+		if (!xyz.available()) {
+			throw new ServiceException(GisConstants.MSG_XYZ_DISABLED);
+		}
+		GisMapProvider row = providerMapper.selectOneByQuery(
+			QueryWrapper.create().eq("provider", GisConstants.PROVIDER_XYZ));
+		String draft = blankToNull(body.getExtraJson());
+		GisXyzTemplate t = draft != null ? xyz.parse(xyz.normalize(draft)) : xyzEffective(row);
+		if (t == null) {
+			throw new ServiceException("请先选择预设或填写瓦片地址");
+		}
+		String key = blankToNull(body.getApiKey());
+		// 草稿模板不带出已存密钥，避免把密钥拼到另一份地址上
+		if (key == null && row != null && draft == null) {
+			key = row.getApiKey();
+		}
+		Map<String, Object> data = new LinkedHashMap<>();
+		long t0 = System.currentTimeMillis();
+		try {
+			GisUpstreamHttp.LimitedBytes resp = xyz.fetch(t, 1, 1, 0, key);
+			String ctype = resp.contentType() == null ? "" : resp.contentType();
+			boolean ok = resp.status() == 200 && ctype.toLowerCase(java.util.Locale.ROOT).startsWith("image/");
+			data.put("ok", ok);
+			data.put("status", resp.status());
+			data.put("bytes", resp.body().length);
+			data.put("message", ok ? "瓦片可正常获取" : "上游返回 " + resp.status() + "（" + ctype + "）");
+		} catch (ServiceException e) {
+			data.put("ok", false);
+			data.put("message", e.getMessage());
+		} catch (Exception e) {
+			data.put("ok", false);
+			data.put("message", "连接上游失败或超时");
+		}
+		data.put("millis", System.currentTimeMillis() - t0);
+		return R.data(data);
+	}
+
+	private GisXyzTemplate xyzEffective(GisMapProvider row) {
+		if (!xyz.available()) {
+			return null;
+		}
+		try {
+			return xyz.effective(row);
+		} catch (ServiceException e) {
+			return null;
+		}
+	}
+
+	private static Map<String, Object> templateMap(GisXyzTemplate t) {
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("url", t.url());
+		m.put("subdomains", t.subdomains());
+		m.put("attribution", t.attribution());
+		m.put("maxZoom", t.maxZoom());
+		return m;
+	}
+
+	private static String vendorAttribution(String code) {
+		return switch (code) {
+			case "tianditu" -> "© 天地图";
+			case "amap" -> "© 高德地图";
+			case "baidu" -> "© 百度地图";
+			case "google" -> "© Google";
+			default -> "";
+		};
+	}
+
 	private static String blankToNull(String value) {
 		if (value == null || value.isBlank()) {
 			return null;
@@ -174,6 +302,7 @@ public class GisProviderController {
 			case "tianditu" -> "天地图";
 			case "amap" -> "高德";
 			case "baidu" -> "百度";
+			case "xyz" -> "自定义瓦片";
 			default -> "谷歌";
 		};
 	}

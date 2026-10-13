@@ -1,7 +1,14 @@
 package com.mugsun.boot.gis;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.gis.engine.GisUpstreamHttp;
+import com.mugsun.boot.gis.xyz.GisXyzGuard;
+import com.mugsun.boot.gis.xyz.GisXyzProperties;
+import com.mugsun.boot.gis.xyz.GisXyzTileService;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 
 /**
@@ -11,5 +18,11 @@ import org.springframework.context.annotation.ComponentScan;
 @AutoConfiguration
 @ConditionalOnProperty(prefix = "mugsun.gis", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ComponentScan("com.mugsun.boot.gis")
+@EnableConfigurationProperties(GisXyzProperties.class)
 public class GisAutoConfiguration {
+
+	@Bean
+	public GisXyzTileService gisXyzTileService(GisXyzProperties props, GisUpstreamHttp http, ObjectMapper objectMapper) {
+		return new GisXyzTileService(props, http, objectMapper, GisXyzGuard.SYSTEM_RESOLVER);
+	}
 }
