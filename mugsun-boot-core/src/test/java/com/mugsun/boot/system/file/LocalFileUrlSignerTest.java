@@ -2,6 +2,7 @@ package com.mugsun.boot.system.file;
 
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -100,5 +101,92 @@ class LocalFileUrlSignerTest {
 		assertThat(status(filter, "/file/", null)).isEqualTo(404);
 		// 非 /file 路径不受影响
 		assertThat(status(filter, "/system/file/page", null)).isEqualTo(200);
+	}
+
+	@Test
+	void signUrlDerivesPathFromUrlItself() {
+		LocalFileAccessProperties p = props(SECRET);
+		LocalFileUrlSigner signer = new LocalFileUrlSigner(p);
+		String url = signer.signUrl("http://127.0.0.1:8080/file/mugsun/private/a.pdf");
+		String q = url.substring(url.indexOf('?') + 1);
+		assertThat(signer.verify("mugsun/private/a.pdf", param(q, "e"), param(q, "s"))).isTrue();
+		String behindContext = signer.signUrl("https://example.com/api/file/mugsun/private/b.pdf");
+		String q2 = behindContext.substring(behindContext.indexOf('?') + 1);
+		assertThat(signer.verify("mugsun/private/b.pdf", param(q2, "e"), param(q2, "s"))).isTrue();
+		assertThatThrownBy(() -> signer.signUrl("https://example.com/other/x.pdf"))
+			.isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
+	void prodWithLocalAccessRequiresSecret() {
+		MockEnvironment env = new MockEnvironment();
+		env.setActiveProfiles("prod");
+		env.setProperty("dromara.x-file-storage.local-plus[0].enable-access", "true");
+		assertThatThrownBy(() -> new LocalFileUrlSigner(props(""), env)).isInstanceOf(IllegalStateException.class);
+		// prod 关闭直出（默认）或已配密钥：正常启动
+		MockEnvironment off = new MockEnvironment();
+		off.setActiveProfiles("prod");
+		off.setProperty("dromara.x-file-storage.local-plus[0].enable-access", "false");
+		new LocalFileUrlSigner(props(""), off);
+		new LocalFileUrlSigner(props(SECRET), env);
+		// 非 prod 留空：随机密钥
+		MockEnvironment dev = new MockEnvironment();
+		dev.setProperty("dromara.x-file-storage.local-plus[0].enable-access", "true");
+		new LocalFileUrlSigner(props(""), dev);
+	}
+
+	@Test
+	void servedFilesGetNosniffAndActiveTypesForcedToDownload() throws Exception {
+		LocalFileAccessProperties p = props(SECRET);
+		LocalFileUrlSigner signer = new LocalFileUrlSigner(p);
+		LocalFileAccessFilter filter = new LocalFileAccessFilter(p, signer);
+		String q = signer.signQuery("mugsun/private/x.SVG");
+		MockHttpServletRequest req = new MockHttpServletRequest("GET", "/file/mugsun/private/x.SVG");
+		req.setParameter("e", param(q, "e"));
+		req.setParameter("s", param(q, "s"));
+		MockHttpServletResponse resp = new MockHttpServletResponse();
+		filter.doFilter(req, resp, new MockFilterChain());
+		assertThat(resp.getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
+		assertThat(resp.getHeader("Content-Disposition")).isEqualTo("attachment");
+		assertThat(resp.getHeader("Content-Security-Policy")).isEqualTo("sandbox");
+
+		MockHttpServletResponse png = new MockHttpServletResponse();
+		filter.doFilter(new MockHttpServletRequest("GET", "/file/mugsun/public/avatar/a.png"), png, new MockFilterChain());
+		assertThat(png.getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
+		assertThat(png.getHeader("Content-Disposition")).isNull();
+		assertThat(LocalFileAccessFilter.isActive("mugsun/public/a.html")).isTrue();
+		assertThat(LocalFileAccessFilter.isActive("mugsun/public.html/a")).isFalse();
+	}
+
+	@Test
+	void prodRejectsShortOrPaddedShortSecret() {
+		MockEnvironment env = new MockEnvironment();
+		env.setActiveProfiles("prod");
+		env.setProperty("dromara.x-file-storage.local-plus[0].enable-access", "true");
+		assertThatThrownBy(() -> new LocalFileUrlSigner(props("x".repeat(31)), env))
+			.isInstanceOf(IllegalStateException.class).hasMessageContaining("32");
+		// 首尾空白不计入长度
+		assertThatThrownBy(() -> new LocalFileUrlSigner(props("   " + "x".repeat(30) + "   "), env))
+			.isInstanceOf(IllegalStateException.class);
+		assertThatThrownBy(() -> new LocalFileUrlSigner(props("    "), env)).isInstanceOf(IllegalStateException.class);
+		new LocalFileUrlSigner(props("x".repeat(32)), env);
+	}
+
+	@Test
+	void pdfForcedToDownloadWithoutSandbox() throws Exception {
+		LocalFileAccessProperties p = props(SECRET);
+		LocalFileUrlSigner signer = new LocalFileUrlSigner(p);
+		LocalFileAccessFilter filter = new LocalFileAccessFilter(p, signer);
+		String q = signer.signQuery("mugsun/private/r.PDF");
+		MockHttpServletRequest req = new MockHttpServletRequest("GET", "/file/mugsun/private/r.PDF");
+		req.setParameter("e", param(q, "e"));
+		req.setParameter("s", param(q, "s"));
+		MockHttpServletResponse resp = new MockHttpServletResponse();
+		filter.doFilter(req, resp, new MockFilterChain());
+		assertThat(resp.getStatus()).isEqualTo(200);
+		assertThat(resp.getHeader("Content-Disposition")).isEqualTo("attachment");
+		assertThat(resp.getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
+		assertThat(LocalFileAccessFilter.isForcedDownload("mugsun/a.pdf")).isTrue();
+		assertThat(LocalFileAccessFilter.isForcedDownload("mugsun/a.png")).isFalse();
 	}
 }

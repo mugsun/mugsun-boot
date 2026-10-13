@@ -24,13 +24,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LocalFileAccessApiTest extends AbstractIntegrationTest {
 
 	private JsonNode upload(String token, String access, String content) {
+		return upload(token, access, content, "secret.txt");
+	}
+
+	private JsonNode upload(String token, String access, String content, String name) {
 		HttpHeaders headers = authHeaders(token);
 		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 		MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
 		body.add("file", new ByteArrayResource(content.getBytes(StandardCharsets.UTF_8)) {
 			@Override
 			public String getFilename() {
-				return "secret.txt";
+				return name;
 			}
 		});
 		body.add("access", access);
@@ -86,5 +90,18 @@ class LocalFileAccessApiTest extends AbstractIntegrationTest {
 		ResponseEntity<String> resp = anonymousGet(rawPath(attach));
 		assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(resp.getBody()).isEqualTo("hello");
+	}
+
+	@Test
+	void privateHtmlIsServedAsDownloadWithNosniff() {
+		String token = loginAdmin();
+		JsonNode attach = upload(token, "private", "<script>alert(1)</script>", "x.html");
+		JsonNode signed = readBody(get("/system/file/download/" + attach.path("id").asText(), token));
+		URI url = URI.create(signed.path("data").asText());
+		ResponseEntity<String> resp = anonymousGet(url.getPath() + "?" + url.getRawQuery());
+		assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(resp.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+		assertThat(resp.getHeaders().getFirst("Content-Disposition")).startsWith("attachment");
+		assertThat(resp.getHeaders().getFirst("Content-Security-Policy")).isEqualTo("sandbox");
 	}
 }
