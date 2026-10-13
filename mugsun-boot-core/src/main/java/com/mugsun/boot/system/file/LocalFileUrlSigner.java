@@ -2,10 +2,13 @@ package com.mugsun.boot.system.file;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -30,8 +33,23 @@ public class LocalFileUrlSigner {
 	private Clock clock = Clock.systemUTC();
 
 	public LocalFileUrlSigner(LocalFileAccessProperties properties) {
+		this(properties, null);
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired
+	public LocalFileUrlSigner(LocalFileAccessProperties properties, Environment env) {
 		this.properties = properties;
-		String secret = properties.getSignSecret();
+		String secret = properties.getSignSecret() == null ? null : properties.getSignSecret().strip();
+		boolean prodDirect = env != null && env.acceptsProfiles(Profiles.of("prod")) && localAccessEnabled(env);
+		if (prodDirect && secret != null && !secret.isEmpty() && secret.length() < MIN_SECRET_LEN) {
+			throw new IllegalStateException("prod 开启了本地存储直出，mugsun.file.local-access.sign-secret"
+				+ "（MUGSUN_FILE_SIGN_SECRET）至少 " + MIN_SECRET_LEN + " 字符，当前 " + secret.length() + " 字符");
+		}
+		if ((secret == null || secret.isBlank()) && env != null && env.acceptsProfiles(Profiles.of("prod"))
+			&& localAccessEnabled(env)) {
+			throw new IllegalStateException("prod 开启了本地存储直出（x-file-storage local-plus enable-access=true），"
+				+ "必须配置 mugsun.file.local-access.sign-secret（MUGSUN_FILE_SIGN_SECRET，至少 32 字符）");
+		}
 		if (secret == null || secret.isBlank()) {
 			byte[] random = new byte[32];
 			new SecureRandom().nextBytes(random);
@@ -55,9 +73,42 @@ public class LocalFileUrlSigner {
 		return PARAM_EXPIRE + "=" + expire + "&" + PARAM_SIGN + "=" + hmac(relPath, expire);
 	}
 
-	/** 在登记 url 后追加签名；url 必须以 urlPrefix 后的 relPath 结尾 */
-	public String signUrl(String url, String relPath) {
-		return url + (url.contains("?") ? "&" : "?") + signQuery(relPath);
+	/**
+	 * 给登记 url 追加签名。签名路径直接从 url 自身的路径里取 urlPrefix 之后的部分——
+	 * 与 {@link LocalFileAccessFilter} 校验时的取法同源，避免链接与签名路径不一致。
+	 */
+	public String signUrl(String url) {
+		String rel = relPathOf(url);
+		if (rel == null) {
+			throw new IllegalArgumentException("文件地址不在本地直出前缀下，无法签名");
+		}
+		return url + (url.contains("?") ? "&" : "?") + signQuery(rel);
+	}
+
+	/** url（绝对或以 / 开头的相对地址）中 urlPrefix 之后的原始路径；不含该前缀返回 null */
+	String relPathOf(String url) {
+		String path;
+		try {
+			path = URI.create(url).getRawPath();
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
+		String prefix = properties.getUrlPrefix();
+		int at = path == null ? -1 : path.indexOf(prefix);
+		if (at < 0) {
+			return null;
+		}
+		return path.substring(at + prefix.length());
+	}
+
+	private static boolean localAccessEnabled(Environment env) {
+		for (int i = 0; i < 16; i++) {
+			if (Boolean.TRUE.equals(env.getProperty("dromara.x-file-storage.local-plus[" + i + "].enable-access",
+				Boolean.class))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** 校验签名与过期；任何解析失败一律 false */
