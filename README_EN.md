@@ -31,6 +31,12 @@ Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway, Sp
 
 Prerequisites: JDK 21, Maven 3.9+, Docker. `mugsun-core` 0.1.0 is on Maven Central and is resolved automatically; a sibling clone is not required.
 
+The first `docker compose up -d` builds the database image locally (`postgis/postgis:16-3.4` + pgvector). The official PostGIS image is amd64 only, so on Apple Silicon it runs under emulation by default: the first build takes several extra minutes and the database is slower. To run natively, switch to a multi-arch base image:
+
+```bash
+MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 docker compose up -d --build
+```
+
 ```bash
 docker compose up -d
 cp config/application-local.yml.example config/application-local.yml
@@ -44,7 +50,7 @@ Run `java -jar` from the repository root, otherwise `config/application-local.ym
 
 Health check: http://localhost:8080/ping
 
-Default initial account: `admin` / `123456` (override with `MUGSUN_INIT_PASSWORD`). Production deployments must change the password. The `prod` profile refuses to start without an injected initial password.
+Default initial account: `admin` / `123456`. The code reads `mugsun.security.init-password`, falling back to the `MUGSUN_INIT_PASSWORD` environment variable (see `SecurityPolicyService`). It is deliberately absent from `application.yml`: the prod startup guard uses its presence to tell whether a password was injected. Production deployments must change the password. The `prod` profile refuses to start without an injected initial password.
 
 Admin console: [mugsun-pc](https://github.com/mugsun/mugsun-pc) (development default port `3006`, proxied to this service on `8080`). Walkthrough: [Documentation · Getting started](https://docs.mugsun.com/en/guide/getting-started).
 
