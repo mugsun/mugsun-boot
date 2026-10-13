@@ -1,0 +1,128 @@
+# Mugsun 一条命令起全套：PostgreSQL(PostGIS+pgvector) + Redis + 后端 + 管理台(Nginx 反代 /api)
+#
+#   docker compose -f docker-compose.full.yml up -d --build
+#   浏览器打开 http://localhost:8088 ，账号 admin，口令见：
+#   docker compose -f docker-compose.full.yml logs init
+#
+# 只需要 Docker（Compose v2.17+）。管理台与埋点 SDK 源码默认从 GitHub main 拉取构建；
+# 本地已有平级 mugsun-pc / mugsun-track 时可改用本地源码：
+#   MUGSUN_PC_SRC=../mugsun-pc MUGSUN_TRACK_SRC=../mugsun-track docker compose -f docker-compose.full.yml up -d --build
+#
+# 默认安全：不带任何弱口令。首次启动由 init 生成数据库/Redis 口令、管理员口令与 SM4/SM2/文件签名密钥，
+# 存进 secrets 卷，重启不变；后端以 prod 配置运行（strict-keys、验证码开启、OpenAPI 关闭）。
+# 只对外暴露管理台端口（MUGSUN_HTTP_PORT，默认 8088），数据库和 Redis 不映射到宿主机。
+# 清空重来（会删数据和密钥）：docker compose -f docker-compose.full.yml down -v
+name: mugsun-full
+
+services:
+  init:
+    build:
+      context: ./docker/full
+      dockerfile: init.Dockerfile
+    image: mugsun-full-init:local
+    volumes:
+      - secrets:/secrets
+
+  postgres:
+    build:
+      context: ./docker/postgres
+      args:
+        # 多架构 PostGIS 基础镜像（amd64/arm64 原生），Apple Silicon 不走仿真
+        POSTGIS_IMAGE: ${MUGSUN_PG_BASE_IMAGE:-imresamu/postgis:16-3.4}
+    image: mugsun-full-postgres:local
+    # 超级用户 postgres 与应用账号 mugsun 用同一随机口令（来自 secrets 卷），库只在 compose 内网可达
+    entrypoint: ["sh", "-c", ". /secrets/mugsun.env && export POSTGRES_PASSWORD=\"$$MUGSUN_DB_PASSWORD\" && exec docker-entrypoint.sh postgres"]
+    environment:
+      POSTGRES_USER: postgres
+    volumes:
+      - secrets:/secrets:ro
+      - pg-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/initdb/init-db.sql:ro
+      - ./docker/postgres/00-init-db.sh:/docker-entrypoint-initdb.d/00-init-db.sh:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["sh", "-c", ". /secrets/mugsun.env && exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    volumes:
+      - secrets:/secrets:ro
+      - redis-data:/data
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", ". /secrets/mugsun.env && redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  boot:
+    build:
+      context: .
+      dockerfile: docker/full/boot.Dockerfile
+    image: mugsun-full-boot:local
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      JDBC_URL: jdbc:postgresql://postgres:5432/mugsun
+      JDBC_USERNAME: mugsun
+      TRACK_JDBC_URL: jdbc:postgresql://postgres:5432/mugsun_track
+      TRACK_JDBC_USERNAME: mugsun
+      REDIS_HOST: redis
+      REDIS_DB: "3"
+      MUGSUN_FRONT_URL: http://localhost:${MUGSUN_HTTP_PORT:-8088}
+      FILE_DOMAIN: http://localhost:${MUGSUN_HTTP_PORT:-8088}/api/file/
+      # 演示栈不配邮件/短信；需要时在此覆盖为真实值
+      SMTP_HOST: smtp.invalid
+      SMTP_USERNAME: unset
+      SMTP_PASSWORD: unset
+      SMS_AK: unset
+      SMS_SK: unset
+      SMS_SIGNATURE: unset
+      SMS_TEMPLATE_ID: unset
+      # 只信任 compose 内网里的 Nginx 传来的 X-Forwarded-For
+      MUGSUN_OPENAPI_TRUSTED_PROXIES: 172.16.0.0/12
+    volumes:
+      - secrets:/secrets:ro
+      - files:/var/lib/mugsun/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf \"GET /ping HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \" 200 \" <&3'"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 30
+    restart: unless-stopped
+
+  pc:
+    build:
+      context: ./docker/full
+      dockerfile: pc.Dockerfile
+      additional_contexts:
+        pc: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#main}
+        track: ${MUGSUN_TRACK_SRC:-https://github.com/mugsun/mugsun-track.git#main}
+    image: mugsun-full-pc:local
+    ports:
+      - "${MUGSUN_HTTP_PORT:-8088}:80"
+    depends_on:
+      boot:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  secrets:
+  pg-data:
+  redis-data:
+  files:

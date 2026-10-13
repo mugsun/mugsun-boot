@@ -1,0 +1,24 @@
+name: compose-full smoke
+
+on:
+  pull_request:
+    paths:
+      - docker-compose.full.yml
+      - docker/full/**
+      - docker/postgres/**
+      - scripts/compose-full-smoke.sh
+      - scripts/init-db.sql
+      - .github/workflows/compose-full.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: 从零一键起全栈 → 登录 → 第一条埋点
+        run: scripts/compose-full-smoke.sh
+      - name: 失败时打印日志
+        if: failure()
+        run: KEEP=1 docker compose -p mugsun-full-smoke -f docker-compose.full.yml logs --tail 200 || true
