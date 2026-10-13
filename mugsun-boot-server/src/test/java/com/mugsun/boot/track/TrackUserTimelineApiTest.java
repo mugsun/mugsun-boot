@@ -176,7 +176,7 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		assertThat(names).contains("$pageview", "$click", "$identify");
 	}
 
-	/** ② 游标分页稳定性：5 事件两页半，三页不重复不漏（received_at+id 游标，防 offset 跳变） */
+	/** ② 游标分页稳定性：5 事件两页半，三页不重复不漏（ts+id 游标，防 offset 跳变） */
 	@Test
 	void cursorPaginationStable() {
 		String distinct = uuid();
@@ -188,7 +188,7 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 			events.add(e);
 			sentIds.add((String) e.get("event_id"));
 		}
-		// 同批摄入（received_at 同毫秒）：游标 (received_at, id) 仍唯一，分页不乱
+		// 同批摄入（ts 可能同毫秒）：游标 (ts, id) 仍唯一，分页不乱
 		collect(APP_T, events, null);
 		awaitUntil("游标用例 5 事件落库", () -> trackLong(
 			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND distinct_id = ?", APP_T, distinct) == 5L);
@@ -212,6 +212,57 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		} while (cursor != null && pages <= 5);
 		assertThat(pages).as("5 条 pageSize=2 应 3 页").isEqualTo(3);
 		assertThat(seen).as("三页不漏（全量事件 id 覆盖）").isEqualTo(sentIds);
+	}
+
+	/** ②b 按显示的发生时间 ts 倒序：先收到的事件 ts 更晚、后收到的 ts 更早，同 ts 两条按 id 定序；翻页仍单调 */
+	@Test
+	void timelineOrderedByTsNotReceivedAt() {
+		String distinct = uuid();
+		String session = uuid();
+		long base = System.currentTimeMillis() - 60000;
+		// 第一批（先收到）：ts 最晚的两条
+		Map<String, Object> late1 = event("$click", distinct, session, Map.of("url_path", "/late-1"));
+		late1.put("ts", base + 3000);
+		Map<String, Object> late2 = event("$click", distinct, session, Map.of("url_path", "/late-2"));
+		late2.put("ts", base + 2000);
+		collect(APP_T, List.of(late1, late2), null);
+		awaitUntil("第一批落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND distinct_id = ?", APP_T, distinct) == 2L);
+		// 第二批（后收到）：ts 更早，其中两条同 ts
+		Map<String, Object> early1 = event("$pageview", distinct, session, Map.of("url_path", "/early-1"));
+		early1.put("ts", base + 1000);
+		Map<String, Object> early2 = event("$pageview", distinct, session, Map.of("url_path", "/early-2"));
+		early2.put("ts", base + 1000);
+		Map<String, Object> earliest = event("$pageview", distinct, session, Map.of("url_path", "/earliest"));
+		earliest.put("ts", base);
+		collect(APP_T, List.of(early1, early2, earliest), null);
+		awaitUntil("第二批落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND distinct_id = ?", APP_T, distinct) == 5L);
+
+		List<Long> tsSeq = new ArrayList<>();
+		List<String> pathSeq = new ArrayList<>();
+		String cursor = null;
+		int pages = 0;
+		long rangeStart = System.currentTimeMillis() - 3600000;
+		long rangeEnd = System.currentTimeMillis() + 60000;
+		do {
+			String url = "/system/track/user/timeline?appKey=" + APP_T + "&distinctId=" + distinct
+				+ "&startTs=" + rangeStart + "&endTs=" + rangeEnd + "&pageSize=2"
+				+ (cursor == null ? "" : "&cursor=" + cursor);
+			JsonNode data = readBodyAssertOk(get(url, adminToken));
+			pages++;
+			for (JsonNode row : data.path("records")) {
+				tsSeq.add(row.path("ts").asLong());
+				pathSeq.add(row.path("urlPath").asText());
+			}
+			cursor = data.path("nextCursor").isNull() ? null : data.path("nextCursor").asText();
+		} while (cursor != null && pages <= 5);
+
+		assertThat(pathSeq).as("5 条全出且不重复").hasSize(5).doesNotHaveDuplicates();
+		assertThat(tsSeq).as("跨页按显示时间 ts 严格非增").isSortedAccordingTo(java.util.Comparator.reverseOrder());
+		assertThat(pathSeq.subList(0, 2)).as("先收到但 ts 晚的排前面").containsExactly("/late-1", "/late-2");
+		assertThat(pathSeq.subList(2, 4)).as("同 ts 两条相邻").containsExactlyInAnyOrder("/early-1", "/early-2");
+		assertThat(pathSeq.get(4)).isEqualTo("/earliest");
 	}
 
 	/** ③ distinct_id 直查：只出该匿名 ID 的行为（不带 identity 归并他 ID） */
