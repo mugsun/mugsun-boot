@@ -17,9 +17,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -47,9 +49,11 @@ public class TrackAnalysisService {
 	private final JdbcTemplate jdbc;
 	private final StringRedisTemplate redis;
 	private final ObjectProvider<TrackAnalysisService> self;
+	private final TrackTimezoneProperties timezones;
 
 	public TrackAnalysisService(DataSource dataSource, StringRedisTemplate redis,
-								ObjectProvider<TrackAnalysisService> self) {
+								ObjectProvider<TrackAnalysisService> self, TrackTimezoneProperties timezones) {
+		this.timezones = timezones;
 		this.jdbc = new JdbcTemplate(dataSource);
 		this.redis = redis;
 		this.self = self;
@@ -157,17 +161,22 @@ public class TrackAnalysisService {
 		appKey = assertAppKey(appKey);
 		int d = assertDays(days);
 		String dim = assertDimType(dimType);
-		return self.getObject().cachedTrend(appKey, d, dim, dimKey, currentTenant());
+		String tenant = currentTenant();
+		return self.getObject().cachedTrend(appKey, d, dim, dimKey, tenant, timezones.zoneFor(tenant).getId());
 	}
 
-	@Cached(name = "track:ana:trend:", key = "#appKey + ':' + #days + ':' + #dimType + ':' + #dimKey",
+	@Cached(name = "track:ana:trend:",
+		key = "#appKey + ':' + #days + ':' + #dimType + ':' + #dimKey + ':' + #tenant + ':' + #zoneId",
 		expire = TrackConstants.ANALYSIS_CACHE_SECONDS, cacheType = CacheType.LOCAL)
-	public List<Map<String, Object>> cachedTrend(String appKey, int days, String dimType, String dimKey, String tenant) {
-		LocalDate today = LocalDate.now(ZoneOffset.UTC);
-		LocalDate from = today.minusDays(days - 1L);
+	public List<Map<String, Object>> cachedTrend(String appKey, int days, String dimType, String dimKey, String tenant,
+												 String zoneId) {
+		// 按租户时区切日：「今天」从当地 0 点开始（UX-012 后续）
+		TrackDayWindow w = TrackDayWindow.of(ZoneId.of(zoneId), Instant.now(), days);
+		LocalDate today = w.today();
+		LocalDate from = w.fromDate();
 		if (days <= 2) {
 			String effectiveDim = TrackConstants.DIM_OVERVIEW.equals(dimType) ? TrackConstants.DIM_EVENT : dimType;
-			List<Object> args = new ArrayList<>(List.of(appKey, from.atStartOfDay(), effectiveDim));
+			List<Object> args = new ArrayList<>(List.of(appKey, w.fromUtcWall(), effectiveDim));
 			StringBuilder sql = new StringBuilder(
 				"SELECT CAST(EXTRACT(EPOCH FROM bucket_time) * 1000 AS BIGINT) AS \"time\","
 					+ " coalesce(sum(pv), 0) AS \"pv\", coalesce(sum(event_count), 0) AS \"eventCount\","
@@ -180,6 +189,9 @@ public class TrackAnalysisService {
 			sql.append(tenantFrag(null, tenant, args));
 			sql.append(" GROUP BY bucket_time ORDER BY bucket_time");
 			return jdbc.queryForList(sql.toString(), args.toArray());
+		}
+		if (!w.isUtc()) {
+			return fillMissingDays(localDailyRows(appKey, w, dimType, dimKey, tenant), from, today);
 		}
 		List<Object> args = new ArrayList<>(List.of(appKey, from, today, dimType));
 		StringBuilder sql = new StringBuilder(
@@ -230,6 +242,59 @@ public class TrackAnalysisService {
 			out.add(r);
 		}
 		return out;
+	}
+
+	/**
+	 * 非 UTC 时区的日粒度：track_stats_day 按 UTC 日汇总无法改切，改为明细按当地日期直算（窗口内分区裁剪）。
+	 * 口径同当日直算行：sessionCount=活跃会话，bounceCount=当地当天开始的已结算会话里 pageviews<=1 的数量（仅总览）。
+	 */
+	private List<Map<String, Object>> localDailyRows(String appKey, TrackDayWindow w, String dimType, String dimKey,
+													 String tenant) {
+		String zone = w.zone().getId();
+		List<Object> args = new ArrayList<>(List.of(zone, appKey, w.fromOffset()));
+		StringBuilder sql = new StringBuilder(
+			"SELECT to_char((e.received_at AT TIME ZONE ?)::date, 'YYYY-MM-DD') AS \"date\","
+				+ " count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS \"pv\","
+				+ " " + TrackConstants.UV_EXPR + " AS \"uv\","
+				+ " count(DISTINCT e.session_id) AS \"sessionCount\", count(*) AS \"eventCount\""
+				+ " FROM track_event e WHERE e.app_key = ? AND e.received_at >= ?");
+		String dimExpr = switch (dimType) {
+			case TrackConstants.DIM_EVENT -> "e.event_name";
+			case TrackConstants.DIM_PAGE -> "left(coalesce(nullif(e.route_path, ''), e.url_path), " + TrackConstants.DIM_MAX_LEN + ")";
+			case TrackConstants.DIM_REFERRER -> "e.referrer_domain";
+			case TrackConstants.DIM_DEVICE -> "e.device";
+			default -> null;
+		};
+		if (dimExpr != null) {
+			if (dimKey != null && !dimKey.isBlank()) {
+				sql.append(" AND ").append(dimExpr).append(" = ?");
+				args.add(dimKey);
+			} else {
+				sql.append(" AND ").append(dimExpr).append(" IS NOT NULL AND ").append(dimExpr).append(" <> ''");
+			}
+		}
+		sql.append(tenantFrag("e", tenant, args)).append(" GROUP BY 1 ORDER BY 1");
+		List<Map<String, Object>> rows = new ArrayList<>();
+		for (Map<String, Object> r : jdbc.queryForList(sql.toString(), args.toArray())) {
+			Map<String, Object> row = new LinkedHashMap<>(r);
+			row.put("bounceCount", 0L);
+			rows.add(row);
+		}
+		if (TrackConstants.DIM_OVERVIEW.equals(dimType)) {
+			List<Object> sArgs = new ArrayList<>(List.of(zone, appKey, w.fromUtcWall()));
+			String sessSql = "SELECT to_char(((start_time AT TIME ZONE 'UTC') AT TIME ZONE ?)::date, 'YYYY-MM-DD') AS d,"
+				+ " count(*) FILTER (WHERE pageviews <= 1) AS bounce FROM track_session"
+				+ " WHERE app_key = ? AND start_time >= ? AND settled = 1 AND is_deleted = 0"
+				+ tenantFrag(null, tenant, sArgs) + " GROUP BY 1";
+			Map<String, Long> bounce = new HashMap<>();
+			for (Map<String, Object> r : jdbc.queryForList(sessSql, sArgs.toArray())) {
+				bounce.put(String.valueOf(r.get("d")), num(r, "bounce"));
+			}
+			for (Map<String, Object> row : rows) {
+				row.put("bounceCount", bounce.getOrDefault(String.valueOf(row.get("date")), 0L));
+			}
+		}
+		return rows;
 	}
 
 	/** 当日总览行（明细直算，口径与 overview 今日部分一致；bounceCount 取当日已结算会话） */
@@ -490,7 +555,8 @@ public class TrackAnalysisService {
 		String tenant = currentTenant();
 		int d = assertDays(days);
 		long size = clampPageSize(pageSize);
-		OffsetDateTime from = LocalDate.now(ZoneOffset.UTC).minusDays(d - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
+		// 按租户时区切日：「今天」从当地 0 点开始
+		OffsetDateTime from = TrackDayWindow.of(timezones.zoneFor(tenant), Instant.now(), d).fromOffset();
 		StringBuilder cond = new StringBuilder(" FROM track_event WHERE app_key = ? AND event_name = '"
 			+ TrackConstants.EVENT_ERROR + "' AND error_fingerprint IS NOT NULL AND received_at >= ?");
 		List<Object> args = new ArrayList<>(List.of(appKey, from));
@@ -519,7 +585,8 @@ public class TrackAnalysisService {
 		String tenant = currentTenant();
 		int d = assertDays(days);
 		long size = clampPageSize(pageSize);
-		OffsetDateTime from = LocalDate.now(ZoneOffset.UTC).minusDays(d - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
+		// 按租户时区切日：「今天」从当地 0 点开始
+		OffsetDateTime from = TrackDayWindow.of(timezones.zoneFor(tenant), Instant.now(), d).fromOffset();
 		StringBuilder cond = new StringBuilder(" FROM track_event WHERE app_key = ? AND event_name = '"
 			+ TrackConstants.EVENT_ERROR + "' AND error_fingerprint = ? AND received_at >= ?");
 		List<Object> args = new ArrayList<>(List.of(appKey, fingerprint, from));

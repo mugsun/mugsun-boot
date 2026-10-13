@@ -10,6 +10,13 @@ mybatis-flex:
 
 mugsun:
   track:
+    # 看板按天切分（趋势图、错误列表）用的时区：「今天」从当地 0 点开始。租户未配置时用 default-zone
+    timezone:
+      default-zone: ${MUGSUN_TRACK_TIMEZONE:Asia/Shanghai}
+      # 按租户编号覆盖，键加中括号和引号：
+      #   tenants:
+      #     "[000000]": Asia/Shanghai
+      tenants: {}
     enabled: ${MUGSUN_TRACK_ENABLED:true}
     flyway-enabled: ${MUGSUN_TRACK_FLYWAY_ENABLED:true}
     # 历史日表 UV 回填（distinct_id 口径，升级说明见 docs/upgrade/track-uv-backfill.md）
