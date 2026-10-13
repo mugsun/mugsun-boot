@@ -1,5 +1,10 @@
 package com.mugsun.boot.track;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import cn.hutool.core.util.IdUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.common.constant.TrackConstants;
@@ -39,6 +44,9 @@ class TrackVisualApiTest extends AbstractTrackIntegrationTest {
 
 	@Autowired
 	private StringRedisTemplate redis;
+
+	@Autowired
+	private TrackVisualService visualService;
 
 	private String adminToken;
 	private Long adminId;
@@ -300,6 +308,20 @@ class TrackVisualApiTest extends AbstractTrackIntegrationTest {
 	/** ③ 单令牌草稿上限 50（满 400「草稿已满请先确认」）+ 分钟窗限流（60 连发后第 61 次 429，独立令牌防干扰） */
 	@Test
 	void draftCapAndRateLimit() {
+		// 限流按「当前分钟」分桶：61 连发若跨分钟边界，计数被拆进两个桶 → 不出 429（偶发失败根因）。
+		// 钉住时钟到固定分钟，结束恢复系统时钟。
+		Object target = AopTestUtils.getUltimateTargetObject(visualService);
+		Clock original = (Clock) ReflectionTestUtils.getField(target, "clock");
+		ReflectionTestUtils.setField(target, "clock",
+			Clock.fixed(Instant.parse("2030-01-01T00:00:30Z"), ZoneId.systemDefault()));
+		try {
+			doDraftCapAndRateLimit();
+		} finally {
+			ReflectionTestUtils.setField(target, "clock", original);
+		}
+	}
+
+	private void doDraftCapAndRateLimit() {
 		String token = issueToken(adminToken, APP_V);
 		Map<String, Object> draft = new HashMap<>();
 		draft.put("token", token);
