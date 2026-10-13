@@ -26,11 +26,11 @@ public class AppCaptchaController {
 
 	@GetMapping("/generate")
 	public R<AppSliderGenerateVO> generate(HttpServletRequest request) {
-		return R.data(sliderCaptchaService.generate(request.getRemoteAddr()));
+		return R.data(sliderCaptchaService.generate(com.mugsun.boot.common.web.ClientIpResolver.clientIp(request)));
 	}
 
 	@PostMapping("/check")
 	public R<AppTicketVO> check(@RequestBody AppSliderCheckDTO dto, HttpServletRequest request) {
-		return R.data(new AppTicketVO(sliderCaptchaService.check(dto, request.getRemoteAddr())));
+		return R.data(new AppTicketVO(sliderCaptchaService.check(dto, com.mugsun.boot.common.web.ClientIpResolver.clientIp(request))));
 	}
 }

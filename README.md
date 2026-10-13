@@ -56,6 +56,28 @@ Compose 暴露端口：`5432`（PostgreSQL）、`6379`（Redis）。开发库账
 
 OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
 
+## 安全验证（滑块验证码）
+
+登录、注册、忘记密码发码、发送短信验证码默认需要滑块拼图验证（自研，无第三方依赖）。流程：`GET /auth/captcha/config` 提示是否需要 → `POST /auth/captcha/challenge` 取底图/拼图块 → `POST /auth/captcha/verify` 换一次性 `captchaToken` → 业务接口请求体带 `captchaToken`。业务接口按服务端解析的租户与客户端重新判定，`config` 只是提示。错误码（HTTP 200 + `R.code`）：`40010` 过期、`40011` 未通过、`40012` 限流（`data.retryAfter` 秒）、`40013` 缺少有效令牌、`40014` 当前无需验证。
+
+| 配置键 | 默认 | 说明 |
+|---|---|---|
+| `mugsun.captcha.enabled` | `true` | 全局开关（prod 配置为 true） |
+| `mugsun.captcha.type` | `SLIDER` | `SLIDER` 或 `IMAGE`（旧数字码，保留一个版本）；只由服务端决定 |
+| `mugsun.captcha.store` | `redis` | `redis` 或 `memory`；`memory` 仅单机开发，`prod` profile 下启动失败 |
+| `mugsun.captcha.slider.width` / `height` | `320` / `180` | 底图原始尺寸 |
+| `mugsun.captcha.slider.tolerance-px` | `6` | 落点与轨迹位移容差（原始像素） |
+| `mugsun.captcha.slider.expire-seconds` / `token-expire-seconds` | `120` / `120` | 挑战与令牌有效期 |
+| `mugsun.captcha.slider.min-duration-ms` | `300` | 服务端计时下限（签发→校验） |
+| `mugsun.captcha.slider.decoy-count` | `1` | 假缺口数量（0–2） |
+| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` | 令牌强制绑定 IP / UA 哈希（默认只记录） |
+| `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | 背景图目录（`file:` 亦可），jpg/png，推荐 640×360；为空用纯色占位 |
+| `mugsun.captcha.background.rotate` | `random` | `random` 或 `round-robin` |
+| `mugsun.captcha.background.reload-seconds` | `600` | 目录重扫间隔，0 只在启动时加载 |
+| `mugsun.captcha.rate-limit.*` | 见 `application.yml` | 单 IP 取挑战/分钟、全局令牌桶、失败锁定（键盘模式更严） |
+
+租户开关：`sys_tenant.captcha_enabled`（`V4__tenant_captcha.sql`，默认 1），仅平台超管可通过 `POST /system/tenant/captcha` 修改并写入审计日志。客户端开关 `sys_client.captcha_enabled` 仍只作用于登录。App 端 `/app/captcha/*` 接口形状不变，内部共用同一引擎。
+
 ## 组成
 
 <p align="center">

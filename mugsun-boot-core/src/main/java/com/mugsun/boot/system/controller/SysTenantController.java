@@ -22,10 +22,33 @@ public class SysTenantController {
 
 	private final SysTenantMapper tenantMapper;
 	private final TenantService tenantService;
+	private final com.mugsun.boot.log.UsualLogService usualLogService;
 
-	public SysTenantController(SysTenantMapper tenantMapper, TenantService tenantService) {
+	public SysTenantController(SysTenantMapper tenantMapper, TenantService tenantService,
+							   com.mugsun.boot.log.UsualLogService usualLogService) {
 		this.tenantMapper = tenantMapper;
 		this.tenantService = tenantService;
+		this.usualLogService = usualLogService;
+	}
+
+	/** 租户验证码开关：仅平台超管可改，写审计日志 */
+	@RepeatSubmit
+	@PostMapping("/captcha")
+	public R<Void> captchaSwitch(@RequestBody CaptchaSwitchDTO dto) {
+		if (!com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()) {
+			throw new ServiceException(com.mugsun.core.tool.api.ResultCode.FORBIDDEN);
+		}
+		if (dto == null || dto.id() == null || dto.enabled() == null) {
+			throw new ServiceException("参数不完整。请选择租户和开关状态后再保存");
+		}
+		boolean on = Boolean.TRUE.equals(dto.enabled());
+		String code = tenantService.setCaptchaEnabled(dto.id(), on);
+		usualLogService.record("warn", String.valueOf(cn.dev33.satoken.stp.StpUtil.getLoginIdDefaultNull()),
+			"租户验证码开关：" + code + " → " + (on ? "开启" : "关闭"), code);
+		return R.success(Boolean.TRUE.equals(dto.enabled()) ? "已开启该租户的安全验证" : "已关闭该租户的安全验证");
+	}
+
+	public record CaptchaSwitchDTO(Long id, Boolean enabled) {
 	}
 
 	@GetMapping("/list")

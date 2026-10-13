@@ -25,7 +25,7 @@ class AppAuthApiTest extends AbstractIntegrationTest {
 	void generateDoesNotEchoAnswer() {
 		JsonNode data = readBody(get("/app/captcha/generate", null)).path("data");
 		assertThat(data.path("captchaId").asText()).isNotBlank();
-		assertThat(data.path("backgroundImage").asText()).startsWith("data:image/png;base64,");
+		assertThat(data.path("backgroundImage").asText()).startsWith("data:image/");
 		assertThat(data.path("sliderImage").asText()).startsWith("data:image/png;base64,");
 		assertThat(data.has("captchaCode")).isFalse();
 		assertThat(data.has("randomX")).isFalse();
@@ -91,6 +91,12 @@ class AppAuthApiTest extends AbstractIntegrationTest {
 		JsonNode gen = readBody(get("/app/captcha/generate", null)).path("data");
 		String id = gen.path("captchaId").asText();
 		int x = sliderCaptchaService.peekExpectedX(id);
+		// 服务端计时：签发到校验至少 300ms
+		try {
+			Thread.sleep(400);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
 		JsonNode check = readBody(post("/app/captcha/check", checkBody(id, x, 520), null));
 		assertThat(check.path("code").asInt()).as(check.path("msg").asText()).isEqualTo(200);
 		String ticket = check.path("data").path("ticket").asText();

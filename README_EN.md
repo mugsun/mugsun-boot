@@ -56,6 +56,28 @@ Local configuration path: `optional:file:./config/application-local.yml` (gitign
 
 OpenAPI: http://localhost:8080/swagger-ui/index.html (disabled under `prod`).
 
+## Human verification (slider captcha)
+
+Login, registration, the forgot-password code and the SMS code request require a slider puzzle by default (built in, no third-party dependency). Flow: `GET /auth/captcha/config` (hint) → `POST /auth/captcha/challenge` → `POST /auth/captcha/verify` returns a one-time `captchaToken` → send `captchaToken` in the business request. The server re-checks tenant and client itself; `config` is only a hint. Error codes (HTTP 200 + `R.code`): `40010` expired, `40011` failed, `40012` rate limited (`data.retryAfter` seconds), `40013` token required, `40014` not required.
+
+| Key | Default | Notes |
+|---|---|---|
+| `mugsun.captcha.enabled` | `true` | Global switch (set to true in prod config) |
+| `mugsun.captcha.type` | `SLIDER` | `SLIDER` or `IMAGE` (legacy digits, kept for one release); server-side only |
+| `mugsun.captcha.store` | `redis` | `redis` or `memory`; `memory` is single-node dev only and fails to start under the `prod` profile |
+| `mugsun.captcha.slider.width` / `height` | `320` / `180` | Native background size |
+| `mugsun.captcha.slider.tolerance-px` | `6` | Tolerance for drop position and track travel (native px) |
+| `mugsun.captcha.slider.expire-seconds` / `token-expire-seconds` | `120` / `120` | Challenge and token lifetime |
+| `mugsun.captcha.slider.min-duration-ms` | `300` | Server-timed minimum (issue → verify) |
+| `mugsun.captcha.slider.decoy-count` | `1` | Fake gaps (0–2) |
+| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` | Enforce token binding to IP / UA hash (recorded either way) |
+| `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | Background folder (`file:` works too), jpg/png, 640×360 recommended; plain-colour placeholder when empty |
+| `mugsun.captcha.background.rotate` | `random` | `random` or `round-robin` |
+| `mugsun.captcha.background.reload-seconds` | `600` | Rescan interval, 0 = load at startup only |
+| `mugsun.captcha.rate-limit.*` | see `application.yml` | Per-IP challenge rate, global token bucket, failure lockout (stricter for keyboard mode) |
+
+Tenant switch: `sys_tenant.captcha_enabled` (`V4__tenant_captcha.sql`, default 1); only the platform super admin can change it via `POST /system/tenant/captcha`, and every change is audited. The client switch `sys_client.captcha_enabled` still applies to login only. The app endpoints `/app/captcha/*` keep their shape and share the same engine.
+
 ## Composition
 
 <p align="center">
