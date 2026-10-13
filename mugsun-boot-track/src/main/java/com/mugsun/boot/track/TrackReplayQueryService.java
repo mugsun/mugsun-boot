@@ -178,7 +178,7 @@ public class TrackReplayQueryService {
 	}
 
 	/**
-	 * 同会话事件流里的页面浏览数（track_session.pageviews，按 $pageview 累加）。
+	 * 同会话事件流里的页面浏览数（track_session.pageviews，按 $pageview 累加；限当前租户、未逻辑删除）。
 	 * rrweb 只在整页加载时产生全量快照，SPA 路由切换（pushState/replaceState/popstate）不产生快照，
 	 * 但 SDK pageview 插件对每次路由切换都会上报 $pageview，所以用它补足 SPA 会话的页面数。
 	 */
@@ -193,13 +193,23 @@ public class TrackReplayQueryService {
 		if (sessionIds.isEmpty() || appKey == null) {
 			return result;
 		}
-		List<TrackSession> sessions = sessionMapper.selectListByQuery(QueryWrapper.create()
-			.select("session_id", "pageviews").eq("app_key", appKey).in("session_id", sessionIds));
-		for (TrackSession session : sessions) {
-			if (session.getPageviews() != null) {
-				result.put(session.getSessionId(), session.getPageviews());
-			}
+		// 显式租户条件 + 逻辑删除过滤（与本类 sessionEvents 同口径，不依赖插件隐式拼接）：
+		// 跨租户同 session_id 的会话行、已逻辑删除的会话行都不得参与页面数
+		List<Object> args = new ArrayList<>();
+		args.add(appKey);
+		StringBuilder sql = new StringBuilder("SELECT session_id, pageviews FROM track_session"
+			+ " WHERE app_key = ? AND is_deleted = 0 AND session_id IN (");
+		for (int i = 0; i < sessionIds.size(); i++) {
+			sql.append(i == 0 ? "?" : ", ?");
+			args.add(sessionIds.get(i));
 		}
+		sql.append(')').append(tenantFrag(currentTenant(), args));
+		jdbc.query(sql.toString(), rs -> {
+			int pageviews = rs.getInt("pageviews");
+			if (!rs.wasNull()) {
+				result.put(rs.getString("session_id"), pageviews);
+			}
+		}, args.toArray());
 		return result;
 	}
 
