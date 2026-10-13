@@ -213,8 +213,8 @@ public class TrackAnalysisService {
 		Map<String, Object> ev = queryOne(
 			"SELECT count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
 				+ " count(*) AS ec, count(DISTINCT e.session_id) AS sc,"
-				+ " count(DISTINCT coalesce(m.user_id::text, e.distinct_id)) AS uv"
-				+ " FROM track_event e" + IDENTITY_JOIN
+				+ " " + TrackConstants.UV_EXPR + " AS uv"
+				+ " FROM track_event e"
 				+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, args),
 			args);
 		List<Object> sessArgs = new ArrayList<>(List.of(appKey, today.atStartOfDay()));
