@@ -34,8 +34,11 @@ Prerequisites: JDK 21, Maven 3.9+, Docker. `mugsun-core` 0.1.0 is on Maven Centr
 ```bash
 docker compose up -d
 cp config/application-local.yml.example config/application-local.yml
-mvn -pl mugsun-boot-server -am spring-boot:run
+mvn -pl mugsun-boot-server -am package -DskipTests
+java -jar mugsun-boot-server/target/mugsun-boot.jar
 ```
+
+Run `java -jar` from the repository root, otherwise `config/application-local.yml` is not picked up. For development you can optionally run `mvn -pl mugsun-boot-server -am spring-boot:run` from the repository root instead.
 
 **Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, run `cd ../mugsun-core && mvn clean install -DskipTests`, then return to this repository to build.
 
@@ -45,12 +48,7 @@ Default initial account: `admin` / `123456` (override with `MUGSUN_INIT_PASSWORD
 
 Admin console: [mugsun-pc](https://github.com/mugsun/mugsun-pc) (development default port `3006`, proxied to this service on `8080`). Walkthrough: [Documentation · Getting started](https://docs.mugsun.com/en/guide/getting-started).
 
-Package:
-
-```bash
-mvn -pl mugsun-boot-server -am package -DskipTests
-# Artifact: mugsun-boot-server/target/mugsun-boot.jar
-```
+Package artifact: `mugsun-boot-server/target/mugsun-boot.jar`.
 
 Compose ports: `5432` (PostgreSQL), `6379` (Redis). Development database credentials default to the JDBC settings (`mugsun` / `mugsun`). Without Docker, see `scripts/init-db.sql`.
 
