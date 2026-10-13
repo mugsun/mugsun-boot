@@ -4,6 +4,7 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.AiModuleService;
 import com.mugsun.boot.ai.entity.AiChannelBind;
 import com.mugsun.boot.ai.mapper.AiChannelBindMapper;
+import com.mugsun.boot.ai.support.AiOutboundProperties;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -29,10 +30,13 @@ public class AiChannelBizService {
 
 	private final AiModuleService moduleService;
 	private final AiChannelBindMapper mapper;
+	private final AiOutboundProperties outbound;
 
-	public AiChannelBizService(AiModuleService moduleService, AiChannelBindMapper mapper) {
+	public AiChannelBizService(AiModuleService moduleService, AiChannelBindMapper mapper,
+							   AiOutboundProperties outbound) {
 		this.moduleService = moduleService;
 		this.mapper = mapper;
+		this.outbound = outbound;
 	}
 
 	public Page<AiChannelBind> page(long pageNum, long pageSize, String alias) {
@@ -77,6 +81,9 @@ public class AiChannelBizService {
 		String sample = body.getParamsSample() == null ? "" : body.getParamsSample().trim();
 		if (!sample.isEmpty() && !WHOLE_URL.matcher(sample).matches()) {
 			throw new ServiceException("Webhook 需要以 http:// 或 https:// 开头，并且不要带空格。留空表示先不调试");
+		}
+		if (!sample.isEmpty()) {
+			outbound.guard(sample);
 		}
 		if (body.getStatus() != null && body.getStatus() != 0 && body.getStatus() != 1) {
 			throw new ServiceException("状态请选择启用或停用");
@@ -133,6 +140,11 @@ public class AiChannelBizService {
 		String url = extractUrl(bind.getParamsSample());
 		if (url == null) {
 			return result(false, "还没有填写 Webhook。请先编辑这个渠道，填上能接收消息的地址", bind, content);
+		}
+		try {
+			url = outbound.guard(url);
+		} catch (ServiceException e) {
+			return result(false, "Webhook 地址不允许访问内网或元数据地址。请换成公网地址，或让管理员加入出站白名单", bind, content);
 		}
 		try {
 			WebClient.create()
