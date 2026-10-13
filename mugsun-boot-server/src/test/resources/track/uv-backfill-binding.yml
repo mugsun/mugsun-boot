@@ -1,0 +1,6 @@
+mugsun:
+  track:
+    uv-backfill:
+      app-statement-timeout:
+        "[MyApp_1]": 600s
+        "[shop.web]": 5m
