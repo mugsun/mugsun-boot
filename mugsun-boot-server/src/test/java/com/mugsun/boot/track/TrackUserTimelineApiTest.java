@@ -6,6 +6,16 @@ import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.system.service.ParamService;
 import com.mugsun.boot.track.job.TrackApiBodyCleanJob;
 import com.mugsun.boot.track.job.TrackPartitionJob;
+import com.mugsun.boot.track.job.TrackTimelineIndexBackfillJob;
+import com.mugsun.boot.track.job.TrackTimelineIndexProperties;
+import com.mugsun.boot.track.job.TrackTimelineIndexes;
+import com.mugsun.boot.track.job.TrackTimelineIndexes.IndexSpec;
+import db.track.migration.T4__track_event_timeline_index_partitions;
+import org.springframework.core.env.Environment;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
+import java.time.Clock;
 import com.mybatisflex.core.datasource.DataSourceKey;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
@@ -69,6 +79,12 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 	private TrackApiBodyCleanJob cleanJob;
 	@Autowired
 	private TrackPartitionJob partitionJob;
+	@Autowired
+	private TrackTimelineIndexBackfillJob backfillJob;
+	@Autowired
+	private TrackTimelineIndexProperties indexProps;
+	@Autowired
+	private Environment env;
 	@Autowired
 	private StringRedisTemplate redis;
 
@@ -539,6 +555,130 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 			cursor = data.path("nextCursor").asText();
 		}
 		assertThat(actual).as("UNION ALL 分页结果与 OR 口径逐行一致（无重复无遗漏、同序）").containsExactlyElementsOf(expected);
+	}
+
+	/** ⑩d P1：T4 只处理空分区、非空分区留给后台任务且不抛异常；后台补建按分区记进度、校验 valid；锁/开关/时段 */
+	@Test
+	void t4SkipsNonEmptyAndBackfillCompletes() throws Exception {
+		List<IndexSpec> specs = List.of(new IndexSpec("idx_event_tltest_tl", "app_key, session_id, ts, id"));
+		YearMonth cur = YearMonth.now(ZoneOffset.UTC);
+		String curPart = String.format("track_event_%04d_%02d", cur.getYear(), cur.getMonthValue());
+		YearMonth next = cur.plusMonths(1);
+		String nextPart = String.format("track_event_%04d_%02d", next.getYear(), next.getMonthValue());
+		assertThat(trackLong("SELECT count(*) AS c FROM " + curPart)).as("当月分区有夹具数据").isPositive();
+		boolean enabled = indexProps.isBackfillEnabled();
+		boolean window = indexProps.isWindowEnabled();
+		try (Connection conn = trackConnection(); Connection other = trackConnection()) {
+			exec(conn, "CREATE INDEX idx_event_tltest_tl ON ONLY track_event (app_key, session_id, ts, id)");
+			boolean nextEmpty = TrackTimelineIndexes.isEmpty(conn, nextPart);
+
+			// T4：非空分区跳过（不同步建），空分区建好挂上；不抛异常
+			List<String> pending = T4__track_event_timeline_index_partitions.run(conn, specs);
+			assertThat(pending).contains(curPart);
+			assertThat(TrackTimelineIndexes.partitionReady(conn, curPart, specs)).isFalse();
+			if (nextEmpty) {
+				assertThat(pending).doesNotContain(nextPart);
+				assertThat(TrackTimelineIndexes.partitionReady(conn, nextPart, specs)).isTrue();
+			}
+			assertThat(TrackTimelineIndexes.indexValid(conn, "idx_event_tltest_tl")).as("未挂齐父索引仍 invalid").isFalse();
+
+			// 别的会话持锁：T4 跳过不抛、后台任务 LOCK_BUSY
+			exec(other, "SELECT pg_advisory_lock(hashtext('track_timeline_index'))");
+			assertThat(T4__track_event_timeline_index_partitions.run(conn, specs)).isEmpty();
+			indexProps.setBackfillEnabled(true);
+			indexProps.setWindowEnabled(false);
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.LOCK_BUSY);
+			exec(other, "SELECT pg_advisory_unlock(hashtext('track_timeline_index'))");
+
+			// 开关关闭 / 时段外
+			indexProps.setBackfillEnabled(false);
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.DISABLED);
+			indexProps.setBackfillEnabled(true);
+			indexProps.setWindowEnabled(true);
+			backfillJob.setClock(Clock.fixed(Instant.parse("2026-01-01T04:00:00Z"), ZoneOffset.UTC)); // 北京 12:00
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.OUTSIDE_WINDOW);
+			backfillJob.setClock(Clock.fixed(Instant.parse("2026-01-01T19:30:00Z"), ZoneOffset.UTC)); // 北京 03:30
+
+			// 后台补建：补齐非空分区、父索引转 valid、按分区记进度
+			TrackTimelineIndexBackfillJob.Result r = backfillJob.runNow(specs);
+			assertThat(r.status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.DONE);
+			assertThat(r.built()).contains(curPart);
+			assertThat(TrackTimelineIndexes.allValid(conn, specs)).isTrue();
+			assertThat(trackLong("SELECT count(*) AS c FROM track_rollup_cursor WHERE job_key = 'timeline_index' AND app_key = ?",
+				curPart)).as("分区进度已记录").isEqualTo(1L);
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.NOTHING_TO_DO);
+		} finally {
+			indexProps.setBackfillEnabled(enabled);
+			indexProps.setWindowEnabled(window);
+			backfillJob.setClock(Clock.systemUTC());
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP INDEX IF EXISTS idx_event_tltest_tl");
+				Db.updateBySql("DELETE FROM track_rollup_cursor WHERE job_key = 'timeline_index'");
+			});
+		}
+	}
+
+	/** ⑩e ATTACH 前校验 indisvalid：中断留下的 invalid 子索引先 DROP 再重建，挂上后 valid */
+	@Test
+	void invalidChildRebuiltBeforeAttach() throws Exception {
+		YearMonth far = YearMonth.of(2099, 1);
+		String part = "track_event_2099_01";
+		List<IndexSpec> specs = List.of(new IndexSpec("idx_event_tlinv_tl", "app_key, session_id, ts, id"));
+		partitionJob.ensureMonthPartitions(far);
+		try (Connection conn = trackConnection()) {
+			exec(conn, "CREATE INDEX idx_event_tlinv_tl ON ONLY track_event (app_key, session_id, ts, id)");
+			String child = part + "_tlinv_tl";
+			exec(conn, "CREATE INDEX " + child + " ON " + part + " (app_key, session_id, ts, id)");
+			exec(conn, "UPDATE pg_index SET indisvalid = false WHERE indexrelid = '" + child + "'::regclass");
+			assertThat(TrackTimelineIndexes.indexValid(conn, child)).isFalse();
+			TrackTimelineIndexes.ensurePartition(conn, part, specs, false);
+			assertThat(TrackTimelineIndexes.partitionReady(conn, part, specs)).as("重建后 valid 并已挂接").isTrue();
+		} finally {
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP INDEX IF EXISTS idx_event_tlinv_tl");
+				Db.updateBySql("DROP TABLE IF EXISTS track_event_2099_01");
+				Db.updateBySql("DROP TABLE IF EXISTS track_event_data_2099_01");
+			});
+		}
+	}
+
+	/** ⑩f userId 匿名段设备数封顶 1000（按 last_seen_time 新→旧）：最近设备的事件可见，第 1001 个最旧设备不参与 */
+	@Test
+	void mappedDevicesCappedAt1000() {
+		long uid = 880_000_001L;
+		String prefix = "cap-" + uuid().substring(0, 8) + "-";
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+			Db.updateBySql("INSERT INTO track_identity (id, app_key, distinct_id, user_id, tenant_id, first_bind_time, last_seen_time)"
+				+ " SELECT 9100000000 + g, ?, ? || g, ?, ?, now(), now() - g * interval '1 second' FROM generate_series(0, 1000) g",
+				APP_T, prefix, uid, PLATFORM_TENANT);
+			Db.updateBySql("INSERT INTO track_event (id, event_id, app_key, event_name, client_ts, ts, received_at, distinct_id,"
+				+ " session_id, tenant_id, url_path) SELECT 9200000000 + g, gen_random_uuid()::text, ?, '$pageview', now(), now(), now(),"
+				+ " ? || g, ?, ?, '/cap-' || g FROM unnest(ARRAY[0, 1000]) g", APP_T, prefix, uuid(), PLATFORM_TENANT);
+		});
+		try {
+			JsonNode data = readBodyAssertOk(timelineByUser(uid, null));
+			Set<String> paths = new HashSet<>();
+			data.path("records").forEach(r -> paths.add(r.path("urlPath").asText()));
+			assertThat(paths).contains("/cap-0").doesNotContain("/cap-1000");
+		} finally {
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DELETE FROM track_event WHERE app_key = ? AND distinct_id LIKE ?", APP_T, prefix + "%");
+				Db.updateBySql("DELETE FROM track_identity WHERE app_key = ? AND distinct_id LIKE ?", APP_T, prefix + "%");
+			});
+		}
+	}
+
+	private Connection trackConnection() throws Exception {
+		Connection c = DriverManager.getConnection(env.getProperty("mybatis-flex.datasource.track.url"),
+			env.getProperty("mybatis-flex.datasource.track.username"), env.getProperty("mybatis-flex.datasource.track.password"));
+		c.setAutoCommit(true);
+		return c;
+	}
+
+	private static void exec(Connection c, String sql) throws Exception {
+		try (Statement st = c.createStatement()) {
+			st.execute(sql);
+		}
 	}
 
 	private void assertTimelineIndexesValid() {

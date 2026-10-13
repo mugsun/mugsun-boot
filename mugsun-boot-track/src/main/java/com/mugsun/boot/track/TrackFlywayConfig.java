@@ -45,6 +45,8 @@ public class TrackFlywayConfig {
 	private static final String DUPLICATE_DATABASE_SQL_STATE = "42P04";
 	/** PG 错误码：insufficient_privilege（应用账号无 CREATEDB 权限） */
 	private static final String INSUFFICIENT_PRIVILEGE_SQL_STATE = "42501";
+	/** Flyway 迁移锁重试次数（每次约 1s）：多节点滚动/同时启动时后到者最多等约 10 分钟 */
+	static final int FLYWAY_LOCK_RETRY_COUNT = 600;
 
 	/**
 	 * 建库 + 迁移埋点库，返回初始化标记 bean（承载库名，供健康检查/日志辨识）。
@@ -94,7 +96,10 @@ public class TrackFlywayConfig {
 			.placeholderReplacement(false)
 			// T4 起有非事务迁移（CREATE INDEX CONCURRENTLY）：PG 默认的事务级 advisory 锁会在 Flyway 锁连接上
 			// 一直挂着一个打开的事务，CONCURRENTLY 要等所有旧快照事务结束 → 自等死锁；改用会话级锁
+			// 会话级锁要求直连 PG 或 PgBouncer session 模式：不支持 PgBouncer transaction pooling（锁会落到别的会话上）
 			.configuration(java.util.Map.of("flyway.postgresql.transactional.lock", "false"))
+			// 多节点同时启动：后到者等锁（每次 1s），默认 50 次偏短，放宽到 600 次
+			.lockRetryCount(FLYWAY_LOCK_RETRY_COUNT)
 			.load();
 		int applied = flyway.migrate().migrationsExecuted;
 		log.info("埋点库 Flyway 迁移完成：{}（本次执行 {} 个迁移脚本）", trackDb, applied);

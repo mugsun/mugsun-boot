@@ -27,9 +27,10 @@ import java.util.zip.GZIPInputStream;
  * 用户细查时间线服务（/system/track/user/** 数据源，G102）：类级 {@link TrackDS} 路由埋点库。
  * <p><b>身份归并</b>：userId 查询拆两支 UNION ALL（原 {@code e.user_id = ? OR m.user_id = ?} 跨表 OR 无法走索引）：
  * ① {@code e.user_id = ?}（登录段，走 idx_event_user_ts_timeline）；
- * ② {@code e.distinct_id IN (该 user 在 track_identity 的映射)}（匿名段，走 idx_event_distinct_ts_timeline），
- * 且 {@code e.user_id IS DISTINCT FROM ?} 排除已被 ① 命中的行——两支不相交，UNION ALL 即按 id 去重，结果集与原 OR 口径一致
- * （uk_identity 保证每 distinct_id 至多一条映射）。两支各带 received_at 范围与游标、各取 LIMIT n+1，外层再按 (ts,id) 倒序 LIMIT。
+ * ② 匿名段：取该 user 在 track_identity 的映射设备（按 last_seen_time 新→旧，最多 {@value #MAX_MAPPED_DEVICES} 个），
+ * {@code CROSS JOIN LATERAL} 逐设备按 idx_event_distinct_ts_timeline 倒扫 n+1 行，且 {@code e.user_id IS DISTINCT FROM ?}
+ * 排除已被 ① 命中的行——两支不相交，UNION ALL 即按 id 去重，结果集与原 OR 口径一致（设备数超上限时只看最近活跃的设备）。
+ * 两支各带 received_at 范围与游标，外层按 (ts,id) 倒序 LIMIT n+1 后再 LEFT JOIN track_session 取回放标记。
  * distinctId 直查不带归并（访客口径）。
  * <p><b>游标分页</b>：按 (ts, id) 倒序游标——ts 即页面上显示的发生时间（校时后），同 ts 以 id 定序保证翻页稳定
  * （防 offset 跳变——时间线持续写入，offset 分页会重复/漏行）；received_at 只作范围过滤（分区裁剪）；
@@ -50,18 +51,19 @@ public class TrackUserTimelineService {
 	/** 读侧解压分块大小 */
 	private static final int GZIP_CHUNK_BYTES = 8192;
 
-	/** 时间线投影列（recvMs/cursorTs/sortTs/rowId 为游标/排序内部列，下发前剔除） */
+	/** 时间线投影列（不含会话 JOIN；recvMs/cursorTs/sortTs/rowId 为游标/排序内部列，下发前剔除） */
 	private static final String TIMELINE_COLS = "SELECT e.event_id AS \"eventId\", e.event_name AS \"eventName\","
 		+ " CAST(EXTRACT(EPOCH FROM e.ts) * 1000 AS BIGINT) AS \"ts\","
 		+ " CAST(EXTRACT(EPOCH FROM e.client_ts) * 1000 AS BIGINT) AS \"clientTs\","
 		+ " e.url_path AS \"urlPath\", e.route_path AS \"routePath\", e.duration_ms AS \"durationMs\","
 		+ " e.session_id AS \"sessionId\", e.props::text AS \"props\","
-		+ " coalesce(s.has_replay, 0) AS \"hasReplay\","
 		+ " (e.props->>'" + TrackConstants.PROP_BODY_REF + "') IS NOT NULL AS \"hasApiBody\","
 		+ " CAST(EXTRACT(EPOCH FROM e.received_at) * 1000 AS BIGINT) AS \"recvMs\", CAST(EXTRACT(EPOCH FROM e.ts) * 1000 AS BIGINT) AS \"cursorTs\","
 		+ " e.ts AS \"sortTs\", e.id AS \"rowId\""
-		+ " FROM track_event e"
-		+ " LEFT JOIN track_session s ON s.session_id = e.session_id AND s.is_deleted = 0";
+		+ " FROM track_event e";
+
+	/** userId 归并时最多取多少个映射设备（按 last_seen_time 新→旧），防超大用户把 LATERAL 扇出拖垮 */
+	static final int MAX_MAPPED_DEVICES = 1000;
 
 	private final JdbcTemplate jdbc;
 	private final TrackApiBodyStorage storage;
@@ -120,30 +122,38 @@ public class TrackUserTimelineService {
 		OffsetDateTime from = OffsetDateTime.ofInstant(Instant.ofEpochMilli(startTs), ZoneOffset.UTC);
 		OffsetDateTime to = OffsetDateTime.ofInstant(Instant.ofEpochMilli(endTs), ZoneOffset.UTC);
 		List<Object> args = new ArrayList<>();
-		StringBuilder sql = new StringBuilder();
+		StringBuilder inner = new StringBuilder();
 		if (userId != null) {
-			// 两支 UNION ALL（不相交），各自按索引序倒扫取 n+1，外层归并取 n+1
-			sql.append("SELECT u.* FROM ((");
-			sql.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.user_id = ?");
+			// ① 登录段：e.user_id 直中，idx_event_user_ts_timeline 倒扫
+			inner.append("SELECT b.* FROM ((");
+			inner.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.user_id = ?");
 			args.add(appKey.trim());
 			args.add(userId);
-			appendRangeCursor(sql, args, from, to, tenant, cursorTs, cursorId, size);
-			sql.append(") UNION ALL (");
-			sql.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.distinct_id IN (SELECT m.distinct_id FROM track_identity m"
-				+ " WHERE m.app_key = ? AND m.user_id = ? AND m.is_deleted = 0) AND e.user_id IS DISTINCT FROM ?");
-			args.add(appKey.trim());
+			appendRangeCursor(inner, args, from, to, tenant, cursorTs, cursorId, size);
+			// ② 匿名段：逐设备 LATERAL（每个 distinct_id 走 idx_event_distinct_ts_timeline 倒扫 n+1 行），设备数封顶
+			inner.append(") UNION ALL (SELECT x.* FROM (SELECT m.distinct_id FROM track_identity m"
+				+ " WHERE m.app_key = ? AND m.user_id = ? AND m.is_deleted = 0"
+				+ " ORDER BY m.last_seen_time DESC NULLS LAST, m.id DESC LIMIT " + MAX_MAPPED_DEVICES + ") d"
+				+ " CROSS JOIN LATERAL (");
 			args.add(appKey.trim());
 			args.add(userId);
+			inner.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.distinct_id = d.distinct_id AND e.user_id IS DISTINCT FROM ?");
+			args.add(appKey.trim());
 			args.add(userId);
-			appendRangeCursor(sql, args, from, to, tenant, cursorTs, cursorId, size);
-			sql.append(")) u ORDER BY u.\"sortTs\" DESC, u.\"rowId\" DESC LIMIT ?");
+			appendRangeCursor(inner, args, from, to, tenant, cursorTs, cursorId, size);
+			inner.append(") x)) b ORDER BY b.\"sortTs\" DESC, b.\"rowId\" DESC LIMIT ?");
 			args.add(size + 1);
 		} else {
-			sql.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.distinct_id = ?");
+			inner.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.distinct_id = ?");
 			args.add(appKey.trim());
 			args.add(distinctId.trim());
-			appendRangeCursor(sql, args, from, to, tenant, cursorTs, cursorId, size);
+			appendRangeCursor(inner, args, from, to, tenant, cursorTs, cursorId, size);
 		}
+		// 会话回放标记放到最外层：LIMIT 之后只 JOIN n+1 行
+		StringBuilder sql = new StringBuilder("SELECT u.*, coalesce(s.has_replay, 0) AS \"hasReplay\" FROM (")
+			.append(inner)
+			.append(") u LEFT JOIN track_session s ON s.session_id = u.\"sessionId\" AND s.is_deleted = 0")
+			.append(" ORDER BY u.\"sortTs\" DESC, u.\"rowId\" DESC");
 
 		List<Map<String, Object>> rows = jdbc.queryForList(sql.toString(), args.toArray());
 		boolean hasMore = rows.size() > size;
