@@ -92,6 +92,9 @@ public class TrackFlywayConfig {
 			.baselineVersion("0")
 			// 与主库 spring.flyway 约定一致：SQL 内 ${} 占位符不替换（DO $$ 块/函数字面量防误吞）
 			.placeholderReplacement(false)
+			// T4 起有非事务迁移（CREATE INDEX CONCURRENTLY）：PG 默认的事务级 advisory 锁会在 Flyway 锁连接上
+			// 一直挂着一个打开的事务，CONCURRENTLY 要等所有旧快照事务结束 → 自等死锁；改用会话级锁
+			.configuration(java.util.Map.of("flyway.postgresql.transactional.lock", "false"))
 			.load();
 		int applied = flyway.migrate().migrationsExecuted;
 		log.info("埋点库 Flyway 迁移完成：{}（本次执行 {} 个迁移脚本）", trackDb, applied);
