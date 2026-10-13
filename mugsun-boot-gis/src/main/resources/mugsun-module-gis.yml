@@ -11,6 +11,15 @@ mugsun:
       default-preset: ${MUGSUN_GIS_XYZ_DEFAULT_PRESET:osm}
       # OSM 瓦片政策要求可识别 UA；生产请改为自己的应用名与联系方式
       user-agent: ${MUGSUN_GIS_XYZ_USER_AGENT:mugsun-boot-gis/0.1 (+https://github.com/mugsun/mugsun-boot)}
+      # 是否放行解析到 198.18.0.0/15 的地址（默认拦截）。仅在服务端出网经 Clash / Surge 等 fake-ip 代理时开启
+      allow-benchmark-net: ${MUGSUN_GIS_XYZ_ALLOW_BENCHMARK_NET:false}
+      # NAT64（64:ff9b::/96）/ 6to4（2002::/16）默认拦截；放行后内嵌 IPv4 仍按内网规则校验
+      allow-nat64: ${MUGSUN_GIS_XYZ_ALLOW_NAT64:false}
+      allow-6to4: ${MUGSUN_GIS_XYZ_ALLOW_6TO4:false}
       max-tile-bytes: 2097152
       cache-max-bytes: 67108864
       cache-ttl-seconds: 86400
+    # 瓦片代理限流（所有底图共用，进程内固定分钟窗；多实例部署时为单实例阈值）。0 表示不限
+    tile:
+      rate-limit-per-user: ${MUGSUN_GIS_TILE_RATE_PER_USER:1200}
+      rate-limit-per-ip: ${MUGSUN_GIS_TILE_RATE_PER_IP:2400}

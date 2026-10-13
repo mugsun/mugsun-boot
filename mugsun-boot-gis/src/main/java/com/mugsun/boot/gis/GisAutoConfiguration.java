@@ -2,6 +2,8 @@ package com.mugsun.boot.gis;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.gis.engine.GisUpstreamHttp;
+import com.mugsun.boot.gis.tile.GisTileProperties;
+import com.mugsun.boot.gis.tile.GisTileRateLimiter;
 import com.mugsun.boot.gis.xyz.GisXyzGuard;
 import com.mugsun.boot.gis.xyz.GisXyzProperties;
 import com.mugsun.boot.gis.xyz.GisXyzTileService;
@@ -18,11 +20,16 @@ import org.springframework.context.annotation.ComponentScan;
 @AutoConfiguration
 @ConditionalOnProperty(prefix = "mugsun.gis", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ComponentScan("com.mugsun.boot.gis")
-@EnableConfigurationProperties(GisXyzProperties.class)
+@EnableConfigurationProperties({GisXyzProperties.class, GisTileProperties.class})
 public class GisAutoConfiguration {
 
 	@Bean
 	public GisXyzTileService gisXyzTileService(GisXyzProperties props, GisUpstreamHttp http, ObjectMapper objectMapper) {
 		return new GisXyzTileService(props, http, objectMapper, GisXyzGuard.SYSTEM_RESOLVER);
+	}
+
+	@Bean
+	public GisTileRateLimiter gisTileRateLimiter(GisTileProperties props) {
+		return new GisTileRateLimiter(props);
 	}
 }

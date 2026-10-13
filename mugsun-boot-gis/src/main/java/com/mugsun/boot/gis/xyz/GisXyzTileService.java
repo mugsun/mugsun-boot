@@ -116,7 +116,7 @@ public class GisXyzTileService {
 		if (hit != null) {
 			return new GisUpstreamHttp.LimitedBytes(200, hit.contentType(), hit.body());
 		}
-		GisXyzGuard.checkResolved(uri.getHost(), resolver);
+		GisXyzGuard.checkResolved(uri.getHost(), resolver, props.netPolicy());
 		GisUpstreamHttp.LimitedBytes resp = http.getBytesStrict(uri,
 			h -> GisXyzGuard.hostAllowed(h, props.getAllowedHosts()) && !GisXyzGuard.isIpLiteral(h),
 			props.getUserAgent(), props.getMaxTileBytes());

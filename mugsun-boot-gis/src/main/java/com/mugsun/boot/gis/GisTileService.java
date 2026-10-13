@@ -5,6 +5,7 @@ import com.mugsun.boot.gis.engine.GisMapEngines;
 import com.mugsun.boot.gis.engine.GisUpstreamHttp;
 import com.mugsun.boot.gis.entity.GisMapProvider;
 import com.mugsun.boot.gis.mapper.GisMapProviderMapper;
+import com.mugsun.boot.gis.tile.GisTileImages;
 import com.mugsun.boot.gis.xyz.GisXyzTemplate;
 import com.mugsun.boot.gis.xyz.GisXyzTileService;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -15,9 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
-import java.net.http.HttpResponse;
 import java.util.Base64;
-import java.util.Locale;
 
 /**
  * 瓦片反代门面：密钥留在服务端；上游失败返回空 PNG，避免 OL 把 JSON 当瓦片。
@@ -33,7 +32,29 @@ public class GisTileService {
 		return ResponseEntity.ok()
 			.contentType(MediaType.IMAGE_PNG)
 			.header(HttpHeaders.CACHE_CONTROL, "no-store")
+			.header(NOSNIFF_HEADER, NOSNIFF)
 			.body(EMPTY_PNG);
+	}
+
+	static final String NOSNIFF_HEADER = "X-Content-Type-Options";
+	static final String NOSNIFF = "nosniff";
+	/** 厂商瓦片单张上限，与 xyz 默认一致 */
+	private static final int VENDOR_TILE_MAX_BYTES = 2 * 1024 * 1024;
+
+	/** 上游图片过类型白名单（png/jpeg/webp/gif，文件头校验）后才回给浏览器，统一带 nosniff */
+	static ResponseEntity<byte[]> imageOrEmpty(int status, String contentType, byte[] body) {
+		if (status != 200) {
+			return emptyTile();
+		}
+		MediaType type = GisTileImages.accept(contentType, body);
+		if (type == null) {
+			return emptyTile();
+		}
+		return ResponseEntity.ok()
+			.contentType(type)
+			.header(HttpHeaders.CACHE_CONTROL, "private, max-age=86400")
+			.header(NOSNIFF_HEADER, NOSNIFF)
+			.body(body);
 	}
 
 	private final GisMapProviderMapper providerMapper;
@@ -73,22 +94,10 @@ public class GisTileService {
 			if (!engine.allowedTileHost(host)) {
 				return emptyTile();
 			}
-			HttpResponse<byte[]> resp = http.getBytes(uri, engine::allowedTileHost);
-			if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-				return emptyTile();
-			}
-			String ctype = resp.headers().firstValue("Content-Type").orElse(MediaType.IMAGE_PNG_VALUE);
-			String parsed = ctype.contains("/") ? ctype.split(";")[0].trim() : MediaType.IMAGE_PNG_VALUE;
-			if (!parsed.toLowerCase(Locale.ROOT).startsWith("image/")) {
-				return emptyTile();
-			}
-			if ("image/jpg".equalsIgnoreCase(parsed)) {
-				parsed = MediaType.IMAGE_JPEG_VALUE;
-			}
-			return ResponseEntity.ok()
-				.contentType(MediaType.parseMediaType(parsed))
-				.header(HttpHeaders.CACHE_CONTROL, "private, max-age=86400")
-				.body(resp.body());
+			// 厂商瓦片同样不跟随重定向、限大小
+			GisUpstreamHttp.LimitedBytes resp = http.getBytesStrict(uri, engine::allowedTileHost,
+				GisUpstreamHttp.BROWSER_UA, VENDOR_TILE_MAX_BYTES);
+			return imageOrEmpty(resp.status(), resp.contentType(), resp.body());
 		} catch (ServiceException e) {
 			return emptyTile();
 		} catch (Exception e) {
@@ -110,17 +119,7 @@ public class GisTileService {
 				return emptyTile();
 			}
 			GisUpstreamHttp.LimitedBytes resp = xyz.fetch(t, z, x, y, cfg == null ? null : cfg.getApiKey());
-			if (resp.status() != 200) {
-				return emptyTile();
-			}
-			String parsed = resp.contentType().contains("/") ? resp.contentType().split(";")[0].trim() : "";
-			if (!parsed.toLowerCase(Locale.ROOT).startsWith("image/")) {
-				return emptyTile();
-			}
-			return ResponseEntity.ok()
-				.contentType(MediaType.parseMediaType(parsed))
-				.header(HttpHeaders.CACHE_CONTROL, "private, max-age=86400")
-				.body(resp.body());
+			return imageOrEmpty(resp.status(), resp.contentType(), resp.body());
 		} catch (Exception e) {
 			return emptyTile();
 		}
