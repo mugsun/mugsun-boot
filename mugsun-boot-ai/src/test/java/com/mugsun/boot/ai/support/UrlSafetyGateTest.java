@@ -89,4 +89,38 @@ class UrlSafetyGateTest {
 		assertTrue(p.getAllowHosts().isEmpty());
 		assertThrows(ServiceException.class, () -> p.guard("http://127.0.0.1/"));
 	}
+
+	@Test
+	void rejectsIpv6EmbeddedAndReservedRanges() throws Exception {
+		List<String> none = List.of();
+		rejected("http://[::ffff:127.0.0.1]/", none);
+		rejected("http://[::ffff:169.254.169.254]/", none);
+		rejected("http://[::ffff:10.0.0.1]/", none);
+		rejected("http://[::]/", none);
+		rejected("http://[fe80::1]/", none);
+		rejected("http://[fec0::1]/", none);
+		rejected("http://[fd00:ec2::254]/", none);
+		rejected("http://[64:ff9b::a9fe:a9fe]/", none); // NAT64 → 169.254.169.254
+		rejected("http://[2002:7f00:1::]/", none); // 6to4 → 127.0.0.1
+		rejected("http://[ff02::1]/", none);
+		rejected("http://100.100.100.200/", none); // 阿里云元数据
+		rejected("http://198.18.0.1/", none);
+		rejected("http://240.0.0.1/", none);
+		rejected("http://255.255.255.255/", none);
+		rejected("http://192.0.0.170/", none);
+		rejected("http://x.localhost/", none);
+		assertFalse(UrlSafetyGate.isPrivate(InetAddress.getByName("2606:4700:4700::1111")));
+		assertFalse(UrlSafetyGate.isPrivate(InetAddress.getByName("[64:ff9b::808:808]")));
+		assertFalse(UrlSafetyGate.isPrivate(InetAddress.getByName("8.8.8.8")));
+	}
+
+	@Test
+	void resolveSafeReturnsValidatedAddresses() throws Exception {
+		InetAddress[] out = UrlSafetyGate.resolveSafe("public.example.com", List.of(), FAKE);
+		assertEquals(InetAddress.getByName("93.184.216.34"), out[0]);
+		assertThrows(ServiceException.class, () -> UrlSafetyGate.resolveSafe("evil.example.com", List.of(), FAKE));
+		assertThrows(ServiceException.class, () -> UrlSafetyGate.resolveSafe("metadata.google.internal", List.of(), FAKE));
+		InetAddress[] mixed = {InetAddress.getByName("93.184.216.34"), InetAddress.getByName("10.0.0.1")};
+		assertThrows(ServiceException.class, () -> UrlSafetyGate.resolveSafe("mixed", List.of(), h -> mixed));
+	}
 }

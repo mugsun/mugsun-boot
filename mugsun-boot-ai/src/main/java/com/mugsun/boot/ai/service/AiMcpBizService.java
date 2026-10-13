@@ -23,9 +23,12 @@ public class AiMcpBizService {
 	private final AiMcpToolMapper mapper;
 	private final WebClient.Builder webClientBuilder;
 	private final AiOutboundProperties outbound;
+	private final com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients;
 
 	public AiMcpBizService(AiModuleService moduleService, AiMcpToolMapper mapper,
-						   WebClient.Builder webClientBuilder, AiOutboundProperties outbound) {
+						   WebClient.Builder webClientBuilder, AiOutboundProperties outbound,
+						   com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients) {
+		this.outboundWebClients = outboundWebClients;
 		this.outbound = outbound;
 		this.moduleService = moduleService;
 		this.mapper = mapper;
@@ -198,7 +201,7 @@ public class AiMcpBizService {
 			}
 			try {
 				String parseUrl = outbound.guard(tool.getSseUrl().trim());
-				WebClient.RequestHeadersSpec<?> req = webClientBuilder.build().get().uri(parseUrl);
+				WebClient.RequestHeadersSpec<?> req = outboundWebClients.create().get().uri(parseUrl);
 				if (tool.getApiKey() != null && !tool.getApiKey().isBlank()) {
 					req = req.header("Authorization", "Bearer " + tool.getApiKey());
 				}
@@ -272,7 +275,7 @@ public class AiMcpBizService {
 					"error", "地址不允许访问内网或元数据地址。请换成公网地址，或让管理员加入出站白名单");
 			}
 			try {
-				var spec = webClientBuilder.build().post().uri(url)
+				var spec = outboundWebClients.create().post().uri(url)
 					.contentType(org.springframework.http.MediaType.APPLICATION_JSON);
 				if (tool.getApiKey() != null && !tool.getApiKey().isBlank()) {
 					spec = spec.header("Authorization", "Bearer " + tool.getApiKey());
