@@ -25,13 +25,19 @@ import java.util.zip.GZIPInputStream;
 
 /**
  * 用户细查时间线服务（/system/track/user/** 数据源，G102）：类级 {@link TrackDS} 路由埋点库。
- * <p><b>身份归并</b>：userId 查询时 LEFT JOIN track_identity（uk_identity 部分唯一索引保证每事件至多一行映射，
- * JOIN 不增行），把该 user 全部 distinct_id 的匿名期行为并上（coalesce 口径：登录段走 e.user_id 直中，
- * 匿名段走 m.user_id 映射）；distinctId 直查不带归并（访客口径）。
+ * <p><b>身份归并</b>：userId 查询拆两支 UNION ALL（原 {@code e.user_id = ? OR m.user_id = ?} 跨表 OR 无法走索引）：
+ * ① {@code e.user_id = ?}（登录段，走 idx_event_user_ts_timeline）；
+ * ② 匿名段：取该 user 在 track_identity 的映射设备（按 last_seen_time 新→旧，最多 {@value #MAX_MAPPED_DEVICES} 个），
+ * {@code CROSS JOIN LATERAL} 逐设备按 idx_event_distinct_ts_timeline 倒扫 n+1 行，且 {@code e.user_id IS DISTINCT FROM ?}
+ * 排除已被 ① 命中的行——两支不相交，UNION ALL 即按 id 去重，结果集与原 OR 口径一致。
+ * 设备数超上限时只看最近活跃的设备，并在响应里返回 {@code devicesTruncated=true} 与 {@code deviceCount}（不静默截断）。
+ * 两支各带 received_at 范围与游标，外层按 (ts,id) 倒序 LIMIT n+1 后再 LEFT JOIN track_session 取回放标记。
+ * distinctId 直查不带归并（访客口径）。
  * <p><b>游标分页</b>：按 (ts, id) 倒序游标——ts 即页面上显示的发生时间（校时后），同 ts 以 id 定序保证翻页稳定
  * （防 offset 跳变——时间线持续写入，offset 分页会重复/漏行）；received_at 只作范围过滤（分区裁剪）；
- * 范围硬限 ≤{@value TrackConstants#TIMELINE_RANGE_MAX_MS}ms（7 天），索引 idx_event_user_timeline /
- * idx_event_distinct_timeline 裁剪（T7）。
+ * 范围硬限 ≤{@value TrackConstants#TIMELINE_RANGE_MAX_MS}ms（7 天），索引 idx_event_user_ts_timeline /
+ * idx_event_distinct_ts_timeline（均为 (app_key, 身份, ts, id)；父表 ON ONLY 见 T3__track_event_timeline_index.sql，
+ * 分区侧由 T4 迁移 CONCURRENTLY 建并 ATTACH）按游标序倒扫。
  * <p><b>租户隔离</b>：JdbcTemplate 原生 SQL + 显式租户条件（与 TrackAnalysisService 同语义：
  * null=超管查看全部；无上下文 fail-closed）。
  * <p><b>纪律</b>：本类严禁调用 Sa-Token 权限校验/业务库 DAO（@TrackDS 范围内 DB 访问全落埋点库），
@@ -46,21 +52,19 @@ public class TrackUserTimelineService {
 	/** 读侧解压分块大小 */
 	private static final int GZIP_CHUNK_BYTES = 8192;
 
-	/** 时间线投影列（recvMs/rowId 为游标内部列，下发前剔除） */
-	private static final String TIMELINE_SELECT = "SELECT e.event_id AS \"eventId\", e.event_name AS \"eventName\","
+	/** 时间线投影列（不含会话 JOIN；recvMs/cursorTs/sortTs/rowId 为游标/排序内部列，下发前剔除） */
+	private static final String TIMELINE_COLS = "SELECT e.event_id AS \"eventId\", e.event_name AS \"eventName\","
 		+ " CAST(EXTRACT(EPOCH FROM e.ts) * 1000 AS BIGINT) AS \"ts\","
 		+ " CAST(EXTRACT(EPOCH FROM e.client_ts) * 1000 AS BIGINT) AS \"clientTs\","
 		+ " e.url_path AS \"urlPath\", e.route_path AS \"routePath\", e.duration_ms AS \"durationMs\","
 		+ " e.session_id AS \"sessionId\", e.props::text AS \"props\","
-		+ " coalesce(s.has_replay, 0) AS \"hasReplay\","
 		+ " (e.props->>'" + TrackConstants.PROP_BODY_REF + "') IS NOT NULL AS \"hasApiBody\","
-		+ " CAST(EXTRACT(EPOCH FROM e.received_at) * 1000 AS BIGINT) AS \"recvMs\", CAST(EXTRACT(EPOCH FROM e.ts) * 1000 AS BIGINT) AS \"cursorTs\", e.id AS \"rowId\""
-		+ " FROM track_event e"
-		+ " LEFT JOIN track_session s ON s.session_id = e.session_id AND s.is_deleted = 0";
+		+ " CAST(EXTRACT(EPOCH FROM e.received_at) * 1000 AS BIGINT) AS \"recvMs\", CAST(EXTRACT(EPOCH FROM e.ts) * 1000 AS BIGINT) AS \"cursorTs\","
+		+ " e.ts AS \"sortTs\", e.id AS \"rowId\""
+		+ " FROM track_event e";
 
-	/** 身份归并 JOIN 片段（表别名固定 e/m；uk_identity 唯一保证每事件至多一行，不增行） */
-	private static final String IDENTITY_JOIN = " LEFT JOIN track_identity m"
-		+ " ON m.app_key = e.app_key AND m.distinct_id = e.distinct_id AND m.is_deleted = 0";
+	/** userId 归并时最多取多少个映射设备（按 last_seen_time 新→旧），防超大用户把 LATERAL 扇出拖垮 */
+	static final int MAX_MAPPED_DEVICES = 1000;
 
 	private final JdbcTemplate jdbc;
 	private final TrackApiBodyStorage storage;
@@ -116,32 +120,52 @@ public class TrackUserTimelineService {
 		}
 
 		String tenant = currentTenant();
+		OffsetDateTime from = OffsetDateTime.ofInstant(Instant.ofEpochMilli(startTs), ZoneOffset.UTC);
+		OffsetDateTime to = OffsetDateTime.ofInstant(Instant.ofEpochMilli(endTs), ZoneOffset.UTC);
 		List<Object> args = new ArrayList<>();
-		StringBuilder sql = new StringBuilder(TIMELINE_SELECT);
+		StringBuilder inner = new StringBuilder();
+		// 设备封顶不静默：先探 MAX+1 个映射，超了就在响应里标 devicesTruncated（前端提示改按访客标识查）
+		Integer deviceCount = null;
+		boolean devicesTruncated = false;
 		if (userId != null) {
-			sql.append(IDENTITY_JOIN);
+			Integer probed = jdbc.queryForObject("SELECT count(*) FROM (SELECT 1 FROM track_identity m"
+				+ " WHERE m.app_key = ? AND m.user_id = ? AND m.is_deleted = 0 LIMIT " + (MAX_MAPPED_DEVICES + 1) + ") t",
+				Integer.class, appKey.trim(), userId);
+			int n = probed == null ? 0 : probed;
+			devicesTruncated = n > MAX_MAPPED_DEVICES;
+			deviceCount = Math.min(n, MAX_MAPPED_DEVICES);
 		}
-		sql.append(" WHERE e.app_key = ?");
-		args.add(appKey.trim());
 		if (userId != null) {
-			sql.append(" AND (e.user_id = ? OR m.user_id = ?)");
+			// ① 登录段：e.user_id 直中，idx_event_user_ts_timeline 倒扫
+			inner.append("SELECT b.* FROM ((");
+			inner.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.user_id = ?");
+			args.add(appKey.trim());
 			args.add(userId);
+			appendRangeCursor(inner, args, from, to, tenant, cursorTs, cursorId, size);
+			// ② 匿名段：逐设备 LATERAL（每个 distinct_id 走 idx_event_distinct_ts_timeline 倒扫 n+1 行），设备数封顶
+			inner.append(") UNION ALL (SELECT x.* FROM (SELECT m.distinct_id FROM track_identity m"
+				+ " WHERE m.app_key = ? AND m.user_id = ? AND m.is_deleted = 0"
+				+ " ORDER BY m.last_seen_time DESC NULLS LAST, m.id DESC LIMIT " + MAX_MAPPED_DEVICES + ") d"
+				+ " CROSS JOIN LATERAL (");
+			args.add(appKey.trim());
 			args.add(userId);
+			inner.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.distinct_id = d.distinct_id AND e.user_id IS DISTINCT FROM ?");
+			args.add(appKey.trim());
+			args.add(userId);
+			appendRangeCursor(inner, args, from, to, tenant, cursorTs, cursorId, size);
+			inner.append(") x)) b ORDER BY b.\"sortTs\" DESC, b.\"rowId\" DESC LIMIT ?");
+			args.add(size + 1);
 		} else {
-			sql.append(" AND e.distinct_id = ?");
+			inner.append(TIMELINE_COLS).append(" WHERE e.app_key = ? AND e.distinct_id = ?");
+			args.add(appKey.trim());
 			args.add(distinctId.trim());
+			appendRangeCursor(inner, args, from, to, tenant, cursorTs, cursorId, size);
 		}
-		sql.append(" AND e.received_at >= ? AND e.received_at <= ?");
-		args.add(OffsetDateTime.ofInstant(Instant.ofEpochMilli(startTs), ZoneOffset.UTC));
-		args.add(OffsetDateTime.ofInstant(Instant.ofEpochMilli(endTs), ZoneOffset.UTC));
-		sql.append(tenantFrag("e", tenant, args));
-		if (cursorTs != null) {
-			sql.append(" AND (e.ts, e.id) < (?, ?)");
-			args.add(cursorTs);
-			args.add(cursorId);
-		}
-		sql.append(" ORDER BY e.ts DESC, e.id DESC LIMIT ?");
-		args.add(size + 1);
+		// 会话回放标记放到最外层：LIMIT 之后只 JOIN n+1 行
+		StringBuilder sql = new StringBuilder("SELECT u.*, coalesce(s.has_replay, 0) AS \"hasReplay\" FROM (")
+			.append(inner)
+			.append(") u LEFT JOIN track_session s ON s.session_id = u.\"sessionId\" AND s.is_deleted = 0")
+			.append(" ORDER BY u.\"sortTs\" DESC, u.\"rowId\" DESC");
 
 		List<Map<String, Object>> rows = jdbc.queryForList(sql.toString(), args.toArray());
 		boolean hasMore = rows.size() > size;
@@ -157,13 +181,35 @@ public class TrackUserTimelineService {
 		for (Map<String, Object> row : rows) {
 			row.remove("recvMs");
 			row.remove("cursorTs");
+			row.remove("sortTs");
 			row.remove("rowId");
 			records.add(row);
 		}
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("records", records);
 		result.put("nextCursor", nextCursor);
+		if (deviceCount != null) {
+			// userId 口径：本次归并的匿名设备数（≤上限）与是否超上限被截断
+			result.put("deviceCount", deviceCount);
+			result.put("devicesTruncated", devicesTruncated);
+		}
 		return result;
+	}
+
+	/** 单支公共尾：received_at 范围（分区裁剪）+ 租户 + (ts,id) 游标 + 倒序 LIMIT n+1 */
+	private void appendRangeCursor(StringBuilder sql, List<Object> args, OffsetDateTime from, OffsetDateTime to,
+								   String tenant, OffsetDateTime cursorTs, Long cursorId, long size) {
+		sql.append(" AND e.received_at >= ? AND e.received_at <= ?");
+		args.add(from);
+		args.add(to);
+		sql.append(tenantFrag("e", tenant, args));
+		if (cursorTs != null) {
+			sql.append(" AND (e.ts, e.id) < (?, ?)");
+			args.add(cursorTs);
+			args.add(cursorId);
+		}
+		sql.append(" ORDER BY e.ts DESC, e.id DESC LIMIT ?");
+		args.add(size + 1);
 	}
 
 	/**

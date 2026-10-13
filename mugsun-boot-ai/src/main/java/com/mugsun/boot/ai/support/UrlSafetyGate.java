@@ -57,6 +57,8 @@ public final class UrlSafetyGate {
 		}
 		String hostLower = stripBrackets(host.toLowerCase(Locale.ROOT));
 		if (isAllowed(hostLower, allowHosts)) {
+			// 白名单主机：IP 字面量直接判；域名能解析时也判（解析失败留给连接时，连接期 resolveSafe 同样会拦）
+			rejectMetadata(hostLower, resolver);
 			return uri.toString();
 		}
 		if (BLOCKED_HOSTS.contains(hostLower) || hostLower.endsWith(".local") || hostLower.endsWith(".internal")) {
@@ -115,6 +117,11 @@ public final class UrlSafetyGate {
 		if (addrs == null || addrs.length == 0) {
 			throw new ServiceException("出站地址主机解析失败");
 		}
+		for (InetAddress addr : addrs) {
+			if (addr == null || isCloudMetadata(addr)) {
+				throw new ServiceException("出站地址禁止访问云元数据地址");
+			}
+		}
 		if (!allowed) {
 			for (InetAddress addr : addrs) {
 				if (addr == null || isPrivate(addr)) {
@@ -123,6 +130,72 @@ public final class UrlSafetyGate {
 			}
 		}
 		return addrs.clone();
+	}
+
+	/**
+	 * 云元数据地址，白名单也不放行：整个 169.254.0.0/16 链路本地段（AWS/GCP/Azure 169.254.169.254、
+	 * AWS ECS 任务凭证 169.254.170.2、Amazon DNS 169.254.169.253、腾讯云 169.254.0.23 等）、
+	 * 阿里云 100.100.100.200、AWS IPv6 fd00:ec2::254。IPv6 中内嵌 IPv4 的写法
+	 * （::ffff 映射、::a.b.c.d 兼容、64:ff9b::/96 NAT64、2002::/16 6to4）先解出内嵌 IPv4 再判断。
+	 */
+	static boolean isCloudMetadata(InetAddress addr) {
+		byte[] b = addr.getAddress();
+		if (b.length == 16) {
+			if (java.util.Arrays.equals(b, METADATA_V6)) {
+				return true;
+			}
+			b = embeddedV4(b);
+			if (b == null) {
+				return false;
+			}
+		}
+		int b0 = b[0] & 0xff, b1 = b[1] & 0xff, b2 = b[2] & 0xff, b3 = b[3] & 0xff;
+		return (b0 == 169 && b1 == 254) || (b0 == 100 && b1 == 100 && b2 == 100 && b3 == 200);
+	}
+
+	/** 取 IPv6 地址内嵌的 IPv4（::ffff:a.b.c.d、::a.b.c.d、64:ff9b::a.b.c.d、2002:aabb:ccdd::），无则 null。 */
+	static byte[] embeddedV4(byte[] b) {
+		if (b.length != 16) {
+			return null;
+		}
+		int off = -1;
+		if (allZero(b, 0, 10) && (b[10] & 0xff) == 0xff && (b[11] & 0xff) == 0xff) {
+			off = 12; // IPv4-mapped
+		} else if (allZero(b, 0, 12) && !allZero(b, 12, 16)) {
+			off = 12; // IPv4-compatible
+		} else if ((b[0] & 0xff) == 0x00 && (b[1] & 0xff) == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
+			&& allZero(b, 4, 12)) {
+			off = 12; // NAT64 64:ff9b::/96
+		} else if ((b[0] & 0xff) == 0x20 && (b[1] & 0xff) == 0x02) {
+			off = 2; // 6to4 2002::/16
+		}
+		return off < 0 ? null : new byte[]{b[off], b[off + 1], b[off + 2], b[off + 3]};
+	}
+
+	private static void rejectMetadata(String hostLower, HostResolver resolver) {
+		InetAddress[] addrs;
+		try {
+			addrs = isIpLiteral(hostLower) ? new InetAddress[]{InetAddress.getByName(hostLower)} : resolver.resolve(hostLower);
+		} catch (Exception e) {
+			return;
+		}
+		if (addrs != null) {
+			for (InetAddress addr : addrs) {
+				if (addr != null && isCloudMetadata(addr)) {
+					throw new ServiceException("出站地址禁止访问云元数据地址");
+				}
+			}
+		}
+	}
+
+	private static final byte[] METADATA_V6 = metadataV6();
+
+	private static byte[] metadataV6() {
+		try {
+			return InetAddress.getByName("fd00:ec2::254").getAddress();
+		} catch (java.net.UnknownHostException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	/** 白名单匹配：精确主机（忽略大小写），或 {@code *.example.com} 匹配其任意子域（不含 example.com 本身）。 */

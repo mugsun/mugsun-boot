@@ -585,7 +585,7 @@ public class TrackAnalysisService {
 
 	// ==================== 错误监控 ====================
 
-	/** 错误分组分页：按 error_fingerprint 聚合（次数/影响会话/首末次/最近消息） */
+	/** 错误分组分页：按 error_fingerprint 聚合（次数/影响会话/首末次/最近消息：按发生时间 ts 取最晚一条） */
 	public Page<Map<String, Object>> errorsPage(String appKey, Integer days, long pageNum, long pageSize) {
 		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
@@ -604,7 +604,8 @@ public class TrackAnalysisService {
 			+ " count(DISTINCT session_id) AS \"sessionCount\","
 			+ " CAST(EXTRACT(EPOCH FROM min(received_at)) * 1000 AS BIGINT) AS \"firstTime\","
 			+ " CAST(EXTRACT(EPOCH FROM max(received_at)) * 1000 AS BIGINT) AS \"lastTime\","
-			+ " (array_agg(props->>'" + TrackConstants.PROP_ERROR_MESSAGE + "' ORDER BY received_at DESC))[1] AS \"message\""
+			// 代表消息取发生时间（ts，校时后）最晚的一条，同 ts 以 id 定序——与错误明细/时间线排序口径一致（非接收时间）
+			+ " (array_agg(props->>'" + TrackConstants.PROP_ERROR_MESSAGE + "' ORDER BY ts DESC, id DESC))[1] AS \"message\""
 			+ cond + " GROUP BY error_fingerprint ORDER BY \"lastTime\" DESC LIMIT ? OFFSET ?";
 		pageArgs.add(size);
 		pageArgs.add((pageNum - 1) * size);
