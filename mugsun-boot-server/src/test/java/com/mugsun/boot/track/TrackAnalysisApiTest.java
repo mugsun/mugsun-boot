@@ -3,6 +3,7 @@ package com.mugsun.boot.track;
 import cn.hutool.core.util.IdUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.common.constant.TrackConstants;
+import com.mugsun.boot.track.job.TrackSessionSettleJob;
 import com.mugsun.boot.track.job.TrackStats5mJob;
 import com.mugsun.boot.track.job.TrackStatsDayJob;
 import com.mugsun.boot.track.job.TrackVitalsJob;
@@ -37,6 +38,7 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_A = "it-ana-a";
 	private static final String APP_B = "it-ana-b";
 	private static final String APP_ORDER = "it-ana-order";
+	private static final String APP_SETTLE = "it-ana-settle";
 	private static final String LOW_USERNAME = "it_track_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-track-noperm";
@@ -55,6 +57,8 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 	private TrackStatsDayJob statsDayJob;
 	@Autowired
 	private TrackVitalsJob vitalsJob;
+	@Autowired
+	private TrackSessionSettleJob settleJob;
 
 	private String adminToken;
 	private String tenantBCode;
@@ -143,6 +147,37 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(referrer.toString()).contains("google.com");
 		assertThat(data.path("deviceDist").toString()).contains("desktop");
 		assertThat(data.path("browserTop").isArray()).isTrue();
+	}
+
+	/** overview settledSessionCount：会话未结算时=0（时长/跳出率未定稿，前端显示「—」）；静默超时结算后 >0。
+	 *  独立应用隔离计数；前后两次查询用不同 days 避开 overview 本地缓存（键含 days）。 */
+	@Test
+	void settledSessionCountBeforeAndAfterSettle() {
+		seedApp(APP_SETTLE, PLATFORM_TENANT);
+		String sid = UUID.randomUUID().toString();
+		post("/track/collect", payload(APP_SETTLE, List.of(event("$pageview", UUID.randomUUID().toString(), sid,
+			Map.of("url_path", "/settle", "route_path", "/settle", "device", "desktop")))), null);
+		awaitUntil("会话行落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_session WHERE session_id = ?", sid) == 1L);
+
+		JsonNode before = readBody(get("/system/track/overview?appKey=" + APP_SETTLE + "&days=7", adminToken))
+			.path("data").path("cards");
+		assertThat(before.path("sessionCount").asLong()).as("活跃会话已计入").isEqualTo(1L);
+		assertThat(before.path("settledSessionCount").asLong()).as("未结算时=0").isEqualTo(0L);
+
+		// 把会话整体前移 40 分钟（> 30 分钟静默阈值），再手动触发结算任务
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.updateBySql(
+			"UPDATE track_session SET start_time = start_time - INTERVAL '40 minutes',"
+				+ " end_time = end_time - INTERVAL '40 minutes' WHERE session_id = ?", sid));
+		settleJob.settleNow();
+		assertThat(trackLong("SELECT settled AS c FROM track_session WHERE session_id = ?", sid))
+			.as("会话已结算").isEqualTo(1L);
+
+		JsonNode after = readBody(get("/system/track/overview?appKey=" + APP_SETTLE + "&days=6", adminToken))
+			.path("data").path("cards");
+		assertThat(after.path("settledSessionCount").asLong()).as("结算后>0").isGreaterThan(0L);
+		assertThat(after.path("settledSessionCount").asLong()).isEqualTo(1L);
+		assertThat(after.path("bounceRate").asDouble()).as("单 PV 会话定稿为跳出").isEqualTo(1.0);
 	}
 
 	/** trend：days=1 走 5m 粒度（pv 合计=今日 3）；days=7 走 day 粒度（昨日行 pv=2/uv=2） */
