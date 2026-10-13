@@ -1,6 +1,8 @@
 package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.lang.Dict;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -9,7 +11,9 @@ import com.mugsun.boot.common.constant.OssConstants;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysAttach;
 import com.mugsun.boot.system.mapper.SysAttachMapper;
+import com.mugsun.boot.system.service.FileAccessService;
 import com.mugsun.boot.system.service.OssService;
+import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.system.service.ParamService;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -49,17 +53,19 @@ public class FileController {
 	private final OssService ossService;
 	private final ParamService paramService;
 	private final StringRedisTemplate redisTemplate;
+	private final FileAccessService fileAccessService;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public FileController(FileStorageService fileStorageService, FileRecorder fileRecorder,
 						  SysAttachMapper attachMapper, OssService ossService, ParamService paramService,
-						  StringRedisTemplate redisTemplate) {
+						  StringRedisTemplate redisTemplate, FileAccessService fileAccessService) {
 		this.fileStorageService = fileStorageService;
 		this.fileRecorder = fileRecorder;
 		this.attachMapper = attachMapper;
 		this.ossService = ossService;
 		this.paramService = paramService;
 		this.redisTemplate = redisTemplate;
+		this.fileAccessService = fileAccessService;
 	}
 
 	/** 上传文件并登记附件（access=public 公开直取 / private 私有授权下载；登记由 FileRecorder 统一落库） */
@@ -69,7 +75,8 @@ public class FileController {
 		if (file == null || file.isEmpty()) {
 			throw new ServiceException("请选择一个有内容的文件再上传");
 		}
-		boolean isPublic = OssConstants.ACCESS_PUBLIC.equals(access);
+		// 普通用户强制 private；仅持 sys:file:public 可设公开
+		boolean isPublic = fileAccessService.resolvePublic(access, StpUtil::hasPermission);
 		String folder = isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE;
 		FileInfo info;
 		try {
@@ -101,7 +108,7 @@ public class FileController {
 			|| filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
 			throw new ServiceException("文件名不能包含斜杠，也不能太长。请换一个文件名后再上传");
 		}
-		boolean isPublic = OssConstants.ACCESS_PUBLIC.equals(param.access());
+		boolean isPublic = fileAccessService.resolvePublic(param.access(), StpUtil::hasPermission);
 		String platform = ossService.activePlatform();
 		if (!fileStorageService.isSupportPresignedUrl(platform)) {
 			return R.data(new PresignedPutResult(false, null, null, null, null));
@@ -180,10 +187,9 @@ public class FileController {
 	 */
 	@GetMapping("/download/{id}")
 	public R<String> download(@PathVariable Long id) {
-		SysAttach attach = attachMapper.selectOneById(id);
-		if (attach == null) {
-			throw new ServiceException("这个附件不存在，或已被删除。请刷新列表后再下载");
-		}
+		// 租户过滤 + 归属/公开/manage 裁决；跨租户、不存在、无权一律 404
+		SysAttach attach = fileAccessService.requireDownloadable(id, TenantContext.current(),
+			StpUtil.getLoginIdAsLong(), StpUtil::hasPermission);
 		boolean cloudPrivate = OssConstants.ACCESS_PRIVATE.equals(attach.getAccess())
 			&& !OssConstants.CATEGORY_LOCAL.equals(ossService.categoryOf(attach.getPlatform()));
 		if (cloudPrivate) {
@@ -205,7 +211,13 @@ public class FileController {
 	@GetMapping("/download-stream/{id}")
 	public void downloadStream(@PathVariable Long id, jakarta.servlet.http.HttpServletResponse response)
 			throws java.io.IOException {
-		SysAttach attach = attachMapper.selectOneById(id);
+		SysAttach attach;
+		try {
+			attach = fileAccessService.requireDownloadable(id, TenantContext.current(),
+				StpUtil.getLoginIdAsLong(), StpUtil::hasPermission);
+		} catch (ServiceException denied) {
+			attach = null;
+		}
 		if (attach == null) {
 			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND, "这个附件不存在，或已被删除。请刷新列表后再下载");
 			return;
@@ -259,6 +271,7 @@ public class FileController {
 	 */
 	@RepeatSubmit(message = "请勿重复删除。请刷新列表确认这些附件是否还在")
 	@PostMapping("/remove")
+	@SaCheckPermission("sys:file:remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {
 			throw new ServiceException("请先勾选要删除的附件");
@@ -269,7 +282,9 @@ public class FileController {
 			if (id == null) {
 				continue;
 			}
-			SysAttach attach = attachMapper.selectOneById(id);
+			// 仅上传者或 sys:file:manage；跨租户/他人文件按不存在处理
+			SysAttach attach = fileAccessService.findRemovable(id, TenantContext.current(),
+				StpUtil.getLoginIdAsLong(), StpUtil::hasPermission);
 			if (attach == null) {
 				continue;
 			}
