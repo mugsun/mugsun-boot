@@ -53,7 +53,7 @@ public class TrackStatsDayJob extends AbstractTrackRollupJob {
 		+ " WHERE e.app_key = ? AND e.received_at >= ? AND e.received_at < ?";
 
 	/** overview 行：事件侧指标（session_count/bounce_count 另查 track_session 覆盖） */
-	private static final String AGG_OVERVIEW = "SELECT count(*) FILTER (WHERE e.event_name = '"
+	static final String AGG_OVERVIEW = "SELECT count(*) FILTER (WHERE e.event_name = '"
 		+ TrackConstants.EVENT_PAGEVIEW + "') AS pv, count(*) AS cnt,"
 		+ " " + TrackConstants.UV_EXPR + " AS uv,"
 		+ " coalesce(sum(e.duration_ms), 0) AS dur" + IDENTITY_JOIN;
@@ -64,13 +64,13 @@ public class TrackStatsDayJob extends AbstractTrackRollupJob {
 		+ " FROM track_session WHERE app_key = ? AND start_time >= ? AND start_time < ? AND is_deleted = 0";
 
 	/** 维度聚合（event/page/referrer/device）：UV 经 identity 归并；bounce 不适用于维度行 */
-	private static final String AGG_EVENT = dimSql("e.event_name", TrackConstants.DIM_EVENT, null);
-	private static final String AGG_PAGE = dimSql(
+	static final String AGG_EVENT = dimSql("e.event_name", TrackConstants.DIM_EVENT, null);
+	static final String AGG_PAGE = dimSql(
 		"left(coalesce(nullif(e.route_path, ''), e.url_path), " + TrackConstants.DIM_MAX_LEN + ")", TrackConstants.DIM_PAGE,
 		"coalesce(nullif(e.route_path, ''), e.url_path) IS NOT NULL");
-	private static final String AGG_REFERRER = dimSql("e.referrer_domain", TrackConstants.DIM_REFERRER,
+	static final String AGG_REFERRER = dimSql("e.referrer_domain", TrackConstants.DIM_REFERRER,
 		"e.referrer_domain IS NOT NULL AND e.referrer_domain <> ''");
-	private static final String AGG_DEVICE = dimSql("e.device", TrackConstants.DIM_DEVICE,
+	static final String AGG_DEVICE = dimSql("e.device", TrackConstants.DIM_DEVICE,
 		"e.device IS NOT NULL AND e.device <> ''");
 
 	private final TrackJobGuard guard;

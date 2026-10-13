@@ -12,3 +12,9 @@ mugsun:
   track:
     enabled: ${MUGSUN_TRACK_ENABLED:true}
     flyway-enabled: ${MUGSUN_TRACK_FLYWAY_ENABLED:true}
+    # 历史日表 UV 回填（distinct_id 口径，升级说明见 docs/upgrade/track-uv-backfill.md）
+    uv-backfill:
+      # 回填最近多少个闭合日（UTC）
+      days: ${MUGSUN_TRACK_UV_BACKFILL_DAYS:90}
+      # true：启动后在后台跑一遍回填（幂等，跑完建议关掉）
+      on-startup: ${MUGSUN_TRACK_UV_BACKFILL_ON_STARTUP:false}

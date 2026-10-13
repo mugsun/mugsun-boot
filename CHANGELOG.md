@@ -9,6 +9,10 @@
 - 当前仓库版本号为 `0.1.0`（见根 `pom.xml`），尚未打 GitHub Release tag
 - 依赖 `com.mugsun` 已可从 Maven Central 拉取（`0.1.0`）
 
+### 升级须知
+
+- 埋点日表历史 UV 回填：新增迁移 `T2`（备份表 `track_stats_day_uv_backup`）和可重复执行的回填任务，把 `track_stats_day` 历史 UV 改成 `distinct_id` 口径，默认最近 90 天。步骤见 [docs/upgrade/track-uv-backfill.md](docs/upgrade/track-uv-backfill.md)
+
 ### 计划
 
 - （暂无已定条目）
