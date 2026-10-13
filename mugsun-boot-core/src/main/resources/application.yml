@@ -133,6 +133,15 @@ powerjob:
 liteflow:
   rule-source: flow/*.el.xml
 mugsun:
+  file:
+    local-access:
+      # 本地存储直出 /file/**：公开前缀匿名可取，其余对象须带短时签名（授权下载接口签发）
+      url-prefix: /file/
+      public-prefixes:
+        - mugsun/public/
+      # HMAC 密钥，多实例必须配置为同一值（≥32 字符）；留空则启动随机生成（仅单实例开发）
+      sign-secret: ${MUGSUN_FILE_SIGN_SECRET:}
+      expire-seconds: 300
   openapi:
     # 可信反向代理（CIDR 列表，逗号分隔，如 10.0.0.0/8,::1/128）。默认空：只用 remoteAddr，忽略 X-Forwarded-For。
     # 仅当 remoteAddr 落在此列表内时，才从 X-Forwarded-For 右往左取第一个不在列表内的地址作为客户端 IP。
