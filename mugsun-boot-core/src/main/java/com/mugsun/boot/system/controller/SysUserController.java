@@ -5,13 +5,10 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.FieldMaskConstants;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
-import com.mugsun.boot.common.constant.NotifyConstants;
 import com.mugsun.boot.common.constant.UserConstants;
-import com.mugsun.boot.common.tx.AfterCommit;
 import com.mugsun.boot.datascope.DataScope;
 import com.mugsun.boot.log.AuditService;
 import com.mugsun.boot.log.OperationLog;
-import com.mugsun.boot.notify.api.NotifyReceiver;
 import com.mugsun.boot.notify.api.NotifySendApi;
 import com.mugsun.boot.system.entity.SysUser;
 import com.mugsun.boot.system.entity.SysUserRole;
@@ -59,6 +56,7 @@ public class SysUserController {
 	private final NotifySendApi notifySendApi;
 	private final com.mugsun.boot.auth.LoginLockService loginLockService;
 	private final com.mugsun.boot.log.UsualLogService usualLogService;
+	private final com.mugsun.boot.system.service.SysUserManageService userManageService;
 
 	public SysUserController(SysUserMapper userMapper, PasswordEncoder passwordEncoder, AuditService auditService,
 							 SysUserRoleMapper userRoleMapper,
@@ -69,7 +67,8 @@ public class SysUserController {
 							 com.mugsun.boot.tenant.TenantValidator tenantValidator,
 							 NotifySendApi notifySendApi,
 							 com.mugsun.boot.auth.LoginLockService loginLockService,
-							 com.mugsun.boot.log.UsualLogService usualLogService) {
+							 com.mugsun.boot.log.UsualLogService usualLogService,
+							 com.mugsun.boot.system.service.SysUserManageService userManageService) {
 		this.userMapper = userMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.auditService = auditService;
@@ -82,6 +81,7 @@ public class SysUserController {
 		this.notifySendApi = notifySendApi;
 		this.loginLockService = loginLockService;
 		this.usualLogService = usualLogService;
+		this.userManageService = userManageService;
 	}
 
 	@GetMapping("/page")
@@ -272,37 +272,6 @@ public class SysUserController {
 		}
 	}
 
-	private void assertUsernameFree(String username, Long selfId) {
-		if (username == null || username.isBlank()) {
-			return;
-		}
-		SysUser taken = userMapper.selectOneByQuery(QueryWrapper.create().eq("username", username));
-		if (taken != null && (selfId == null || !taken.getId().equals(selfId))) {
-			throw new com.mugsun.core.tool.exception.ServiceException("账号「" + username + "」已经有人在用。请换一个账号，或编辑原来那个用户");
-		}
-	}
-
-	/**
-	 * 角色同步：roleIds 不为 null 时全量替换用户角色。
-	 * 校验角色存在且属当前租户（Flex 租户隔离自动过滤他租户角色，数量不符即含越权 id）。
-	 */
-	private void syncUserRoles(Long userId, List<Long> roleIds) {
-		if (roleIds == null) {
-			return;
-		}
-		if (!roleIds.isEmpty()
-			&& roleMapper.selectCountByQuery(QueryWrapper.create().in("id", roleIds)) != roleIds.size()) {
-			throw new com.mugsun.core.tool.exception.ServiceException("有角色不存在，或属于其他租户。请重新选择角色");
-		}
-		userRoleMapper.deleteByQuery(QueryWrapper.create().eq("user_id", userId));
-		for (Long roleId : roleIds) {
-			SysUserRole ur = new SysUserRole();
-			ur.setUserId(userId);
-			ur.setRoleId(roleId);
-			userRoleMapper.insert(ur);
-		}
-	}
-
 	/** 用户下拉选项（value=id / label=昵称，供收件人选择等场景）；持码+数据范围约束，防全租户账号枚举。
 	 *  成千账号场景不下全量：默认仅返回启用用户前 {@link UserConstants#USER_SELECT_LIMIT} 条，
 	 *  keyword 远程搜索（用户名/昵称模糊）；ids 精确取（编辑回显，不限启用态/条数） */
@@ -438,59 +407,16 @@ public class SysUserController {
 		// 部门/岗位归属校验（建档挂组织，防跨租户）
 		assertOrgValid(user);
 		if (creating) {
-			// 服务端清洗：审计字段与租户归属一律服务端裁定（Flex 仅对 null tenantId 才填充当前租户）
-			user.sanitizeForInsert();
-			user.setTenantId(null);
-			if (user.getIsLeader() == null) {
-				user.setIsLeader(0);
-			}
-			// 账号配额检查+插入在租户级 Redis 锁内串行（防并发 TOCTOU 超额；集群安全）
-			String raw = (user.getPassword() == null || user.getPassword().isBlank()) ? securityPolicyService.getInitPassword() : user.getPassword();
-			user.setPassword(passwordEncoder.encode(raw));
-			tenantValidator.quotaLocked(com.mugsun.boot.tenant.TenantContext.current(), () -> {
-				tenantValidator.assertAccountQuota(com.mugsun.boot.tenant.TenantContext.current());
-				assertUsernameFree(user.getUsername(), null);
-				try {
-					userMapper.insert(user);
-				} catch (org.springframework.dao.DuplicateKeyException ex) {
-					throw new com.mugsun.core.tool.exception.ServiceException("账号「" + user.getUsername() + "」已经有人用过。请换一个账号");
-				}
-				return null;
-			});
-			securityPolicyService.logPassword(user.getId(), user.getPassword());
-			notifyWelcome(user);
-			// 建档挂角色（roleIds 非 null 才同步，保持旧调用方兼容）
-			syncUserRoles(user.getId(), user.getRoleIds());
+			userManageService.create(user);
 		} else {
-			// 审计前后镜像恒脱敏读：与操作者角色无关，敏感字段永不落明文入审计
+			// 审计前镜像恒脱敏读：与操作者角色无关，敏感字段永不落明文入审计
 			SysUser before = com.mugsun.boot.common.mask.FieldMaskContext.maskedRead(() -> userMapper.selectOneById(user.getId()));
 			if (before == null) {
 				throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再编辑");
 			}
 			assertTargetOperable(user.getId(), true);
-			assertUsernameFree(user.getUsername(), user.getId());
-			if (user.getPassword() != null && !user.getPassword().isBlank()) {
-				user.setPassword(passwordEncoder.encode(user.getPassword()));
-			}
-			user.sanitizeForUpdate();
-			user.setTenantId(null);
-			try {
-				userMapper.update(user);
-			} catch (org.springframework.dao.DuplicateKeyException ex) {
-				throw new com.mugsun.core.tool.exception.ServiceException("账号「" + user.getUsername() + "」已经有人用过。请换一个账号");
-			}
-			SysUser after = com.mugsun.boot.common.mask.FieldMaskContext.maskedRead(() -> userMapper.selectOneById(user.getId()));
-			if (before != null) {
-				before.setPassword(null);
-			}
-			if (after != null) {
-				after.setPassword(null);
-			}
-			Object operator = StpUtil.getLoginIdDefaultNull();
-			auditService.record("sys_user", user.getId().toString(), before, after,
-				operator == null ? null : operator.toString());
-			// 编辑挂角色（roleIds 非 null 才同步，保持旧调用方兼容）
-			syncUserRoles(user.getId(), user.getRoleIds());
+			// 更新+审计+角色同步在同一事务内（任一步失败整体回滚）
+			userManageService.update(user, before);
 		}
 		return R.success(creating
 			? (defaultPassword
@@ -517,11 +443,8 @@ public class SysUserController {
 		for (Long id : ids) {
 			assertTargetOperable(id, false);
 		}
-		for (SysUser user : users) {
-			userMapper.deleteById(user.getId());
-			// 删除即回收会话（逻辑删可挡新登录，但旧 token 默认 30 天有效，必须同步踢）
-			StpUtil.kickout(user.getId());
-		}
+		// 清角色关联+删用户在同一事务内；提交后回收会话
+		userManageService.removeUsers(users);
 		return R.success("已删除 " + users.size() + " 个用户。他们不能再登录，列表里不会再出现");
 	}
 
@@ -692,24 +615,6 @@ public class SysUserController {
 		}
 		String trimmed = value.trim();
 		return trimmed.isEmpty() ? null : trimmed;
-	}
-
-	/** 新用户欢迎通知：提交后按统一模板多渠道 fan-out；通知失败不阻断建用户（记日志） */
-	private void notifyWelcome(SysUser user) {
-		Long userId = user.getId();
-		String name = user.getNickname() == null || user.getNickname().isBlank()
-			? user.getUsername() : user.getNickname();
-		String email = user.getEmail();
-		String phone = user.getPhone();
-		AfterCommit.execute(() -> {
-			try {
-				notifySendApi.send(NotifyConstants.TEMPLATE_WELCOME,
-					java.util.List.of(NotifyReceiver.of(userId, name, email, phone)),
-					java.util.Map.of("name", name));
-			} catch (Exception e) {
-				log.warn("新用户欢迎通知发送失败 userId={} err={}", userId, e.getMessage());
-			}
-		});
 	}
 
 	/** 重置密码为初始密码（批量；事务原子，重置即踢全部在线端强制重登） */
