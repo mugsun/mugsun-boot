@@ -24,9 +24,9 @@ import java.util.function.Predicate;
 @Service
 public class FileAccessService {
 
-	public static final String PERM_MANAGE = "system:file:manage";
-	public static final String PERM_PUBLIC = "system:file:public";
-	public static final String PERM_REMOVE = "system:file:remove";
+	public static final String PERM_MANAGE = "sys:file:manage";
+	public static final String PERM_PUBLIC = "sys:file:public";
+	public static final String PERM_REMOVE = "sys:file:remove";
 
 	private final SysAttachMapper attachMapper;
 

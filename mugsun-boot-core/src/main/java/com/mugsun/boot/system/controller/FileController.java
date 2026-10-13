@@ -75,7 +75,7 @@ public class FileController {
 		if (file == null || file.isEmpty()) {
 			throw new ServiceException("请选择一个有内容的文件再上传");
 		}
-		// 普通用户强制 private；仅持 system:file:public 可设公开
+		// 普通用户强制 private；仅持 sys:file:public 可设公开
 		boolean isPublic = fileAccessService.resolvePublic(access, StpUtil::hasPermission);
 		String folder = isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE;
 		FileInfo info;
@@ -271,7 +271,7 @@ public class FileController {
 	 */
 	@RepeatSubmit(message = "请勿重复删除。请刷新列表确认这些附件是否还在")
 	@PostMapping("/remove")
-	@SaCheckPermission("system:file:remove")
+	@SaCheckPermission("sys:file:remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {
 			throw new ServiceException("请先勾选要删除的附件");
@@ -282,7 +282,7 @@ public class FileController {
 			if (id == null) {
 				continue;
 			}
-			// 仅上传者或 system:file:manage；跨租户/他人文件按不存在处理
+			// 仅上传者或 sys:file:manage；跨租户/他人文件按不存在处理
 			SysAttach attach = fileAccessService.findRemovable(id, TenantContext.current(),
 				StpUtil.getLoginIdAsLong(), StpUtil::hasPermission);
 			if (attach == null) {
