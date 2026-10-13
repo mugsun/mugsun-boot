@@ -39,8 +39,10 @@ import java.util.regex.Pattern;
  *   <li><b>续跑</b>：日期从昨天往前倒序，进度写 {@code track_rollup_cursor}（job_key=uv_backfill，last_bucket=最近完成的日），
  *       一个应用全部完成后删掉游标，下次从头开始（幂等，空跑）。</li>
  *   <li><b>独立锁</b>：Redis 长 TTL 锁，每个 app×天 处理完用 token 校验的 Lua 续期；Redis 不可用时不执行；续期失败（锁丢了）立即停。</li>
- *   <li><b>单日超时不卡死</b>：某个 app×天 超过 statement_timeout（SQLState 57014）时回滚该天、记 WARN 日志并计入结果的
- *       失败清单，不推进该应用游标，跳过该应用其余日子，继续下一个应用；结果为 PARTIAL（未完成）。可按 appKey 单独放宽超时。</li>
+ *   <li><b>单日失败不卡死</b>：某个 app×天 出现数据库错误（超时 57014、死锁 40P01、锁等待 55P03、连接 08xxx 等，
+ *       即异常链里有 SQLException）时回滚该天、记 WARN 日志并把 {@code app@日期(SQLState)} 计入结果的失败清单，
+ *       不推进该应用游标，跳过该应用其余日子，继续下一个应用；结果为 PARTIAL（未完成）。非 SQL 的程序错误仍抛出。
+ *       可按 appKey 单独放宽超时（配置键用中括号，见 {@link TrackUvBackfillProperties#getAppStatementTimeout()}）。</li>
  *   <li>只改 uv 列，不新增行；明细已清理（当日无事件）的日子跳过，不会清零。</li>
  * </ul>
  */
@@ -107,12 +109,12 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 
 	/**
 	 * 回填结果；noStatsDays=日表本无行的日子不计入（只处理有日表行的日子），noDetailDays=有日表行但明细已清理；
-	 * timedOut=因 statement_timeout 回滚、未推进游标的 app×天（"appKey@yyyy-MM-dd"）。
+	 * failed=因数据库错误回滚、未推进游标的 app×天（"appKey@yyyy-MM-dd(SQLState)"）。
 	 */
 	public record Result(Status status, String runId, int apps, int days, int noDetailDays, long updatedRows,
-						 List<String> timedOut) {
+						 List<String> failed) {
 		public Result {
-			timedOut = timedOut == null ? List.of() : List.copyOf(timedOut);
+			failed = failed == null ? List.of() : List.copyOf(failed);
 		}
 
 		public boolean locked() {
@@ -131,7 +133,7 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 				case OUTSIDE_WINDOW -> "当前不在 UV 回填运行时段，本次不执行";
 				default -> (switch (status) {
 					case DONE -> "UV 回填完成";
-					case PARTIAL -> "UV 回填未完成（部分 应用×天 超时，已跳过、下次重试：" + String.join(",", timedOut) + "）";
+					case PARTIAL -> "UV 回填未完成（部分 应用×天 失败，已跳过、下次重试：" + String.join(",", failed) + "）";
 					case PAUSED_WINDOW -> "UV 回填已到运行时段末尾，暂停（下次续跑）";
 					default -> "UV 回填锁已失效，停止（下次续跑）";
 				})
@@ -214,10 +216,11 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 		List<AppScope> apps = listApps().stream()
 			.filter(a -> appKey == null || appKey.isBlank() || appKey.equals(a.appKey()))
 			.toList();
+		warnUnknownTimeoutKeys(listApps());
 		int processed = 0;
 		int noDetail = 0;
 		long updated = 0;
-		List<String> timedOut = new ArrayList<>();
+		List<String> failed = new ArrayList<>();
 		appLoop:
 		for (AppScope app : apps) {
 			LocalDate cursor = readCursorDate(app.appKey());
@@ -231,22 +234,29 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 				(rs, i) -> rs.getObject(1, LocalDate.class), app.appKey(), first, start);
 			for (LocalDate day : statDays) {
 				if (!inWindow()) {
-					return new Result(Status.PAUSED_WINDOW, runId, apps.size(), processed, noDetail, updated, timedOut);
+					return new Result(Status.PAUSED_WINDOW, runId, apps.size(), processed, noDetail, updated, failed);
 				}
 				Long n;
 				try {
 					n = backfillDay(app.appKey(), day, runId);
 				} catch (RuntimeException e) {
-					if (!isQueryCanceled(e)) {
-						throw e;
+					String state = sqlStateOf(e);
+					if (state == null) {
+						throw e; // 非 SQL 的程序错误：不吞
 					}
-					// 单个 app×天 超时：已回滚；不推进游标（下次从这天重试），跳过该应用其余日子，继续下一个应用
-					timedOut.add(app.appKey() + "@" + day);
-					log.warn("UV 回填超时（SQLState 57014，statement_timeout={}ms）已回滚并跳过：app={} day={} run_id={}；"
-							+ "游标未推进，下次从这天重试。可调大 mugsun.track.uv-backfill.app-statement-timeout.{}",
-						statementTimeoutMillis(app.appKey()), app.appKey(), day, runId, app.appKey());
+					// 单个 app×天 数据库错误：已回滚；不推进游标（下次从这天重试），跳过该应用其余日子，继续下一个应用
+					failed.add(app.appKey() + "@" + day + "(" + state + ")");
+					if (SQLSTATE_QUERY_CANCELED.equals(state)) {
+						log.warn("UV 回填超时（SQLState 57014，statement_timeout={}ms）已回滚并跳过：app={} day={} run_id={}；"
+								+ "游标未推进，下次从这天重试。同一 app@日期 连续超时请单独放宽："
+								+ "mugsun.track.uv-backfill.app-statement-timeout.\"[{}]\"",
+							statementTimeoutMillis(app.appKey()), app.appKey(), day, runId, app.appKey());
+					} else {
+						log.warn("UV 回填数据库错误（SQLState {}）已回滚并跳过：app={} day={} run_id={}；游标未推进，下次从这天重试：{}",
+							state, app.appKey(), day, runId, rootMessage(e));
+					}
 					if (!renew(token)) {
-						return new Result(Status.LOCK_LOST, runId, apps.size(), processed, noDetail, updated, timedOut);
+						return new Result(Status.LOCK_LOST, runId, apps.size(), processed, noDetail, updated, failed);
 					}
 					continue appLoop;
 				}
@@ -258,26 +268,58 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 				}
 				advanceCursor(app.appKey(), day.atStartOfDay());
 				if (!renew(token)) {
-					return new Result(Status.LOCK_LOST, runId, apps.size(), processed, noDetail, updated, timedOut);
+					return new Result(Status.LOCK_LOST, runId, apps.size(), processed, noDetail, updated, failed);
 				}
 				sleep();
 			}
 			jdbc.update("DELETE FROM track_rollup_cursor WHERE job_key = ? AND app_key = ?", JOB_KEY, app.appKey());
 		}
-		return new Result(timedOut.isEmpty() ? Status.DONE : Status.PARTIAL, runId, apps.size(), processed, noDetail,
-			updated, timedOut);
+		return new Result(failed.isEmpty() ? Status.DONE : Status.PARTIAL, runId, apps.size(), processed, noDetail,
+			updated, failed);
 	}
 
-	static boolean isQueryCanceled(Throwable e) {
-		for (Throwable t = e; t != null; t = t.getCause()) {
-			if (t instanceof SQLException se && SQLSTATE_QUERY_CANCELED.equals(se.getSQLState())) {
-				return true;
-			}
-			if (t.getCause() == t) {
-				break;
+	/** 异常链里第一个 SQLException 的 SQLState（无 SQLState 记 UNKNOWN）；不是数据库错误返回 null */
+	static String sqlStateOf(Throwable e) {
+		int guard = 0;
+		for (Throwable t = e; t != null && guard++ < 32; t = t.getCause()) {
+			if (t instanceof SQLException se) {
+				return se.getSQLState() == null || se.getSQLState().isBlank() ? "UNKNOWN" : se.getSQLState();
 			}
 		}
-		return false;
+		return null;
+	}
+
+	private static String rootMessage(Throwable e) {
+		Throwable t = e;
+		while (t.getCause() != null && t.getCause() != t) {
+			t = t.getCause();
+		}
+		return t.getMessage();
+	}
+
+	/** 启动时与每次执行前：超时覆盖里对不上现有应用的键打 WARN（多半是没加中括号被小写化 / 去掉了 . _） */
+	@org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+	public void checkTimeoutOverridesOnStartup() {
+		try {
+			warnUnknownTimeoutKeys(listApps());
+		} catch (RuntimeException e) {
+			log.debug("UV 回填超时覆盖检查跳过：{}", e.getMessage());
+		}
+	}
+
+	List<String> warnUnknownTimeoutKeys(List<AppScope> apps) {
+		Map<String, Duration> overrides = props.getAppStatementTimeout();
+		if (overrides == null || overrides.isEmpty()) {
+			return List.of();
+		}
+		java.util.Set<String> keys = new java.util.HashSet<>();
+		apps.forEach(a -> keys.add(a.appKey()));
+		List<String> unknown = overrides.keySet().stream().filter(k -> !keys.contains(k)).sorted().toList();
+		if (!unknown.isEmpty()) {
+			log.warn("mugsun.track.uv-backfill.app-statement-timeout 中的键对不上现有应用：{}。"
+				+ "appKey 含大写或 . _ 等字符时键必须加中括号并加引号，如 \"[MyApp_1]\": 600s", unknown);
+		}
+		return unknown;
 	}
 
 	long statementTimeoutMillis(String appKey) {
@@ -393,7 +435,11 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 				c.commit();
 				return updated;
 			} catch (SQLException | RuntimeException e) {
-				c.rollback();
+				try {
+					c.rollback();
+				} catch (SQLException re) {
+					e.addSuppressed(re);
+				}
 				throw e;
 			} finally {
 				c.setAutoCommit(auto);

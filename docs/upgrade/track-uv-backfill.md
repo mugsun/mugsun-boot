@@ -18,7 +18,8 @@ PR #16 之后，概览卡片、今日数据和以后每天新生成的日表都�
 ## 对线上库的影响和限速
 
 - 每个「应用 × 天」一个事务：一条查询只扫一次当天明细（`GROUPING SETS` 同时算总览和四个维度的 UV），再用一条语句备份并更新变化的行。事务内设 `statement_timeout`（默认 120 秒）和 `work_mem`（默认 256MB，减少 `GROUPING SETS` 排序落盘）。
-- **单天超时不会卡住整个回填**：某个「应用 × 天」超时（SQLState 57014）只回滚这一天，日志打 WARN（`UV 回填超时 ... app=... day=...`），该应用的游标不推进、其余日子留到下次，继续处理下一个应用；本次结果为「UV 回填未完成」并列出超时的 `应用@日期`。某个大应用每天都超时时，用 `app-statement-timeout` 单独给它放宽。
+- **单天失败不会卡住整个回填**：某个「应用 × 天」出现数据库错误——超时（SQLState 57014），或死锁 40P01、锁等待 55P03、连接 08xxx 等偶发错误——只回滚这一天，日志打 WARN（带 SQLState、app、day），该应用的游标不推进、其余日子留到下次，继续处理下一个应用；本次结果为「UV 回填未完成」并列出 `应用@日期(SQLState)`。非数据库的程序错误仍会中断本次执行。
+- **同一个 `应用@日期` 连续几次都是 57014 超时**时，用 `app-statement-timeout` 只给这个应用放宽，不要调大全局 `statement-timeout-seconds`。
 - 每处理完一个「应用 × 天」停 `sleep-millis`（默认 300 毫秒）。
 - 默认只在**北京时间 02:00–07:00** 运行；不在时段内不启动，跑到时段末尾自动暂停。
 - 日期从昨天往前倒序处理，进度写在 `track_rollup_cursor`（`job_key = uv_backfill`）。中断、暂停或锁丢失后再执行会从断点继续；一个应用全部完成后游标删除。
@@ -33,8 +34,8 @@ mugsun:
       days: 90                    # MUGSUN_TRACK_UV_BACKFILL_DAYS，1–3660
       sleep-millis: 300           # MUGSUN_TRACK_UV_BACKFILL_SLEEP_MILLIS
       statement-timeout-seconds: 120
-      app-statement-timeout:      # 按 appKey 放宽单天超时，例：
-        big-app: 600s
+      app-statement-timeout:      # 按 appKey 放宽单天超时；键必须写成带引号的中括号
+        "[MyApp_1]": 600s
       work-mem: 256MB             # MUGSUN_TRACK_UV_BACKFILL_WORK_MEM，留空沿用库默认
       lock-ttl-seconds: 600
       window-enabled: true        # MUGSUN_TRACK_UV_BACKFILL_WINDOW_ENABLED，false 表示不限时段
@@ -43,6 +44,8 @@ mugsun:
       window-zone: Asia/Shanghai
       on-startup: false           # MUGSUN_TRACK_UV_BACKFILL_ON_STARTUP
 ```
+
+`app-statement-timeout` 的键**必须加中括号**（YAML 里再加引号），否则含 `.`、`_`、大写的 appKey 可能被 Spring 规整成别的键而对不上；属性文件写法是 `mugsun.track.uv-backfill.app-statement-timeout[MyApp_1]=600s`。启动时和每次执行前，对不上现有应用的键会打 WARN。
 
 ## 上线前实跑清单
 
@@ -59,17 +62,19 @@ mugsun:
    ```
 
    执行前先在同一会话里 `SET work_mem = '256MB';`（与 `work-mem` 配置一致）。逐项确认：
-   - 只扫当天所在的**单个**月分区，走 `app_key, received_at` 相关索引（而不是全分区顺序扫描）；
+   - 只扫当天所在的**单个**月分区（分区裁剪生效，没有扫其它月）。默认库没有 `(app_key, received_at)` 索引，计划里出现 BRIN 位图扫描（`Bitmap Heap Scan` + `Bitmap Index Scan` on BRIN）或单分区顺序扫描都属正常；
    - 计划里没有 `external merge`，`Buffers` 里没有（或很少）`temp read/written`；有的话调大 `work-mem` 再看；
-   - 总耗时远小于 `statement-timeout-seconds`（120 秒），否则给这个应用配 `app-statement-timeout`；
+   - 总耗时远小于 `statement-timeout-seconds`（120 秒）；
    - `shared read` 低于旧做法（总览 + 四个维度各扫一遍，共 5 条查询）之和。
+
+   是否要加索引按这几项决定：耗时接近超时、temp 读写或 shared read 很大时，先调 `work-mem` / 给该应用配 `app-statement-timeout`，仍不行再按下一节加临时索引。
 2. 用一个小应用试跑一天：PowerJob 参数 `{"days": 1, "appKey": "小应用"}`，看日志里的改动行数和备份表。
 3. 同样参数再跑一次，确认日志里「改动 0 行」。
 4. 再按默认 90 天（或需要的天数）在低峰时段跑全量。
 
 ## 可选：加索引
 
-迁移里**不建索引**（大表建索引会长时间锁表）。如果第 1 步发现当天明细没有合适索引，可以在低峰期对需要的月分区逐个**并发**建索引（分区表的父表不支持 `CONCURRENTLY`，要对每个分区单独建）：
+迁移里**不建索引**（大表建索引会长时间锁表）。如果第 1 步判断需要索引，可以在低峰期对需要回填的月分区逐个**并发**建索引。这是**只为回填建的单分区临时索引**：不挂到父表上（分区父表不支持 `CONCURRENTLY`），以后新建的分区不会有，回填结束后删掉。
 
 ```sql
 -- 对每个需要回填的月分区执行，分区名以 \d+ track_event 列出的为准
@@ -77,7 +82,22 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_track_event_202609_app_recv
     ON track_event_2026_09 (app_key, received_at);
 ```
 
-建完后重新跑第 1 步的 `EXPLAIN`，确认用上了索引。回填结束后如不需要可 `DROP INDEX CONCURRENTLY` 删除。
+`CREATE INDEX CONCURRENTLY` 中途失败（被取消、超时、死锁）会留下一个**无效（INVALID）索引**，而 `IF NOT EXISTS` 再执行时会因为同名索引已存在而直接跳过。所以每建一个都要检查：
+
+```sql
+SELECT c.relname, i.indisvalid
+FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+WHERE c.relname = 'idx_track_event_202609_app_recv';
+```
+
+`indisvalid = false` 时先删再重建：
+
+```sql
+DROP INDEX CONCURRENTLY IF EXISTS idx_track_event_202609_app_recv;
+CREATE INDEX CONCURRENTLY idx_track_event_202609_app_recv ON track_event_2026_09 (app_key, received_at);
+```
+
+建完后重新跑第 1 步的 `EXPLAIN`，确认用上了索引。**回填结束后删掉**：`DROP INDEX CONCURRENTLY idx_track_event_202609_app_recv;`
 
 ## 怎么执行
 

@@ -20,7 +20,9 @@ mugsun:
       sleep-millis: ${MUGSUN_TRACK_UV_BACKFILL_SLEEP_MILLIS:300}
       # 单个 应用×天 事务的 statement_timeout（秒）
       statement-timeout-seconds: 120
-      # 按 appKey 放宽超时（某个大应用单日总超时时用），例：big-app: 600s
+      # 按 appKey 放宽超时（某个大应用单日总超时时用）。键必须加中括号和引号，否则会被小写化并去掉 . _：
+      #   app-statement-timeout:
+      #     "[MyApp_1]": 600s
       app-statement-timeout: {}
       # 单个 应用×天 事务内 SET LOCAL work_mem，减少 GROUPING SETS 排序落盘；留空沿用库默认
       work-mem: ${MUGSUN_TRACK_UV_BACKFILL_WORK_MEM:256MB}

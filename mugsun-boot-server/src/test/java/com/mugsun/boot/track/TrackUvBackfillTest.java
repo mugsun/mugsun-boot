@@ -313,7 +313,7 @@ class TrackUvBackfillTest extends AbstractTrackIntegrationTest {
 		}
 		assertThat(r.status()).as("整体不失败，但标未完成").isEqualTo(TrackUvBackfillJob.Status.PARTIAL);
 		assertThat(r.completed()).isFalse();
-		assertThat(r.timedOut()).contains(slow + "@" + d1);
+		assertThat(r.failed()).contains(slow + "@" + d1 + "(57014)");
 		assertThat(r.summary()).doesNotContain("UV 回填完成");
 		assertThat(dayRow(slow, d1, "overview", "ALL").getLong("uv")).as("超时日已回滚").isEqualTo(99L);
 		assertThat(dayRow(slow, d2, "overview", "ALL").getLong("uv")).as("该应用其余日子留到下次").isEqualTo(99L);

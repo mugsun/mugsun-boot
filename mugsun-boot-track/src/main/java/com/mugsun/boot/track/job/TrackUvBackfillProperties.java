@@ -19,7 +19,11 @@ public class TrackUvBackfillProperties {
 	private long sleepMillis = 300;
 	/** 单个 app×天 事务内 statement_timeout（秒） */
 	private int statementTimeoutSeconds = 120;
-	/** 按 appKey 覆盖单个 app×天 的 statement_timeout（如 big-app: 600s）；未配置的应用用 statementTimeoutSeconds */
+	/**
+	 * 按 appKey 覆盖单个 app×天 的 statement_timeout；未配置的应用用 statementTimeoutSeconds。
+	 * <b>键必须加中括号</b>（yml 里再加引号），如 {@code "[MyApp_1]": 600s}；不加中括号会被 Spring 小写化并去掉 . _ 等字符，
+	 * 对不上 appKey（启动时会打 WARN）。
+	 */
 	private Map<String, Duration> appStatementTimeout = new LinkedHashMap<>();
 	/** 单个 app×天 事务内 SET LOCAL work_mem（如 256MB，单位 kB/MB/GB）；留空不设置，沿用库默认 */
 	private String workMem = "256MB";
