@@ -23,6 +23,15 @@ public class GisXyzProperties {
 	private int maxTileBytes = 2 * 1024 * 1024;
 	/** 进程内瓦片缓存总上限（字节），0 关闭 */
 	private long cacheMaxBytes = 64L * 1024 * 1024;
+	/**
+	 * 是否放行解析到 198.18.0.0/15 的地址。默认 false（拦截）。
+	 * 仅当服务端出网经过 Clash / Surge 等 fake-ip 代理（公网域名被解析到该段）时由运维显式开启。
+	 */
+	private boolean allowBenchmarkNet = false;
+	/** 是否放行 NAT64 熟知前缀 64:ff9b::/96（默认 false；放行后内嵌 IPv4 仍按内网规则校验） */
+	private boolean allowNat64 = false;
+	/** 是否放行 6to4 前缀 2002::/16（默认 false；放行后内嵌 IPv4 仍按内网规则校验） */
+	private boolean allow6to4 = false;
 	/** 缓存有效期（秒） */
 	private long cacheTtlSeconds = 86_400;
 
@@ -64,6 +73,34 @@ public class GisXyzProperties {
 
 	public void setCacheMaxBytes(long cacheMaxBytes) {
 		this.cacheMaxBytes = cacheMaxBytes;
+	}
+
+	public boolean isAllowBenchmarkNet() {
+		return allowBenchmarkNet;
+	}
+
+	public void setAllowBenchmarkNet(boolean allowBenchmarkNet) {
+		this.allowBenchmarkNet = allowBenchmarkNet;
+	}
+
+	public boolean isAllowNat64() {
+		return allowNat64;
+	}
+
+	public void setAllowNat64(boolean allowNat64) {
+		this.allowNat64 = allowNat64;
+	}
+
+	public boolean isAllow6to4() {
+		return allow6to4;
+	}
+
+	public void setAllow6to4(boolean allow6to4) {
+		this.allow6to4 = allow6to4;
+	}
+
+	public GisXyzGuard.NetPolicy netPolicy() {
+		return new GisXyzGuard.NetPolicy(allowBenchmarkNet, allowNat64, allow6to4);
 	}
 
 	public long getCacheTtlSeconds() {

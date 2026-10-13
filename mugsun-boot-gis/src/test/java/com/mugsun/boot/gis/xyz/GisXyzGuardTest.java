@@ -98,6 +98,57 @@ class GisXyzGuardTest {
 	}
 
 	@Test
+	void benchmarkNetBlockedByDefaultAndAllowedOnlyWhenEnabled() throws Exception {
+		InetAddress fake = InetAddress.getByName("198.18.0.7");
+		InetAddress fake2 = InetAddress.getByName("198.19.255.1");
+		InetAddress mapped = InetAddress.getByName("::ffff:198.18.0.7");
+		assertThat(GisXyzGuard.isBlocked(fake)).isTrue();
+		assertThat(GisXyzGuard.isBlocked(fake2)).isTrue();
+		assertThat(GisXyzGuard.isBlocked(mapped)).isTrue();
+		assertThatThrownBy(() -> GisXyzGuard.checkResolved("tile.openstreetmap.org", h -> new InetAddress[] { fake }))
+			.isInstanceOf(ServiceException.class);
+		GisXyzGuard.NetPolicy bench = new GisXyzGuard.NetPolicy(true, false, false);
+		assertThat(GisXyzGuard.isBlocked(fake, bench)).isFalse();
+		assertThat(GisXyzGuard.isBlocked(InetAddress.getByName("198.20.0.1"))).isFalse();
+		GisXyzGuard.checkResolved("tile.openstreetmap.org", h -> new InetAddress[] { fake }, bench);
+		// 开关只放行 198.18/15，内网仍拦
+		assertThat(GisXyzGuard.isBlocked(InetAddress.getByName("10.0.0.1"), bench)).isTrue();
+		assertThat(GisXyzGuard.isBlocked(InetAddress.getByName("127.0.0.1"), bench)).isTrue();
+		assertThat(new GisXyzProperties().isAllowBenchmarkNet()).isFalse();
+	}
+
+	@Test
+	void nat64And6to4BlockedByDefaultAndEmbeddedV4StillChecked() throws Exception {
+		InetAddress nat64Public = InetAddress.getByName("64:ff9b::9765:0284");   // 151.101.2.132
+		InetAddress nat64Private = InetAddress.getByName("64:ff9b::0a00:0001");  // 10.0.0.1
+		InetAddress sixToFourPublic = InetAddress.getByName("2002:9765:0284::1");
+		InetAddress sixToFourLoop = InetAddress.getByName("2002:7f00:0001::1");  // 127.0.0.1
+		assertThat(GisXyzGuard.isBlocked(nat64Public)).isTrue();
+		assertThat(GisXyzGuard.isBlocked(sixToFourPublic)).isTrue();
+		GisXyzGuard.NetPolicy open = new GisXyzGuard.NetPolicy(false, true, true);
+		assertThat(GisXyzGuard.isBlocked(nat64Public, open)).isFalse();
+		assertThat(GisXyzGuard.isBlocked(sixToFourPublic, open)).isFalse();
+		assertThat(GisXyzGuard.isBlocked(nat64Private, open)).as("放行后内嵌内网 IPv4 仍拦").isTrue();
+		assertThat(GisXyzGuard.isBlocked(sixToFourLoop, open)).isTrue();
+		// NAT64 内嵌 198.18 受 benchmark 开关控制
+		InetAddress nat64Bench = InetAddress.getByName("64:ff9b::c612:0007");
+		assertThat(GisXyzGuard.isBlocked(nat64Bench, open)).isTrue();
+		assertThat(GisXyzGuard.isBlocked(nat64Bench, new GisXyzGuard.NetPolicy(true, true, false))).isFalse();
+		GisXyzProperties props = new GisXyzProperties();
+		assertThat(props.netPolicy()).isEqualTo(GisXyzGuard.NetPolicy.STRICT);
+	}
+
+	@Test
+	void fetchHonorsBenchmarkNetSwitch() {
+		GisXyzProperties props = new GisXyzProperties();
+		GisXyzTileService svc = new GisXyzTileService(props, new GisUpstreamHttp(new ObjectMapper()), new ObjectMapper(),
+			h -> new InetAddress[] { InetAddress.getByName("198.18.0.7") });
+		assertThatThrownBy(() -> svc.fetch(GisXyzPresets.get(GisXyzPresets.OSM), 1, 0, 0, null))
+			.isInstanceOf(ServiceException.class)
+			.hasMessage(GisXyzGuard.MSG_PRIVATE);
+	}
+
+	@Test
 	void mixedDnsAnswerWithOnePrivateIsRejected() throws Exception {
 		InetAddress pub = InetAddress.getByName("151.101.2.132");
 		InetAddress priv = InetAddress.getByName("10.0.0.5");

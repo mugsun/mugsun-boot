@@ -16,16 +16,24 @@ import java.util.Locale;
 import java.util.function.Predicate;
 
 /**
- * 上游 HTTP：8s 超时、浏览器 UA；JSON / 字节 / POST JSON。
+ * 上游 HTTP：8s 超时、浏览器 UA、不跟随重定向；JSON / 字节 / POST JSON。
  */
 @Component
 public class GisUpstreamHttp {
 
 	private static final Duration TIMEOUT = Duration.ofSeconds(8);
+	/** 厂商接口（检索 / 逆地理 / 瓦片）也不跟随重定向：3xx 视为失败，避免被引到白名单外 */
 	private static final HttpClient HTTP = HttpClient.newBuilder()
 		.connectTimeout(TIMEOUT)
-		.followRedirects(HttpClient.Redirect.NORMAL)
+		.followRedirects(HttpClient.Redirect.NEVER)
 		.build();
+
+	public static final String BROWSER_UA = "Mozilla/5.0";
+
+	/** 当前客户端是否跟随重定向（供单测确认） */
+	public static boolean followsRedirects() {
+		return HTTP.followRedirects() != HttpClient.Redirect.NEVER || STRICT.followRedirects() != HttpClient.Redirect.NEVER;
+	}
 
 	private final ObjectMapper objectMapper;
 
