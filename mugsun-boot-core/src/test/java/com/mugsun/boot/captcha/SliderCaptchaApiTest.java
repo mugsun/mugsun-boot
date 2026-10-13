@@ -388,7 +388,8 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		nullTypes.put("id", id);
 		nullTypes.put("enabled", true);
 		nullTypes.put("types", null);
-		assertThat(readBody(post("/system/tenant/captcha", nullTypes, admin)).path("code").asInt()).isEqualTo(200);
+		JsonNode nr = readBody(post("/system/tenant/captcha", nullTypes, admin));
+		assertThat(nr.path("code").asInt()).as(nr.toString()).isEqualTo(200);
 		assertThat(captchaTypesOf(admin, t[0])).isNull();
 	}
 

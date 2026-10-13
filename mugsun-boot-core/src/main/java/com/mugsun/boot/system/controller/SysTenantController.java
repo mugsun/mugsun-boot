@@ -82,6 +82,12 @@ public class SysTenantController {
 
 	/** types 用 JsonNode 区分「缺省（不改）」与「显式 null（清回默认）」 */
 	public record CaptchaSwitchDTO(Long id, Boolean enabled, com.fasterxml.jackson.databind.JsonNode types) {
+		/** 防重复提交按 toString 取指纹：缺省 types 与显式 null 是两种操作，不能撞成同一指纹 */
+		@Override
+		public String toString() {
+			String t = types == null ? "<unset>" : types.isNull() ? "<null>" : types.toString();
+			return "CaptchaSwitchDTO[id=" + id + ", enabled=" + enabled + ", types=" + t + "]";
+		}
 	}
 
 	@GetMapping("/list")
