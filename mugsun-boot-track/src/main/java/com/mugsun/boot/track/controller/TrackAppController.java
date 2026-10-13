@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackAdminService;
+import com.mugsun.boot.track.TrackIntegrationHealth;
 import com.mugsun.boot.track.entity.TrackApp;
 import com.mugsun.boot.track.entity.TrackEventDef;
 import com.mugsun.core.tool.api.R;
@@ -37,8 +38,11 @@ public class TrackAppController {
 	private final TrackAdminService adminService;
 	private final ObjectMapper objectMapper;
 
-	public TrackAppController(TrackAdminService adminService, ObjectMapper objectMapper) {
+	private final TrackIntegrationHealth health;
+
+	public TrackAppController(TrackAdminService adminService, ObjectMapper objectMapper, TrackIntegrationHealth health) {
 		this.adminService = adminService;
+		this.health = health;
 		this.objectMapper = objectMapper;
 	}
 
@@ -100,6 +104,64 @@ public class TrackAppController {
 			name = removed.getAppKey();
 		}
 		return R.success("已删除「" + name + "」。采集将不再接收这个应用");
+	}
+
+	// ==================== 接入自检 ====================
+
+	/**
+	 * 单个应用接入自检：最近收到事件时间 + 最近 7 天拒收/异常原因（每条带修复建议）。
+	 * 租户隔离：应用经 Flex 租户插件查找，别的租户的 appKey 一律「不存在」。
+	 */
+	@GetMapping("/app/health")
+	@SaCheckPermission(TrackConstants.PERM_APP_LIST)
+	public R<Map<String, Object>> appHealth(@RequestParam String appKey) {
+		TrackApp app = adminService.requireApp(appKey);
+		return R.data(healthOf(app, true));
+	}
+
+	/** 本租户全部应用的自检摘要（列表页一次取完：最近收到时间 + 今日/7 天 fail、warn 计数，不含建议正文） */
+	@GetMapping("/app/health/summary")
+	@SaCheckPermission(TrackConstants.PERM_APP_LIST)
+	public R<java.util.List<Map<String, Object>>> appHealthSummary() {
+		java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+		for (TrackApp app : adminService.listApps()) {
+			out.add(healthOf(app, false));
+		}
+		return R.data(out);
+	}
+
+	private Map<String, Object> healthOf(TrackApp app, boolean detail) {
+		Long lastReceivedAt = health.lastReceivedAt(app.getAppKey());
+		String lastReceivedSource = "redis";
+		if (lastReceivedAt == null) {
+			lastReceivedAt = adminService.lastSeenFromEventDefs(app.getAppKey());
+			lastReceivedSource = lastReceivedAt == null ? null : "event_def";
+		}
+		java.util.List<Map<String, Object>> reasons = health.reasons(app.getAppKey());
+		long fail7d = 0;
+		long warn7d = 0;
+		for (Map<String, Object> r : reasons) {
+			if ("fail".equals(r.get("severity"))) {
+				fail7d += (Long) r.get("last7d");
+			} else {
+				warn7d += (Long) r.get("last7d");
+			}
+		}
+		Map<String, Object> m = new java.util.LinkedHashMap<>();
+		m.put("appKey", app.getAppKey());
+		m.put("appName", app.getAppName());
+		m.put("enabled", app.getEnabled() != null && app.getEnabled() == 1);
+		m.put("lastReceivedAt", lastReceivedAt);
+		m.put("lastReceivedSource", lastReceivedSource);
+		m.put("staleAfterMs", TrackIntegrationHealth.STALE_AFTER_MS);
+		m.put("fail7d", fail7d);
+		m.put("warn7d", warn7d);
+		if (detail) {
+			m.put("reasons", reasons);
+		} else {
+			m.put("topCodes", reasons.stream().limit(3).map(r -> r.get("code")).toList());
+		}
+		return m;
 	}
 
 	// ==================== 事件定义治理 ====================
