@@ -174,7 +174,8 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	void smsBurstLimitAppliesToRequestsWithoutToken() {
+	void smsIpBurstLimitAppliesToRequestsWithoutToken() {
+		props.getRateLimit().setSmsIpPerMinute(5);
 		Map<String, Object> body = new HashMap<>();
 		body.put("phone", "13800000023");
 		for (int i = 0; i < 5; i++) {
@@ -184,6 +185,30 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		assertThat(r.path("code").asInt()).isEqualTo(CaptchaCodes.RATE_LIMITED);
 		assertThat(r.path("data").path("retryAfter").asLong()).isBetween(1L, 60L);
 		assertThat(slider.smsPhoneCount("13800000023")).isZero();
+		assertThat(slider.smsBurstPhoneCount("13800000023")).isZero();
+	}
+
+	@Test
+	void smsRequestsWithoutTokenDoNotCountTowardPhoneBurst() {
+		// B4：攻击者从不同 IP 发无 token / 无效 token 请求，不能把受害号码的手机号短窗打满
+		String phone = "13800000024";
+		props.getRateLimit().setSmsIpPerMinute(100);
+		for (int i = 0; i < 12; i++) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("phone", phone);
+			if (i % 2 == 1) {
+				body.put("captchaToken", "0123456789abcdef0123456789abcdef");
+			}
+			assertThat(readBody(post("/auth/sms-code", body, null)).path("code").asInt()).isEqualTo(CaptchaCodes.REQUIRED);
+		}
+		assertThat(slider.smsBurstPhoneCount(phone)).isZero();
+		// 受害者本人带合法 token 仍能通过短窗
+		Map<String, Object> body = new HashMap<>();
+		body.put("phone", phone);
+		body.put("captchaToken", token("sms", PLATFORM_TENANT));
+		assertThat(readBody(post("/auth/sms-code", body, null)).path("code").asInt()).isNotEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat(slider.smsBurstPhoneCount(phone)).isEqualTo(1);
+		assertThat(slider.smsPhoneCount(phone)).isEqualTo(1);
 	}
 
 	@Test

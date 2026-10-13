@@ -21,6 +21,18 @@ class ForgetPasswordApiTest extends AbstractIntegrationTest {
 	@Autowired
 	private StringRedisTemplate redis;
 
+	@Autowired
+	private com.mugsun.boot.auth.ForgetMailSender forgetMailSender;
+
+	@Test
+	void forgetMailSenderIsAsyncProxy() {
+		// @EnableAsync 生效：ForgetMailSender 被代理且挂了异步通知器，send 不在请求线程里执行
+		assertThat(org.springframework.aop.support.AopUtils.isAopProxy(forgetMailSender)).isTrue();
+		assertThat(forgetMailSender).isInstanceOf(org.springframework.aop.framework.Advised.class);
+		assertThat(java.util.Arrays.stream(((org.springframework.aop.framework.Advised) forgetMailSender).getAdvisors())
+			.anyMatch(a -> a instanceof org.springframework.scheduling.annotation.AsyncAnnotationAdvisor)).isTrue();
+	}
+
 	@Test
 	void forgetCodeResponseDoesNotLeakAccountOrChannelState() {
 		// 测试环境未配置邮件通道：存在的账号与不存在的账号对外响应必须完全一致（都按成功处理）

@@ -147,17 +147,30 @@ public class SliderCaptchaService {
 		return new TokenVO(token, ttl);
 	}
 
-	/** 发短信第〇步：宽松短窗口频率限制（每个请求都计数，含无 token；60 秒窗口到期自动恢复，不会长时间锁死） */
-	public void hitSmsBurst(String phone, String ip) {
+	/** 发短信第〇步：单 IP 宽松短窗口（每个请求都计数，含无 token；60 秒窗口到期自动恢复） */
+	public void hitSmsBurstIp(String ip) {
 		CaptchaProperties.RateLimit rl = props.getRateLimit();
 		String ipKey = K_SMS_BURST_IP + safeIp(ip);
 		if (rl.getSmsIpPerMinute() > 0 && store.increment(ipKey, 60) > rl.getSmsIpPerMinute()) {
 			throw CaptchaException.rateLimited(store.ttlSeconds(ipKey));
 		}
+	}
+
+	/**
+	 * 发短信第二步之后（captchaToken 已成功核销）：单手机号宽松短窗口。
+	 * 只计入已核销 token 的请求，无/无效 token 不计数，防止他人用无 token 请求把受害号码锁住。
+	 */
+	public void hitSmsBurstPhone(String phone) {
+		CaptchaProperties.RateLimit rl = props.getRateLimit();
 		String phoneKey = K_SMS_BURST_PHONE + hash(phone);
 		if (rl.getSmsPhonePerMinute() > 0 && store.increment(phoneKey, 60) > rl.getSmsPhonePerMinute()) {
 			throw CaptchaException.rateLimited(store.ttlSeconds(phoneKey));
 		}
+	}
+
+	/** 测试/运维用：手机号短窗当前计数（只读） */
+	public long smsBurstPhoneCount(String phone) {
+		return store.count(K_SMS_BURST_PHONE + hash(phone));
 	}
 
 	/** 发短信第一步：只读检查单 IP 每小时、单手机号每天配额，不计数（无 token/无效 token 的请求不消耗配额） */

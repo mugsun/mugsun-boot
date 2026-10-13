@@ -353,8 +353,8 @@ public class AuthController {
 		if (phone == null) {
 			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
-		// ⓪ 宽松短窗口频率限制：手机号/IP 每分钟（含无 token 请求，60 秒自动恢复）
-		captchaGate.hitSmsBurst(phone, request);
+		// ⓪ 宽松短窗口频率限制：单 IP 每分钟（含无 token 请求，60 秒自动恢复）
+		captchaGate.hitSmsBurstIp(request);
 		// ① 只读查配额（不计数）：已超额时不消耗 captchaToken
 		captchaGate.checkSmsQuota(phone, request);
 		// ② 滑块模式：原子核销 captchaToken（防短信轰炸）；是否需要只看全局开关，不采信请求里的 tenantId。无/无效 token 不计数
@@ -362,6 +362,8 @@ public class AuthController {
 			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_SMS, captchaGate.resolveClient(body.get("clientId")),
 				com.mugsun.boot.captcha.CaptchaGate.NO_TENANT, body.get("captchaToken"), request);
 		}
+		// ②' 手机号短窗口：仅在 token 核销成功后计数（无/无效 token 不计入，防止锁住受害号码）
+		captchaGate.hitSmsBurstPhone(phone);
 		// ③ 原子「未超上限才计数」（单手机号每天、单 IP 每小时；叠加 SmsService 同号 60s 节流）
 		captchaGate.takeSmsQuota(phone, request);
 		// ④ 发送；失败不退计数，写审计

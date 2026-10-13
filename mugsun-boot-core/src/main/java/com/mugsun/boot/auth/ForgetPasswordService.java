@@ -16,7 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.Random;
+import java.security.SecureRandom;
 
 /**
  * 忘记密码（邮件验证码重置）：账号定位用户→绑定邮箱下发 6 位码（Redis 5min TTL，校验即焚）→
@@ -35,7 +35,7 @@ public class ForgetPasswordService {
 	private final SecurityPolicyService securityPolicyService;
 	private final PasswordEncoder passwordEncoder;
 	private final ForgetMailSender mailSender;
-	private final Random random = new Random();
+	private final SecureRandom random = new SecureRandom();
 
 	public ForgetPasswordService(StringRedisTemplate redis, SysUserMapper userMapper,
 								 MailService mailService, SecurityPolicyService securityPolicyService,

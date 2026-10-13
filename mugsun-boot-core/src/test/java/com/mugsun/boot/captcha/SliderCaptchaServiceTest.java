@@ -336,17 +336,29 @@ class SliderCaptchaServiceTest {
 	}
 
 	@Test
-	void smsBurstLimitRecoversAfterWindow() {
+	void smsPhoneBurstLimitRecoversAfterWindow() {
 		for (int i = 0; i < 5; i++) {
-			svc.hitSmsBurst("13800000030", IP);
+			svc.hitSmsBurstPhone("13800000030");
 		}
-		CaptchaException e = (CaptchaException) catchCaptcha(() -> svc.hitSmsBurst("13800000030", IP));
+		CaptchaException e = (CaptchaException) catchCaptcha(() -> svc.hitSmsBurstPhone("13800000030"));
 		assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED);
 		assertThat((Long) e.getData().get("retryAfter")).isBetween(1L, 60L);
 		// 日配额不受影响
 		assertThat(svc.smsPhoneCount("13800000030")).isZero();
 		now.addAndGet(61_000);
-		svc.hitSmsBurst("13800000030", IP);
+		svc.hitSmsBurstPhone("13800000030");
+	}
+
+	@Test
+	void smsIpBurstLimitIsIndependentOfPhone() {
+		for (int i = 0; i < 30; i++) {
+			svc.hitSmsBurstIp(IP);
+		}
+		CaptchaException e = (CaptchaException) catchCaptcha(() -> svc.hitSmsBurstIp(IP));
+		assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat(svc.smsBurstPhoneCount("13800000031")).isZero();
+		now.addAndGet(61_000);
+		svc.hitSmsBurstIp(IP);
 	}
 
 	@Test

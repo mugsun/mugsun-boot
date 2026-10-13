@@ -97,8 +97,13 @@ public class CaptchaGate {
 	}
 
 	/** 发短信⓪：短窗口频率限制（所有请求计数，自动恢复） */
-	public void hitSmsBurst(String phone, HttpServletRequest request) {
-		slider.hitSmsBurst(phone, ClientIpResolver.clientIp(request));
+	public void hitSmsBurstIp(HttpServletRequest request) {
+		slider.hitSmsBurstIp(ClientIpResolver.clientIp(request));
+	}
+
+	/** 发短信②之后：手机号短窗口（仅 token 核销成功后计数） */
+	public void hitSmsBurstPhone(String phone) {
+		slider.hitSmsBurstPhone(phone);
 	}
 
 	/** 发短信①：只读检查配额（不计数） */
