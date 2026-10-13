@@ -39,7 +39,12 @@ public class LocalFileUrlSigner {
 	@org.springframework.beans.factory.annotation.Autowired
 	public LocalFileUrlSigner(LocalFileAccessProperties properties, Environment env) {
 		this.properties = properties;
-		String secret = properties.getSignSecret();
+		String secret = properties.getSignSecret() == null ? null : properties.getSignSecret().strip();
+		boolean prodDirect = env != null && env.acceptsProfiles(Profiles.of("prod")) && localAccessEnabled(env);
+		if (prodDirect && secret != null && !secret.isEmpty() && secret.length() < MIN_SECRET_LEN) {
+			throw new IllegalStateException("prod 开启了本地存储直出，mugsun.file.local-access.sign-secret"
+				+ "（MUGSUN_FILE_SIGN_SECRET）至少 " + MIN_SECRET_LEN + " 字符，当前 " + secret.length() + " 字符");
+		}
 		if ((secret == null || secret.isBlank()) && env != null && env.acceptsProfiles(Profiles.of("prod"))
 			&& localAccessEnabled(env)) {
 			throw new IllegalStateException("prod 开启了本地存储直出（x-file-storage local-plus enable-access=true），"
