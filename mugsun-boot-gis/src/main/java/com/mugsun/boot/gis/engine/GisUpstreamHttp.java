@@ -70,6 +70,42 @@ public class GisUpstreamHttp {
 		return HTTP.send(req, HttpResponse.BodyHandlers.ofByteArray());
 	}
 
+	/** 不跟随重定向的客户端：自定义瓦片源用，3xx 直接视为失败，杜绝跳到白名单外 */
+	private static final HttpClient STRICT = HttpClient.newBuilder()
+		.connectTimeout(Duration.ofSeconds(5))
+		.followRedirects(HttpClient.Redirect.NEVER)
+		.build();
+
+	/** 受限字节响应：状态码、Content-Type、正文（超过 maxBytes 抛异常） */
+	public record LimitedBytes(int status, String contentType, byte[] body) {
+	}
+
+	/**
+	 * 严格模式取字节：主机先过白名单，不跟随重定向，限制大小与超时，使用部署方配置的 UA。
+	 */
+	public LimitedBytes getBytesStrict(URI uri, Predicate<String> hostOk, String userAgent, int maxBytes)
+		throws Exception {
+		assertHost(uri, hostOk);
+		HttpRequest req = HttpRequest.newBuilder(uri)
+			.timeout(TIMEOUT)
+			.header("User-Agent", userAgent == null || userAgent.isBlank() ? "mugsun-boot-gis" : userAgent)
+			.header("Accept", "image/png,image/jpeg,image/webp,image/*;q=0.8")
+			.GET()
+			.build();
+		HttpResponse<java.io.InputStream> resp = STRICT.send(req, HttpResponse.BodyHandlers.ofInputStream());
+		try (java.io.InputStream in = resp.body()) {
+			long declared = resp.headers().firstValueAsLong("Content-Length").orElse(-1L);
+			if (declared > maxBytes) {
+				throw new ServiceException("瓦片过大");
+			}
+			byte[] body = in.readNBytes(maxBytes + 1);
+			if (body.length > maxBytes) {
+				throw new ServiceException("瓦片过大");
+			}
+			return new LimitedBytes(resp.statusCode(), resp.headers().firstValue("Content-Type").orElse(""), body);
+		}
+	}
+
 	private JsonNode parseJson(HttpResponse<String> resp) throws Exception {
 		if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
 			throw new ServiceException(GisConstants.MSG_SEARCH_UPSTREAM);

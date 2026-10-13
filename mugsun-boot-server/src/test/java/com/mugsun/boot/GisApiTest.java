@@ -31,12 +31,38 @@ class GisApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void xyzProviderRejectsHostsOutsideWhitelist() {
+		for (String url : new String[] {
+			"https://evil.example.com/{z}/{x}/{y}.png",
+			"https://127.0.0.1/{z}/{x}/{y}.png",
+			"https://169.254.169.254/{z}/{x}/{y}",
+			"http://tile.openstreetmap.org/{z}/{x}/{y}.png",
+			"https://tile.openstreetmap.org.evil.com/{z}/{x}/{y}.png"
+		}) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("provider", "xyz");
+			body.put("extraJson", "{\"url\":\"" + url + "\"}");
+			JsonNode saved = readBody(post("/system/gis/provider/submit", body, adminToken));
+			assertThat(saved.path("code").asInt()).as(url).isNotEqualTo(200);
+			JsonNode tested = readBody(post("/system/gis/provider/test", body, adminToken));
+			assertThat(tested.path("code").asInt()).as(url).isNotEqualTo(200);
+		}
+		JsonNode cfg = readBody(get("/system/gis/provider/xyz", adminToken));
+		assertThat(cfg.path("data").path("allowedHosts").toString()).contains("tile.openstreetmap.org");
+		assertThat(cfg.path("data").path("usingDefault").asBoolean()).isTrue();
+	}
+
+	@Test
 	void statusEnabledByDefaultAndSceneCrud() {
 		JsonNode status = readBody(get("/system/gis/status", adminToken));
 		assertThat(status.path("code").asInt()).isEqualTo(200);
 		assertThat(status.path("data").path("enabled").asBoolean()).as("默认开启").isTrue();
 		assertThat(status.path("data").path("providers").isArray()).isTrue();
-		assertThat(status.path("data").path("providers").size()).isEqualTo(4);
+		assertThat(status.path("data").path("providers").size()).isEqualTo(5);
+		JsonNode xyz = status.path("data").path("providers").get(4);
+		assertThat(xyz.path("provider").asText()).isEqualTo("xyz");
+		assertThat(xyz.path("configured").asBoolean()).as("默认 OSM 预设开箱可用").isTrue();
+		assertThat(xyz.path("attribution").asText()).contains("OpenStreetMap");
 
 		Map<String, Object> scene = new HashMap<>();
 		scene.put("name", "IT场景-" + System.currentTimeMillis());

@@ -3,3 +3,14 @@ mugsun:
   gis:
     # 地理信息模块总开关（默认开）；sys_param gis.module.enabled=false 可运行时关闭
     enabled: ${MUGSUN_GIS_ENABLED:true}
+    # 自定义 XYZ 底图（免密钥瓦片）。allowed-hosts 是防 SSRF 白名单：只允许 https + 这里列出的域名（含其子域），
+    # IP 字面量与解析到内网 / 回环 / 链路本地地址的域名一律拒绝。置空即禁用 xyz 底图。
+    xyz:
+      allowed-hosts: ${MUGSUN_GIS_XYZ_ALLOWED_HOSTS:tile.openstreetmap.org}
+      # 租户未配置时的默认预设：目前内置 osm；留空则必须先在「底图配置」里保存
+      default-preset: ${MUGSUN_GIS_XYZ_DEFAULT_PRESET:osm}
+      # OSM 瓦片政策要求可识别 UA；生产请改为自己的应用名与联系方式
+      user-agent: ${MUGSUN_GIS_XYZ_USER_AGENT:mugsun-boot-gis/0.1 (+https://github.com/mugsun/mugsun-boot)}
+      max-tile-bytes: 2097152
+      cache-max-bytes: 67108864
+      cache-ttl-seconds: 86400
