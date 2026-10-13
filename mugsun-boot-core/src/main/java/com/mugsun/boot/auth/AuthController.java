@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.ClientConstants;
+import com.mugsun.boot.config.BizTables;
 import com.mugsun.boot.common.constant.MonitorConstants;
 import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.common.constant.TenantConstants;
@@ -15,7 +16,6 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -53,12 +53,6 @@ public class AuthController {
 	private final com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus;
 	private final com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus;
 	private final com.mugsun.boot.system.service.AvatarUploadService avatarUploadService;
-
-	/**
-	 * 金仓等独立 schema：裸 SQL 必须 schema 限定，否则 {@code sys_user} 会命中 SYS_CATALOG。
-	 */
-	@Value("${mugsun.db.default-schema:}")
-	private String defaultDbSchema;
 
 	public AuthController(SysUserMapper userMapper, PasswordEncoder passwordEncoder,
 						  LoginLockService loginLockService, AuthLoginService authLoginService,
@@ -552,11 +546,10 @@ public class AuthController {
 		data.put("email", user.getEmail());
 		data.put("phone", user.getPhone());
 		// 头像列（V61 起 sys_user 有 avatar 列；实体未建模——SysUser 冻结，行级直查）
-		final String userTable = (defaultDbSchema != null && !defaultDbSchema.isBlank())
-			? defaultDbSchema + ".sys_user" : "sys_user";
+		// 金仓等独立 schema：须 BizTables 限定，否则裸 sys_user 会命中 SYS_CATALOG
 		com.mybatisflex.core.row.Row avatarRow = TenantContext.ignore(() ->
 			com.mybatisflex.core.row.Db.selectOneBySql(
-				"SELECT avatar FROM " + userTable + " WHERE id = ?", user.getId()));
+				"SELECT avatar FROM " + BizTables.of("sys_user") + " WHERE id = ?", user.getId()));
 		data.put("avatar", avatarRow == null ? null : avatarRow.getString("avatar"));
 		// 租户套餐：非超管租户按套餐限定可用菜单（null 表示不限）
 		data.put("menus", resolveTenantMenus(user.getTenantId()));

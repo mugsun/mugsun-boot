@@ -41,11 +41,13 @@ public class AiKnowledgeBizService {
 	private final AiLlmClient llmClient;
 	private final AiKbVectorStore vectorStore;
 	private final WebClient.Builder webClientBuilder;
+	private final com.mugsun.boot.ai.support.AiOutboundProperties outbound;
 
 	public AiKnowledgeBizService(AiModuleService moduleService, AiKnowledgeMapper knowledgeMapper,
 								 AiKnowledgeAssetMapper assetMapper, AiKnowledgeSegmentMapper segmentMapper,
 								 AiModelBizService modelBizService, AiLlmClient llmClient,
-								 AiKbVectorStore vectorStore, WebClient.Builder webClientBuilder) {
+								 AiKbVectorStore vectorStore, WebClient.Builder webClientBuilder,
+								 com.mugsun.boot.ai.support.AiOutboundProperties outbound) {
 		this.moduleService = moduleService;
 		this.knowledgeMapper = knowledgeMapper;
 		this.assetMapper = assetMapper;
@@ -54,6 +56,7 @@ public class AiKnowledgeBizService {
 		this.llmClient = llmClient;
 		this.vectorStore = vectorStore;
 		this.webClientBuilder = webClientBuilder;
+		this.outbound = outbound;
 	}
 
 	private static final java.util.Set<String> MODES = java.util.Set.of("hybrid", "vector", "keyword");
@@ -772,6 +775,7 @@ public class AiKnowledgeBizService {
 		if (body.getFileUrl() != null && !body.getFileUrl().isBlank()) {
 			String url = body.getFileUrl().trim();
 			if (url.startsWith("http://") || url.startsWith("https://")) {
+				url = outbound.guard(url);
 				try {
 					byte[] bytes = webClientBuilder.build().get().uri(url)
 						.retrieve().bodyToMono(byte[].class).block(Duration.ofSeconds(30));
