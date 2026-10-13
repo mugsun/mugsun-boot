@@ -22,7 +22,7 @@ import java.util.List;
  * <p>分日基准 = received_at（UTC 日界；迟到数据归入接收当日，历史不被追改）。
  * 聚合昨日（含）以前的闭合日；今日由看板「当日分区直算」覆盖，本任务不写开放日。
  * <p><b>口径钉死（§4.4/§6）</b>：
- * <br>① UV 精确去重：{@code count(distinct coalesce(m.user_id::text, e.distinct_id))}
+ * <br>① UV 精确去重：{@link TrackConstants#UV_EXPR}（按 distinct_id）
  * LEFT JOIN track_identity 归并（跨设备同 user 合一；UV 不可从子窗口相加，必须从明细算）；
  * <br>② overview 行（dim_key=ALL）的 session_count/bounce_count 来自 track_session
  * （按 start_time 归日；跳出 = pageviews&lt;=1，与结算任务 is_bounce 定义一致，不依赖 settled 时序）；
@@ -55,7 +55,7 @@ public class TrackStatsDayJob extends AbstractTrackRollupJob {
 	/** overview 行：事件侧指标（session_count/bounce_count 另查 track_session 覆盖） */
 	private static final String AGG_OVERVIEW = "SELECT count(*) FILTER (WHERE e.event_name = '"
 		+ TrackConstants.EVENT_PAGEVIEW + "') AS pv, count(*) AS cnt,"
-		+ " count(DISTINCT coalesce(m.user_id::text, e.distinct_id)) AS uv,"
+		+ " " + TrackConstants.UV_EXPR + " AS uv,"
 		+ " coalesce(sum(e.duration_ms), 0) AS dur" + IDENTITY_JOIN;
 
 	/** overview 行：会话侧指标（按 start_time 归日；跳出 = pageviews<=1，与结算定稿同定义） */
@@ -191,7 +191,7 @@ public class TrackStatsDayJob extends AbstractTrackRollupJob {
 		return "SELECT '" + dimType + "' AS \"dimType\", " + dimExpr + " AS dim,"
 			+ " count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
 			+ " count(*) AS cnt, count(DISTINCT e.session_id) AS sessions,"
-			+ " count(DISTINCT coalesce(m.user_id::text, e.distinct_id)) AS uv,"
+			+ " " + TrackConstants.UV_EXPR + " AS uv,"
 			+ " coalesce(sum(e.duration_ms), 0) AS dur" + IDENTITY_JOIN
 			+ (dimFilter == null ? "" : " AND " + dimFilter)
 			+ " GROUP BY " + dimExpr;
