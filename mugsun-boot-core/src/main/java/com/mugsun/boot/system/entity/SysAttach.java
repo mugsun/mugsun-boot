@@ -18,6 +18,8 @@ public class SysAttach extends BaseEntity {
 	private String contentType;
 	private Long size;
 	private String platform;
+	/** 上传者用户 id（越权校验：下载/删除归属判定；历史行为空仅 manage 可操作） */
+	private Long createUser;
 
 	/** 平台是否仍在册（展示用，非表列：page 富化回填；历史附件平台已下线则为 false，预览/下载据此降级） */
 	@com.mybatisflex.annotation.Column(ignore = true)
@@ -105,6 +107,14 @@ public class SysAttach extends BaseEntity {
 
 	public void setDownloadable(Boolean downloadable) {
 		this.downloadable = downloadable;
+	}
+
+	public Long getCreateUser() {
+		return createUser;
+	}
+
+	public void setCreateUser(Long createUser) {
+		this.createUser = createUser;
 	}
 
 	public String getAccess() {

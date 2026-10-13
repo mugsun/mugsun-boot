@@ -57,6 +57,7 @@ public class AttachFileRecorder implements FileRecorder {
 		attach.setPlatform(info.getPlatform());
 		attach.setBasePath(info.getBasePath());
 		attach.setAccess(accessOf(info));
+		attach.setCreateUser(currentUserId());
 		attachMapper.insertSelective(attach);
 		info.setId(String.valueOf(attach.getId()));
 		return true;
@@ -181,5 +182,14 @@ public class AttachFileRecorder implements FileRecorder {
 
 	private LocalDateTime toLocalDateTime(Date date) {
 		return date == null ? null : LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault());
+	}
+
+	/** 当前登录用户 id（无会话/非 Web 上下文返回 null，如定时任务产出的附件） */
+	private static Long currentUserId() {
+		try {
+			return cn.dev33.satoken.stp.StpUtil.isLogin() ? cn.dev33.satoken.stp.StpUtil.getLoginIdAsLong() : null;
+		} catch (Exception ignored) {
+			return null;
+		}
 	}
 }
