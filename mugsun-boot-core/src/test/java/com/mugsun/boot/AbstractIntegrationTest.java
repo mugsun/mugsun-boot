@@ -145,6 +145,8 @@ public abstract class AbstractIntegrationTest {
 				+ (useExternalServices() ? EXT_REDIS_PORT : REDIS.getMappedPort(6379)) + "/3");
 		// 测试环境不连 PowerJob Server
 		registry.add("powerjob.worker.enabled", () -> "false");
+		// 时间线索引后台补建：测试里按需显式打开（防 02–06 点跑 CI 时后台任务与用例抢 advisory 锁）
+		registry.add("mugsun.track.timeline-index.backfill-enabled", () -> "false");
 		// 文件存储落 target 下临时目录，不污染 /tmp。
 		// 注意 Spring 列表绑定规则：列表在多属性源时按最高优先级源「整体替换」——只覆盖 storage-path
 		// 会把该元素的 platform/enable-storage 等字段冲成默认值（平台不注册、默认平台不可用），
