@@ -90,4 +90,16 @@
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
+	<!-- 仅 mugsun-boot-server 可启动；其余模块跳过 spring-boot:run / repackage -->
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<skip>true</skip>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
 </project>

@@ -34,8 +34,11 @@
 ```bash
 docker compose up -d
 cp config/application-local.yml.example config/application-local.yml
-mvn -pl mugsun-boot-server -am spring-boot:run
+mvn -pl mugsun-boot-server -am package -DskipTests
+java -jar mugsun-boot-server/target/mugsun-boot.jar
 ```
+
+须在仓库根目录执行 `java -jar`，否则读不到 `config/application-local.yml`。开发时也可在根目录直接运行（可选）：`mvn -pl mugsun-boot-server -am spring-boot:run`。
 
 **本地 install（离线或未同步 Central 时的回退）：** 平级克隆 [mugsun-core](https://github.com/mugsun/mugsun-core) 后执行 `cd ../mugsun-core && mvn clean install -DskipTests`，再返回本仓库构建。
 
@@ -45,12 +48,7 @@ mvn -pl mugsun-boot-server -am spring-boot:run
 
 管理端见 [mugsun-pc](https://github.com/mugsun/mugsun-pc)（开发默认端口 `3006`，代理至本服务 `8080`）。逐步说明见 [文档 · 快速开始](https://docs.mugsun.com/guide/getting-started)。
 
-打包：
-
-```bash
-mvn -pl mugsun-boot-server -am package -DskipTests
-# 产物：mugsun-boot-server/target/mugsun-boot.jar
-```
+打包产物：`mugsun-boot-server/target/mugsun-boot.jar`。
 
 Compose 暴露端口：`5432`（PostgreSQL）、`6379`（Redis）。开发库账号默认与 JDBC 配置一致（`mugsun` / `mugsun`）。无 Docker 时可参考 `scripts/init-db.sql`。
 
