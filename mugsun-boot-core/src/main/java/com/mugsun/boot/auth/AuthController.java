@@ -52,6 +52,7 @@ public class AuthController {
 	private final com.mugsun.boot.common.module.GisModuleStatus gisModuleStatus;
 	private final com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus;
 	private final com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus;
+	private final com.mugsun.boot.system.service.AvatarUploadService avatarUploadService;
 
 	/**
 	 * 金仓等独立 schema：裸 SQL 必须 schema 限定，否则 {@code sys_user} 会命中 SYS_CATALOG。
@@ -78,7 +79,8 @@ public class AuthController {
 						  ForgetPasswordService forgetPasswordService,
 						  com.mugsun.boot.common.module.GisModuleStatus gisModuleStatus,
 						  com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus,
-						  com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus) {
+						  com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus,
+						  com.mugsun.boot.system.service.AvatarUploadService avatarUploadService) {
 		this.userMapper = userMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.loginLockService = loginLockService;
@@ -98,6 +100,7 @@ public class AuthController {
 		this.roleMapper = roleMapper;
 		this.userRoleMapper = userRoleMapper;
 		this.forgetPasswordService = forgetPasswordService;
+		this.avatarUploadService = avatarUploadService;
 		this.gisModuleStatus = gisModuleStatus;
 		this.trackModuleStatus = trackModuleStatus;
 		this.aiModuleStatus = aiModuleStatus;
@@ -593,20 +596,14 @@ public class AuthController {
 		return R.success("修改成功");
 	}
 
-	/** 个人中心：更新头像（/system/file/upload 附件体系公开区产物 URL，落 sys_user.avatar） */
+	/**
+	 * 个人中心：更新头像。只允许指向本人上传、本租户、public 的附件（按 sys_attach 校验 create_user/tenant/access），
+	 * 外链拒绝；落库经 BizTables.of("sys_user") 带 schema。推荐直接用 /auth/avatar/upload（上传即更新）。
+	 */
 	@PostMapping("/update-avatar")
 	@SaCheckLogin
 	public R<Void> updateAvatar(@RequestBody UpdateAvatarDTO dto) {
-		String avatar = dto.avatar() == null ? "" : dto.avatar().trim();
-		// 仅接受附件体系产物形态：公开区 URL（http(s)://…/file/… 或相对 /file/…），防 javascript:/data: 注入
-		if (avatar.isBlank() || avatar.length() > 255
-			|| !(avatar.startsWith("http://") || avatar.startsWith("https://") || avatar.startsWith("/file/"))) {
-			throw new ServiceException("头像地址不合法。请改成以 /file/、http:// 或 https:// 开头、并且不超过 255 个字符的附件公开地址后再保存");
-		}
-		long userId = StpUtil.getLoginIdAsLong();
-		// 实体未建模（SysUser 冻结），行级 SQL 落 avatar 列
-		TenantContext.ignore(() -> com.mybatisflex.core.row.Db.updateBySql(
-			"UPDATE sys_user SET avatar = ? WHERE id = ?", avatar, userId));
+		avatarUploadService.bind(dto.avatar(), StpUtil.getLoginIdAsLong(), TenantContext.current());
 		return R.success("头像已更新");
 	}
 
