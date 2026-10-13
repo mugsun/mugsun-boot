@@ -16,14 +16,13 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.Map;
-import java.util.Random;
+import java.security.SecureRandom;
 
 /**
  * 忘记密码（邮件验证码重置）：账号定位用户→绑定邮箱下发 6 位码（Redis 5min TTL，校验即焚）→
  * 凭码重置（复杂度/历史防重复用 SecurityPolicyService，重置即全端下线）。
  * 防爆破：发码走图形验证码+同账号 60s 节流；错码累计 5 次烧毁验证码。
- * 防枚举：账号不存在/未绑邮箱同样返回成功，仅日志留痕；通道未配置属服务端状态，与账号无关，显式报错。
+ * 防枚举：账号不存在/未绑邮箱/通道未配置/下发失败对外一律返回同一成功话术，仅日志留痕（不对外暴露通道状态）。
  */
 @Service
 public class ForgetPasswordService {
@@ -35,24 +34,22 @@ public class ForgetPasswordService {
 	private final MailService mailService;
 	private final SecurityPolicyService securityPolicyService;
 	private final PasswordEncoder passwordEncoder;
-	private final Random random = new Random();
+	private final ForgetMailSender mailSender;
+	private final SecureRandom random = new SecureRandom();
 
 	public ForgetPasswordService(StringRedisTemplate redis, SysUserMapper userMapper,
 								 MailService mailService, SecurityPolicyService securityPolicyService,
-								 PasswordEncoder passwordEncoder) {
+								 PasswordEncoder passwordEncoder, ForgetMailSender mailSender) {
 		this.redis = redis;
 		this.userMapper = userMapper;
 		this.mailService = mailService;
 		this.securityPolicyService = securityPolicyService;
 		this.passwordEncoder = passwordEncoder;
+		this.mailSender = mailSender;
 	}
 
-	/** 发送重置验证码：通道健康检查前置；账号不存在/未绑邮箱静默成功（防枚举）但日志留痕 */
+	/** 发送重置验证码：账号不存在/未绑邮箱/通道未配置/下发失败均静默成功（防枚举、不泄露通道状态），仅日志留痕 */
 	public void sendCode(String username, String tenantId) {
-		// 通道健康检查与账号是否存在无关，不构成枚举预言机，可前置显式报错
-		if (!mailService.isConfigured()) {
-			throw new ServiceException("邮件通道未配置");
-		}
 		String throttleKey = AuthConstants.FORGET_THROTTLE_PREFIX + tenantId + ":" + username;
 		Boolean first = redis.opsForValue().setIfAbsent(throttleKey, "1",
 			Duration.ofSeconds(AuthConstants.FORGET_THROTTLE_SECONDS));
@@ -64,17 +61,15 @@ public class ForgetPasswordService {
 			log.info("忘记密码发码：账号不存在或未绑定邮箱 tenant={} username={}", tenantId, username);
 			return;
 		}
+		if (!mailService.isConfigured()) {
+			log.warn("忘记密码发码：邮件通道未配置，未下发 tenant={} username={}", tenantId, username);
+			return;
+		}
 		String code = String.valueOf(100000 + random.nextInt(900000));
 		String codeKey = codeKey(tenantId, username);
 		redis.opsForValue().set(codeKey, code, Duration.ofSeconds(AuthConstants.FORGET_CODE_EXPIRE_SECONDS));
-		try {
-			mailService.sendByTemplate(user.getEmail(), AuthConstants.FORGET_MAIL_TEMPLATE, Map.of("code", code));
-		} catch (Exception e) {
-			// 下发失败即焚码（不留「未送达却可重置」的悬空码），通道错误如实上抛
-			redis.delete(codeKey);
-			throw e;
-		}
-		log.info("忘记密码验证码已下发 tenant={} username={}", tenantId, username);
+		// 异步下发：响应时间不随账号是否存在/邮件通道耗时变化（防计时侧信道枚举账号）
+		mailSender.send(user.getEmail(), code, codeKey, tenantId, username);
 	}
 
 	/** 凭验证码重置密码：复杂度/历史防重 + BCrypt 落库 + 密码历史记录 + 全端下线（旧会话一律作废） */

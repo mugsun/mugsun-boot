@@ -65,6 +65,10 @@ mugsun:
     front-url: ${MUGSUN_FRONT_URL}
   captcha:
     enabled: true
+    type: SLIDER
+    store: redis      # prod 禁止 memory
+    slider:
+      bind-ua: true   # prod 默认令牌绑定 UA 哈希（防打码平台中转）；bind-ip 在移动网络易误伤，按需开启
     show-code: false
   sms:
     show-code: false

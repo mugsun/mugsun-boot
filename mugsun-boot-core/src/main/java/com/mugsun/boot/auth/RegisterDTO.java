@@ -12,6 +12,8 @@ public class RegisterDTO {
 	/** 图形验证码（防批量注册，与登录同机制） */
 	private String captchaUuid;
 	private String captchaCode;
+	/** 滑块验证通过后签发的一次性令牌（mugsun.captcha.type=SLIDER） */
+	private String captchaToken;
 
 	public String getUsername() {
 		return username;
@@ -59,5 +61,13 @@ public class RegisterDTO {
 
 	public void setCaptchaCode(String captchaCode) {
 		this.captchaCode = captchaCode;
+	}
+
+	public String getCaptchaToken() {
+		return captchaToken;
+	}
+
+	public void setCaptchaToken(String captchaToken) {
+		this.captchaToken = captchaToken;
 	}
 }

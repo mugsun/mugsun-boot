@@ -38,6 +38,8 @@ mvn -pl mugsun-boot-server -am package -DskipTests
 java -jar mugsun-boot-server/target/mugsun-boot.jar
 ```
 
+> **Always build from the repository root with `-am`** (or build the whole project with `mvn clean package -DskipTests`). If you build only the server module (`-pl mugsun-boot-server` without `-am`, `mvn package` inside `mugsun-boot-server`, or an IDE building just that module), `mugsun-boot-core` comes from the local Maven repository at `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/`. Every branch and worktree shares that one 0.1.0 version, which holds whichever branch ran `mvn install` last, so the jar can carry another branch's old code (such as an old captcha response shape) whether or not you add `clean`. When in doubt, run `mvn -B install -DskipTests` from the root first.
+
 Run `java -jar` from the repository root, otherwise `config/application-local.yml` is not picked up. For development you can optionally run `mvn -pl mugsun-boot-server -am spring-boot:run` from the repository root instead.
 
 **Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, run `cd ../mugsun-core && mvn clean install -DskipTests`, then return to this repository to build.
@@ -55,6 +57,30 @@ Compose ports: `5432` (PostgreSQL), `6379` (Redis). Development database credent
 Local configuration path: `optional:file:./config/application-local.yml` (gitignored). The working directory must be the repository root. Production injection: [Configuration](https://docs.mugsun.com/en/boot/configuration).
 
 OpenAPI: http://localhost:8080/swagger-ui/index.html (disabled under `prod`).
+
+## Human verification (slider captcha)
+
+Login, registration, the forgot-password code and the SMS code request require a slider puzzle by default (built in, no third-party dependency). Flow: `GET /auth/captcha/config` (hint) → `POST /auth/captcha/challenge` → `POST /auth/captcha/verify` returns a one-time `captchaToken` → send `captchaToken` in the business request. The server re-checks tenant and client itself; `config` is only a hint. Error codes (HTTP 200 + `R.code`): `40010` expired, `40011` failed, `40012` rate limited (`data.retryAfter` seconds), `40013` token required, `40014` not required.
+
+| Key | Default | Notes |
+|---|---|---|
+| `mugsun.captcha.enabled` | `true` | Global switch (set to true in prod config) |
+| `mugsun.captcha.type` | `SLIDER` | `SLIDER` or `IMAGE` (legacy digits, kept for one release); server-side only |
+| `mugsun.captcha.store` | `redis` | `redis` or `memory`; `memory` is single-node dev only and fails to start under the `prod` profile |
+| `mugsun.captcha.slider.width` / `height` | `320` / `180` | Native background size |
+| `mugsun.captcha.slider.tolerance-px` | `6` | Tolerance for drop position and track travel (native px) |
+| `mugsun.captcha.slider.expire-seconds` / `token-expire-seconds` | `120` / `120` | Challenge and token lifetime |
+| `mugsun.captcha.slider.min-duration-ms` | `300` | Server-timed minimum (issue → verify) |
+| `mugsun.captcha.slider.decoy-count` | `1` | Fake gaps (0–2) |
+| `mugsun.captcha.slider.keyboard-step-px` | `4` | Native pixels moved per key press in keyboard mode (returned as `keyboardStep`) |
+| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` / `false` (`bind-ua` is `true` in prod) | Enforce token binding to IP / UA hash (recorded either way) |
+| `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | Background folder (`file:` works too), jpg/png, 640×360 recommended; plain-colour placeholder when empty |
+| `mugsun.captcha.background.rotate` | `random` | `random` or `round-robin` |
+| `mugsun.captcha.background.reload-seconds` | `600` | Rescan interval, 0 = load at startup only |
+| `mugsun.captcha.rate-limit.*` | see `application.yml` | Per-IP challenge rate, global per-second cap (shared across nodes via Redis), failure lockout (stricter for keyboard mode) |
+| `mugsun.captcha.rate-limit.sms-phone-per-day` / `sms-ip-per-hour` | `10` / `20` | Limits on sending SMS codes (on top of the 60-second per-number throttle), independent of the captcha switch |
+
+Tenant switch: `sys_tenant.captcha_enabled` (`V4__tenant_captcha.sql`, default 1, always on for new tenants); only the platform super admin can change it via `POST /system/tenant/captcha`, and every change is audited. Other nodes pick it up within 60 seconds. Sending SMS codes does not depend on the tenant; only the global switch applies. In slider mode the client switch `sys_client.captcha_enabled` can no longer turn verification off (the caller picks the clientId); it only applies to login in legacy IMAGE mode. The input mode (`inputMode`) is declared when fetching the challenge and must match at verify. The app endpoints `/app/captcha/*` keep their shape and share the same engine.
 
 ## Composition
 
