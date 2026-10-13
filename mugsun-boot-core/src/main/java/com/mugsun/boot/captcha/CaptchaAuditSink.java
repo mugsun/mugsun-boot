@@ -9,5 +9,9 @@ public interface CaptchaAuditSink {
 	default void smsSendFailed(String ip, String phoneHash, String reason) {
 	}
 
+	/** keyboard 取题被拒（租户未启用 SLIDER/ROTATE，40015） */
+	default void keyboardUnavailable(String ip, String tenantId) {
+	}
+
 	CaptchaAuditSink NOOP = (ip, mode, tenant, sec) -> { };
 }

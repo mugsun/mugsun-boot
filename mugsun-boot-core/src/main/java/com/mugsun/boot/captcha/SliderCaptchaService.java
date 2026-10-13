@@ -40,6 +40,8 @@ public class SliderCaptchaService {
 	static final String K_TOKEN = PREFIX + "token:";
 	static final String K_CHALLENGE_RATE = PREFIX + "rl:challenge:";
 	static final String K_KEYBOARD_RATE = PREFIX + "rl:keyboard:";
+	static final String K_KEYBOARD_CHALLENGE_RATE = PREFIX + "rl:keyboard-challenge:";
+	static final String K_KEYBOARD_STAT = PREFIX + "stat:keyboard-challenge:";
 	static final String K_FAIL = PREFIX + "fail:";
 	static final String K_LOCK = PREFIX + "lock:";
 	static final String K_GLOBAL = PREFIX + "rl:global:";
@@ -63,6 +65,7 @@ public class SliderCaptchaService {
 	private final CaptchaAuditSink audit;
 	private final LongSupplier clock;
 	private final MultiTypeRenderer multi;
+	private final java.util.concurrent.Semaphore renderPermits;
 
 	@Autowired
 	public SliderCaptchaService(CaptchaStore store, CaptchaProperties props, PuzzleRenderer renderer,
@@ -88,10 +91,13 @@ public class SliderCaptchaService {
 		this.multi = multi != null ? multi : new MultiTypeRenderer(props, new BackgroundLibrary(props));
 		this.audit = audit;
 		this.clock = clock;
+		this.renderPermits = props.getRenderMaxConcurrent() > 0
+			? new java.util.concurrent.Semaphore(props.getRenderMaxConcurrent()) : null;
 	}
 
 	/**
-	 * 按启用集合选题型：keyboard 只从 SLIDER/ROTATE 选，交集为空回落 SLIDER；集合为空按 SLIDER。
+	 * 按启用集合选题型：keyboard 只从启用集合 ∩ {SLIDER, ROTATE} 选，交集为空返回 null（调用方回 40015，
+	 * 不再回落到租户未启用的 SLIDER）；pointer 集合为空按 SLIDER。
 	 */
 	public static CaptchaType pickType(Set<CaptchaType> enabled, String mode) {
 		List<CaptchaType> pool = new ArrayList<>();
@@ -102,7 +108,10 @@ public class SliderCaptchaService {
 				}
 			}
 		}
-		return pool.isEmpty() ? CaptchaType.SLIDER : pool.get(RANDOM.nextInt(pool.size()));
+		if (pool.isEmpty()) {
+			return MODE_KEYBOARD.equals(mode) ? null : CaptchaType.SLIDER;
+		}
+		return pool.get(RANDOM.nextInt(pool.size()));
 	}
 
 	/** 签发挑战；scene/clientId/tenantId 须为调用方已规范化的值；inputMode 写入记录，verify 时必须一致 */
@@ -125,55 +134,95 @@ public class SliderCaptchaService {
 		if (store.increment(rateKey, 60) > rl.getChallengePerMinute()) {
 			throw CaptchaException.rateLimited(store.ttlSeconds(rateKey));
 		}
+		boolean kb = MODE_KEYBOARD.equals(mode);
 		CaptchaType type = pickType(enabled, mode);
+		if (type == null) {
+			audit.keyboardUnavailable(ipKey, tenantId);
+			throw CaptchaException.keyboardUnavailable();
+		}
+		if (kb) {
+			// keyboard 题无轨迹校验：单独、更严的取题限流 + 按租户/日计数（审计统计用）
+			String kbKey = K_KEYBOARD_CHALLENGE_RATE + ipKey;
+			if (store.increment(kbKey, 60) > rl.getKeyboardChallengePerMinute()) {
+				throw CaptchaException.rateLimited(store.ttlSeconds(kbKey));
+			}
+			store.increment(K_KEYBOARD_STAT + tenantId + ":" + (clock.getAsLong() / 86_400_000L), 2 * 86400);
+		}
 		String id = randomHex();
 		long ttl = props.getSlider().getExpireSeconds();
-		boolean kb = MODE_KEYBOARD.equals(mode);
+		boolean permit = acquireRender();
 		String answer;
 		ChallengeVO vo;
-		switch (type) {
-			case ROTATE -> {
-				MultiTypeRenderer.Rotate r = multi.renderRotate();
-				answer = String.valueOf(r.answerAngle());
-				vo = new ChallengeVO(id, type.name(), mode, r.background(), r.piece(), r.bgWidth(), r.bgHeight(),
-					null, null, kb ? Math.max(1, props.getRotate().getKeyboardStep()) : null, ttl, r.pieceSize(),
-					null, null, null, null, null, null, null, null);
-			}
-			case WORD_CLICK, ICON_CLICK -> {
-				MultiTypeRenderer.Click c = type == CaptchaType.WORD_CLICK ? multi.renderWordClick() : multi.renderIconClick();
-				StringBuilder sb = new StringBuilder();
-				for (int[] a : c.answer()) {
-					sb.append(sb.isEmpty() ? "" : ";").append(a[0]).append(',').append(a[1]).append(',').append(a[2]);
+		try {
+			switch (type) {
+				case ROTATE -> {
+					MultiTypeRenderer.Rotate r = multi.renderRotate();
+					answer = String.valueOf(r.answerAngle());
+					vo = new ChallengeVO(id, type.name(), mode, r.background(), r.piece(), r.bgWidth(), r.bgHeight(),
+						null, null, kb ? Math.max(1, props.getRotate().getKeyboardStep()) : null, ttl, r.pieceSize(),
+						null, null, null, null, null, null, null, null, null);
 				}
-				answer = sb.toString();
-				boolean word = type == CaptchaType.WORD_CLICK;
-				vo = new ChallengeVO(id, type.name(), mode, c.background(), null, c.bgWidth(), c.bgHeight(),
-					null, null, null, ttl, null, word ? c.prompt() : null, word ? null : c.prompt(), c.promptImage(),
-					c.answer().size(), null, null, null, null);
-			}
-			case JIGSAW -> {
-				MultiTypeRenderer.Jigsaw j = multi.renderJigsaw();
-				StringBuilder sb = new StringBuilder();
-				for (int a : j.answer()) {
-					sb.append(sb.isEmpty() ? "" : ",").append(a);
+				case WORD_CLICK, ICON_CLICK -> {
+					MultiTypeRenderer.Click c = type == CaptchaType.WORD_CLICK ? multi.renderWordClick() : multi.renderIconClick();
+					StringBuilder sb = new StringBuilder();
+					for (int[] a : c.answer()) {
+						sb.append(sb.isEmpty() ? "" : ";").append(a[0]).append(',').append(a[1]).append(',').append(a[2]);
+					}
+					answer = sb.toString();
+					boolean word = type == CaptchaType.WORD_CLICK;
+					vo = new ChallengeVO(id, type.name(), mode, c.background(), null, c.bgWidth(), c.bgHeight(),
+						null, null, null, ttl, null, word ? c.prompt() : null, word ? null : c.prompt(), c.promptImage(),
+						c.answer().size(), null, null, null, null, c.itemSize());
 				}
-				answer = sb.toString();
-				vo = new ChallengeVO(id, type.name(), mode, null, null, j.bgWidth(), j.bgHeight(), null, null, null,
-					ttl, null, null, null, null, null, Map.of("rows", j.rows(), "cols", j.cols()), j.tiles(),
-					j.tileWidth(), j.tileHeight());
+				case JIGSAW -> {
+					MultiTypeRenderer.Jigsaw j = multi.renderJigsaw();
+					StringBuilder sb = new StringBuilder();
+					for (int a : j.answer()) {
+						sb.append(sb.isEmpty() ? "" : ",").append(a);
+					}
+					answer = sb.toString();
+					vo = new ChallengeVO(id, type.name(), mode, null, null, j.bgWidth(), j.bgHeight(), null, null, null,
+						ttl, null, null, null, null, null, Map.of("rows", j.rows(), "cols", j.cols()), j.tiles(),
+						j.tileWidth(), j.tileHeight(), null);
+				}
+				default -> {
+					PuzzleRenderer.Puzzle p = renderer.render();
+					answer = String.valueOf(p.answerX());
+					Integer step = kb ? props.getSlider().getKeyboardStepPx() : null;
+					vo = new ChallengeVO(id, TYPE_SLIDER, mode, p.background(), p.piece(), p.bgWidth(), p.bgHeight(),
+						p.pieceWidth(), p.pieceHeight(), step, ttl);
+				}
 			}
-			default -> {
-				PuzzleRenderer.Puzzle p = renderer.render();
-				answer = String.valueOf(p.answerX());
-				Integer step = kb ? props.getSlider().getKeyboardStepPx() : null;
-				vo = new ChallengeVO(id, TYPE_SLIDER, mode, p.background(), p.piece(), p.bgWidth(), p.bgHeight(),
-					p.pieceWidth(), p.pieceHeight(), step, ttl);
+		} finally {
+			if (permit) {
+				renderPermits.release();
 			}
 		}
 		String record = String.join("|", answer, scene, clientId, tenantId,
 			String.valueOf(clock.getAsLong()), mode, type.name());
 		store.put(K_CHALLENGE + id, record, ttl);
 		return vo;
+	}
+
+	/** 出图并发上限：拿不到许可 → 40012（retryAfter 1s）；返回是否占用了许可 */
+	private boolean acquireRender() {
+		if (renderPermits == null) {
+			return false;
+		}
+		try {
+			if (renderPermits.tryAcquire(Math.max(0, props.getRenderAcquireTimeoutMs()),
+				java.util.concurrent.TimeUnit.MILLISECONDS)) {
+				return true;
+			}
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+		throw CaptchaException.rateLimited(1);
+	}
+
+	/** 仅供测试/运维：某租户当日 keyboard 取题数 */
+	public long keyboardChallengeCount(String tenantId) {
+		return store.count(K_KEYBOARD_STAT + tenantId + ":" + (clock.getAsLong() / 86_400_000L));
 	}
 
 	/** 校验：成功返回一次性 token；任何失败该挑战即作废 */
@@ -449,10 +498,11 @@ public class SliderCaptchaService {
 		if (!timing(req, issuedAt, s.getMinDurationMs(), s.getMaxDurationMs())) {
 			return false;
 		}
-		// 拖动条与显示底图等宽：angle = 拖动距离 / bgDisplayWidth × 360
+		// 拖动行程按滑块左边缘位移计，最大行程 = bgDisplayWidth：angle = 位移 / bgDisplayWidth × 360。
+		// track 首末点位移换算出的角度与 answer.angle 差 ≤ tolerance-deg（不再借用 SLIDER 的 6 原始像素）
 		double ax = angle / 360.0 * display;
-		return trackLooksHuman(req.track(), display, ax, (double) s.getWidth() / display,
-			req.endTime() - req.startTime(), s);
+		double tolDisplayPx = r.getToleranceDeg() / 360.0 * display;
+		return trackLooksHuman(req.track(), display, ax, req.endTime() - req.startTime(), s, tolDisplayPx);
 	}
 
 	static double circularDiff(double a, double b) {
@@ -499,7 +549,8 @@ public class SliderCaptchaService {
 			return false;
 		}
 		CaptchaProperties.Click c = props.getClick();
-		if (!timing(req, issuedAt, c.getMinDurationMs(), c.getMaxDurationMs())) {
+		// bgDisplayWidth = 整个 rows×cols 网格的显示宽度，范围同其它题型 [260, 960]
+		if (displayWidth(req) == null || !timing(req, issuedAt, c.getMinDurationMs(), c.getMaxDurationMs())) {
 			return false;
 		}
 		List<Integer> order = req.answer() == null ? null : req.answer().order();
@@ -517,6 +568,12 @@ public class SliderCaptchaService {
 
 	static boolean trackLooksHuman(List<TrackPoint> track, int display, double ax, double scale,
 								   long clientDur, CaptchaProperties.Slider s) {
+		return trackLooksHuman(track, display, ax, clientDur, s, s.getTolerancePx() / scale);
+	}
+
+	/** tolDisplayPx：track 首末 x 位移与 ax 的允许差（显示像素）；t 为相对 startTime 的毫秒 */
+	static boolean trackLooksHuman(List<TrackPoint> track, int display, double ax, long clientDur,
+								   CaptchaProperties.Slider s, double tolDisplayPx) {
 		if (track == null || track.size() < s.getMinTrackPoints() || track.size() > s.getMaxTrackPoints()) {
 			return false;
 		}
@@ -565,7 +622,7 @@ public class SliderCaptchaService {
 			return false;
 		}
 		double travel = track.get(track.size() - 1).x() - track.get(0).x();
-		if (Math.abs(travel - ax) * scale > s.getTolerancePx()) {
+		if (Math.abs(travel - ax) > tolDisplayPx + 1e-9) {
 			return false;
 		}
 		double mean = sum / n;

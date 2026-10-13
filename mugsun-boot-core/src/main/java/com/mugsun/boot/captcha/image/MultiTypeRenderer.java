@@ -25,9 +25,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.random.RandomGenerator;
 
@@ -45,21 +43,14 @@ public class MultiTypeRenderer {
 		+ "春夏秋冬东南西北上下左右中大小多少高长方圆红黄蓝绿白黑紫青光明早晚开关门窗桌椅书本笔纸画歌舞茶果瓜菜桥路车船城村家园"
 		+ "海湖河江岛岸沙泉松柏梅兰菊荷桃李杏柳叶根灯伞帽衣鞋包钟表球琴棋旗塔湾港航";
 
-	/** 易混图标组：同一题内每组最多出现一个 */
-	static final List<Set<String>> CONFUSABLE = List.of(
-		Set.of("sun", "star", "flower", "gift"), Set.of("moon", "smile", "cat"), Set.of("key", "lock"),
-		Set.of("plane", "rocket"), Set.of("cup", "bell"), Set.of("leaf", "tree", "drop", "fire"),
-		Set.of("fish", "boat", "anchor"), Set.of("car", "bike"), Set.of("note", "book", "envelope"),
-		Set.of("pin", "drop", "bulb"), Set.of("diamond", "crown"), Set.of("phone", "camera"),
-		Set.of("pencil", "hammer", "scissors"), Set.of("mountain", "house"), Set.of("clock", "glasses"));
-
 	private final CaptchaProperties props;
 	private final BackgroundLibrary library;
 	private final Font font;
 	private volatile List<BufferedImage> rotatePool;
 	private volatile List<Icon> iconPool;
 
-	public record Icon(String slug, String name, BufferedImage image) {
+	/** confusable：manifest.json 里该图标所属的易混组名（可属多组）；同一题内每组最多出现一个 */
+	public record Icon(String slug, String name, Set<String> confusable, BufferedImage image) {
 	}
 
 	public record Rotate(String background, String piece, int bgWidth, int bgHeight, int pieceSize, int answerAngle) {
@@ -67,7 +58,7 @@ public class MultiTypeRenderer {
 
 	/** 点选：answer 为每个目标中心与命中半径（原始像素），按提示顺序 */
 	public record Click(String background, int bgWidth, int bgHeight, List<String> prompt, String promptImage,
-						List<int[]> answer) {
+						List<int[]> answer, int itemSize) {
 	}
 
 	/** 拼图：tiles 按打乱后的位置给出；answer[cell] = 应放入该格的 tiles 下标 */
@@ -90,8 +81,7 @@ public class MultiTypeRenderer {
 		int w = s.getWidth();
 		int h = s.getHeight();
 		int d = Math.max(60, Math.min(cfg.getPieceSize(), h - 4));
-		int min = Math.max(10, Math.min(150, cfg.getMinAngle()));
-		int applied = rnd.nextInt(min, 360 - min + 1);
+		int applied = randomAngle(cfg.getMinAngle(), cfg.getKeyboardStep(), rnd);
 		List<BufferedImage> pool = rotatePool();
 		BufferedImage src = pool.isEmpty() ? library.next(d, d) : pool.get(rnd.nextInt(pool.size()));
 		BufferedImage piece = new BufferedImage(d, d, BufferedImage.TYPE_INT_ARGB);
@@ -113,6 +103,23 @@ public class MultiTypeRenderer {
 		noise(bg, 6);
 		int answer = Math.floorMod(360 - applied, 360);
 		return new Rotate(jpeg(bg), png(piece), w, h, d, answer);
+	}
+
+	/**
+	 * 服务端施加的顺时针旋转角：keyboardStep 的整数倍，且落在 [minAngle, 360 − minAngle]（minAngle 至少 30°）。
+	 * 于是纠正量 360 − applied 也是步长整数倍，键盘按整数次即可精确回正。
+	 */
+	public static int randomAngle(int minAngle, int keyboardStep, RandomGenerator rnd) {
+		int step = Math.max(1, Math.min(90, keyboardStep));
+		int min = Math.max(30, Math.min(150, minAngle));
+		int lo = (min + step - 1) / step;
+		int hi = (360 - min) / step;
+		if (hi < lo) {
+			step = 1;
+			lo = min;
+			hi = 360 - min;
+		}
+		return rnd.nextInt(lo, hi + 1) * step;
 	}
 
 	// ------------------------------------------------------------------ CLICK
@@ -159,7 +166,7 @@ public class MultiTypeRenderer {
 			drawGlyph(pg, prompt.get(i), 21 + i * 34, 18, 24, rnd.nextInt(-12, 13), rnd);
 		}
 		pg.dispose();
-		return new Click(jpeg(bg), w, h, prompt, png(pi), answer);
+		return new Click(jpeg(bg), w, h, prompt, png(pi), answer, size);
 	}
 
 	public Click renderIconClick() {
@@ -200,31 +207,24 @@ public class MultiTypeRenderer {
 			pg.drawImage(icons.get(i).image(), 6 + i * 34, 3, 30, 30, null);
 		}
 		pg.dispose();
-		return new Click(jpeg(bg), w, h, names, png(pi), answer);
+		return new Click(jpeg(bg), w, h, names, png(pi), answer, size);
 	}
 
-	List<Icon> pickIcons(int total, RandomGenerator rnd) {
+	/** 选图标：同一易混组（manifest confusable）最多一个；public 仅供测试 */
+	public List<Icon> pickIcons(int total, RandomGenerator rnd) {
 		List<Icon> pool = new ArrayList<>(iconPool());
 		if (pool.size() < total) {
 			throw new IllegalStateException("验证码图标不足：" + pool.size());
 		}
 		Collections.shuffle(pool, new java.util.Random(rnd.nextLong()));
 		List<Icon> out = new ArrayList<>();
-		Set<Integer> usedGroups = new HashSet<>();
+		Set<String> usedGroups = new HashSet<>();
 		for (Icon icon : pool) {
 			if (out.size() == total) {
 				break;
 			}
-			boolean clash = false;
-			List<Integer> mine = new ArrayList<>();
-			for (int gi = 0; gi < CONFUSABLE.size(); gi++) {
-				if (CONFUSABLE.get(gi).contains(icon.slug())) {
-					mine.add(gi);
-					clash |= usedGroups.contains(gi);
-				}
-			}
-			if (!clash) {
-				usedGroups.addAll(mine);
+			if (Collections.disjoint(usedGroups, icon.confusable())) {
+				usedGroups.addAll(icon.confusable());
 				out.add(icon);
 			}
 		}
@@ -398,7 +398,7 @@ public class MultiTypeRenderer {
 		if (p == null) {
 			synchronized (this) {
 				if (iconPool == null) {
-					iconPool = loadIcons();
+					iconPool = loadIcons(props.getIconDir());
 				}
 				p = iconPool;
 			}
@@ -427,26 +427,57 @@ public class MultiTypeRenderer {
 		return List.copyOf(out);
 	}
 
-	private static List<Icon> loadIcons() {
-		Map<String, String> names = new LinkedHashMap<>();
-		try (InputStream in = MultiTypeRenderer.class.getResourceAsStream("/captcha/icons/manifest.json")) {
+	/** 图标清单条目：slug、中文名、易混组名（manifest.json 的 confusable，字符串或字符串数组） */
+	public record ManifestEntry(String slug, String name, Set<String> confusable) {
+	}
+
+	/** 读取默认图标目录的 manifest.json */
+	public static List<ManifestEntry> loadManifest() {
+		return loadManifest("classpath:captcha/icons/");
+	}
+
+	/** 读取 &lt;iconDir&gt;/manifest.json；易混分组只来自清单，代码不写死 */
+	public static List<ManifestEntry> loadManifest(String iconDir) {
+		List<ManifestEntry> out = new ArrayList<>();
+		try (InputStream in = RESOLVER.getResource(base(iconDir) + "manifest.json").getInputStream()) {
 			if (in != null) {
 				for (JsonNode n : new ObjectMapper().readTree(in)) {
-					names.put(n.path("slug").asText(), n.path("name_zh").asText());
+					Set<String> groups = new java.util.LinkedHashSet<>();
+					JsonNode c = n.path("confusable");
+					if (c.isArray()) {
+						c.forEach(x -> groups.add(x.asText()));
+					} else if (c.isTextual() && !c.asText().isBlank()) {
+						groups.add(c.asText());
+					}
+					out.add(new ManifestEntry(n.path("slug").asText(), n.path("name_zh").asText(), Set.copyOf(groups)));
 				}
 			}
 		} catch (Exception e) {
 			log.warn("验证码图标清单读取失败：{}", e.getMessage());
 		}
+		return List.copyOf(out);
+	}
+
+	private static String base(String dir) {
+		String d = dir == null || dir.isBlank() ? "classpath:captcha/icons/" : dir.trim();
+		return d.endsWith("/") ? d : d + "/";
+	}
+
+	private static final PathMatchingResourcePatternResolver RESOLVER = new PathMatchingResourcePatternResolver();
+
+	private static List<Icon> loadIcons(String iconDir) {
 		List<Icon> out = new ArrayList<>();
-		for (Map.Entry<String, String> e : names.entrySet()) {
-			try (InputStream in = MultiTypeRenderer.class.getResourceAsStream("/captcha/icons/" + e.getKey() + ".png")) {
-				BufferedImage img = in == null ? null : ImageIO.read(in);
+		for (ManifestEntry e : loadManifest(iconDir)) {
+			if (!e.slug().matches("[a-z0-9_-]{1,32}")) {
+				continue;
+			}
+			try (InputStream in = RESOLVER.getResource(base(iconDir) + e.slug() + ".png").getInputStream()) {
+				BufferedImage img = ImageIO.read(in);
 				if (img != null) {
-					out.add(new Icon(e.getKey(), e.getValue(), img));
+					out.add(new Icon(e.slug(), e.name(), e.confusable(), img));
 				}
 			} catch (Exception ex) {
-				log.warn("验证码图标读取失败：{}", e.getKey());
+				log.warn("验证码图标读取失败：{}", e.slug());
 			}
 		}
 		return List.copyOf(out);

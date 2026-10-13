@@ -17,7 +17,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 多类型验证码 HTTP：随机只出启用类型、keyboard 回落、config RANDOM、端到端校验 */
+/** 多类型验证码 HTTP：随机只出启用类型、keyboard 无交集 40015、config RANDOM、端到端校验 */
 class MultiTypeCaptchaApiTest extends AbstractIntegrationTest {
 
 	@Autowired
@@ -67,7 +67,7 @@ class MultiTypeCaptchaApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	void keyboardPicksOnlyKeyboardTypesOrFallsBackToSlider() {
+	void keyboardPicksOnlyEnabledKeyboardTypesElse40015() {
 		props.setDefaultTypes(new ArrayList<>(List.of("ROTATE", "ICON_CLICK")));
 		for (int i = 0; i < 4; i++) {
 			JsonNode c = challenge("keyboard", null);
@@ -75,7 +75,15 @@ class MultiTypeCaptchaApiTest extends AbstractIntegrationTest {
 			assertThat(c.path("keyboardStep").asInt()).isPositive();
 		}
 		props.setDefaultTypes(new ArrayList<>(List.of("ICON_CLICK", "JIGSAW")));
-		assertThat(challenge("keyboard", "JIGSAW").path("type").asText()).isEqualTo("SLIDER");
+		Map<String, Object> body = new HashMap<>();
+		body.put("scene", "login");
+		body.put("clientId", CLIENT_WEB);
+		body.put("tenantId", PLATFORM_TENANT);
+		body.put("inputMode", "keyboard");
+		body.put("type", "SLIDER");
+		JsonNode r = readBody(post("/auth/captcha/challenge", body, null));
+		assertThat(r.path("code").asInt()).isEqualTo(CaptchaCodes.KEYBOARD_UNAVAILABLE);
+		assertThat(r.path("msg").asText()).isEqualTo("未启用无障碍验证方式");
 	}
 
 	@Test

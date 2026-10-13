@@ -41,6 +41,7 @@ class MultiTypeCaptchaServiceTest {
 		props.getRateLimit().setKeyboardFailMax(1000);
 		props.getRateLimit().setKeyboardVerifyPerMinute(1000);
 		props.getRateLimit().setChallengePerMinute(1000);
+		props.getRateLimit().setKeyboardChallengePerMinute(1000);
 		BackgroundLibrary lib = new BackgroundLibrary(props);
 		svc = new SliderCaptchaService(new MemoryCaptchaStore(now::get), props, new PuzzleRenderer(props, lib),
 			new MultiTypeRenderer(props, lib), (ip, mode, tenant, sec) -> { }, now::get);
@@ -92,11 +93,45 @@ class MultiTypeCaptchaServiceTest {
 	}
 
 	@Test
+	void rotateAngleIsStepMultipleAndAtLeast30() {
+		java.util.random.RandomGenerator g = java.util.random.RandomGenerator.of("L64X128MixRandom");
+		for (int step : new int[]{1, 5, 7, 15}) {
+			for (int i = 0; i < 2000; i++) {
+				int a = MultiTypeRenderer.randomAngle(10, step, g);
+				assertThat(a % step).isZero();
+				assertThat(a).isBetween(30, 330);
+			}
+		}
+		for (int i = 0; i < 20; i++) {
+			ChallengeVO c = issue(CaptchaType.ROTATE, "keyboard");
+			int answer = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
+			assertThat(answer % c.keyboardStep()).isZero();
+			assertThat(answer).isBetween(30, 330);
+		}
+	}
+
+	/** pointer：track 末点换算角度与 answer.angle 的差按 tolerance-deg（10°）判，不再借用滑块的 6 原始像素 */
+	@Test
+	void rotateTrackToleranceIsInDegrees() {
+		for (double trackOff : new double[]{9, -9}) {
+			ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
+			double angle = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
+			assertThat(pass(req(c.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, angle, null, null),
+				track((angle + trackOff) / 360 * 320, 900), null))).isTrue();
+		}
+		ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
+		double angle = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
+		assertThat(pass(req(c.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, angle, null, null),
+			track((angle + 12) / 360 * 320, 900), null))).isFalse();
+	}
+
+	@Test
 	void rotateCorrectBoundaryWrongAndKeyboard() {
 		assertThat(rotate(0, "pointer")).isTrue();
-		assertThat(rotate(12, "pointer")).isTrue();
-		assertThat(rotate(-12, "pointer")).isTrue();
-		assertThat(rotate(14, "pointer")).isFalse();
+		assertThat(rotate(10, "pointer")).isTrue();
+		assertThat(rotate(-10, "pointer")).isTrue();
+		assertThat(rotate(12, "pointer")).isFalse();
+		assertThat(rotate(-12, "pointer")).isFalse();
 		assertThat(rotate(90, "pointer")).isFalse();
 		assertThat(rotate(0, "keyboard")).isTrue();
 		assertThat(rotate(40, "keyboard")).isFalse();
@@ -138,6 +173,37 @@ class MultiTypeCaptchaServiceTest {
 	}
 
 	@Test
+	void manifestConfusableGroupsAreReadIncludingDesignerPairs() {
+		java.util.Map<String, Set<String>> groups = new java.util.HashMap<>();
+		for (MultiTypeRenderer.ManifestEntry e : MultiTypeRenderer.loadManifest()) {
+			for (String g : e.confusable()) {
+				groups.computeIfAbsent(g, k -> new HashSet<>()).add(e.slug());
+			}
+		}
+		assertThat(groups).hasSizeGreaterThanOrEqualTo(17);
+		assertThat(groups.values()).anySatisfy(v -> assertThat(v).contains("house", "phone"));
+		assertThat(groups.values()).anySatisfy(v -> assertThat(v).contains("sun", "clock"));
+	}
+
+	@Test
+	void pickedIconsNeverShareConfusableGroup() {
+		MultiTypeRenderer r = new MultiTypeRenderer(props, new BackgroundLibrary(props));
+		for (int i = 0; i < 2000; i++) {
+			List<MultiTypeRenderer.Icon> icons = r.pickIcons(5, java.util.random.RandomGenerator.of("L64X128MixRandom"));
+			Set<String> used = new HashSet<>();
+			Set<String> slugs = new HashSet<>();
+			for (MultiTypeRenderer.Icon icon : icons) {
+				for (String g : icon.confusable()) {
+					assertThat(used.add(g)).as("组 %s 同场两次：%s", g, icons).isTrue();
+				}
+				slugs.add(icon.slug());
+			}
+			assertThat(slugs.containsAll(Set.of("house", "phone"))).isFalse();
+			assertThat(slugs.containsAll(Set.of("sun", "clock"))).isFalse();
+		}
+	}
+
+	@Test
 	void iconsNeverMixConfusableGroup() {
 		MultiTypeRenderer r = new MultiTypeRenderer(props, new BackgroundLibrary(props));
 		for (int i = 0; i < 50; i++) {
@@ -162,6 +228,31 @@ class MultiTypeCaptchaServiceTest {
 			order.set(1, a);
 		}
 		return pass(req(c.captchaId(), "pointer", 2000, new VerifyRequest.Answer(null, null, null, order), null, null));
+	}
+
+	@Test
+	void jigsawRequiresDisplayWidthInRange() {
+		for (int width : new int[]{259, 961}) {
+			ChallengeVO c = issue(CaptchaType.JIGSAW, "pointer");
+			assertThat(c.background()).isNull();
+			assertThat(c.tiles()).allSatisfy(t -> assertThat(t).startsWith("data:image/jpeg"));
+			assertThat(c.tileWidth()).isEqualTo(160);
+			assertThat(c.tileHeight()).isEqualTo(90);
+			List<Integer> order = new ArrayList<>();
+			for (String s : svc.peekAnswer(c.captchaId())[0].split(",")) {
+				order.add(Integer.parseInt(s));
+			}
+			now.addAndGet(2100);
+			long end = now.get();
+			assertThat(pass(new VerifyRequest(c.captchaId(), "pointer", width, end - 2000, end, null,
+				new VerifyRequest.Answer(null, null, null, order), null))).isFalse();
+		}
+	}
+
+	@Test
+	void clickReturnsItemSize() {
+		assertThat(issue(CaptchaType.WORD_CLICK, "pointer").itemSize()).isEqualTo(32);
+		assertThat(issue(CaptchaType.ICON_CLICK, "pointer").itemSize()).isEqualTo(36);
 	}
 
 	@Test
@@ -199,7 +290,7 @@ class MultiTypeCaptchaServiceTest {
 	}
 
 	@Test
-	void pickTypeOnlyFromEnabledAndKeyboardFallsBack() {
+	void pickTypeOnlyFromEnabledAndKeyboardNeverFallsBackToDisabledSlider() {
 		Set<CaptchaType> enabled = EnumSet.of(CaptchaType.ROTATE, CaptchaType.WORD_CLICK, CaptchaType.JIGSAW);
 		Set<CaptchaType> seen = new HashSet<>();
 		for (int i = 0; i < 300; i++) {
@@ -208,6 +299,82 @@ class MultiTypeCaptchaServiceTest {
 		}
 		assertThat(seen).isEqualTo(enabled);
 		assertThat(SliderCaptchaService.pickType(EnumSet.of(CaptchaType.ICON_CLICK, CaptchaType.JIGSAW), "keyboard"))
+			.isNull();
+		assertThat(SliderCaptchaService.pickType(EnumSet.of(CaptchaType.WORD_CLICK), "keyboard")).isNull();
+		assertThat(SliderCaptchaService.pickType(EnumSet.of(CaptchaType.SLIDER, CaptchaType.JIGSAW), "keyboard"))
 			.isEqualTo(CaptchaType.SLIDER);
+	}
+
+	/** B5：租户只启用点选/拼图时 keyboard 取题 → 40015，写审计，不出任何题 */
+	@Test
+	void keyboardWithoutAccessibleTypeIsRejectedWith40015() {
+		List<String> audited = new ArrayList<>();
+		CaptchaAuditSink sink = new CaptchaAuditSink() {
+			@Override
+			public void locked(String ip, String mode, String tenant, long sec) {
+			}
+
+			@Override
+			public void keyboardUnavailable(String ip, String tenantId) {
+				audited.add(tenantId);
+			}
+		};
+		BackgroundLibrary lib = new BackgroundLibrary(props);
+		SliderCaptchaService s = new SliderCaptchaService(new MemoryCaptchaStore(now::get), props,
+			new PuzzleRenderer(props, lib), new MultiTypeRenderer(props, lib), sink, now::get);
+		assertThatThrownBy(() -> s.challenge("login", "web", "000000", "keyboard", IP, EnumSet.of(CaptchaType.WORD_CLICK)))
+			.isInstanceOfSatisfying(CaptchaException.class,
+				e -> assertThat(e.getCode()).isEqualTo(CaptchaCodes.KEYBOARD_UNAVAILABLE));
+		assertThat(audited).containsExactly("000000");
+		assertThat(s.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.WORD_CLICK)).type())
+			.isEqualTo("WORD_CLICK");
+	}
+
+	/** B5：keyboard 取题单独限流（更严）并按租户计数 */
+	@Test
+	void keyboardChallengeHasStricterOwnLimitAndCounter() {
+		props.getRateLimit().setKeyboardChallengePerMinute(2);
+		issue(CaptchaType.SLIDER, "keyboard");
+		issue(CaptchaType.ROTATE, "keyboard");
+		assertThat(svc.keyboardChallengeCount("000000")).isEqualTo(2);
+		assertThatThrownBy(() -> issue(CaptchaType.SLIDER, "keyboard"))
+			.isInstanceOfSatisfying(CaptchaException.class,
+				e -> assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED));
+		// pointer 不受 keyboard 限额影响
+		issue(CaptchaType.SLIDER, "pointer");
+	}
+
+	/** N3：出图并发达到上限 → 40012 */
+	@Test
+	void renderConcurrencyLimitReturnsRateLimited() throws Exception {
+		props.setRenderMaxConcurrent(1);
+		props.setRenderAcquireTimeoutMs(50);
+		java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+		java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+		BackgroundLibrary lib = new BackgroundLibrary(props);
+		MultiTypeRenderer slow = new MultiTypeRenderer(props, lib) {
+			@Override
+			public Rotate renderRotate() {
+				entered.countDown();
+				try {
+					release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				}
+				return super.renderRotate();
+			}
+		};
+		SliderCaptchaService s = new SliderCaptchaService(new MemoryCaptchaStore(now::get), props,
+			new PuzzleRenderer(props, lib), slow, (ip, mode, tenant, sec) -> { }, now::get);
+		Thread t = new Thread(() -> s.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.ROTATE)));
+		t.start();
+		assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+		assertThatThrownBy(() -> s.challenge("login", "web", "000000", "pointer", "203.0.113.10", EnumSet.of(CaptchaType.SLIDER)))
+			.isInstanceOfSatisfying(CaptchaException.class,
+				e -> assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED));
+		release.countDown();
+		t.join(5000);
+		assertThat(s.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.SLIDER)).type())
+			.isEqualTo("SLIDER");
 	}
 }

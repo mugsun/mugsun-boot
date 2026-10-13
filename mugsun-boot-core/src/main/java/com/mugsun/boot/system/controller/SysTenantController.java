@@ -31,10 +31,14 @@ public class SysTenantController {
 		this.usualLogService = usualLogService;
 	}
 
-	/** 租户验证码开关：仅平台超管可改，写审计日志 */
+	/**
+	 * 租户验证码开关 + 启用题型：仅平台超管可改，写审计日志。
+	 * types 缺省 = 不改；types 为 null 或 [] = 清回平台默认（NULL）；否则只能是 5 个合法值。
+	 * 启用集合不含 SLIDER/ROTATE 时仍保存，但响应 data.warning 提示 keyboard 用户会收到 40015。
+	 */
 	@RepeatSubmit
 	@PostMapping("/captcha")
-	public R<Void> captchaSwitch(@RequestBody CaptchaSwitchDTO dto) {
+	public R<java.util.Map<String, Object>> captchaSwitch(@RequestBody CaptchaSwitchDTO dto) {
 		if (!com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()) {
 			throw new ServiceException(com.mugsun.core.tool.api.ResultCode.FORBIDDEN);
 		}
@@ -43,20 +47,41 @@ public class SysTenantController {
 		}
 		boolean on = Boolean.TRUE.equals(dto.enabled());
 		String types = null;
-		if (dto.types() != null) {
-			java.util.Set<com.mugsun.boot.captcha.CaptchaType> parsed = com.mugsun.boot.captcha.CaptchaType.parseAll(dto.types());
-			if (parsed == null || parsed.size() != dto.types().stream().distinct().count()) {
-				throw new ServiceException("验证码类型无效。可选：SLIDER、ROTATE、WORD_CLICK、ICON_CLICK、JIGSAW，至少选一种");
+		String warning = null;
+		com.fasterxml.jackson.databind.JsonNode raw = dto.types();
+		if (raw != null) {
+			if (raw.isNull() || (raw.isArray() && raw.isEmpty())) {
+				types = TenantService.CLEAR_CAPTCHA_TYPES;
+			} else {
+				java.util.List<String> list = new java.util.ArrayList<>();
+				if (raw.isArray()) {
+					raw.forEach(n -> list.add(n.isTextual() ? n.asText() : "\u0000"));
+				}
+				java.util.Set<com.mugsun.boot.captcha.CaptchaType> parsed = com.mugsun.boot.captcha.CaptchaType.parseAll(list);
+				if (!raw.isArray() || parsed == null || parsed.size() != list.stream().distinct().count()) {
+					throw new ServiceException("验证码类型无效。可选：SLIDER、ROTATE、WORD_CLICK、ICON_CLICK、JIGSAW；传空数组恢复平台默认");
+				}
+				types = com.mugsun.boot.captcha.CaptchaType.toCsv(parsed);
+				if (java.util.Collections.disjoint(parsed, com.mugsun.boot.captcha.CaptchaType.KEYBOARD)) {
+					warning = "未启用 SLIDER 或 ROTATE：键盘/读屏用户将无法完成验证（返回 40015「未启用无障碍验证方式」）";
+				}
 			}
-			types = com.mugsun.boot.captcha.CaptchaType.toCsv(parsed);
 		}
 		String code = tenantService.setCaptcha(dto.id(), on, types);
+		String typeLog = types == null ? "" : TenantService.CLEAR_CAPTCHA_TYPES.equals(types) ? "，类型 恢复平台默认" : "，类型 " + types;
 		usualLogService.record("warn", String.valueOf(cn.dev33.satoken.stp.StpUtil.getLoginIdDefaultNull()),
-			"租户验证码开关：" + code + " → " + (on ? "开启" : "关闭") + (types == null ? "" : "，类型 " + types), code);
-		return R.success(Boolean.TRUE.equals(dto.enabled()) ? "已开启该租户的安全验证" : "已关闭该租户的安全验证");
+			"租户验证码开关：" + code + " → " + (on ? "开启" : "关闭") + typeLog, code);
+		java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+		if (warning != null) {
+			data.put("warning", warning);
+		}
+		R<java.util.Map<String, Object>> r = R.data(data.isEmpty() ? null : data);
+		r.setMsg(on ? "已开启该租户的安全验证" : "已关闭该租户的安全验证");
+		return r;
 	}
 
-	public record CaptchaSwitchDTO(Long id, Boolean enabled, java.util.List<String> types) {
+	/** types 用 JsonNode 区分「缺省（不改）」与「显式 null（清回默认）」 */
+	public record CaptchaSwitchDTO(Long id, Boolean enabled, com.fasterxml.jackson.databind.JsonNode types) {
 	}
 
 	@GetMapping("/list")

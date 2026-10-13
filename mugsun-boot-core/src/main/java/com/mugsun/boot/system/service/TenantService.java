@@ -115,7 +115,10 @@ public class TenantService {
 		return setCaptcha(id, enabled, null);
 	}
 
-	/** 租户验证码开关 + 启用题型（types 为 null 不改；调用方负责鉴权、审计与取值校验） */
+	/** setCaptcha 的 types 取此值表示清回 NULL（平台默认） */
+	public static final String CLEAR_CAPTCHA_TYPES = "";
+
+	/** 租户验证码开关 + 启用题型（types 为 null 不改，"" 清回 NULL；调用方负责鉴权、审计与取值校验） */
 	public String setCaptcha(Long id, boolean enabled, String types) {
 		SysTenant exist = id == null ? null : tenantMapper.selectOneById(id);
 		if (exist == null) {
@@ -124,7 +127,7 @@ public class TenantService {
 		SysTenant upd = com.mybatisflex.core.util.UpdateEntity.of(SysTenant.class, id);
 		upd.setCaptchaEnabled(enabled ? 1 : 0);
 		if (types != null) {
-			upd.setCaptchaTypes(types);
+			upd.setCaptchaTypes(types.isEmpty() ? null : types);
 		}
 		tenantMapper.update(upd);
 		tenantValidator.evict(exist.getTenantCode());

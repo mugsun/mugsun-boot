@@ -24,6 +24,12 @@ public class CaptchaProperties {
 	private final Rotate rotate = new Rotate();
 	private final Click click = new Click();
 	private final Jigsaw jigsaw = new Jigsaw();
+	/** 图标目录（classpath: 或 file:），须含 manifest.json 与 <slug>.png；生产建议换成私有图库 */
+	private String iconDir = "classpath:captcha/icons/";
+	/** 出图并发上限（本节点），超限 40012；≤0 不限 */
+	private int renderMaxConcurrent = 16;
+	/** 等待出图许可的最长毫秒数 */
+	private long renderAcquireTimeoutMs = 200;
 
 	public boolean isEnabled() { return enabled; }
 	public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -39,12 +45,18 @@ public class CaptchaProperties {
 	public Rotate getRotate() { return rotate; }
 	public Click getClick() { return click; }
 	public Jigsaw getJigsaw() { return jigsaw; }
+	public String getIconDir() { return iconDir; }
+	public void setIconDir(String iconDir) { this.iconDir = iconDir; }
+	public int getRenderMaxConcurrent() { return renderMaxConcurrent; }
+	public void setRenderMaxConcurrent(int v) { this.renderMaxConcurrent = v; }
+	public long getRenderAcquireTimeoutMs() { return renderAcquireTimeoutMs; }
+	public void setRenderAcquireTimeoutMs(long v) { this.renderAcquireTimeoutMs = v; }
 
 	/** 旋转题：圆图直径（原始像素）、容差（度）、键盘步长（度）、最小初始偏转角 */
 	public static class Rotate {
 		private String dir = "classpath:captcha/rotate/";
 		private int pieceSize = 160;
-		private int toleranceDeg = 12;
+		private int toleranceDeg = 10;
 		private int keyboardStep = 5;
 		private int minAngle = 30;
 
@@ -191,6 +203,8 @@ public class CaptchaProperties {
 		private int keyboardFailMax = 3;
 		/** 键盘模式：单 IP 每分钟校验次数上限 */
 		private int keyboardVerifyPerMinute = 6;
+		/** 键盘模式：单 IP 每分钟取题上限（比 challenge-per-minute 更严） */
+		private int keyboardChallengePerMinute = 10;
 		private long failWindowSeconds = 600;
 		private long lockSeconds = 600;
 		/** 发送短信验证码：单手机号每天上限、单 IP 每小时上限（叠加原有同号 60s 节流） */
@@ -215,6 +229,8 @@ public class CaptchaProperties {
 		public void setKeyboardFailMax(int v) { this.keyboardFailMax = v; }
 		public int getKeyboardVerifyPerMinute() { return keyboardVerifyPerMinute; }
 		public void setKeyboardVerifyPerMinute(int v) { this.keyboardVerifyPerMinute = v; }
+		public int getKeyboardChallengePerMinute() { return keyboardChallengePerMinute; }
+		public void setKeyboardChallengePerMinute(int v) { this.keyboardChallengePerMinute = v; }
 		public long getFailWindowSeconds() { return failWindowSeconds; }
 		public void setFailWindowSeconds(long v) { this.failWindowSeconds = v; }
 		public int getSmsPhonePerDay() { return smsPhonePerDay; }
