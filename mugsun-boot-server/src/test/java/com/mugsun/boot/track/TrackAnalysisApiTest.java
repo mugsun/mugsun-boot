@@ -168,6 +168,28 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(yesterdayRow.has("bounceCount")).isTrue();
 	}
 
+	/** trend 日粒度含当日行：stats_day 只落闭合日，演示数据全在今日时趋势也不能为空（回归：访问趋势暂无数据） */
+	@Test
+	void trendDailyIncludesTodayLiveRow() {
+		String today = LocalDate.now(ZoneOffset.UTC).toString();
+		JsonNode day = readBody(get("/system/track/trend?appKey=" + APP_A + "&days=7&dimType=overview", adminToken)).path("data");
+		JsonNode todayRow = null;
+		int todayCount = 0;
+		for (JsonNode point : day) {
+			if (today.equals(point.path("date").asText())) {
+				todayRow = point;
+				todayCount++;
+			}
+		}
+		assertThat(todayRow).as("日粒度序列应含今日直算行").isNotNull();
+		assertThat(todayCount).as("今日行不重复").isEqualTo(1);
+		assertThat(todayRow.path("pv").asLong()).as("今日 3 次 PV").isEqualTo(3L);
+		assertThat(todayRow.path("eventCount").asLong()).as("今日 9 条事件").isEqualTo(9L);
+		assertThat(todayRow.path("uv").asLong()).as("今日 d1/d2").isEqualTo(2L);
+		assertThat(todayRow.path("sessionCount").asLong()).isEqualTo(2L);
+		assertThat(todayRow.has("bounceCount")).isTrue();
+	}
+
 	/** pages：Top 页面（PV/UV/平均停留）；/home pv=3（今日2+昨日1），uv=3 */
 	@Test
 	void pagesTopWithUvAndDuration() {
