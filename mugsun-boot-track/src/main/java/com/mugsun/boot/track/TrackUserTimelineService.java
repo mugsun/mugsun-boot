@@ -28,7 +28,8 @@ import java.util.zip.GZIPInputStream;
  * <p><b>身份归并</b>：userId 查询时 LEFT JOIN track_identity（uk_identity 部分唯一索引保证每事件至多一行映射，
  * JOIN 不增行），把该 user 全部 distinct_id 的匿名期行为并上（coalesce 口径：登录段走 e.user_id 直中，
  * 匿名段走 m.user_id 映射）；distinctId 直查不带归并（访客口径）。
- * <p><b>游标分页</b>：按 (received_at, id) 倒序游标（防 offset 跳变——时间线持续写入，offset 分页会重复/漏行）；
+ * <p><b>游标分页</b>：按 (ts, id) 倒序游标——ts 即页面上显示的发生时间（校时后），同 ts 以 id 定序保证翻页稳定
+ * （防 offset 跳变——时间线持续写入，offset 分页会重复/漏行）；received_at 只作范围过滤（分区裁剪）；
  * 范围硬限 ≤{@value TrackConstants#TIMELINE_RANGE_MAX_MS}ms（7 天），索引 idx_event_user_timeline /
  * idx_event_distinct_timeline 裁剪（T7）。
  * <p><b>租户隔离</b>：JdbcTemplate 原生 SQL + 显式租户条件（与 TrackAnalysisService 同语义：
@@ -53,7 +54,7 @@ public class TrackUserTimelineService {
 		+ " e.session_id AS \"sessionId\", e.props::text AS \"props\","
 		+ " coalesce(s.has_replay, 0) AS \"hasReplay\","
 		+ " (e.props->>'" + TrackConstants.PROP_BODY_REF + "') IS NOT NULL AS \"hasApiBody\","
-		+ " CAST(EXTRACT(EPOCH FROM e.received_at) * 1000 AS BIGINT) AS \"recvMs\", e.id AS \"rowId\""
+		+ " CAST(EXTRACT(EPOCH FROM e.received_at) * 1000 AS BIGINT) AS \"recvMs\", CAST(EXTRACT(EPOCH FROM e.ts) * 1000 AS BIGINT) AS \"cursorTs\", e.id AS \"rowId\""
 		+ " FROM track_event e"
 		+ " LEFT JOIN track_session s ON s.session_id = e.session_id AND s.is_deleted = 0";
 
@@ -72,7 +73,7 @@ public class TrackUserTimelineService {
 	}
 
 	/**
-	 * 行为时间线游标分页：received_at+id 倒序；userId 优先（identity 归并匿名期 distinct_id 行为），
+	 * 行为时间线游标分页：ts+id 倒序；userId 优先（identity 归并匿名期 distinct_id 行为），
 	 * distinctId 为访客直查口径。返回 {records, nextCursor}——nextCursor 非空即还有下一页。
 	 * 行结构：{eventId, eventName, ts, clientTs, urlPath, routePath, durationMs, sessionId,
 	 * props（JSON 原文字符串，前端自解析）, hasReplay（经 track_session 标记）, hasApiBody（props 含 body_ref 即 true）}。
@@ -93,7 +94,7 @@ public class TrackUserTimelineService {
 			throw new ServiceException("时间范围不能超过 7 天。请把开始和结束时间缩到 7 天以内再查");
 		}
 		long size = clampPageSize(pageSize);
-		// 游标解析：{receivedAtMs}_{rowId}（上一页末行位置；非法游标 400，防错位翻页）
+		// 游标解析：{tsMs}_{rowId}（上一页末行位置；非法游标 400，防错位翻页）
 		OffsetDateTime cursorTs = null;
 		Long cursorId = null;
 		if (cursor != null && !cursor.isBlank()) {
@@ -135,11 +136,11 @@ public class TrackUserTimelineService {
 		args.add(OffsetDateTime.ofInstant(Instant.ofEpochMilli(endTs), ZoneOffset.UTC));
 		sql.append(tenantFrag("e", tenant, args));
 		if (cursorTs != null) {
-			sql.append(" AND (e.received_at, e.id) < (?, ?)");
+			sql.append(" AND (e.ts, e.id) < (?, ?)");
 			args.add(cursorTs);
 			args.add(cursorId);
 		}
-		sql.append(" ORDER BY e.received_at DESC, e.id DESC LIMIT ?");
+		sql.append(" ORDER BY e.ts DESC, e.id DESC LIMIT ?");
 		args.add(size + 1);
 
 		List<Map<String, Object>> rows = jdbc.queryForList(sql.toString(), args.toArray());
@@ -150,11 +151,12 @@ public class TrackUserTimelineService {
 		String nextCursor = null;
 		if (hasMore && !rows.isEmpty()) {
 			Map<String, Object> last = rows.get(rows.size() - 1);
-			nextCursor = last.get("recvMs") + "_" + last.get("rowId");
+			nextCursor = last.get("cursorTs") + "_" + last.get("rowId");
 		}
 		List<Map<String, Object>> records = new ArrayList<>(rows.size());
 		for (Map<String, Object> row : rows) {
 			row.remove("recvMs");
+			row.remove("cursorTs");
 			row.remove("rowId");
 			records.add(row);
 		}

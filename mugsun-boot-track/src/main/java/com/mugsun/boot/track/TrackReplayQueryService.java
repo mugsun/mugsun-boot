@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,9 +71,10 @@ public class TrackReplayQueryService {
 			query.eq("has_error", hasError == 1 ? 1 : 0);
 		}
 		Page<TrackReplay> page = replayMapper.paginate(pageNum, Math.min(pageSize, TrackConstants.QUERY_PAGE_SIZE_MAX), query);
+		Map<String, Integer> sessionPageviews = sessionPageviews(key, page.getRecords());
 		List<Map<String, Object>> records = new ArrayList<>(page.getRecords().size());
 		for (TrackReplay replay : page.getRecords()) {
-			records.add(project(replay));
+			records.add(project(replay, sessionPageviews.get(replay.getSessionId())));
 		}
 		return new Page<>(records, page.getPageNumber(), page.getPageSize(), page.getTotalRow());
 	}
@@ -89,7 +91,8 @@ public class TrackReplayQueryService {
 			blocks.add(block);
 		}
 		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("replay", project(replay));
+		Map<String, Integer> sessionPageviews = sessionPageviews(replay.getAppKey(), List.of(replay));
+		result.put("replay", project(replay, sessionPageviews.get(replay.getSessionId())));
 		result.put("blocks", blocks);
 		return result;
 	}
@@ -174,8 +177,44 @@ public class TrackReplayQueryService {
 		return replay;
 	}
 
+	/**
+	 * 同会话事件流里的页面浏览数（track_session.pageviews，按 $pageview 累加）。
+	 * rrweb 只在整页加载时产生全量快照，SPA 路由切换（pushState/replaceState/popstate）不产生快照，
+	 * 但 SDK pageview 插件对每次路由切换都会上报 $pageview，所以用它补足 SPA 会话的页面数。
+	 */
+	private Map<String, Integer> sessionPageviews(String appKey, List<TrackReplay> replays) {
+		List<String> sessionIds = new ArrayList<>();
+		for (TrackReplay replay : replays) {
+			if (replay.getSessionId() != null) {
+				sessionIds.add(replay.getSessionId());
+			}
+		}
+		Map<String, Integer> result = new HashMap<>();
+		if (sessionIds.isEmpty() || appKey == null) {
+			return result;
+		}
+		List<TrackSession> sessions = sessionMapper.selectListByQuery(QueryWrapper.create()
+			.select("session_id", "pageviews").eq("app_key", appKey).in("session_id", sessionIds));
+		for (TrackSession session : sessions) {
+			if (session.getPageviews() != null) {
+				result.put(session.getSessionId(), session.getPageviews());
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * 回放页面数：全量快照数（整页加载）与会话 $pageview 数取大。
+	 * 纯 SPA 会话快照恒为 1，取 $pageview 数；整页跳转的会话两者一致；事件流缺失时退回快照数。
+	 */
+	static int resolvePageCount(Integer snapshotPages, Integer sessionPageviews) {
+		int snapshots = snapshotPages == null ? 0 : snapshotPages;
+		int pageviews = sessionPageviews == null ? 0 : sessionPageviews;
+		return Math.max(snapshots, pageviews);
+	}
+
 	/** 响应投影（startTime 转 epoch 毫秒 UTC；storage_key/平台坐标为内部实现细节，不下发前端） */
-	private Map<String, Object> project(TrackReplay replay) {
+	private Map<String, Object> project(TrackReplay replay, Integer sessionPageviews) {
 		Map<String, Object> row = new LinkedHashMap<>();
 		row.put("id", replay.getId());
 		row.put("sessionId", replay.getSessionId());
@@ -185,7 +224,7 @@ public class TrackReplayQueryService {
 		row.put("userId", replay.getUserId());
 		row.put("startTime", replay.getStartTime() == null ? null : replay.getStartTime().toEpochSecond(ZoneOffset.UTC) * 1000);
 		row.put("durationMs", replay.getDurationMs());
-		row.put("pageCount", replay.getPageCount());
+		row.put("pageCount", resolvePageCount(replay.getPageCount(), sessionPageviews));
 		row.put("rrwebEvents", replay.getRrwebEvents());
 		row.put("sizeBytes", replay.getSizeBytes());
 		row.put("hasError", replay.getHasError());
