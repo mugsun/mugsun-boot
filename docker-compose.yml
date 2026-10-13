@@ -2,7 +2,7 @@
 # 用法（在 mugsun-boot 目录）：
 #   docker compose up -d
 # 容器名与 README / e2e 一致：mugsun-pg、mugsun-redis。
-# 后端仍在宿主机以 jar/mvn 启动，连 localhost:5432 / 6379。
+# 后端仍在宿主机以 jar/mvn 启动，默认连 localhost:5432 / 6379；端口可用 MUGSUN_DB_PORT / MUGSUN_REDIS_PORT 一并改。
 #
 # 默认账号与 application.yml 对齐（仅本机开发）：库用户 mugsun/mugsun，Redis 无密码 db 3。
 # PowerJob Server 不在默认编排内；Worker 默认关闭。需要定时任务时自行起 Server 并设 POWERJOB_ENABLED=true。
@@ -24,7 +24,8 @@ services:
       POSTGRES_PASSWORD: ${MUGSUN_POSTGRES_SUPER_PASSWORD:-postgres}
       MUGSUN_DB_PASSWORD: ${MUGSUN_DB_PASSWORD:-mugsun}
     ports:
-      - "5432:5432"
+      # 本机 5432 已被占用时：MUGSUN_DB_PORT=55432 docker compose up -d，后端同样导出 MUGSUN_DB_PORT
+      - "${MUGSUN_DB_PORT:-5432}:5432"
     volumes:
       - mugsun-pg-data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/initdb/init-db.sql:ro
@@ -39,7 +40,7 @@ services:
     image: redis:7-alpine
     container_name: mugsun-redis
     ports:
-      - "6379:6379"
+      - "${MUGSUN_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
