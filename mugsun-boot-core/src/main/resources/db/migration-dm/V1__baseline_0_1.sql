@@ -3313,22 +3313,3 @@ ALTER TABLE sys_api_key ADD expire_time TIMESTAMP;
 ALTER TABLE sys_api_key ADD api_path VARCHAR(255);
 COMMENT ON COLUMN sys_api_key.expire_time IS '到期时间，空表示不限制';
 COMMENT ON COLUMN sys_api_key.api_path IS '允许调用的路径，逗号分隔，空表示不限制';
-
--- ========== B4 附件越权治理 ==========
--- 附件归属：上传者用户 id（下载/删除归属判定；历史行为空，仅 sys:file:manage 可操作其私有文件）
-ALTER TABLE sys_attach ADD create_user BIGINT;
-COMMENT ON COLUMN sys_attach.create_user IS '上传者用户 id';
-
--- 附件按钮权限（menu_type=F，挂「附件管理」1200000000000000112）
-INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_menu(id)) */ INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted) VALUES
-(1077000000000000001, 1200000000000000112, '管理全部附件', 'F', 'sys:file:manage', 1, SYSDATE, 0),
-(1077000000000000002, 1200000000000000112, '上传公开附件', 'F', 'sys:file:public', 2, SYSDATE, 0),
-(1077000000000000003, 1200000000000000112, '删除附件',     'F', 'sys:file:remove', 3, SYSDATE, 0);
-
--- 授给管理员角色（role_code=admin；运行期 admin 另经 StpInterface 通配 *，此处显式落库供角色授权页回显）
-INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_role_menu(id)) */ INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
-SELECT 1077000000000000101, MIN(r.id), 1077000000000000001, SYSDATE, 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0 HAVING COUNT(*) > 0;
-INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_role_menu(id)) */ INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
-SELECT 1077000000000000102, MIN(r.id), 1077000000000000002, SYSDATE, 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0 HAVING COUNT(*) > 0;
-INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_role_menu(id)) */ INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
-SELECT 1077000000000000103, MIN(r.id), 1077000000000000003, SYSDATE, 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0 HAVING COUNT(*) > 0;

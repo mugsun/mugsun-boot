@@ -1,0 +1,7 @@
+# 已发布的 Flyway 迁移（sha256  路径）。这些文件不可修改；发版时追加本版新增的迁移。
+# 0.1.0
+dd2cc6bac2e2ee75ce41b297469cc1792bd80ecb5dfe35ca187e236f8968f58a  mugsun-boot-core/src/main/resources/db/migration/V1__baseline_0_1.sql
+f2512e47cf66969e8aeebeea55654b154e85db788ed7401280b362036605d1c8  mugsun-boot-core/src/main/resources/db/migration-dm/V1__baseline_0_1.sql
+1c05adf7a992c484732ee0883d7f0f9cecdfa0a545bd0eb58acde96da87371ee  mugsun-boot-core/src/main/resources/db/migration-og/V1__baseline_0_1.sql
+22c79c29e004f403292327c285b87cad07c145948066932812c5354cc91d0711  mugsun-boot-track/src/main/resources/db/track/migration/T1__baseline_0_1.sql
+dd2cc6bac2e2ee75ce41b297469cc1792bd80ecb5dfe35ca187e236f8968f58a  mugsun-boot-core/src/test/resources/db/released/v0.1.0/V1__baseline_0_1.sql
