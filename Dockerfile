@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 COPY mugsun-boot/ mugsun-boot/
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -q -f mugsun-boot/pom.xml package -DskipTests
+    mvn -B -q -f mugsun-boot/pom.xml -pl mugsun-boot-server -am package -DskipTests
 
 # ---------- 阶段 2：精简运行时（非 root） ----------
 FROM eclipse-temurin:21-jre-jammy
@@ -38,7 +38,7 @@ RUN groupadd -r mugsun && useradd -r -g mugsun -d /app mugsun \
     && mkdir -p /app/logs /var/lib/mugsun/files \
     && chown -R mugsun:mugsun /app /var/lib/mugsun
 
-COPY --from=build --chown=mugsun:mugsun /build/mugsun-boot/target/mugsun-boot-*.jar /app/app.jar
+COPY --from=build --chown=mugsun:mugsun /build/mugsun-boot/mugsun-boot-server/target/mugsun-boot.jar /app/app.jar
 
 USER mugsun
 WORKDIR /app

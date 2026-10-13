@@ -17,8 +17,8 @@ name: mugsun-full
 services:
   init:
     build:
-      context: ./docker/full
-      dockerfile: init.Dockerfile
+      context: .
+      dockerfile: docker/full/init.Dockerfile
     image: mugsun-full-init:local
     volumes:
       - secrets:/secrets
@@ -27,8 +27,8 @@ services:
     build:
       context: ./docker/postgres
       args:
-        # 多架构 PostGIS 基础镜像（amd64/arm64 原生），Apple Silicon 不走仿真
-        POSTGIS_IMAGE: ${MUGSUN_PG_BASE_IMAGE:-imresamu/postgis:16-3.4}
+        # 基础镜像固定到 digest（可复现）；Apple Silicon 想原生 arm64 可设 MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4@sha256:...
+        POSTGIS_IMAGE: ${MUGSUN_PG_BASE_IMAGE:-postgis/postgis:16-3.4@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5}
     image: mugsun-full-postgres:local
     # 超级用户 postgres 与应用账号 mugsun 用同一随机口令（来自 secrets 卷），库只在 compose 内网可达
     entrypoint: ["sh", "-c", ". /secrets/mugsun.env && export POSTGRES_PASSWORD=\"$$MUGSUN_DB_PASSWORD\" && exec docker-entrypoint.sh postgres"]
@@ -50,8 +50,10 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
-    command: ["sh", "-c", ". /secrets/mugsun.env && exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    # 与 mugsun-pc#18 同一 digest
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    # 口令不进进程参数：gen-secrets 生成 /secrets/redis.conf（requirepass），这里只传配置文件路径
+    command: ["redis-server", "/secrets/redis.conf"]
     volumes:
       - secrets:/secrets:ro
       - redis-data:/data
@@ -59,7 +61,7 @@ services:
       init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", ". /secrets/mugsun.env && redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep PONG"]
+      test: ["CMD-SHELL", ". /secrets/mugsun.env && REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -88,8 +90,8 @@ services:
       SMS_SK: unset
       SMS_SIGNATURE: unset
       SMS_TEMPLATE_ID: unset
-      # 只信任 compose 内网里的 Nginx 传来的 X-Forwarded-For
-      MUGSUN_OPENAPI_TRUSTED_PROXIES: 172.16.0.0/12
+      # 只信任 pc（Nginx）容器的固定 IP 传来的 X-Forwarded-For，不信任整个子网
+      MUGSUN_OPENAPI_TRUSTED_PROXIES: ${MUGSUN_PC_IP:-172.30.89.10}/32
     volumes:
       - secrets:/secrets:ro
       - files:/var/lib/mugsun/files
@@ -116,10 +118,20 @@ services:
     image: mugsun-full-pc:local
     ports:
       - "${MUGSUN_HTTP_PORT:-8088}:80"
+    networks:
+      default:
+        ipv4_address: ${MUGSUN_PC_IP:-172.30.89.10}
     depends_on:
       boot:
         condition: service_healthy
     restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        # 固定子网，pc 用固定 IP 供后端信任；与宿主机网段冲突时同时改 MUGSUN_COMPOSE_SUBNET 和 MUGSUN_PC_IP
+        - subnet: ${MUGSUN_COMPOSE_SUBNET:-172.30.89.0/24}
 
 volumes:
   secrets:

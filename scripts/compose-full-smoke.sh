@@ -20,6 +20,12 @@ init_log=$("${DC[@]}" logs init)
 [[ "$init_log" == *管理员口令* ]] || { echo "FAIL 首启日志里没有打印管理员口令"; exit 1; }
 home=$(curl -fsS "http://localhost:${MUGSUN_HTTP_PORT}/")
 [[ "$home" == *"<html"* || "$home" == *"<!DOCTYPE"* || "$home" == *"<!doctype"* ]] || { echo "FAIL 管理台首页打不开"; exit 1; }
+# Redis 口令不得出现在进程参数里
+cmdline=$("${DC[@]}" exec -T redis sh -c 'tr "\0" " " < /proc/1/cmdline')
+[[ "$cmdline" != *requirepass* ]] || { echo "FAIL Redis 口令出现在进程参数里"; exit 1; }
+# 后端只信任 pc 的固定 IP
+trusted=$("${DC[@]}" exec -T boot printenv MUGSUN_OPENAPI_TRUSTED_PROXIES)
+[[ "$trusted" == */32 ]] || { echo "FAIL MUGSUN_OPENAPI_TRUSTED_PROXIES 不是单个 IP：$trusted"; exit 1; }
 docker run --rm --network "${COMPOSE_PROJECT_NAME}_default" \
   -v "${COMPOSE_PROJECT_NAME}_secrets:/secrets:ro" -v "$PWD/docker/full/smoke.py:/smoke.py:ro" \
   python:3.12-alpine sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore gmssl redis && python /smoke.py"
