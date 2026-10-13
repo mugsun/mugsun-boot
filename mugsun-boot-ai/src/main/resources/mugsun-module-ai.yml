@@ -3,6 +3,10 @@ mugsun:
   ai:
     # AI 模块总开关（默认开）；sys_param ai.module.enabled=false 可运行时关闭
     enabled: ${MUGSUN_AI_ENABLED:true}
+  openapi:
+    # OpenAPI 可信反向代理（CIDR 列表，逗号分隔，如 10.0.0.0/8,::1/128）。默认空：只用 remoteAddr，忽略 X-Forwarded-For。
+    # 仅当 remoteAddr 落在此列表内时，才从 X-Forwarded-For 右往左取第一个不在列表内的地址作为客户端 IP。
+    trusted-proxies: ${MUGSUN_OPENAPI_TRUSTED_PROXIES:}
 spring:
   ai:
     openai:

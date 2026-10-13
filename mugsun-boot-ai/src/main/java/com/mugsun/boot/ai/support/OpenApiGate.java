@@ -5,16 +5,19 @@ import com.mugsun.boot.ai.entity.AiSecret;
 import com.mugsun.core.tool.exception.ServiceException;
 import jakarta.servlet.http.HttpServletRequest;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * OpenAPI 加固：IP 白名单 + 简易速率限制（按密钥滑动分钟窗口）。
+ * OpenAPI 加固：IP 白名单（真 CIDR，IPv4/IPv6）+ 可信代理 XFF 解析 + 简易速率限制（按密钥滑动分钟窗口）。
  */
 public final class OpenApiGate {
 
 	private static final Map<Long, Window> WINDOWS = new ConcurrentHashMap<>();
+
+	private static volatile List<IpCidr> trustedProxies = List.of();
 
 	private OpenApiGate() {
 	}
@@ -29,42 +32,48 @@ public final class OpenApiGate {
 		if (request == null) {
 			return "";
 		}
+		String remote = request.getRemoteAddr() == null ? "" : request.getRemoteAddr().trim();
+		List<IpCidr> proxies = trustedProxies;
+		if (proxies.isEmpty() || !IpCidr.anyContains(proxies, remote)) {
+			return remote;
+		}
 		String xff = request.getHeader("X-Forwarded-For");
-		if (xff != null && !xff.isBlank()) {
-			return xff.split(",")[0].trim();
+		if (xff == null || xff.isBlank()) {
+			return remote;
 		}
-		String real = request.getHeader("X-Real-IP");
-		if (real != null && !real.isBlank()) {
-			return real.trim();
+		String[] hops = xff.split(",");
+		for (int i = hops.length - 1; i >= 0; i--) {
+			String h = hops[i].trim();
+			if (h.isEmpty()) {
+				continue;
+			}
+			if (IpCidr.toBytes(h) == null) {
+				// 非法值不可信，停止回溯，退回最后一个可信代理地址
+				return remote;
+			}
+			if (!IpCidr.anyContains(proxies, h)) {
+				return h;
+			}
 		}
-		return request.getRemoteAddr() == null ? "" : request.getRemoteAddr();
+		return remote;
+	}
+
+	/** 可信代理（CIDR 列表）；默认空 = 不信任任何转发头。 */
+	public static void setTrustedProxies(String raw) {
+		trustedProxies = List.copyOf(IpCidr.parseList(raw));
 	}
 
 	static void checkAllowIps(String allowIps, String ip) {
 		if (allowIps == null || allowIps.isBlank()) {
 			return;
 		}
-		String[] parts = allowIps.split("[,;\\s]+");
-		for (String p : parts) {
-			if (p.isBlank()) {
-				continue;
-			}
-			if (p.equals(ip) || "*".equals(p) || "0.0.0.0/0".equals(p)) {
+		for (String p : allowIps.split("[,;\\s]+")) {
+			if ("*".equals(p.trim())) {
 				return;
 			}
-			if (p.endsWith("/0")) {
-				return;
-			}
-			// 简易前缀：1.2.3.* 或 1.2.3.0/24（按前三段）
-			if (p.endsWith(".*") && ip.startsWith(p.substring(0, p.length() - 1))) {
-				return;
-			}
-			if (p.contains("/") && ip.startsWith(p.substring(0, p.indexOf('.')))) {
-				String cidrBase = p.substring(0, p.indexOf('/'));
-				if (ip.startsWith(cidrBase.substring(0, Math.max(0, cidrBase.lastIndexOf('.'))))) {
-					return;
-				}
-			}
+		}
+		if (IpCidr.anyContains(IpCidr.parseList(allowIps), ip)) {
+			return;
 		}
 		throw new ServiceException(AiConstants.MSG_OPENAPI_AUTH);
 	}
