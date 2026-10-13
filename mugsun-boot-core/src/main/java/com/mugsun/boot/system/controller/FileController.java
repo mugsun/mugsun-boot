@@ -206,9 +206,7 @@ public class FileController {
 		}
 		// 本地私有：直出 /file/** 需短时 HMAC 签名（LocalFileAccessFilter 校验），登记 url 本身不可匿名访问
 		if (OssConstants.ACCESS_PRIVATE.equals(attach.getAccess()) && attach.getUrl() != null) {
-			String relPath = (attach.getBasePath() == null ? "" : attach.getBasePath()) + attach.getPath()
-				+ attach.getFilename();
-			return R.data(localFileUrlSigner.signUrl(attach.getUrl(), relPath));
+			return R.data(localFileUrlSigner.signUrl(attach.getUrl()));
 		}
 		return R.data(attach.getUrl());
 	}
