@@ -55,6 +55,8 @@ public class CaptchaProperties {
 		private long keyboardMinDurationMs = 600;
 		private int keyboardMinKeyPresses = 3;
 		private int keyboardMaxKeyPresses = 300;
+		/** 键盘模式每次按键位移（底图原始像素），challenge 下发给前端 */
+		private int keyboardStepPx = 4;
 		/** 假缺口数量（0–2） */
 		private int decoyCount = 1;
 		/** token 是否强制绑定 IP / UA 哈希（默认仅记录） */
@@ -87,6 +89,8 @@ public class CaptchaProperties {
 		public void setKeyboardMinKeyPresses(int v) { this.keyboardMinKeyPresses = v; }
 		public int getKeyboardMaxKeyPresses() { return keyboardMaxKeyPresses; }
 		public void setKeyboardMaxKeyPresses(int v) { this.keyboardMaxKeyPresses = v; }
+		public int getKeyboardStepPx() { return keyboardStepPx; }
+		public void setKeyboardStepPx(int v) { this.keyboardStepPx = v; }
 		public int getDecoyCount() { return decoyCount; }
 		public void setDecoyCount(int decoyCount) { this.decoyCount = decoyCount; }
 		public boolean isBindIp() { return bindIp; }
@@ -118,7 +122,7 @@ public class CaptchaProperties {
 	public static class RateLimit {
 		/** 单 IP 每分钟可取挑战次数 */
 		private int challengePerMinute = 30;
-		/** 全节点每秒挑战生成上限（令牌桶） */
+		/** 每秒挑战生成全局上限（redis 存储时跨节点计数；memory 存储时为单节点） */
 		private int globalChallengePerSecond = 200;
 		/** 指针模式：窗口内失败上限 */
 		private int verifyFailMax = 5;
@@ -128,6 +132,9 @@ public class CaptchaProperties {
 		private int keyboardVerifyPerMinute = 6;
 		private long failWindowSeconds = 600;
 		private long lockSeconds = 600;
+		/** 发送短信验证码：单手机号每天上限、单 IP 每小时上限（叠加原有同号 60s 节流） */
+		private int smsPhonePerDay = 10;
+		private int smsIpPerHour = 20;
 
 		public int getChallengePerMinute() { return challengePerMinute; }
 		public void setChallengePerMinute(int v) { this.challengePerMinute = v; }
@@ -141,6 +148,10 @@ public class CaptchaProperties {
 		public void setKeyboardVerifyPerMinute(int v) { this.keyboardVerifyPerMinute = v; }
 		public long getFailWindowSeconds() { return failWindowSeconds; }
 		public void setFailWindowSeconds(long v) { this.failWindowSeconds = v; }
+		public int getSmsPhonePerDay() { return smsPhonePerDay; }
+		public void setSmsPhonePerDay(int v) { this.smsPhonePerDay = v; }
+		public int getSmsIpPerHour() { return smsIpPerHour; }
+		public void setSmsIpPerHour(int v) { this.smsIpPerHour = v; }
 		public long getLockSeconds() { return lockSeconds; }
 		public void setLockSeconds(long v) { this.lockSeconds = v; }
 	}

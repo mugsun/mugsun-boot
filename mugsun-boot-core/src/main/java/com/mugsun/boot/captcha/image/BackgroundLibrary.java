@@ -16,7 +16,6 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -61,9 +60,9 @@ public class BackgroundLibrary {
 		if ("round-robin".equalsIgnoreCase(props.getBackground().getRotate())) {
 			src = pool.get(Math.floorMod(cursor.getAndIncrement(), pool.size()));
 		} else {
-			src = pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
+			src = pool.get(Rng.get().nextInt(pool.size()));
 		}
-		ThreadLocalRandom rnd = ThreadLocalRandom.current();
+		java.util.random.RandomGenerator rnd = Rng.get();
 		int ox = src.getWidth() > width ? rnd.nextInt(src.getWidth() - width + 1) : 0;
 		int oy = src.getHeight() > height ? rnd.nextInt(src.getHeight() - height + 1) : 0;
 		BufferedImage out = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);

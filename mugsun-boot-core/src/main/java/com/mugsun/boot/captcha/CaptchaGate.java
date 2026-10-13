@@ -47,20 +47,39 @@ public class CaptchaGate {
 		return props.isSliderType();
 	}
 
+	/** 与租户无关的场景（发送短信）绑定的固定租户占位 */
+	public static final String NO_TENANT = "-";
+
 	public static String normalizeTenant(String tenantId) {
 		return tenantId == null || tenantId.isBlank() ? TenantConstants.DEFAULT_TENANT_ID : tenantId.trim();
+	}
+
+	/** 场景实际绑定的租户：发送短信与租户无关，一律用占位，不采信客户端 tenantId */
+	public static String effectiveTenant(String scene, String tenantId) {
+		return SCENE_SMS.equals(scene) ? NO_TENANT : normalizeTenant(tenantId);
 	}
 
 	public SysClient resolveClient(String clientId) {
 		return clientService.loadClient(clientId == null ? null : clientId.trim());
 	}
 
-	/** 该场景对该租户/客户端是否需要验证码；查询异常时按需要处理 */
+	/**
+	 * 该场景对该租户/客户端是否需要验证码；查询异常时按需要处理（fail-closed）。
+	 * <ul>
+	 *   <li>发送短信：只看全局开关（短信与租户无关，客户端填的 tenantId 不可信）</li>
+	 *   <li>滑块模式：clientId 由请求方自选、无法可信解析，客户端开关不再能关闭验证码，只有租户开关（平台超管）可以</li>
+	 *   <li>旧数字码模式：登录仍沿用客户端开关</li>
+	 * </ul>
+	 */
 	public boolean required(String scene, SysClient client, String tenantId) {
 		if (!props.isEnabled()) {
 			return false;
 		}
-		if (SCENE_LOGIN.equals(scene) && client != null && !Integer.valueOf(1).equals(client.getCaptchaEnabled())) {
+		if (SCENE_SMS.equals(scene)) {
+			return true;
+		}
+		if (!isSlider() && SCENE_LOGIN.equals(scene) && client != null
+			&& !Integer.valueOf(1).equals(client.getCaptchaEnabled())) {
 			return false;
 		}
 		return tenantEnabled(tenantId);
@@ -77,12 +96,17 @@ public class CaptchaGate {
 		}
 	}
 
+	/** 发送短信前的频控（与验证码开关、类型无关） */
+	public void assertSmsQuota(String phone, HttpServletRequest request) {
+		slider.assertSmsQuota(phone, ClientIpResolver.clientIp(request));
+	}
+
 	/** 滑块模式下的业务前置校验；不需要验证码时直接放行 */
 	public void check(String scene, SysClient client, String tenantId, String captchaToken, HttpServletRequest request) {
 		if (!required(scene, client, tenantId)) {
 			return;
 		}
-		slider.consume(captchaToken, scene, client.getClientId(), tenantId,
+		slider.consume(captchaToken, scene, client.getClientId(), effectiveTenant(scene, tenantId),
 			ClientIpResolver.clientIp(request), request == null ? null : request.getHeader("User-Agent"));
 	}
 }

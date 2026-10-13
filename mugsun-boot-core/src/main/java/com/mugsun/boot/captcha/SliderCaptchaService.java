@@ -36,6 +36,9 @@ public class SliderCaptchaService {
 	static final String K_KEYBOARD_RATE = PREFIX + "rl:keyboard:";
 	static final String K_FAIL = PREFIX + "fail:";
 	static final String K_LOCK = PREFIX + "lock:";
+	static final String K_GLOBAL = PREFIX + "rl:global:";
+	static final String K_SMS_PHONE = PREFIX + "rl:sms-phone:";
+	static final String K_SMS_IP = PREFIX + "rl:sms-ip:";
 
 	public static final String MODE_POINTER = "pointer";
 	public static final String MODE_KEYBOARD = "keyboard";
@@ -52,10 +55,6 @@ public class SliderCaptchaService {
 	private final CaptchaAuditSink audit;
 	private final LongSupplier clock;
 
-	private final Object bucketLock = new Object();
-	private long bucketSecond = -1;
-	private int bucketUsed;
-
 	@Autowired
 	public SliderCaptchaService(CaptchaStore store, CaptchaProperties props, PuzzleRenderer renderer,
 								CaptchaAuditSink audit) {
@@ -71,8 +70,9 @@ public class SliderCaptchaService {
 		this.clock = clock;
 	}
 
-	/** 签发挑战；scene/clientId/tenantId 须为调用方已规范化的值 */
-	public ChallengeVO challenge(String scene, String clientId, String tenantId, String ip) {
+	/** 签发挑战；scene/clientId/tenantId 须为调用方已规范化的值；inputMode 写入记录，verify 时必须一致 */
+	public ChallengeVO challenge(String scene, String clientId, String tenantId, String inputMode, String ip) {
+		String mode = normalizeMode(inputMode);
 		requireField(scene);
 		requireField(clientId);
 		requireField(tenantId);
@@ -88,17 +88,18 @@ public class SliderCaptchaService {
 		String id = randomHex();
 		long ttl = props.getSlider().getExpireSeconds();
 		String record = String.join("|", String.valueOf(p.answerX()), scene, clientId, tenantId,
-			String.valueOf(clock.getAsLong()));
+			String.valueOf(clock.getAsLong()), mode);
 		store.put(K_CHALLENGE + id, record, ttl);
-		return new ChallengeVO(id, TYPE_SLIDER, p.background(), p.piece(), p.bgWidth(), p.bgHeight(),
-			p.pieceWidth(), p.pieceHeight(), ttl);
+		Integer step = MODE_KEYBOARD.equals(mode) ? props.getSlider().getKeyboardStepPx() : null;
+		return new ChallengeVO(id, TYPE_SLIDER, mode, p.background(), p.piece(), p.bgWidth(), p.bgHeight(),
+			p.pieceWidth(), p.pieceHeight(), step, ttl);
 	}
 
 	/** 校验：成功返回一次性 token；任何失败该挑战即作废 */
 	public TokenVO verify(VerifyRequest req, String ip, String userAgent) {
 		String ipKey = safeIp(ip);
 		assertNotLocked(ipKey);
-		String mode = req != null && MODE_KEYBOARD.equalsIgnoreCase(req.inputMode()) ? MODE_KEYBOARD : MODE_POINTER;
+		String mode = req == null ? MODE_POINTER : normalizeMode(req.inputMode());
 		if (MODE_KEYBOARD.equals(mode)) {
 			String kbKey = K_KEYBOARD_RATE + ipKey;
 			if (store.increment(kbKey, 60) > props.getRateLimit().getKeyboardVerifyPerMinute()) {
@@ -114,14 +115,15 @@ public class SliderCaptchaService {
 			throw CaptchaException.expired();
 		}
 		String[] parts = raw.split("\\|", -1);
-		if (parts.length != 5) {
+		if (parts.length != 6) {
 			throw CaptchaException.expired();
 		}
 		int expectedX = Integer.parseInt(parts[0]);
 		long issuedAt = Long.parseLong(parts[4]);
 		boolean ok;
 		try {
-			ok = judge(req, mode, expectedX, issuedAt);
+			// 输入方式以出题时声明为准，verify 自报不同即失败（防止临时降级到 keyboard 跳过轨迹校验）
+			ok = parts[5].equals(mode) && judge(req, mode, expectedX, issuedAt);
 		} catch (RuntimeException e) {
 			ok = false;
 		}
@@ -133,6 +135,19 @@ public class SliderCaptchaService {
 		long ttl = props.getSlider().getTokenExpireSeconds();
 		store.put(K_TOKEN + token, String.join("|", parts[1], parts[2], parts[3], hash(ipKey), hash(userAgent)), ttl);
 		return new TokenVO(token, ttl);
+	}
+
+	/** 发送短信前的频控：单手机号每天、单 IP 每小时（与验证码开关无关，始终生效） */
+	public void assertSmsQuota(String phone, String ip) {
+		CaptchaProperties.RateLimit rl = props.getRateLimit();
+		String ipKey = K_SMS_IP + safeIp(ip);
+		if (store.increment(ipKey, 3600) > rl.getSmsIpPerHour()) {
+			throw CaptchaException.rateLimited(store.ttlSeconds(ipKey));
+		}
+		String phoneKey = K_SMS_PHONE + hash(phone);
+		if (store.increment(phoneKey, 86400) > rl.getSmsPhonePerDay()) {
+			throw CaptchaException.rateLimited(store.ttlSeconds(phoneKey));
+		}
 	}
 
 	/** 业务接口核销：先删后比，scene/clientId/tenantId 必须严格相等 */
@@ -163,7 +178,7 @@ public class SliderCaptchaService {
 		return props.getSlider().getWidth();
 	}
 
-	/** 仅供集成测试读取答案（不挂 HTTP，不消费挑战） */
+	/** 仅供集成测试读取答案（不挂 HTTP，不消费挑战；勿在业务代码中调用） */
 	public int peekAnswerX(String captchaId) {
 		String raw = store.peek(K_CHALLENGE + captchaId);
 		if (raw == null) {
@@ -206,8 +221,13 @@ public class SliderCaptchaService {
 		}
 		if (MODE_KEYBOARD.equals(mode)) {
 			Integer presses = req.keyPresses();
-			return clientDur >= s.getKeyboardMinDurationMs() && clientDur <= s.getMaxDurationMs()
-				&& presses != null && presses >= s.getKeyboardMinKeyPresses() && presses <= s.getKeyboardMaxKeyPresses();
+			if (clientDur < s.getKeyboardMinDurationMs() || clientDur > s.getMaxDurationMs()
+				|| presses == null || presses < s.getKeyboardMinKeyPresses() || presses > s.getKeyboardMaxKeyPresses()) {
+				return false;
+			}
+			// 步进式：按键次数 × 服务端步长 必须与落点一致（±1 步）
+			int step = Math.max(1, s.getKeyboardStepPx());
+			return Math.abs(presses - Math.round(ax * scale / step)) <= 1;
 		}
 		if (clientDur < s.getMinDurationMs() || clientDur > s.getMaxDurationMs()) {
 			return false;
@@ -301,15 +321,10 @@ public class SliderCaptchaService {
 		if (cap <= 0) {
 			return;
 		}
+		// 每秒一个计数键：redis 存储时集群共享，memory 存储时为单节点
 		long sec = clock.getAsLong() / 1000;
-		synchronized (bucketLock) {
-			if (sec != bucketSecond) {
-				bucketSecond = sec;
-				bucketUsed = 0;
-			}
-			if (++bucketUsed > cap) {
-				throw CaptchaException.rateLimited(1);
-			}
+		if (store.increment(K_GLOBAL + sec, 2) > cap) {
+			throw CaptchaException.rateLimited(1);
 		}
 	}
 
@@ -319,6 +334,10 @@ public class SliderCaptchaService {
 		if (v == null || !FIELD.matcher(v).matches()) {
 			throw new com.mugsun.core.tool.exception.ServiceException("验证参数无效，请刷新页面后重试");
 		}
+	}
+
+	static String normalizeMode(String inputMode) {
+		return inputMode != null && MODE_KEYBOARD.equalsIgnoreCase(inputMode.trim()) ? MODE_KEYBOARD : MODE_POINTER;
 	}
 
 	private static String safeIp(String ip) {

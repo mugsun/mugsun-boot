@@ -160,7 +160,8 @@ public class AuthController {
 			// 旧数字码（仅 mugsun.captcha.type=IMAGE 时生效，保留一个版本）
 			captchaService.verify(dto.getCaptchaUuid(), dto.getCaptchaCode());
 		}
-		String tenantId = (dto.getTenantId() == null || dto.getTenantId().isBlank()) ? TenantConstants.DEFAULT_TENANT_ID : dto.getTenantId();
+		// 与验证码判定使用同一规范化结果（trim），避免判定租户与登录租户不一致
+		String tenantId = com.mugsun.boot.captcha.CaptchaGate.normalizeTenant(dto.getTenantId());
 		// 锁定按「租户+账号」维度：多租户同名账号（各租户 admin）独立计数，防跨租户连锁锁死
 		String lockKey = loginLockService.keyOf(tenantId, username);
 		loginLockService.assertNotLocked(lockKey);
@@ -352,11 +353,13 @@ public class AuthController {
 		if (phone == null || phone.isBlank()) {
 			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
-		// 滑块模式：验证码拦在发短信这一步（防短信轰炸）
+		// 滑块模式：验证码拦在发短信这一步（防短信轰炸）；是否需要只看全局开关，不采信请求里的 tenantId
 		if (captchaGate.isSlider()) {
 			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_SMS, captchaGate.resolveClient(body.get("clientId")),
-				com.mugsun.boot.captcha.CaptchaGate.normalizeTenant(body.get("tenantId")), body.get("captchaToken"), request);
+				com.mugsun.boot.captcha.CaptchaGate.NO_TENANT, body.get("captchaToken"), request);
 		}
+		// 发码频控：单手机号每天、单 IP 每小时（叠加 SmsService 同号 60s 节流）
+		captchaGate.assertSmsQuota(phone.trim(), request);
 		smsService.sendCode(phone);
 		Map<String, Object> resp = new java.util.HashMap<>();
 		if (smsService.isShowCode()) {

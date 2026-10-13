@@ -69,6 +69,8 @@ public class TenantService {
 			throw new ServiceException("请填写租户名称后再创建");
 		}
 		normalize(tenant, false);
+		// 验证码开关只能由平台超管经 /system/tenant/captcha 关闭，创建时一律开启
+		tenant.setCaptchaEnabled(1);
 		String code = genCode();
 		tenant.setTenantCode(code);
 		tenantMapper.insertSelective(tenant);

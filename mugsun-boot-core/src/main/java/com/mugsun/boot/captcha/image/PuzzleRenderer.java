@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 拼图出题：底图上挖一个真缺口 + 0–2 个假缺口，切出对应拼图块（全高透明图，不暴露纵坐标）。
@@ -58,7 +57,7 @@ public class PuzzleRenderer {
 		int knob = Math.max(6, body / 5);
 		int boxW = body + knob * 2;
 		int boxH = body + knob;
-		ThreadLocalRandom rnd = ThreadLocalRandom.current();
+		java.util.random.RandomGenerator rnd = Rng.get();
 
 		int minX = boxW + 12;
 		int maxX = w - boxW - 6;
@@ -114,7 +113,7 @@ public class PuzzleRenderer {
 
 	private static List<Shape> decoys(int gapX, int w, int h, int body, int knob, int boxW, int boxH, int count) {
 		List<Shape> out = new ArrayList<>();
-		ThreadLocalRandom rnd = ThreadLocalRandom.current();
+		java.util.random.RandomGenerator rnd = Rng.get();
 		int n = Math.max(0, Math.min(2, count));
 		List<Integer> taken = new ArrayList<>(List.of(gapX));
 		for (int tries = 0; out.size() < n && tries < 40; tries++) {
@@ -147,7 +146,7 @@ public class PuzzleRenderer {
 
 	/** 全图轻噪声：打散抗锯齿边缘的规律，增加模板匹配难度 */
 	private static void sprinkleNoise(BufferedImage img) {
-		ThreadLocalRandom rnd = ThreadLocalRandom.current();
+		java.util.random.RandomGenerator rnd = Rng.noise();
 		int w = img.getWidth();
 		int h = img.getHeight();
 		int dots = w * h / 6;

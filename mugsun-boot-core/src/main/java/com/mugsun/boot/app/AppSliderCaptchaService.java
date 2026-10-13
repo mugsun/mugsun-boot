@@ -33,7 +33,8 @@ public class AppSliderCaptchaService {
 	}
 
 	public AppSliderGenerateVO generate(String clientIp) {
-		ChallengeVO c = engine.challenge(SCENE, ClientConstants.APP_CLIENT_ID, ANY_TENANT, clientIp);
+		ChallengeVO c = engine.challenge(SCENE, ClientConstants.APP_CLIENT_ID, ANY_TENANT,
+			SliderCaptchaService.MODE_POINTER, clientIp);
 		return new AppSliderGenerateVO(c.captchaId(), c.background(), c.piece(), c.bgWidth(), c.bgHeight(), c.pieceWidth());
 	}
 

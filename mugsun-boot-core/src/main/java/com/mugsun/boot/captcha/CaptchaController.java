@@ -22,9 +22,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/auth/captcha")
 public class CaptchaController {
 
-	/** 校验请求体上限（400 个轨迹点约 20KB） */
-	private static final long MAX_BODY_BYTES = 32 * 1024;
-
 	private final CaptchaGate gate;
 	private final SliderCaptchaService slider;
 	private final CaptchaProperties props;
@@ -41,7 +38,7 @@ public class CaptchaController {
 									 @RequestParam(required = false) String tenantId) {
 		String sc = requireScene(scene);
 		SysClient client = gate.resolveClient(clientId);
-		boolean on = gate.required(sc, client, CaptchaGate.normalizeTenant(tenantId));
+		boolean on = gate.required(sc, client, CaptchaGate.effectiveTenant(sc, tenantId));
 		return R.data(new CaptchaConfigVO(on, gate.isSlider() ? SliderCaptchaService.TYPE_SLIDER : "IMAGE", sc));
 	}
 
@@ -49,18 +46,16 @@ public class CaptchaController {
 	public R<ChallengeVO> challenge(@RequestBody(required = false) ChallengeRequest req, HttpServletRequest request) {
 		String sc = requireScene(req == null ? null : req.scene());
 		SysClient client = gate.resolveClient(req == null ? null : req.clientId());
-		String tenant = CaptchaGate.normalizeTenant(req == null ? null : req.tenantId());
+		String tenant = CaptchaGate.effectiveTenant(sc, req == null ? null : req.tenantId());
 		if (!gate.isSlider() || !gate.required(sc, client, tenant)) {
 			throw CaptchaException.disabled();
 		}
-		return R.data(slider.challenge(sc, client.getClientId(), tenant, ClientIpResolver.clientIp(request)));
+		return R.data(slider.challenge(sc, client.getClientId(), tenant, req == null ? null : req.inputMode(),
+			ClientIpResolver.clientIp(request)));
 	}
 
 	@PostMapping("/verify")
 	public R<TokenVO> verify(@RequestBody(required = false) VerifyRequest req, HttpServletRequest request) {
-		if (request.getContentLengthLong() > MAX_BODY_BYTES) {
-			throw CaptchaException.failed();
-		}
 		if (!gate.isSlider()) {
 			throw CaptchaException.disabled();
 		}

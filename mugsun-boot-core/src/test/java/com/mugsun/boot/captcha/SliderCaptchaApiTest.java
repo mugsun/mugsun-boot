@@ -52,6 +52,11 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 
 	// ---------------------------------------------------------------- helpers
 
+	@AfterEach
+	void restoreLimits() {
+		props.getRateLimit().setSmsIpPerHour(20);
+	}
+
 	private JsonNode challenge(String scene, String tenantId) {
 		Map<String, Object> body = new HashMap<>();
 		body.put("scene", scene);
@@ -248,5 +253,118 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		JsonNode r = login(PLATFORM_TENANT, token("login", PLATFORM_TENANT), false);
 		assertThat(r.path("code").asInt()).as(r.path("msg").asText()).isEqualTo(200);
 		return r.path("data").path("token").asText();
+	}
+
+	@Autowired
+	private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+	private String[] createTenant(String admin, Map<String, Object> extra) {
+		Map<String, Object> tenant = new HashMap<>(extra);
+		tenant.put("tenantName", "验证码测试" + System.nanoTime() % 1000000);
+		JsonNode created = readBody(post("/system/tenant/create", tenant, admin));
+		assertThat(created.path("code").asInt()).as(created.path("msg").asText()).isEqualTo(200);
+		String code = created.path("data").asText();
+		long id = readBody(get("/system/tenant/list?tenantCode=" + code, admin)).path("data").get(0).path("id").asLong();
+		return new String[]{code, String.valueOf(id)};
+	}
+
+	@Test
+	void smsSendIgnoresClientTenantSwitch() {
+		String admin = loginAdminWithSlider();
+		String[] t = createTenant(admin, Map.of());
+		JsonNode off = readBody(post("/system/tenant/captcha", Map.of("id", Long.parseLong(t[1]), "enabled", false), admin));
+		assertThat(off.path("code").asInt()).isEqualTo(200);
+		// 填一个关闭了验证码的租户，发短信仍须带 token
+		Map<String, Object> body = new HashMap<>();
+		body.put("phone", "13800000009");
+		body.put("tenantId", t[0]);
+		assertThat(readBody(post("/auth/sms-code", body, null)).path("code").asInt()).isEqualTo(CaptchaCodes.REQUIRED);
+		JsonNode cfg = readBody(get("/auth/captcha/config?scene=sms&tenantId=" + t[0], null)).path("data");
+		assertThat(cfg.path("enabled").asBoolean()).isTrue();
+	}
+
+	@Test
+	void clientWithCaptchaOffCannotBypassLogin() {
+		jdbc.update("INSERT INTO sys_client (id, client_id, client_name, captcha_enabled, max_online, token_timeout, status, create_time, is_deleted) "
+			+ "VALUES (9917000000000001, 'nocap', '无验证码客户端', 0, 0, 2592000, 1, now(), 0) ON CONFLICT (id) DO NOTHING");
+		try {
+			JsonNode key = readBody(get("/auth/sm2-public-key", null)).path("data");
+			String pwd = key.path("gmEnabled").asBoolean() ? sm2Encrypt(ADMIN_PASSWORD, key.path("publicKey").asText()) : ADMIN_PASSWORD;
+			Map<String, Object> body = new HashMap<>();
+			body.put("tenantId", PLATFORM_TENANT);
+			body.put("username", ADMIN_USERNAME);
+			body.put("password", pwd);
+			body.put("clientId", "nocap");
+			assertThat(readBody(post("/auth/login", body, null)).path("code").asInt()).isEqualTo(CaptchaCodes.REQUIRED);
+			JsonNode cfg = readBody(get("/auth/captcha/config?scene=login&clientId=nocap&tenantId=000000", null)).path("data");
+			assertThat(cfg.path("enabled").asBoolean()).isTrue();
+		} finally {
+			jdbc.update("DELETE FROM sys_client WHERE id = 9917000000000001");
+		}
+	}
+
+	@Test
+	void tenantCreateCannotDisableCaptcha() {
+		String admin = loginAdminWithSlider();
+		String[] t = createTenant(admin, Map.of("captchaEnabled", 0));
+		JsonNode cfg = readBody(get("/auth/captcha/config?scene=login&clientId=web&tenantId=" + t[0], null)).path("data");
+		assertThat(cfg.path("enabled").asBoolean()).isTrue();
+	}
+
+	@Test
+	void keyboardChallengeReturnsStepAndModeIsBound() {
+		Map<String, Object> req = new HashMap<>();
+		req.put("scene", "login");
+		req.put("clientId", CLIENT_WEB);
+		req.put("tenantId", PLATFORM_TENANT);
+		req.put("inputMode", "keyboard");
+		JsonNode c = readBody(post("/auth/captcha/challenge", req, null)).path("data");
+		assertThat(c.path("inputMode").asText()).isEqualTo("keyboard");
+		assertThat(c.path("keyboardStep").asInt()).isEqualTo(4);
+		// pointer 出题后按 keyboard 提交 → 40011
+		JsonNode p = challenge("login", PLATFORM_TENANT).path("data");
+		String id = p.path("captchaId").asText();
+		int x = slider.peekAnswerX(id);
+		sleep(700);
+		long end = System.currentTimeMillis();
+		Map<String, Object> body = new HashMap<>();
+		body.put("captchaId", id);
+		body.put("inputMode", "keyboard");
+		body.put("bgDisplayWidth", 320);
+		body.put("startTime", end - 650);
+		body.put("endTime", end);
+		body.put("answer", Map.of("x", x));
+		body.put("keyPresses", Math.round(x / 4f));
+		assertThat(readBody(post("/auth/captcha/verify", body, null)).path("code").asInt()).isEqualTo(CaptchaCodes.FAILED);
+	}
+
+	@Test
+	void chunkedOversizedBodyIsRejected() throws Exception {
+		java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+			new java.net.URI("http://localhost:" + port + "/auth/captcha/verify").toURL().openConnection();
+		conn.setRequestMethod("POST");
+		conn.setDoOutput(true);
+		conn.setChunkedStreamingMode(4096);
+		conn.setRequestProperty("Content-Type", "application/json");
+		StringBuilder sb = new StringBuilder("{\"captchaId\":\"0123456789abcdef0123456789abcdef\",\"track\":[");
+		for (int i = 0; i < 4000; i++) {
+			sb.append(i == 0 ? "" : ",").append("{\"x\":1,\"y\":1,\"t\":").append(i).append('}');
+		}
+		sb.append("]}");
+		byte[] bytes = sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		assertThat(bytes.length).isGreaterThan(64 * 1024);
+		int status;
+		String resp;
+		try (java.io.OutputStream out = conn.getOutputStream()) {
+			out.write(bytes);
+		} catch (java.io.IOException ignored) {
+			// 服务端提前断开同样视为拒绝
+		}
+		status = conn.getResponseCode();
+		java.io.InputStream in = status < 400 ? conn.getInputStream() : conn.getErrorStream();
+		resp = in == null ? "" : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+		boolean rejected = status >= 400 || !resp.contains("\"code\":200");
+		assertThat(rejected).as("status=" + status + " body=" + resp).isTrue();
+		assertThat(resp).doesNotContain("captchaToken");
 	}
 }

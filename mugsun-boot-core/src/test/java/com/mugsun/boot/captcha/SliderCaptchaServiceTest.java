@@ -56,7 +56,16 @@ class SliderCaptchaServiceTest {
 	// ---------------------------------------------------------------- helpers
 
 	private ChallengeVO challenge() {
-		return svc.challenge("login", "web", "000000", IP);
+		return svc.challenge("login", "web", "000000", "pointer", IP);
+	}
+
+	private ChallengeVO keyboardChallenge() {
+		return svc.challenge("login", "web", "000000", "keyboard", IP);
+	}
+
+	/** 按服务端步长（默认 4）算出的按键次数 */
+	private static int presses(int answerX) {
+		return Math.round(answerX / 4f);
 	}
 
 	/** 人类样轨迹：ease-out 位移 + 纵向抖动，display 像素 */
@@ -237,7 +246,7 @@ class SliderCaptchaServiceTest {
 		assertThat(code(() -> svc.verify(pointer("0123456789abcdef0123456789abcdef", 1, 320, humanTrack(1, 850), 850), IP, UA)))
 			.isEqualTo(CaptchaCodes.RATE_LIMITED);
 		// 其他 IP 不受影响
-		assertThat(svc.challenge("login", "web", "000000", "198.51.100.1").captchaId()).hasSize(32);
+		assertThat(svc.challenge("login", "web", "000000", "pointer", "198.51.100.1").captchaId()).hasSize(32);
 		now.addAndGet(601_000);
 		assertThat(challenge().captchaId()).hasSize(32);
 	}
@@ -256,38 +265,86 @@ class SliderCaptchaServiceTest {
 	@Test
 	void globalTokenBucket() {
 		props.getRateLimit().setGlobalChallengePerSecond(2);
-		svc.challenge("login", "web", "000000", "10.0.0.1");
-		svc.challenge("login", "web", "000000", "10.0.0.2");
-		assertThat(code(() -> svc.challenge("login", "web", "000000", "10.0.0.3"))).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		svc.challenge("login", "web", "000000", "pointer", "10.0.0.1");
+		svc.challenge("login", "web", "000000", "pointer", "10.0.0.2");
+		assertThat(code(() -> svc.challenge("login", "web", "000000", "pointer", "10.0.0.3"))).isEqualTo(CaptchaCodes.RATE_LIMITED);
 		now.addAndGet(1000);
-		assertThat(code(() -> svc.challenge("login", "web", "000000", "10.0.0.3"))).isEqualTo(200);
+		assertThat(code(() -> svc.challenge("login", "web", "000000", "pointer", "10.0.0.3"))).isEqualTo(200);
 	}
 
 	@Test
-	void keyboardModeChecksDurationPressesAndAnswer() {
-		ChallengeVO c = challenge();
+	void keyboardModeChecksDurationStepPressesAndAnswer() {
+		ChallengeVO c = keyboardChallenge();
+		assertThat(c.inputMode()).isEqualTo("keyboard");
+		assertThat(c.keyboardStep()).isEqualTo(4);
+		assertThat(challenge().keyboardStep()).isNull();
 		int ax = svc.peekAnswerX(c.captchaId());
 		now.addAndGet(2000);
 		long end = now.get();
 		TokenVO t = svc.verify(new VerifyRequest(c.captchaId(), "keyboard", 320, end - 1500, end, null,
-			new VerifyRequest.Answer((double) ax), 12), IP, UA);
+			new VerifyRequest.Answer((double) ax), presses(ax)), IP, UA);
 		svc.consume(t.captchaToken(), "login", "web", "000000", IP, UA);
 
-		ChallengeVO c2 = challenge();
+		// 正确落点 + 自报 3 次按键（与步长不符）→ 失败，且挑战作废
+		ChallengeVO c2 = keyboardChallenge();
 		int a2 = svc.peekAnswerX(c2.captchaId());
 		now.addAndGet(2000);
 		long e2 = now.get();
 		assertThat(code(() -> svc.verify(new VerifyRequest(c2.captchaId(), "keyboard", 320, e2 - 1500, e2, null,
-			new VerifyRequest.Answer((double) a2), 1), IP, UA))).isEqualTo(CaptchaCodes.FAILED);
-		// 失败即作废
+			new VerifyRequest.Answer((double) a2), 3), IP, UA))).isEqualTo(CaptchaCodes.FAILED);
 		assertThat(code(() -> svc.verify(new VerifyRequest(c2.captchaId(), "keyboard", 320, e2 - 1500, e2, null,
-			new VerifyRequest.Answer((double) a2), 12), IP, UA))).isEqualTo(CaptchaCodes.EXPIRED);
+			new VerifyRequest.Answer((double) a2), presses(a2)), IP, UA))).isEqualTo(CaptchaCodes.EXPIRED);
+
+		// 按键次数 ±1 步可接受，±2 步拒绝
+		ChallengeVO c3 = keyboardChallenge();
+		int a3 = svc.peekAnswerX(c3.captchaId());
+		now.addAndGet(2000);
+		long e3 = now.get();
+		assertThat(code(() -> svc.verify(new VerifyRequest(c3.captchaId(), "keyboard", 320, e3 - 1500, e3, null,
+			new VerifyRequest.Answer((double) a3), presses(a3) + 1), IP, UA))).isEqualTo(200);
+		ChallengeVO c4 = keyboardChallenge();
+		int a4 = svc.peekAnswerX(c4.captchaId());
+		now.addAndGet(2000);
+		long e4 = now.get();
+		assertThat(code(() -> svc.verify(new VerifyRequest(c4.captchaId(), "keyboard", 320, e4 - 1500, e4, null,
+			new VerifyRequest.Answer((double) a4), presses(a4) + 2), IP, UA))).isEqualTo(CaptchaCodes.FAILED);
+	}
+
+	@Test
+	void inputModeIsFixedAtChallenge() {
+		// pointer 出题，verify 自报 keyboard（企图跳过轨迹校验）→ 失败
+		ChallengeVO c = challenge();
+		int ax = svc.peekAnswerX(c.captchaId());
+		now.addAndGet(2000);
+		long end = now.get();
+		assertThat(code(() -> svc.verify(new VerifyRequest(c.captchaId(), "keyboard", 320, end - 1500, end, null,
+			new VerifyRequest.Answer((double) ax), presses(ax)), IP, UA))).isEqualTo(CaptchaCodes.FAILED);
+		// keyboard 出题，verify 按 pointer 提交 → 失败
+		ChallengeVO k = keyboardChallenge();
+		int kx = svc.peekAnswerX(k.captchaId());
+		now.addAndGet(900);
+		assertThat(code(() -> svc.verify(pointer(k.captchaId(), kx, 320, humanTrack(kx, 850), 850), IP, UA)))
+			.isEqualTo(CaptchaCodes.FAILED);
+	}
+
+	@Test
+	void smsQuotaPerIpAndPhone() {
+		props.getRateLimit().setSmsIpPerHour(3);
+		props.getRateLimit().setSmsPhonePerDay(2);
+		svc.assertSmsQuota("13800000001", IP);
+		svc.assertSmsQuota("13800000001", IP);
+		CaptchaException phone = (CaptchaException) catchCaptcha(() -> svc.assertSmsQuota("13800000001", IP));
+		assertThat(phone.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat(phone.getData()).containsKey("retryAfter");
+		// IP 计数已到 3，再换号也被拦
+		assertThat(code(() -> svc.assertSmsQuota("13800000002", IP))).isEqualTo(CaptchaCodes.RATE_LIMITED);
+		assertThat(code(() -> svc.assertSmsQuota("13800000002", "198.51.100.3"))).isEqualTo(200);
 	}
 
 	@Test
 	void keyboardLimitsAreStricter() {
 		for (int i = 0; i < 3; i++) {
-			ChallengeVO c = challenge();
+			ChallengeVO c = keyboardChallenge();
 			now.addAndGet(2000);
 			long end = now.get();
 			assertThat(code(() -> svc.verify(new VerifyRequest(c.captchaId(), "keyboard", 320, end - 1500, end, null,

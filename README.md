@@ -70,13 +70,15 @@ OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
 | `mugsun.captcha.slider.expire-seconds` / `token-expire-seconds` | `120` / `120` | 挑战与令牌有效期 |
 | `mugsun.captcha.slider.min-duration-ms` | `300` | 服务端计时下限（签发→校验） |
 | `mugsun.captcha.slider.decoy-count` | `1` | 假缺口数量（0–2） |
-| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` | 令牌强制绑定 IP / UA 哈希（默认只记录） |
+| `mugsun.captcha.slider.keyboard-step-px` | `4` | 键盘模式每次按键移动的原始像素（challenge 返回 `keyboardStep`） |
+| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` / `false`（prod 的 `bind-ua` 为 `true`） | 令牌强制绑定 IP / UA 哈希（关闭时只记录） |
 | `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | 背景图目录（`file:` 亦可），jpg/png，推荐 640×360；为空用纯色占位 |
 | `mugsun.captcha.background.rotate` | `random` | `random` 或 `round-robin` |
 | `mugsun.captcha.background.reload-seconds` | `600` | 目录重扫间隔，0 只在启动时加载 |
-| `mugsun.captcha.rate-limit.*` | 见 `application.yml` | 单 IP 取挑战/分钟、全局令牌桶、失败锁定（键盘模式更严） |
+| `mugsun.captcha.rate-limit.*` | 见 `application.yml` | 单 IP 取挑战/分钟、全局每秒上限（Redis 跨节点）、失败锁定（键盘模式更严） |
+| `mugsun.captcha.rate-limit.sms-phone-per-day` / `sms-ip-per-hour` | `10` / `20` | 发送短信验证码频控（叠加同号 60 秒节流），与验证码开关无关 |
 
-租户开关：`sys_tenant.captcha_enabled`（`V4__tenant_captcha.sql`，默认 1），仅平台超管可通过 `POST /system/tenant/captcha` 修改并写入审计日志。客户端开关 `sys_client.captcha_enabled` 仍只作用于登录。App 端 `/app/captcha/*` 接口形状不变，内部共用同一引擎。
+租户开关：`sys_tenant.captcha_enabled`（`V4__tenant_captcha.sql`，默认 1，新建租户一律开启），仅平台超管可通过 `POST /system/tenant/captcha` 修改并写入审计日志；多节点时其他节点最多 60 秒后生效。发送短信验证码与租户无关，只看全局开关。滑块模式下客户端开关 `sys_client.captcha_enabled` 不再能关闭验证码（clientId 由请求方自选），仅旧数字码模式下对登录生效。输入方式（`inputMode`）在取题时声明，校验时不一致即失败。App 端 `/app/captcha/*` 接口形状不变，内部共用同一引擎。
 
 ## 组成
 

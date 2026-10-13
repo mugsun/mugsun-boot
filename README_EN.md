@@ -70,13 +70,15 @@ Login, registration, the forgot-password code and the SMS code request require a
 | `mugsun.captcha.slider.expire-seconds` / `token-expire-seconds` | `120` / `120` | Challenge and token lifetime |
 | `mugsun.captcha.slider.min-duration-ms` | `300` | Server-timed minimum (issue → verify) |
 | `mugsun.captcha.slider.decoy-count` | `1` | Fake gaps (0–2) |
-| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` | Enforce token binding to IP / UA hash (recorded either way) |
+| `mugsun.captcha.slider.keyboard-step-px` | `4` | Native pixels moved per key press in keyboard mode (returned as `keyboardStep`) |
+| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` / `false` (`bind-ua` is `true` in prod) | Enforce token binding to IP / UA hash (recorded either way) |
 | `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | Background folder (`file:` works too), jpg/png, 640×360 recommended; plain-colour placeholder when empty |
 | `mugsun.captcha.background.rotate` | `random` | `random` or `round-robin` |
 | `mugsun.captcha.background.reload-seconds` | `600` | Rescan interval, 0 = load at startup only |
-| `mugsun.captcha.rate-limit.*` | see `application.yml` | Per-IP challenge rate, global token bucket, failure lockout (stricter for keyboard mode) |
+| `mugsun.captcha.rate-limit.*` | see `application.yml` | Per-IP challenge rate, global per-second cap (shared across nodes via Redis), failure lockout (stricter for keyboard mode) |
+| `mugsun.captcha.rate-limit.sms-phone-per-day` / `sms-ip-per-hour` | `10` / `20` | Limits on sending SMS codes (on top of the 60-second per-number throttle), independent of the captcha switch |
 
-Tenant switch: `sys_tenant.captcha_enabled` (`V4__tenant_captcha.sql`, default 1); only the platform super admin can change it via `POST /system/tenant/captcha`, and every change is audited. The client switch `sys_client.captcha_enabled` still applies to login only. The app endpoints `/app/captcha/*` keep their shape and share the same engine.
+Tenant switch: `sys_tenant.captcha_enabled` (`V4__tenant_captcha.sql`, default 1, always on for new tenants); only the platform super admin can change it via `POST /system/tenant/captcha`, and every change is audited. Other nodes pick it up within 60 seconds. Sending SMS codes does not depend on the tenant; only the global switch applies. In slider mode the client switch `sys_client.captcha_enabled` can no longer turn verification off (the caller picks the clientId); it only applies to login in legacy IMAGE mode. The input mode (`inputMode`) is declared when fetching the challenge and must match at verify. The app endpoints `/app/captcha/*` keep their shape and share the same engine.
 
 ## Composition
 
