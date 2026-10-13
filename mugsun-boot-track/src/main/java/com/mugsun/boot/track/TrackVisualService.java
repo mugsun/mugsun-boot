@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -60,6 +61,9 @@ public class TrackVisualService {
 	private final TrackEventDefService eventDefService;
 	private final StringRedisTemplate redis;
 	private final JdbcTemplate jdbc;
+
+	/** 限流分钟窗取时钟（默认系统时钟；测试经反射钉住，避免跨分钟边界计数被拆到两个窗口） */
+	private Clock clock = Clock.systemDefaultZone();
 
 	public TrackVisualService(TrackVisualRuleMapper visualRuleMapper, TrackEventDefMapper eventDefMapper,
 							  TrackVisualRuleService visualRuleService, TrackEventDefService eventDefService,
@@ -462,7 +466,7 @@ public class TrackVisualService {
 	/** token+IP 分钟窗限流：INCR 首置 EXPIRE 70s；超限 429；Redis 故障 fail-open（同事件摄入口径） */
 	private void assertDraftRateLimit(String token, String ip) {
 		String key = TrackConstants.VISUAL_RATE_LIMIT_KEY_PREFIX + token.substring(0, 8) + ":" + ip + ":"
-			+ MINUTE_FORMAT.format(LocalDateTime.now());
+			+ MINUTE_FORMAT.format(LocalDateTime.now(clock));
 		try {
 			Long count = redis.opsForValue().increment(key);
 			if (count != null && count == 1L) {
