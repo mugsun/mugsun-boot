@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.system.service.ParamService;
 import com.mugsun.boot.track.job.TrackApiBodyCleanJob;
+import com.mugsun.boot.track.job.TrackPartitionJob;
 import com.mybatisflex.core.datasource.DataSourceKey;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
@@ -22,6 +23,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Instant;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -65,6 +67,8 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 	private ParamService paramService;
 	@Autowired
 	private TrackApiBodyCleanJob cleanJob;
+	@Autowired
+	private TrackPartitionJob partitionJob;
 	@Autowired
 	private StringRedisTemplate redis;
 
@@ -469,12 +473,83 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 	void timelineIndexesMigrated() {
 		Row user = trackRow("SELECT indexdef FROM pg_indexes WHERE tablename = 'track_event' AND indexname = ?",
 			"idx_event_user_ts_timeline");
-		assertThat(user).as("idx_event_user_ts_timeline 应由 T2 建出").isNotNull();
-		assertThat(user.getString("indexdef")).contains("(app_key, user_id, ts, id)");
+		assertThat(user).as("idx_event_user_ts_timeline 应由 T3 建出").isNotNull();
+		assertThat(user.getString("indexdef")).contains("ON ONLY").contains("(app_key, user_id, ts, id)");
 		Row distinct = trackRow("SELECT indexdef FROM pg_indexes WHERE tablename = 'track_event' AND indexname = ?",
 			"idx_event_distinct_ts_timeline");
-		assertThat(distinct).as("idx_event_distinct_ts_timeline 应由 T2 建出").isNotNull();
-		assertThat(distinct.getString("indexdef")).contains("(app_key, distinct_id, ts, id)");
+		assertThat(distinct).as("idx_event_distinct_ts_timeline 应由 T3 建出").isNotNull();
+		assertThat(distinct.getString("indexdef")).contains("ON ONLY").contains("(app_key, distinct_id, ts, id)");
+		assertThat(trackLong("SELECT count(*) AS c FROM flyway_schema_history WHERE version IN ('3', '4') AND success"))
+			.as("T3 + T4 迁移成功").isEqualTo(2L);
+		assertTimelineIndexesValid();
+	}
+
+	/** ⑩b 新分区（TrackPartitionJob 预建）自动带上时间线索引并已挂接、valid */
+	@Test
+	void newPartitionGetsTimelineIndexes() {
+		YearMonth far = YearMonth.now(ZoneOffset.UTC).plusMonths(7);
+		String part = String.format("track_event_%04d_%02d", far.getYear(), far.getMonthValue());
+		String dataPart = String.format("track_event_data_%04d_%02d", far.getYear(), far.getMonthValue());
+		partitionJob.ensureMonthPartitions(far);
+		try {
+			for (String idx : List.of("idx_event_user_ts_timeline", "idx_event_distinct_ts_timeline")) {
+				assertThat(trackLong("SELECT count(*) AS c FROM pg_inherits i JOIN pg_index x ON x.indexrelid = i.inhrelid"
+					+ " JOIN pg_class t ON t.oid = x.indrelid WHERE i.inhparent = ?::regclass AND t.relname = ? AND x.indisvalid",
+					idx, part)).as(part + " 应带 " + idx).isEqualTo(1L);
+			}
+			assertTimelineIndexesValid();
+		} finally {
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP TABLE IF EXISTS \"" + part + "\"");
+				Db.updateBySql("DROP TABLE IF EXISTS \"" + dataPart + "\"");
+			});
+		}
+	}
+
+	/** ⑩c userId 路径 UNION ALL 改写与原跨表 OR 口径逐行一致（小页翻全量，顺序/去重均比对） */
+	@Test
+	void userTimelineUnionMatchesOrSemantics() {
+		long now = System.currentTimeMillis();
+		long start = now - 3600000;
+		long end = now + 60000;
+		List<String> expected = new ArrayList<>();
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+			for (Row r : Db.selectListBySql("SELECT e.event_id FROM track_event e LEFT JOIN track_identity m"
+					+ " ON m.app_key = e.app_key AND m.distinct_id = e.distinct_id AND m.is_deleted = 0"
+					+ " WHERE e.app_key = ? AND (e.user_id = ? OR m.user_id = ?)"
+					+ " AND e.received_at >= to_timestamp(? / 1000.0) AND e.received_at <= to_timestamp(? / 1000.0)"
+					+ " ORDER BY e.ts DESC, e.id DESC",
+				APP_T, adminId, adminId, start, end)) {
+				expected.add(r.getString("event_id"));
+			}
+		});
+		assertThat(expected).as("夹具含登录段与匿名归并段").hasSizeGreaterThanOrEqualTo(5);
+		List<String> actual = new ArrayList<>();
+		String cursor = null;
+		for (int guard = 0; guard < 50; guard++) {
+			JsonNode data = readBodyAssertOk(get("/system/track/user/timeline?appKey=" + APP_T + "&userId=" + adminId
+				+ "&startTs=" + start + "&endTs=" + end + "&pageSize=2"
+				+ (cursor == null ? "" : "&cursor=" + cursor), adminToken));
+			for (JsonNode row : data.path("records")) {
+				actual.add(row.path("eventId").asText());
+			}
+			if (data.path("nextCursor").isNull()) {
+				break;
+			}
+			cursor = data.path("nextCursor").asText();
+		}
+		assertThat(actual).as("UNION ALL 分页结果与 OR 口径逐行一致（无重复无遗漏、同序）").containsExactlyElementsOf(expected);
+	}
+
+	private void assertTimelineIndexesValid() {
+		long parts = trackLong("SELECT count(*) AS c FROM pg_inherits WHERE inhparent = 'track_event'::regclass");
+		for (String idx : List.of("idx_event_user_ts_timeline", "idx_event_distinct_ts_timeline")) {
+			assertThat(trackLong("SELECT count(*) AS c FROM pg_index WHERE indexrelid = ?::regclass AND indisvalid", idx))
+				.as(idx + " 父索引 indisvalid").isEqualTo(1L);
+			assertThat(trackLong("SELECT count(*) AS c FROM pg_inherits i JOIN pg_index x ON x.indexrelid = i.inhrelid"
+				+ " WHERE i.inhparent = ?::regclass AND x.indisvalid", idx))
+				.as(idx + " 每个分区一条 valid 子索引").isEqualTo(parts);
+		}
 	}
 
 	/** ⑪ body 读取审计留痕：sys_oper_log 写「查看接口响应体」（标题/URI/操作人/参数含事件） */

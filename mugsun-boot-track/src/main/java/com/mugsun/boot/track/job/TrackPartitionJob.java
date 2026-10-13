@@ -92,6 +92,10 @@ public class TrackPartitionJob {
 			+ " FOR VALUES FROM ('" + monthStart + "') TO ('" + monthEnd + "') WITH (fillfactor = 100)");
 		jdbc.execute("CREATE TABLE IF NOT EXISTS \"track_event_data_" + suffix + "\" PARTITION OF track_event_data"
 			+ " FOR VALUES FROM ('" + monthStart + "') TO ('" + monthEnd + "')");
+		// 时间线 (ts,id) 索引：PARTITION OF 时 PG 自动克隆父表索引并挂接（含 T3 的 ON ONLY 索引）；
+		// 此处按 pg_inherits 校验，缺失则 CONCURRENTLY 补建并 ATTACH（新分区为空，代价可忽略；连接为自动提交）
+		jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Integer>) conn ->
+			TrackTimelineIndexes.ensurePartition(conn, "track_event_" + suffix));
 	}
 
 	/** 清理到期分区：月分区上界整体早于到期线（max retention_days）→ DETACH → DROP；返回清理个数 */
