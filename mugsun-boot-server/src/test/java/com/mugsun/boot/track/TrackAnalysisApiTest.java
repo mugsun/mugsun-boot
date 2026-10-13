@@ -135,7 +135,8 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		JsonNode cards = data.path("cards");
 		assertThat(cards.path("pv").asLong()).as("pv=今日3+昨日2").isEqualTo(5L);
 		assertThat(cards.path("uv").asLong()).as("uv=今日2（d1,d2）+昨日2").isEqualTo(4L);
-		assertThat(cards.path("sessionCount").asLong()).as("今日活跃会话 s1/s2（昨日未造会话）").isEqualTo(2L);
+		assertThat(cards.path("sessionCount").asLong())
+			.as("各当地日活跃会话之和：今日 s1/s2 + 昨日直灌的 2 条 PV 各自的会话（默认上海时区走明细直算）").isEqualTo(4L);
 		assertThat(cards.path("eventCount").asLong()).as("今日9+昨日2").isEqualTo(11L);
 		assertThat(cards.has("avgSessionDurationMs")).isTrue();
 		assertThat(cards.has("settledSessionCount")).as("下发已结算会话数").isTrue();

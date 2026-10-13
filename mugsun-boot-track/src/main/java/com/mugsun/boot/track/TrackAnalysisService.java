@@ -3,6 +3,7 @@ package com.mugsun.boot.track;
 import com.alicp.jetcache.anno.CacheType;
 import com.alicp.jetcache.anno.Cached;
 import com.mugsun.boot.common.constant.TrackConstants;
+import com.mugsun.boot.track.job.TrackVitalsJob;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -65,38 +66,55 @@ public class TrackAnalysisService {
 	public Map<String, Object> overview(String appKey, Integer days) {
 		appKey = assertAppKey(appKey);
 		int d = assertDays(days);
-		return self.getObject().cachedOverview(appKey, d, currentTenant());
+		String tenant = currentTenant();
+		return self.getObject().cachedOverview(appKey, d, tenant, timezones.zoneFor(tenant).getId());
 	}
 
-	@Cached(name = "track:ana:ov:", key = "#appKey + ':' + #days",
+	@Cached(name = "track:ana:ov:", key = "#appKey + ':' + #days + ':' + #tenant + ':' + #zoneId",
 		expire = TrackConstants.ANALYSIS_CACHE_SECONDS, cacheType = CacheType.LOCAL)
-	public Map<String, Object> cachedOverview(String appKey, int days, String tenant) {
-		LocalDate today = LocalDate.now(ZoneOffset.UTC);
-		LocalDate from = today.minusDays(days - 1L);
+	public Map<String, Object> cachedOverview(String appKey, int days, String tenant, String zoneId) {
+		// 按租户时区切日：「今天」从当地 0 点开始
+		TrackDayWindow w = TrackDayWindow.of(ZoneId.of(zoneId), Instant.now(), days);
+		LocalDate today = w.today();
+		LocalDate from = w.fromDate();
 		LocalDate yesterday = today.minusDays(1);
 
-		// 历史部分（昨日及更早）：stats_day overview 行累加
-		List<Object> histArgs = new ArrayList<>(List.of(appKey, from, yesterday));
-		Map<String, Object> hist = queryOne(
-			"SELECT coalesce(sum(pv), 0) AS pv, coalesce(sum(uv), 0) AS uv,"
-				+ " coalesce(sum(session_count), 0) AS sc, coalesce(sum(event_count), 0) AS ec"
-				+ " FROM track_stats_day WHERE app_key = ? AND dim_type = '" + TrackConstants.DIM_OVERVIEW + "'"
-				+ " AND stat_date >= ? AND stat_date <= ?" + tenantFrag(null, tenant, histArgs),
-			histArgs);
+		Map<String, Object> hist;
+		Map<String, Object> todayRow;
+		if (w.isUtc()) {
+			// 历史部分（昨日及更早）：stats_day overview 行累加
+			List<Object> histArgs = new ArrayList<>(List.of(appKey, from, yesterday));
+			hist = queryOne(
+				"SELECT coalesce(sum(pv), 0) AS pv, coalesce(sum(uv), 0) AS uv,"
+					+ " coalesce(sum(session_count), 0) AS sc, coalesce(sum(event_count), 0) AS ec"
+					+ " FROM track_stats_day WHERE app_key = ? AND dim_type = '" + TrackConstants.DIM_OVERVIEW + "'"
+					+ " AND stat_date >= ? AND stat_date <= ?" + tenantFrag(null, tenant, histArgs),
+				histArgs);
 
-		// 今日部分：当日分区直算
-		OffsetDateTime todayStart = today.atStartOfDay().atOffset(ZoneOffset.UTC);
-		List<Object> todayArgs = new ArrayList<>(List.of(appKey, todayStart));
-		Map<String, Object> todayRow = queryOne(
-			"SELECT count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
-				+ " count(*) AS ec, count(DISTINCT e.session_id) AS sc,"
-				+ " " + TrackConstants.UV_EXPR + " AS uv"
-				+ " FROM track_event e"
-				+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, todayArgs),
-			todayArgs);
+			// 今日部分：当日分区直算
+			OffsetDateTime todayStart = today.atStartOfDay().atOffset(ZoneOffset.UTC);
+			List<Object> todayArgs = new ArrayList<>(List.of(appKey, todayStart));
+			todayRow = queryOne(
+				"SELECT count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
+					+ " count(*) AS ec, count(DISTINCT e.session_id) AS sc,"
+					+ " " + TrackConstants.UV_EXPR + " AS uv"
+					+ " FROM track_event e"
+					+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, todayArgs),
+				todayArgs);
+		} else {
+			// 非 UTC：stats_day 按 UTC 日汇总无法改切，窗口内明细直算；sessionCount = 各当地日活跃会话数之和（与日表累加同口径）
+			hist = Map.of();
+			List<Object> rawArgs = new ArrayList<>(List.of(zoneId, appKey, w.fromOffset()));
+			todayRow = queryOne(
+				"SELECT count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
+					+ " count(*) AS ec, count(DISTINCT ((e.received_at AT TIME ZONE ?)::date, e.session_id)) AS sc"
+					+ " FROM track_event e"
+					+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, rawArgs),
+				rawArgs);
+		}
 
 		// 会话卡：全会话表区间直算（行数比事件少 1-2 个数量级）；仅已结算会话口径（duration/bounce 定稿值）
-		LocalDateTime rangeStart = from.atStartOfDay();
+		LocalDateTime rangeStart = w.fromUtcWall();
 		List<Object> sessArgs = new ArrayList<>(List.of(appKey, rangeStart));
 		Map<String, Object> sess = queryOne(
 			"SELECT count(*) AS total, count(*) FILTER (WHERE pageviews <= 1) AS bounce,"
@@ -107,7 +125,7 @@ public class TrackAnalysisService {
 
 		long pv = num(hist, "pv") + num(todayRow, "pv");
 		// UV 区间精确去重（与事件分析同口径同时间窗；不再用日 UV 累加，否则跨日重访被重复计）
-		List<Object> uvArgs = new ArrayList<>(List.of(appKey, from.atStartOfDay().atOffset(ZoneOffset.UTC)));
+		List<Object> uvArgs = new ArrayList<>(List.of(appKey, w.fromOffset()));
 		Map<String, Object> uvRow = queryOne("SELECT " + TrackConstants.UV_EXPR + " AS uv FROM track_event e"
 			+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, uvArgs), uvArgs);
 		long uv = num(uvRow, "uv");
@@ -331,14 +349,14 @@ public class TrackAnalysisService {
 		appKey = assertAppKey(appKey);
 		int d = assertDays(days);
 		int top = clampLimit(limit, TrackConstants.ANALYSIS_TOP_LIMIT);
-		return self.getObject().cachedPages(appKey, d, top, currentTenant());
+		String tenant = currentTenant();
+		return self.getObject().cachedPages(appKey, d, top, tenant, timezones.zoneFor(tenant).getId());
 	}
 
-	@Cached(name = "track:ana:pages:", key = "#appKey + ':' + #days + ':' + #limit",
+	@Cached(name = "track:ana:pages:", key = "#appKey + ':' + #days + ':' + #limit + ':' + #tenant + ':' + #zoneId",
 		expire = TrackConstants.ANALYSIS_CACHE_SECONDS, cacheType = CacheType.LOCAL)
-	public List<Map<String, Object>> cachedPages(String appKey, int days, int limit, String tenant) {
-		LocalDate today = LocalDate.now(ZoneOffset.UTC);
-		OffsetDateTime from = today.minusDays(days - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
+	public List<Map<String, Object>> cachedPages(String appKey, int days, int limit, String tenant, String zoneId) {
+		OffsetDateTime from = TrackDayWindow.of(ZoneId.of(zoneId), Instant.now(), days).fromOffset();
 		List<Object> args = new ArrayList<>(List.of(appKey, from));
 		String sql = "SELECT left(coalesce(nullif(e.route_path, ''), e.url_path), " + TrackConstants.DIM_MAX_LEN + ") AS \"pagePath\","
 			+ " count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS \"pv\","
@@ -357,21 +375,39 @@ public class TrackAnalysisService {
 	public List<Map<String, Object>> vitals(String appKey, Integer days, String routePath) {
 		appKey = assertAppKey(appKey);
 		int d = assertDays(days);
-		return self.getObject().cachedVitals(appKey, d, routePath, currentTenant());
+		String tenant = currentTenant();
+		return self.getObject().cachedVitals(appKey, d, routePath, tenant, timezones.zoneFor(tenant).getId());
 	}
 
-	@Cached(name = "track:ana:vitals:", key = "#appKey + ':' + #days + ':' + #routePath",
+	@Cached(name = "track:ana:vitals:", key = "#appKey + ':' + #days + ':' + #routePath + ':' + #tenant + ':' + #zoneId",
 		expire = TrackConstants.ANALYSIS_CACHE_SECONDS, cacheType = CacheType.LOCAL)
-	public List<Map<String, Object>> cachedVitals(String appKey, int days, String routePath, String tenant) {
-		LocalDate today = LocalDate.now(ZoneOffset.UTC);
-		LocalDate from = today.minusDays(days - 1L);
-		List<Object> args = new ArrayList<>(List.of(appKey, from, today));
-		StringBuilder sql = new StringBuilder(
-			"SELECT metric, bucket, sum(cnt) AS c FROM track_stats_vitals"
-				+ " WHERE app_key = ? AND stat_date >= ? AND stat_date <= ?");
-		if (routePath != null && !routePath.isBlank()) {
-			sql.append(" AND url_path = ?");
-			args.add(routePath);
+	public List<Map<String, Object>> cachedVitals(String appKey, int days, String routePath, String tenant, String zoneId) {
+		TrackDayWindow w = TrackDayWindow.of(ZoneId.of(zoneId), Instant.now(), days);
+		List<Object> args;
+		StringBuilder sql;
+		boolean byRoute = routePath != null && !routePath.isBlank();
+		if (w.isUtc()) {
+			args = new ArrayList<>(List.of(appKey, w.fromDate(), w.today()));
+			sql = new StringBuilder(
+				"SELECT metric, bucket, sum(cnt) AS c FROM track_stats_vitals"
+					+ " WHERE app_key = ? AND stat_date >= ? AND stat_date <= ?");
+			if (byRoute) {
+				sql.append(" AND url_path = ?");
+				args.add(routePath);
+			}
+		} else {
+			// 非 UTC：track_stats_vitals 按 UTC 日汇总，改为窗口内 $web_vitals 明细直接分桶（桶界与 TrackVitalsJob 同一表达式）
+			args = new ArrayList<>(List.of(appKey, w.fromOffset()));
+			sql = new StringBuilder(
+				"SELECT props->>'" + TrackConstants.PROP_VITALS_METRIC + "' AS metric, "
+					+ TrackVitalsJob.bucketCaseSql() + " AS bucket, count(*) AS c FROM track_event"
+					+ " WHERE app_key = ? AND event_name = '$web_vitals' AND received_at >= ?"
+					+ " AND props->>'" + TrackConstants.PROP_VITALS_METRIC + "' IN ('lcp', 'inp', 'cls', 'fcp', 'ttfb')"
+					+ " AND props->>'" + TrackConstants.PROP_VITALS_VALUE + "' ~ '^[0-9]+(\\.[0-9]+)?$'");
+			if (byRoute) {
+				sql.append(" AND coalesce(nullif(route_path, ''), url_path, '" + TrackConstants.VITALS_DIM_UNKNOWN + "') = ?");
+				args.add(routePath);
+			}
 		}
 		sql.append(tenantFrag(null, tenant, args));
 		sql.append(" GROUP BY metric, bucket ORDER BY metric, bucket");
