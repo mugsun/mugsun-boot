@@ -2,7 +2,7 @@
 # 用法（在 mugsun-boot 目录）：
 #   docker compose up -d
 # 容器名与 README / e2e 一致：mugsun-pg、mugsun-redis。
-# 后端仍在宿主机以 jar/mvn 启动，连 localhost:5432 / 6379。
+# 后端仍在宿主机以 jar/mvn 启动，默认连 localhost:5432 / 6379；端口可用 MUGSUN_DB_PORT / MUGSUN_REDIS_PORT 一并改。
 #
 # 默认账号与 application.yml 对齐（仅本机开发）：库用户 mugsun/mugsun，Redis 无密码 db 3。
 # PowerJob Server 不在默认编排内；Worker 默认关闭。需要定时任务时自行起 Server 并设 POWERJOB_ENABLED=true。
@@ -14,17 +14,22 @@ services:
     # 没有扩展时应用不会报错，而是静默全量回落 Java 侧——查询慢数倍、矢量瓦片直接不可用，
     # 且只留一行 WARN 日志，运维极难发现。所以镜像即交付物，别在本地手工 apt 装扩展了事。
     # 基于 postgis/postgis:16-3.4 再装 pgvector。官方镜像仅 amd64，Apple Silicon 走仿真。
+    # Apple Silicon 原生构建（免 amd64 仿真）：
+    #   MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 docker compose up -d --build
     build:
       context: ./docker/postgres
+      args:
+        POSTGIS_IMAGE: ${MUGSUN_PG_BASE_IMAGE:-postgis/postgis:16-3.4}
     image: mugsun-postgis-pgvector:16-3.4
-    platform: linux/amd64
+    platform: ${MUGSUN_PG_PLATFORM:-linux/amd64}
     container_name: mugsun-pg
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${MUGSUN_POSTGRES_SUPER_PASSWORD:-postgres}
       MUGSUN_DB_PASSWORD: ${MUGSUN_DB_PASSWORD:-mugsun}
     ports:
-      - "5432:5432"
+      # 本机 5432 已被占用时：MUGSUN_DB_PORT=55432 docker compose up -d，后端同样导出 MUGSUN_DB_PORT
+      - "${MUGSUN_DB_PORT:-5432}:5432"
     volumes:
       - mugsun-pg-data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/initdb/init-db.sql:ro
@@ -39,7 +44,7 @@ services:
     image: redis:7-alpine
     container_name: mugsun-redis
     ports:
-      - "6379:6379"
+      - "${MUGSUN_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

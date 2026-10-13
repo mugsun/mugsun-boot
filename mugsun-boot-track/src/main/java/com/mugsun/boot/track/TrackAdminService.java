@@ -160,6 +160,33 @@ public class TrackAdminService {
 		return app;
 	}
 
+	// ==================== 接入自检 ====================
+
+	/** 本租户内按 appKey 取应用（Flex 租户插件拼 tenant_id：跨租户 = 不存在） */
+	public TrackApp requireApp(String appKey) {
+		if (appKey == null || appKey.isBlank() || appKey.length() > TrackConstants.APP_KEY_MAX_LEN) {
+			throw new ServiceException("请先选择应用");
+		}
+		TrackApp app = appMapper.selectOneByQuery(QueryWrapper.create().where("app_key = ?", appKey.trim()));
+		if (app == null) {
+			throw new ServiceException("这个应用不存在。请刷新列表后再试");
+		}
+		return app;
+	}
+
+	/** 本租户全部应用（自检总览用，上限 {@value TrackConstants#QUERY_PAGE_SIZE_MAX} 个） */
+	public java.util.List<TrackApp> listApps() {
+		return appMapper.paginate(1, TrackConstants.QUERY_PAGE_SIZE_MAX, QueryWrapper.create().orderBy("id", false)).getRecords();
+	}
+
+	/** 事件定义里的最近采集时间（Redis 无记录时的兜底：如 Redis 清空、升级前的老应用） */
+	public Long lastSeenFromEventDefs(String appKey) {
+		TrackEventDef latest = eventDefMapper.selectOneByQuery(QueryWrapper.create().where("app_key = ?", appKey)
+			.and("last_seen_time IS NOT NULL").orderBy("last_seen_time", false).limit(1));
+		return latest == null || latest.getLastSeenTime() == null ? null
+			: latest.getLastSeenTime().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+	}
+
 	// ==================== 事件定义治理 ====================
 
 	/** 事件定义分页：appKey 必填；eventName 模糊 / status 精确可选 */

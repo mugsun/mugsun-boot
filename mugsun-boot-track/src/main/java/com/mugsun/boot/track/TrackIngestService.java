@@ -53,16 +53,18 @@ public class TrackIngestService {
 	private final ParamService paramService;
 	private final StringRedisTemplate redis;
 	private final TrackIngestMetrics metrics;
+	private final TrackIntegrationHealth health;
 
 	public TrackIngestService(TrackAppService appService, TrackEventDefService eventDefService,
 							  TrackEventConsumer consumer, ParamService paramService,
-							  StringRedisTemplate redis, TrackIngestMetrics metrics) {
+							  StringRedisTemplate redis, TrackIngestMetrics metrics, TrackIntegrationHealth health) {
 		this.appService = appService;
 		this.eventDefService = eventDefService;
 		this.consumer = consumer;
 		this.paramService = paramService;
 		this.redis = redis;
 		this.metrics = metrics;
+		this.health = health;
 	}
 
 	/**
@@ -80,7 +82,8 @@ public class TrackIngestService {
 			throw new TrackCollectException(400, "应用标识不对。请到接入管理里复制这个应用的标识后再上报");
 		}
 		TrackApp app = appService.findCollectable(appKey)
-			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用。请到接入管理确认应用还在，并且采集是打开的"));
+			.orElseThrow(() -> new TrackCollectException(400, "应用不存在或已停用。请到接入管理确认应用还在，并且采集是打开的",
+				TrackRejectReason.APP_DISABLED));
 
 		// 2) IP+appKey 分钟窗限流（阈值 sys_param 热更；sys_param 平台全局无租户列，getValue 内部已 ignore）
 		assertRateLimit(appKey, ip);
@@ -88,27 +91,30 @@ public class TrackIngestService {
 		// 3) 批量上限：条数超 batch-max 截断并计数（截断保留队首，后到先丢）
 		JsonNode events = root.path(TrackConstants.FIELD_EVENTS);
 		if (!events.isArray()) {
-			throw new TrackCollectException(400, "事件列表不对。请把要上报的事件放进一个列表里再发");
+			throw new TrackCollectException(400, "事件列表不对。请把要上报的事件放进一个列表里再发", TrackRejectReason.SCHEMA_ERROR);
 		}
 		int size = events.size();
 		int batchMax = paramInt(TrackConstants.PARAM_BATCH_MAX, TrackConstants.DEFAULT_BATCH_MAX);
 		int acceptedTarget = Math.min(size, batchMax);
+		// 接入自检：本批各原因计数（批末一次 pipeline 写 Redis）
+		Map<TrackRejectReason, Long> issues = new java.util.EnumMap<>(TrackRejectReason.class);
 		if (size > batchMax) {
 			metrics.dropped("batch_truncated", size - batchMax);
+			issues.merge(TrackRejectReason.BATCH_TRUNCATED, (long) (size - batchMax), Long::sum);
 		}
 
 		// 4) 身份裁定（请求级一次解析）：token 有效 → user_id := token 登录 id；客户端上报 user_id 一律忽略
 		long receivedAtMs = System.currentTimeMillis();
 		Long tokenUserId = tokenUserId();
 		String tokenTenant = tokenTenant(tokenUserId);
-		String tenantId = resolveTenant(app, tokenTenant);
+		String tenantId = resolveTenant(app, tokenTenant, issues);
 
 		// 5) 逐条校验/校时/幂等后入队
 		int accepted = 0;
 		String platform = text(root.path(TrackConstants.FIELD_SDK), TrackConstants.FIELD_PLATFORM);
 		for (int i = 0; i < acceptedTarget; i++) {
 			TrackIngestEvent event = processEvent(events.get(i), app, platform, tenantId, tokenUserId,
-				receivedAtMs, ip, userAgent);
+				receivedAtMs, ip, userAgent, issues);
 			if (event == null) {
 				continue;
 			}
@@ -118,10 +124,15 @@ public class TrackIngestService {
 			} else {
 				// 队列背压：丢新 + 计数（宁可丢事件不拖垮 DB）
 				metrics.dropped("queue_full", 1);
+				issues.merge(TrackRejectReason.QUEUE_FULL, 1L, Long::sum);
 			}
 		}
 		if (accepted > 0) {
 			metrics.received(accepted);
+			health.received(app.getAppKey());
+		}
+		if (!issues.isEmpty()) {
+			health.record(app.getAppKey(), issues, Map.of());
 		}
 		return accepted;
 	}
@@ -137,7 +148,7 @@ public class TrackIngestService {
 			}
 			if (count != null && count > limit) {
 				metrics.ratelimited();
-				throw new TrackCollectException(429, "请求过于频繁。请等一分钟后再上报事件");
+				throw new TrackCollectException(429, "请求过于频繁。请等一分钟后再上报事件", TrackRejectReason.RATE_LIMITED);
 			}
 		} catch (TrackCollectException e) {
 			throw e;
@@ -149,9 +160,10 @@ public class TrackIngestService {
 
 	/** 事件级处理：校验 → 校时 → 身份/租户裁定 → 幂等；任一环不过返回 null（已计数） */
 	private TrackIngestEvent processEvent(JsonNode node, TrackApp app, String platform, String tenantId,
-										  Long tokenUserId, long receivedAtMs, String ip, String userAgent) {
+										  Long tokenUserId, long receivedAtMs, String ip, String userAgent,
+										  Map<TrackRejectReason, Long> issues) {
 		if (node == null || !node.isObject()) {
-			metrics.dropped("invalid_event", 1);
+			drop(issues, "invalid_event");
 			return null;
 		}
 		String eventId = text(node, TrackConstants.FIELD_EVENT_ID);
@@ -161,23 +173,23 @@ public class TrackIngestService {
 		if (eventId == null || eventId.length() > TrackConstants.EVENT_ID_MAX_LEN
 			|| distinctId == null || distinctId.length() > TrackConstants.DISTINCT_ID_MAX_LEN
 			|| sessionId == null || sessionId.length() > TrackConstants.SESSION_ID_MAX_LEN) {
-			metrics.dropped("invalid_event", 1);
+			drop(issues, "invalid_event");
 			return null;
 		}
 		// 事件名：$ 前缀仅白名单（$ 为保留字）；自定义名走正则
 		if (eventName == null || eventName.length() > TrackConstants.EVENT_NAME_MAX_LEN || !validEventName(eventName)) {
-			metrics.dropped("bad_name", 1);
+			drop(issues, "bad_name");
 			return null;
 		}
 		// 事件定义停用拒收（G105）：无定义/已删 = 未停用（自动注册语义默认启用）；
 		// 事件级静默丢弃（批仍 200，与 invalid_event 同语义；不进队列自然不刷 last_seen/不落库）
 		if (eventDefService.isDisabled(app.getAppKey(), eventName)) {
-			metrics.dropped("event_disabled", 1);
+			drop(issues, "event_disabled");
 			return null;
 		}
 		Long clientTs = epochMillis(node.get(TrackConstants.FIELD_TS));
 		if (clientTs == null) {
-			metrics.dropped("invalid_event", 1);
+			drop(issues, "invalid_event");
 			return null;
 		}
 
@@ -185,7 +197,7 @@ public class TrackIngestService {
 		// 超 24h 则 ts := received_at 且 clock_skewed=1，数据照留
 		if (clientTs > receivedAtMs + TrackConstants.CLIENT_TS_MAX_FUTURE_MS
 			|| clientTs < TrackConstants.CLIENT_TS_MIN_EPOCH_MS) {
-			metrics.dropped("ts_absurd", 1);
+			drop(issues, "ts_absurd");
 			return null;
 		}
 		long ts = clientTs;
@@ -194,6 +206,7 @@ public class TrackIngestService {
 			ts = receivedAtMs;
 			clockSkewed = 1;
 			metrics.clockSkewed(1);
+			issues.merge(TrackRejectReason.CLOCK_SKEWED, 1L, Long::sum);
 		}
 
 		// props 截断净化 + 热点属性提升为列
@@ -246,9 +259,19 @@ public class TrackIngestService {
 				event.setIdentifyUserId(tokenUserId);
 			} else {
 				metrics.identityRejected(tokenUserId == null ? "identify_no_token" : "identify_user_mismatch");
+				issues.merge(TrackRejectReason.IDENTIFY_REJECTED, 1L, Long::sum);
 			}
 		}
 		return event;
+	}
+
+	/** 事件级丢弃：指标计数 + 接入自检原因计数 */
+	private void drop(Map<TrackRejectReason, Long> issues, String reason) {
+		metrics.dropped(reason, 1);
+		TrackRejectReason r = TrackRejectReason.byDropReason(reason);
+		if (r != null) {
+			issues.merge(r, 1L, Long::sum);
+		}
 	}
 
 	/** 事件名合法性：$ 前缀仅白名单；自定义名 ^[A-Za-z][A-Za-z0-9_]{0,63}$ */
@@ -260,10 +283,11 @@ public class TrackIngestService {
 	}
 
 	/** 租户裁定：恒非空。token 租户与 app_key 映射租户不一致时以 token 为准并计数告警；客户端上报值一律丢弃 */
-	private String resolveTenant(TrackApp app, String tokenTenant) {
+	private String resolveTenant(TrackApp app, String tokenTenant, Map<TrackRejectReason, Long> issues) {
 		if (tokenTenant != null && !tokenTenant.isBlank()) {
 			if (app.getTenantId() != null && !tokenTenant.equals(app.getTenantId())) {
 				metrics.identityRejected("token_tenant_mismatch");
+				issues.merge(TrackRejectReason.TENANT_MISMATCH, 1L, Long::sum);
 			}
 			return tokenTenant;
 		}
