@@ -54,11 +54,14 @@ public class FileController {
 	private final ParamService paramService;
 	private final StringRedisTemplate redisTemplate;
 	private final FileAccessService fileAccessService;
+	private final com.mugsun.boot.system.file.LocalFileUrlSigner localFileUrlSigner;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public FileController(FileStorageService fileStorageService, FileRecorder fileRecorder,
 						  SysAttachMapper attachMapper, OssService ossService, ParamService paramService,
-						  StringRedisTemplate redisTemplate, FileAccessService fileAccessService) {
+						  StringRedisTemplate redisTemplate, FileAccessService fileAccessService,
+						  com.mugsun.boot.system.file.LocalFileUrlSigner localFileUrlSigner) {
+		this.localFileUrlSigner = localFileUrlSigner;
 		this.fileStorageService = fileStorageService;
 		this.fileRecorder = fileRecorder;
 		this.attachMapper = attachMapper;
@@ -200,6 +203,12 @@ public class FileController {
 			fileInfo.setFilename(attach.getFilename());
 			return R.data(fileStorageService.generatePresignedUrl(fileInfo,
 				new Date(System.currentTimeMillis() + presignedUrlExpireSeconds() * 1000)));
+		}
+		// 本地私有：直出 /file/** 需短时 HMAC 签名（LocalFileAccessFilter 校验），登记 url 本身不可匿名访问
+		if (OssConstants.ACCESS_PRIVATE.equals(attach.getAccess()) && attach.getUrl() != null) {
+			String relPath = (attach.getBasePath() == null ? "" : attach.getBasePath()) + attach.getPath()
+				+ attach.getFilename();
+			return R.data(localFileUrlSigner.signUrl(attach.getUrl(), relPath));
 		}
 		return R.data(attach.getUrl());
 	}
