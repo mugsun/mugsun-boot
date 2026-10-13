@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -205,7 +206,30 @@ public class TrackAnalysisService {
 				rows.add(todayRow);
 			}
 		}
-		return rows;
+		return fillMissingDays(rows, from, today);
+	}
+
+	/** 日粒度补零：区间内每天一行（from..today 升序），无数据日各指标为 0，图表横轴恒为 days 个点（UX-011） */
+	static List<Map<String, Object>> fillMissingDays(List<Map<String, Object>> rows, LocalDate from, LocalDate to) {
+		Map<String, Map<String, Object>> byDate = new HashMap<>();
+		for (Map<String, Object> r : rows) {
+			byDate.put(String.valueOf(r.get("date")), r);
+		}
+		List<Map<String, Object>> out = new ArrayList<>();
+		for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+			Map<String, Object> r = byDate.get(d.toString());
+			if (r == null) {
+				r = new LinkedHashMap<>();
+				r.put("date", d.toString());
+				r.put("pv", 0L);
+				r.put("uv", 0L);
+				r.put("sessionCount", 0L);
+				r.put("bounceCount", 0L);
+				r.put("eventCount", 0L);
+			}
+			out.add(r);
+		}
+		return out;
 	}
 
 	/** 当日总览行（明细直算，口径与 overview 今日部分一致；bounceCount 取当日已结算会话） */
