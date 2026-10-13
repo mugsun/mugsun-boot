@@ -464,6 +464,19 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		assertThat(read.path("msg").asText()).contains("没有采到，或已经清理");
 	}
 
+	/** T2 迁移：时间线两条 (app_key, 身份, ts, id) 复合索引已建在分区父表，且列序与游标排序一致 */
+	@Test
+	void timelineIndexesMigrated() {
+		Row user = trackRow("SELECT indexdef FROM pg_indexes WHERE tablename = 'track_event' AND indexname = ?",
+			"idx_event_user_ts_timeline");
+		assertThat(user).as("idx_event_user_ts_timeline 应由 T2 建出").isNotNull();
+		assertThat(user.getString("indexdef")).contains("(app_key, user_id, ts, id)");
+		Row distinct = trackRow("SELECT indexdef FROM pg_indexes WHERE tablename = 'track_event' AND indexname = ?",
+			"idx_event_distinct_ts_timeline");
+		assertThat(distinct).as("idx_event_distinct_ts_timeline 应由 T2 建出").isNotNull();
+		assertThat(distinct.getString("indexdef")).contains("(app_key, distinct_id, ts, id)");
+	}
+
 	/** ⑪ body 读取审计留痕：sys_oper_log 写「查看接口响应体」（标题/URI/操作人/参数含事件） */
 	@Test
 	void bodyViewAuditLogged() {
