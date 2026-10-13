@@ -26,4 +26,28 @@ public record GisXyzTemplate(String url, List<String> subdomains, String attribu
 		}
 		return out;
 	}
+
+	/** 只取主机名（{s} 换成第一个子域，其余占位符去掉），用于日志；不含路径、查询串和密钥 */
+	public String host() {
+		String u = url == null ? "" : url;
+		int start = u.indexOf("://");
+		if (start < 0) {
+			return "";
+		}
+		String rest = u.substring(start + 3);
+		int end = rest.length();
+		for (char c : new char[] { '/', '?', '#' }) {
+			int at = rest.indexOf(c);
+			if (at >= 0 && at < end) {
+				end = at;
+			}
+		}
+		String h = rest.substring(0, end);
+		int userinfo = h.lastIndexOf('@');
+		if (userinfo >= 0) {
+			h = h.substring(userinfo + 1);
+		}
+		h = h.replace("{s}", subdomains.isEmpty() ? "" : subdomains.get(0));
+		return h.replaceAll("\\{[^}]*}", "");
+	}
 }

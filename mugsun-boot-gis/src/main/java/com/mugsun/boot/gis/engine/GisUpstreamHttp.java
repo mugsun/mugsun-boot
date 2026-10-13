@@ -3,6 +3,7 @@ package com.mugsun.boot.gis.engine;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.gis.GisConstants;
+import com.mugsun.boot.gis.tile.GisUpstreamHttpMessages;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.stereotype.Component;
 
@@ -104,11 +105,11 @@ public class GisUpstreamHttp {
 		try (java.io.InputStream in = resp.body()) {
 			long declared = resp.headers().firstValueAsLong("Content-Length").orElse(-1L);
 			if (declared > maxBytes) {
-				throw new ServiceException("瓦片过大");
+				throw new ServiceException(GisUpstreamHttpMessages.TOO_LARGE);
 			}
 			byte[] body = in.readNBytes(maxBytes + 1);
 			if (body.length > maxBytes) {
-				throw new ServiceException("瓦片过大");
+				throw new ServiceException(GisUpstreamHttpMessages.TOO_LARGE);
 			}
 			return new LimitedBytes(resp.statusCode(), resp.headers().firstValue("Content-Type").orElse(""), body);
 		}
@@ -128,7 +129,7 @@ public class GisUpstreamHttp {
 	private static void assertHost(URI uri, Predicate<String> hostOk) {
 		String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
 		if (!hostOk.test(host)) {
-			throw new ServiceException("非法上游地址");
+			throw new ServiceException(GisUpstreamHttpMessages.ILLEGAL_HOST);
 		}
 	}
 }
