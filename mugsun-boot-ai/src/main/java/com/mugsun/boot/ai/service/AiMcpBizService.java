@@ -4,6 +4,7 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.AiModuleService;
 import com.mugsun.boot.ai.entity.AiMcpTool;
 import com.mugsun.boot.ai.mapper.AiMcpToolMapper;
+import com.mugsun.boot.ai.support.AiOutboundProperties;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -21,9 +22,11 @@ public class AiMcpBizService {
 	private final AiModuleService moduleService;
 	private final AiMcpToolMapper mapper;
 	private final WebClient.Builder webClientBuilder;
+	private final AiOutboundProperties outbound;
 
 	public AiMcpBizService(AiModuleService moduleService, AiMcpToolMapper mapper,
-						   WebClient.Builder webClientBuilder) {
+						   WebClient.Builder webClientBuilder, AiOutboundProperties outbound) {
+		this.outbound = outbound;
 		this.moduleService = moduleService;
 		this.mapper = mapper;
 		this.webClientBuilder = webClientBuilder;
@@ -94,6 +97,7 @@ public class AiMcpBizService {
 			if (sseUrl.length() > 512 || sseUrl.contains(" ") || !sseUrl.matches("https?://[^\\s<>\"']{1,500}")) {
 				throw new ServiceException("地址需要以 http:// 或 https:// 开头，并且不要带空格");
 			}
+			outbound.guard(sseUrl);
 		}
 		String command = body.getCommand() == null ? "" : body.getCommand().trim();
 		if ("stdio".equals(transport)) {
@@ -193,7 +197,8 @@ public class AiMcpBizService {
 				throw new ServiceException("请先填写地址。需要以 http:// 或 https:// 开头，再解析");
 			}
 			try {
-				WebClient.RequestHeadersSpec<?> req = webClientBuilder.build().get().uri(tool.getSseUrl().trim());
+				String parseUrl = outbound.guard(tool.getSseUrl().trim());
+				WebClient.RequestHeadersSpec<?> req = webClientBuilder.build().get().uri(parseUrl);
 				if (tool.getApiKey() != null && !tool.getApiKey().isBlank()) {
 					req = req.header("Authorization", "Bearer " + tool.getApiKey());
 				}
@@ -259,8 +264,14 @@ public class AiMcpBizService {
 				return Map.of("ok", false, "tool", name, "transport", transport,
 					"error", "还没有填写地址。请先编辑这个工具，填上能访问的地址");
 			}
+			String url;
 			try {
-				String url = resolveCallUrl(tool.getSseUrl().trim());
+				url = outbound.guard(resolveCallUrl(tool.getSseUrl().trim()));
+			} catch (ServiceException e) {
+				return Map.of("ok", false, "tool", name, "transport", "http",
+					"error", "地址不允许访问内网或元数据地址。请换成公网地址，或让管理员加入出站白名单");
+			}
+			try {
 				var spec = webClientBuilder.build().post().uri(url)
 					.contentType(org.springframework.http.MediaType.APPLICATION_JSON);
 				if (tool.getApiKey() != null && !tool.getApiKey().isBlank()) {
