@@ -38,16 +38,24 @@ public class MultiTypeRenderer {
 
 	private static final Logger log = LoggerFactory.getLogger(MultiTypeRenderer.class);
 
-	/** 点选文字字表：须全部包含在 captcha/font 子集内；去掉了形近字 */
-	static final String WORDS = "山水花草木林森日月星云雨雪风天地人口手心目耳火土石田金禾米竹马牛羊鱼鸟虫贝龙虎兔猫狗鸡鸭鹅"
-		+ "春夏秋冬东南西北上下左右中大小多少高长方圆红黄蓝绿白黑紫青光明早晚开关门窗桌椅书本笔纸画歌舞茶果瓜菜桥路车船城村家园"
-		+ "海湖河江岛岸沙泉松柏梅兰菊荷桃李杏柳叶根灯伞帽衣鞋包钟表球琴棋旗塔湾港航";
+	/** WORD_CLICK 词库（3–4 字常用词语/成语，自行整理）；字体子集须覆盖其中全部字 */
+	public static final String WORDS_RESOURCE = "/captcha/words.txt";
+	/** 干扰字映射：字<TAB>形近字<TAB>同音字（自行整理）；字体子集须覆盖其中全部字 */
+	public static final String CONFUSABLE_RESOURCE = "/captcha/confusable-chars.txt";
+	/** 点选目标/干扰之间的最小间距 = 两个命中半径之和 + 该余量（原始像素） */
+	public static final int SPACING_MARGIN = 6;
+	/** 字号、图标边长的随机浮动上限（名义值 +3） */
+	static final int SIZE_JITTER = 3;
 
 	private final CaptchaProperties props;
 	private final BackgroundLibrary library;
 	private final Font font;
 	private volatile List<BufferedImage> rotatePool;
 	private volatile List<Icon> iconPool;
+	private final List<String> words;
+	private final String charPool;
+	private final java.util.Map<String, List<String>> confusableChars;
+	private final boolean iconClickAvailable;
 
 	/** confusable：manifest.json 里该图标所属的易混组名（可属多组）；同一题内每组最多出现一个 */
 	public record Icon(String slug, String name, Set<String> confusable, BufferedImage image) {
@@ -58,7 +66,8 @@ public class MultiTypeRenderer {
 
 	/** 点选：answer 为每个目标中心与命中半径（原始像素），按提示顺序 */
 	public record Click(String background, int bgWidth, int bgHeight, List<String> prompt, String promptImage,
-						List<int[]> answer, int itemSize) {
+						List<int[]> answer, int itemSize, String promptText, List<int[]> decoys,
+						List<String> decoyChars) {
 	}
 
 	/** 拼图：tiles 按打乱后的位置给出；answer[cell] = 应放入该格的 tiles 下标 */
@@ -70,6 +79,123 @@ public class MultiTypeRenderer {
 		this.props = props;
 		this.library = library;
 		this.font = loadFont();
+		this.words = loadWords();
+		StringBuilder pool = new StringBuilder();
+		words.stream().flatMapToInt(String::chars).distinct().sorted().forEach(c -> pool.append((char) c));
+		this.charPool = pool.toString();
+		this.confusableChars = loadConfusableChars();
+		this.iconClickAvailable = validateIcons();
+	}
+
+	/** 启动时校验图标目录：manifest 可解析且可用图标足够（含易混约束）；否则 WARN 并把 ICON_CLICK 从可用题型中去掉 */
+	private boolean validateIcons() {
+		int need = props.getClick().getCount() + Math.max(0, props.getClick().getDecoys());
+		try {
+			List<Icon> pool = iconPool();
+			if (pool.size() < need) {
+				log.warn("验证码图标不可用（{} 下可用图标 {} 个，至少需要 {} 个，或 manifest.json 缺失/损坏）：ICON_CLICK 已停用",
+					props.getIconDir(), pool.size(), need);
+				return false;
+			}
+			pickIcons(need, Rng.get());
+			return true;
+		} catch (RuntimeException e) {
+			log.warn("验证码图标校验失败（{}）：ICON_CLICK 已停用：{}", props.getIconDir(), e.getMessage());
+			return false;
+		}
+	}
+
+	/** ICON_CLICK 是否可出题（启动校验结果） */
+	public boolean iconClickAvailable() {
+		return iconClickAvailable;
+	}
+
+	/** 词库（只读） */
+	public List<String> words() {
+		return words;
+	}
+
+	/** 干扰字池 = 词库全部字（字体子集据此生成） */
+	public String charPool() {
+		return charPool;
+	}
+
+	/** 字体是否能显示 text 的每个字（测试用） */
+	public boolean fontCovers(String text) {
+		return font.canDisplayUpTo(text) == -1;
+	}
+
+	/** 某字的形近字 + 同音字（形近在前），无则空 */
+	public List<String> confusableOf(String ch) {
+		return confusableChars.getOrDefault(ch, List.of());
+	}
+
+	/** 映射表里出现的全部字（测试用：须都在字体里） */
+	public String confusablePool() {
+		StringBuilder sb = new StringBuilder();
+		confusableChars.forEach((k, v) -> {
+			sb.append(k);
+			v.forEach(sb::append);
+		});
+		return sb.toString();
+	}
+
+	private static java.util.Map<String, List<String>> loadConfusableChars() {
+		java.util.Map<String, List<String>> out = new java.util.HashMap<>();
+		try (InputStream in = MultiTypeRenderer.class.getResourceAsStream(CONFUSABLE_RESOURCE)) {
+			if (in != null) {
+				for (String line : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).split("\\R")) {
+					if (line.isBlank() || line.startsWith("#")) {
+						continue;
+					}
+					String[] f = line.split("\t", -1);
+					List<String> list = new ArrayList<>();
+					for (int i = 1; i < f.length; i++) {
+						f[i].codePoints().forEach(cp -> {
+							String c = new String(Character.toChars(cp));
+							if (!c.isBlank() && !list.contains(c)) {
+								list.add(c);
+							}
+						});
+					}
+					out.put(f[0].strip(), List.copyOf(list));
+				}
+			}
+		} catch (Exception e) {
+			log.warn("验证码干扰字映射读取失败：{}", e.getMessage());
+		}
+		return java.util.Map.copyOf(out);
+	}
+
+	private static List<String> loadWords() {
+		List<String> out = new ArrayList<>();
+		try (InputStream in = MultiTypeRenderer.class.getResourceAsStream(WORDS_RESOURCE)) {
+			if (in != null) {
+				for (String line : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).split("\\R")) {
+					String w = line.strip();
+					if (!w.isEmpty() && !w.startsWith("#") && w.codePointCount(0, w.length()) >= 3
+						&& w.codePointCount(0, w.length()) <= 4) {
+						out.add(w);
+					}
+				}
+			}
+		} catch (Exception e) {
+			log.warn("验证码词库读取失败：{}", e.getMessage());
+		}
+		if (out.isEmpty()) {
+			out.add("一帆风顺");
+		}
+		return List.copyOf(out);
+	}
+
+	/** 命中半径：max(min-radius-px, 0.75 × 字号/边长) */
+	int hitRadius(int size) {
+		return Math.max(props.getClick().getMinRadiusPx(), Math.round(size * 0.75f));
+	}
+
+	/** 两个点选元素中心的最小距离：2 × 最大命中半径 + SPACING_MARGIN */
+	int minSpacing(int nominalSize) {
+		return 2 * hitRadius(nominalSize + SIZE_JITTER) + SPACING_MARGIN;
 	}
 
 	// ------------------------------------------------------------------ ROTATE
@@ -83,7 +209,9 @@ public class MultiTypeRenderer {
 		int d = Math.max(60, Math.min(cfg.getPieceSize(), h - 4));
 		int applied = randomAngle(cfg.getMinAngle(), cfg.getKeyboardStep(), rnd);
 		List<BufferedImage> pool = rotatePool();
-		BufferedImage src = pool.isEmpty() ? library.next(d, d) : pool.get(rnd.nextInt(pool.size()));
+		// 每题对旋转原图随机缩放/裁切/镜像/调色（与底图同一套扰动），不能与公开原图逐像素比对
+		BufferedImage src = pool.isEmpty() ? library.next(d, d)
+			: BackgroundLibrary.perturb(pool.get(rnd.nextInt(pool.size())), d, d, rnd);
 		BufferedImage piece = new BufferedImage(d, d, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = piece.createGraphics();
 		smooth(g);
@@ -124,18 +252,39 @@ public class MultiTypeRenderer {
 
 	// ------------------------------------------------------------------ CLICK
 
+	/**
+	 * 从词库抽一个 3–4 字词，按顺序点字；另混入 1–2 个不在该词里的干扰字（取自词库字集）。
+	 * answer 只含词里的字（按顺序）；decoys 为干扰字位置（只供测试，不下发）。
+	 */
 	public Click renderWordClick() {
-		CaptchaProperties.Click cfg = props.getClick();
 		RandomGenerator rnd = Rng.get();
-		int total = cfg.getCount() + Math.max(0, cfg.getDecoys());
-		List<Character> chars = new ArrayList<>();
-		for (char c : WORDS.toCharArray()) {
-			if (!chars.contains(c)) {
-				chars.add(c);
+		String word = words.get(rnd.nextInt(words.size()));
+		List<String> prompt = new ArrayList<>();
+		word.codePoints().forEach(cp -> prompt.add(new String(Character.toChars(cp))));
+		int decoyCount = 1 + rnd.nextInt(2);
+		List<String> decoys = new ArrayList<>();
+		// 优先从题目各字的形近字/同音字里选干扰字（M4），不够再从词库字集随机补
+		List<String> similar = new ArrayList<>();
+		for (String ch : prompt) {
+			for (String c : confusableOf(ch)) {
+				if (!prompt.contains(c) && !similar.contains(c)) {
+					similar.add(c);
+				}
 			}
 		}
-		Collections.shuffle(chars, new java.util.Random(rnd.nextLong()));
-		List<Character> picked = chars.subList(0, total);
+		Collections.shuffle(similar, new java.util.Random(rnd.nextLong()));
+		for (String c : similar) {
+			if (decoys.size() < decoyCount && font.canDisplay(c.codePointAt(0))) {
+				decoys.add(c);
+			}
+		}
+		while (decoys.size() < decoyCount) {
+			String c = String.valueOf(charPool.charAt(rnd.nextInt(charPool.length())));
+			if (!prompt.contains(c) && !decoys.contains(c)) {
+				decoys.add(c);
+			}
+		}
+		int total = prompt.size() + decoys.size();
 		int w = props.getSlider().getWidth();
 		int h = props.getSlider().getHeight();
 		BufferedImage bg = library.next(w, h);
@@ -143,22 +292,22 @@ public class MultiTypeRenderer {
 		smooth(g);
 		distractLines(g, w, h, rnd);
 		int size = 32;
-		List<int[]> pos = scatter(total, w, h, size, rnd);
+		List<int[]> pos = scatter(total, w, h, hitRadius(size + SIZE_JITTER), minSpacing(size), rnd);
 		List<int[]> answer = new ArrayList<>();
+		List<int[]> decoyPos = new ArrayList<>();
 		for (int i = 0; i < total; i++) {
 			int[] p = pos.get(i);
-			int fs = size - 3 + rnd.nextInt(7);
-			drawGlyph(g, String.valueOf(picked.get(i)), p[0], p[1], fs, rnd.nextInt(-35, 36), rnd);
-			if (i < cfg.getCount()) {
-				answer.add(new int[]{p[0], p[1], Math.max(cfg.getMinRadiusPx(), Math.round(fs * 0.75f))});
+			int fs = size - SIZE_JITTER + rnd.nextInt(2 * SIZE_JITTER + 1);
+			String ch = i < prompt.size() ? prompt.get(i) : decoys.get(i - prompt.size());
+			drawGlyph(g, ch, p[0], p[1], fs, rnd.nextInt(-35, 36), rnd);
+			if (i < prompt.size()) {
+				answer.add(new int[]{p[0], p[1], hitRadius(fs)});
+			} else {
+				decoyPos.add(new int[]{p[0], p[1], hitRadius(fs)});
 			}
 		}
 		g.dispose();
 		noise(bg, 8);
-		List<String> prompt = new ArrayList<>();
-		for (int i = 0; i < cfg.getCount(); i++) {
-			prompt.add(String.valueOf(picked.get(i)));
-		}
 		BufferedImage pi = new BufferedImage(34 * prompt.size() + 8, 36, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D pg = pi.createGraphics();
 		smooth(pg);
@@ -166,7 +315,7 @@ public class MultiTypeRenderer {
 			drawGlyph(pg, prompt.get(i), 21 + i * 34, 18, 24, rnd.nextInt(-12, 13), rnd);
 		}
 		pg.dispose();
-		return new Click(jpeg(bg), w, h, prompt, png(pi), answer, size);
+		return new Click(jpeg(bg), w, h, prompt, png(pi), answer, size, word, decoyPos, List.copyOf(decoys));
 	}
 
 	public Click renderIconClick() {
@@ -180,11 +329,12 @@ public class MultiTypeRenderer {
 		Graphics2D g = bg.createGraphics();
 		smooth(g);
 		int size = 36;
-		List<int[]> pos = scatter(icons.size(), w, h, size + 6, rnd);
+		List<int[]> pos = scatter(icons.size(), w, h, hitRadius(size + SIZE_JITTER), minSpacing(size), rnd);
 		List<int[]> answer = new ArrayList<>();
+		List<int[]> decoyPos = new ArrayList<>();
 		for (int i = 0; i < icons.size(); i++) {
 			int[] p = pos.get(i);
-			int s = size - 2 + rnd.nextInt(6);
+			int s = size - SIZE_JITTER + rnd.nextInt(2 * SIZE_JITTER + 1);
 			g.setColor(new Color(255, 255, 255, 170));
 			g.fill(new Ellipse2D.Double(p[0] - s * 0.7, p[1] - s * 0.7, s * 1.4, s * 1.4));
 			AffineTransform old = g.getTransform();
@@ -192,7 +342,9 @@ public class MultiTypeRenderer {
 			g.drawImage(icons.get(i).image(), p[0] - s / 2, p[1] - s / 2, s, s, null);
 			g.setTransform(old);
 			if (i < cfg.getCount()) {
-				answer.add(new int[]{p[0], p[1], Math.max(cfg.getMinRadiusPx(), Math.round(s * 0.75f))});
+				answer.add(new int[]{p[0], p[1], hitRadius(s)});
+			} else {
+				decoyPos.add(new int[]{p[0], p[1], hitRadius(s)});
 			}
 		}
 		distractLines(g, w, h, rnd);
@@ -207,7 +359,7 @@ public class MultiTypeRenderer {
 			pg.drawImage(icons.get(i).image(), 6 + i * 34, 3, 30, 30, null);
 		}
 		pg.dispose();
-		return new Click(jpeg(bg), w, h, names, png(pi), answer, size);
+		return new Click(jpeg(bg), w, h, names, png(pi), answer, size, null, decoyPos, List.of());
 	}
 
 	/** 选图标：同一易混组（manifest confusable）最多一个；public 仅供测试 */
@@ -265,11 +417,26 @@ public class MultiTypeRenderer {
 			Graphics2D g = copy.createGraphics();
 			g.drawImage(t, 0, 0, null);
 			g.dispose();
-			noise(copy, 4);
+			tileTint(copy, shuffler);
+			noise(copy, 6);
 			tiles.add(jpeg(copy));
 			answer[src] = i;
 		}
 		return new Jigsaw(tiles, tw * cols, th * rows, rows, cols, tw, th, answer);
+	}
+
+	/** 拼图块各自独立的轻微色偏，打散接缝处的颜色连续性（M3） */
+	private static void tileTint(BufferedImage img, java.util.Random r) {
+		int dr = r.nextInt(17) - 8;
+		int dg = r.nextInt(17) - 8;
+		int db = r.nextInt(17) - 8;
+		for (int y = 0; y < img.getHeight(); y++) {
+			for (int x = 0; x < img.getWidth(); x++) {
+				int p = img.getRGB(x, y);
+				img.setRGB(x, y, (BackgroundLibrary.clamp(((p >> 16) & 0xFF) + dr) << 16)
+					| (BackgroundLibrary.clamp(((p >> 8) & 0xFF) + dg) << 8) | BackgroundLibrary.clamp((p & 0xFF) + db));
+			}
+		}
 	}
 
 	private static boolean isIdentity(List<Integer> perm) {
@@ -283,14 +450,14 @@ public class MultiTypeRenderer {
 
 	// ------------------------------------------------------------------ helpers
 
-	/** 均匀撒点，保证两两中心距离 ≥ 2.2 × size，且离边 ≥ size */
-	static List<int[]> scatter(int n, int w, int h, int size, RandomGenerator rnd) {
+	/** 均匀撒点：两两中心距离 ≥ minDist（调用方传 2 × 最大命中半径 + 余量），离边 ≥ edge */
+	static List<int[]> scatter(int n, int w, int h, int edge, int minDist, RandomGenerator rnd) {
 		for (int attempt = 0; attempt < 200; attempt++) {
 			List<int[]> out = new ArrayList<>();
 			for (int tries = 0; out.size() < n && tries < 400; tries++) {
-				int x = rnd.nextInt(size, w - size);
-				int y = rnd.nextInt(size, h - size);
-				boolean ok = out.stream().allMatch(p -> Math.hypot(p[0] - x, p[1] - y) >= size * 1.6);
+				int x = rnd.nextInt(edge, w - edge);
+				int y = rnd.nextInt(edge, h - edge);
+				boolean ok = out.stream().allMatch(p -> Math.hypot(p[0] - x, p[1] - y) >= minDist);
 				if (ok) {
 					out.add(new int[]{x, y});
 				}

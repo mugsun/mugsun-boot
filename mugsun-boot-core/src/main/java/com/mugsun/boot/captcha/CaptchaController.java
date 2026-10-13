@@ -56,7 +56,7 @@ public class CaptchaController {
 			throw CaptchaException.disabled();
 		}
 		return R.data(slider.challenge(sc, client.getClientId(), tenant, req == null ? null : req.inputMode(),
-			ClientIpResolver.clientIp(request), gate.enabledTypes(sc, tenant)));
+			ClientIpResolver.clientIp(request), gate.enabledTypes(sc, tenant), gate.statTenant(sc, tenant)));
 	}
 
 	@PostMapping("/verify")

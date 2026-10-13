@@ -131,7 +131,7 @@ public class CaptchaProperties {
 		/** 键盘模式每次按键位移（底图原始像素），challenge 下发给前端 */
 		private int keyboardStepPx = 4;
 		/** 假缺口数量（0–2） */
-		private int decoyCount = 1;
+		private int decoyCount = 2;
 		/** token 是否强制绑定 IP / UA 哈希（默认仅记录） */
 		private boolean bindIp = false;
 		private boolean bindUa = false;

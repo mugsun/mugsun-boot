@@ -118,6 +118,22 @@ public class CaptchaGate {
 		}
 	}
 
+	/**
+	 * Redis 计数/去重键用的规范化租户码：租户存在 → 库里的 tenant_code；不存在、短信场景或读取失败 → "_unknown"。
+	 * 不把请求里未经解析的 tenantId 拼进键名。
+	 */
+	public String statTenant(String scene, String tenantId) {
+		if (SCENE_SMS.equals(scene)) {
+			return "_unknown";
+		}
+		try {
+			SysTenant t = tenantValidator.loadTenant(tenantId);
+			return t == null || t.getTenantCode() == null ? "_unknown" : t.getTenantCode();
+		} catch (RuntimeException e) {
+			return "_unknown";
+		}
+	}
+
 	/** 发短信⓪：短窗口频率限制（所有请求计数，自动恢复） */
 	public void hitSmsBurstIp(HttpServletRequest request) {
 		slider.hitSmsBurstIp(ClientIpResolver.clientIp(request));

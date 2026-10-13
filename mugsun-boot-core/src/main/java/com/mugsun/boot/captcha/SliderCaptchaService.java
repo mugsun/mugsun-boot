@@ -42,6 +42,9 @@ public class SliderCaptchaService {
 	static final String K_KEYBOARD_RATE = PREFIX + "rl:keyboard:";
 	static final String K_KEYBOARD_CHALLENGE_RATE = PREFIX + "rl:keyboard-challenge:";
 	static final String K_KEYBOARD_STAT = PREFIX + "stat:keyboard-challenge:";
+	static final String K_KEYBOARD_UNAVAILABLE_AUDIT = PREFIX + "audit:keyboard-unavailable:";
+	/** 40015 审计去重窗口：同一 (租户, IP) 窗口内只写一条 */
+	static final long KEYBOARD_UNAVAILABLE_AUDIT_WINDOW_SECONDS = 600;
 	static final String K_FAIL = PREFIX + "fail:";
 	static final String K_LOCK = PREFIX + "lock:";
 	static final String K_GLOBAL = PREFIX + "rl:global:";
@@ -122,6 +125,27 @@ public class SliderCaptchaService {
 	/** 多类型出题：从 enabled 中服务端随机选一种（客户端不能指定） */
 	public ChallengeVO challenge(String scene, String clientId, String tenantId, String inputMode, String ip,
 								 Set<CaptchaType> enabled) {
+		return challenge(scene, clientId, tenantId, inputMode, ip, enabled, tenantId);
+	}
+
+	/** 去掉启动校验不可用的题型（图标清单缺失/损坏 → 无 ICON_CLICK） */
+	Set<CaptchaType> available(Set<CaptchaType> enabled) {
+		if (enabled == null || !enabled.contains(CaptchaType.ICON_CLICK) || multi.iconClickAvailable()) {
+			return enabled;
+		}
+		EnumSet<CaptchaType> out = EnumSet.noneOf(CaptchaType.class);
+		out.addAll(enabled);
+		out.remove(CaptchaType.ICON_CLICK);
+		return out;
+	}
+
+	/**
+	 * statTenant：写 Redis 计数/去重键用的规范化租户码（调用方解析为已存在租户的 tenant_code，否则固定占位），
+	 * 避免把请求里的任意 tenantId 拼进键名。tenantId 本身仍用于挑战/令牌绑定。
+	 */
+	public ChallengeVO challenge(String scene, String clientId, String tenantId, String inputMode, String ip,
+								 Set<CaptchaType> enabled, String statTenant) {
+		String statKeyTenant = statTenant == null || !FIELD.matcher(statTenant).matches() ? "_unknown" : statTenant;
 		String mode = normalizeMode(inputMode);
 		requireField(scene);
 		requireField(clientId);
@@ -135,18 +159,25 @@ public class SliderCaptchaService {
 			throw CaptchaException.rateLimited(store.ttlSeconds(rateKey));
 		}
 		boolean kb = MODE_KEYBOARD.equals(mode);
-		CaptchaType type = pickType(enabled, mode);
-		if (type == null) {
-			audit.keyboardUnavailable(ipKey, tenantId);
-			throw CaptchaException.keyboardUnavailable();
-		}
 		if (kb) {
-			// keyboard 题无轨迹校验：单独、更严的取题限流 + 按租户/日计数（审计统计用）
+			// keyboard 题无轨迹校验：先计单独、更严的取题限流（含随后会被 40015 拒绝的请求），再选题
 			String kbKey = K_KEYBOARD_CHALLENGE_RATE + ipKey;
 			if (store.increment(kbKey, 60) > rl.getKeyboardChallengePerMinute()) {
 				throw CaptchaException.rateLimited(store.ttlSeconds(kbKey));
 			}
-			store.increment(K_KEYBOARD_STAT + tenantId + ":" + (clock.getAsLong() / 86_400_000L), 2 * 86400);
+		}
+		CaptchaType type = pickType(available(enabled), mode);
+		if (type == null) {
+			// 40015 审计按 (租户, IP) 在窗口内去重，防止刷请求灌审计表
+			String dedup = K_KEYBOARD_UNAVAILABLE_AUDIT + statKeyTenant + ":" + ipKey;
+			if (store.increment(dedup, KEYBOARD_UNAVAILABLE_AUDIT_WINDOW_SECONDS) == 1) {
+				audit.keyboardUnavailable(ipKey, tenantId);
+			}
+			throw CaptchaException.keyboardUnavailable();
+		}
+		if (kb) {
+			// 按规范化租户/日计数（Redis 统计，不写审计）
+			store.increment(K_KEYBOARD_STAT + statKeyTenant + ":" + (clock.getAsLong() / 86_400_000L), 2 * 86400);
 		}
 		String id = randomHex();
 		long ttl = props.getSlider().getExpireSeconds();
@@ -160,7 +191,7 @@ public class SliderCaptchaService {
 					answer = String.valueOf(r.answerAngle());
 					vo = new ChallengeVO(id, type.name(), mode, r.background(), r.piece(), r.bgWidth(), r.bgHeight(),
 						null, null, kb ? Math.max(1, props.getRotate().getKeyboardStep()) : null, ttl, r.pieceSize(),
-						null, null, null, null, null, null, null, null, null);
+						null, null, null, null, null, null, null, null, null, null);
 				}
 				case WORD_CLICK, ICON_CLICK -> {
 					MultiTypeRenderer.Click c = type == CaptchaType.WORD_CLICK ? multi.renderWordClick() : multi.renderIconClick();
@@ -171,8 +202,8 @@ public class SliderCaptchaService {
 					answer = sb.toString();
 					boolean word = type == CaptchaType.WORD_CLICK;
 					vo = new ChallengeVO(id, type.name(), mode, c.background(), null, c.bgWidth(), c.bgHeight(),
-						null, null, null, ttl, null, word ? c.prompt() : null, word ? null : c.prompt(), c.promptImage(),
-						c.answer().size(), null, null, null, null, c.itemSize());
+						null, null, null, ttl, null, word ? c.promptText() : null, word ? null : c.prompt(), c.promptImage(),
+						c.answer().size(), null, null, null, null, c.itemSize(), word ? Boolean.TRUE : null);
 				}
 				case JIGSAW -> {
 					MultiTypeRenderer.Jigsaw j = multi.renderJigsaw();
@@ -183,7 +214,7 @@ public class SliderCaptchaService {
 					answer = sb.toString();
 					vo = new ChallengeVO(id, type.name(), mode, null, null, j.bgWidth(), j.bgHeight(), null, null, null,
 						ttl, null, null, null, null, null, Map.of("rows", j.rows(), "cols", j.cols()), j.tiles(),
-						j.tileWidth(), j.tileHeight(), null);
+						j.tileWidth(), j.tileHeight(), null, null);
 				}
 				default -> {
 					PuzzleRenderer.Puzzle p = renderer.render();
@@ -250,6 +281,10 @@ public class SliderCaptchaService {
 		}
 		CaptchaType type = parts.length == 7 ? CaptchaType.parse(parts[6]) : CaptchaType.SLIDER;
 		long issuedAt = Long.parseLong(parts[4]);
+		// 题目 TTL（expire-seconds）从签发算起；超过即按过期处理（40010，不计失败），与存储过期一致
+		if (clock.getAsLong() - issuedAt > props.getSlider().getExpireSeconds() * 1000) {
+			throw CaptchaException.expired();
+		}
 		boolean ok;
 		try {
 			// 输入方式以出题时声明为准，verify 自报不同即失败（防止临时降级到 keyboard 跳过轨迹校验）
@@ -498,11 +533,9 @@ public class SliderCaptchaService {
 		if (!timing(req, issuedAt, s.getMinDurationMs(), s.getMaxDurationMs())) {
 			return false;
 		}
-		// 拖动行程按滑块左边缘位移计，最大行程 = bgDisplayWidth：angle = 位移 / bgDisplayWidth × 360。
-		// track 首末点位移换算出的角度与 answer.angle 差 ≤ tolerance-deg（不再借用 SLIDER 的 6 原始像素）
-		double ax = angle / 360.0 * display;
-		double tolDisplayPx = r.getToleranceDeg() / 360.0 * display;
-		return trackLooksHuman(req.track(), display, ax, req.endTime() - req.startTime(), s, tolDisplayPx);
+		// 以 answer.angle 判对错（上面已判）。前端允许低速精调（低速时位移按 0.5 倍计），track 末点换算角度
+		// 与 answer.angle 不再要求一致；track 只判是否为人在操作（点数、时间单调、步长、非匀速直线）
+		return trackLooksHuman(req.track(), display, 0, req.endTime() - req.startTime(), s, Double.MAX_VALUE);
 	}
 
 	static double circularDiff(double a, double b) {
