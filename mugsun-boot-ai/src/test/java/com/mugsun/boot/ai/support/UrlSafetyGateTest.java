@@ -96,6 +96,53 @@ class UrlSafetyGateTest {
 	}
 
 	@Test
+	void allowlistNeverPermitsLinkLocalRangeOrEmbeddedV4Metadata() {
+		UrlSafetyGate.HostResolver dns = host -> switch (host) {
+			case "x.example.com" -> new InetAddress[]{InetAddress.getByName("169.254.170.2")};
+			case "tc.example.com" -> new InetAddress[]{InetAddress.getByName("169.254.0.23")};
+			case "dns.example.com" -> new InetAddress[]{InetAddress.getByName("169.254.169.253")};
+			case "nat64.example.com" -> new InetAddress[]{InetAddress.getByName("64:ff9b::a9fe:aa02")};
+			case "sixto4.example.com" -> new InetAddress[]{InetAddress.getByName("2002:a9fe:aa02::")};
+			case "compat.example.com" -> new InetAddress[]{InetAddress.getByName("::a9fe:aa02")};
+			case "ok.example.com" -> new InetAddress[]{InetAddress.getByName("192.168.1.20")};
+			default -> throw new UnknownHostException(host);
+		};
+		List<String> allow = List.of("*.example.com", "169.254.170.2", "64:ff9b::a9fe:a9fe", "2002:a9fe:a9fe::",
+			"::a9fe:a9fe", "::ffff:169.254.0.23");
+		for (String host : List.of("x.example.com", "tc.example.com", "dns.example.com", "nat64.example.com",
+			"sixto4.example.com", "compat.example.com")) {
+			String url = "http://" + host + "/v2/credentials";
+			// 保存（guard）与连接（resolveSafe）都拦
+			assertThrows(ServiceException.class, () -> UrlSafetyGate.guard(url, allow, dns), url);
+			assertThrows(ServiceException.class, () -> UrlSafetyGate.guard(url, allow, List.of(80, 443), dns), url);
+			assertThrows(ServiceException.class, () -> UrlSafetyGate.resolveSafe(host, allow, dns), host);
+		}
+		for (String url : List.of("http://169.254.170.2/v2/credentials", "http://[64:ff9b::a9fe:a9fe]/",
+			"http://[2002:a9fe:a9fe::]/", "http://[::a9fe:a9fe]/", "http://[::ffff:169.254.0.23]/")) {
+			assertThrows(ServiceException.class, () -> UrlSafetyGate.guard(url, allow, dns), url);
+		}
+		// 非白名单路径同样拦
+		for (String url : List.of("http://[64:ff9b::a9fe:a9fe]/", "http://[2002:a9fe:a9fe::]/", "http://[::a9fe:a9fe]/",
+			"http://169.254.170.2/", "http://[64:ff9b::a64:6464]/")) {
+			assertThrows(ServiceException.class, () -> UrlSafetyGate.guard(url, List.of(), dns), url);
+		}
+		assertNotNull(UrlSafetyGate.guard("http://ok.example.com:11434/v1", allow, dns));
+	}
+
+	@Test
+	void cloudMetadataDetection() throws Exception {
+		for (String ip : List.of("169.254.0.0", "169.254.170.2", "169.254.0.23", "169.254.169.253", "169.254.255.255",
+			"100.100.100.200", "fd00:ec2::254", "::ffff:169.254.170.2", "::a9fe:aa02", "64:ff9b::a9fe:a9fe",
+			"2002:a9fe:a9fe::", "64:ff9b::6464:64c8", "2002:6464:64c8::")) {
+			assertTrue(UrlSafetyGate.isCloudMetadata(InetAddress.getByName(ip)), ip);
+		}
+		for (String ip : List.of("169.253.255.255", "169.255.0.1", "100.100.100.201", "192.168.1.20", "::1",
+			"2001:db8::1", "64:ff9b::808:808", "2002:808:808::")) {
+			assertFalse(UrlSafetyGate.isCloudMetadata(InetAddress.getByName(ip)), ip);
+		}
+	}
+
+	@Test
 	void allowlistWildcard() {
 		List<String> allow = List.of("*.lan.example");
 		assertNotNull(UrlSafetyGate.guard("http://gpu.lan.example/v1", allow, FAKE));

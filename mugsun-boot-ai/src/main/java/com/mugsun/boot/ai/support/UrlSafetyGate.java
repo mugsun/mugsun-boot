@@ -132,23 +132,44 @@ public final class UrlSafetyGate {
 		return addrs.clone();
 	}
 
-	/** 云元数据地址（AWS/GCP/Azure 169.254.169.254、阿里云 100.100.100.200、AWS IPv6 fd00:ec2::254），含 IPv4 映射形式；白名单也不放行 */
+	/**
+	 * 云元数据地址，白名单也不放行：整个 169.254.0.0/16 链路本地段（AWS/GCP/Azure 169.254.169.254、
+	 * AWS ECS 任务凭证 169.254.170.2、Amazon DNS 169.254.169.253、腾讯云 169.254.0.23 等）、
+	 * 阿里云 100.100.100.200、AWS IPv6 fd00:ec2::254。IPv6 中内嵌 IPv4 的写法
+	 * （::ffff 映射、::a.b.c.d 兼容、64:ff9b::/96 NAT64、2002::/16 6to4）先解出内嵌 IPv4 再判断。
+	 */
 	static boolean isCloudMetadata(InetAddress addr) {
 		byte[] b = addr.getAddress();
 		if (b.length == 16) {
-			boolean mapped = true;
-			for (int i = 0; i < 10; i++) {
-				mapped &= b[i] == 0;
+			if (java.util.Arrays.equals(b, METADATA_V6)) {
+				return true;
 			}
-			mapped &= (b[10] & 0xff) == 0xff && (b[11] & 0xff) == 0xff;
-			if (mapped) {
-				b = new byte[]{b[12], b[13], b[14], b[15]};
-			} else {
-				return java.util.Arrays.equals(b, METADATA_V6);
+			b = embeddedV4(b);
+			if (b == null) {
+				return false;
 			}
 		}
 		int b0 = b[0] & 0xff, b1 = b[1] & 0xff, b2 = b[2] & 0xff, b3 = b[3] & 0xff;
-		return (b0 == 169 && b1 == 254 && b2 == 169 && b3 == 254) || (b0 == 100 && b1 == 100 && b2 == 100 && b3 == 200);
+		return (b0 == 169 && b1 == 254) || (b0 == 100 && b1 == 100 && b2 == 100 && b3 == 200);
+	}
+
+	/** 取 IPv6 地址内嵌的 IPv4（::ffff:a.b.c.d、::a.b.c.d、64:ff9b::a.b.c.d、2002:aabb:ccdd::），无则 null。 */
+	static byte[] embeddedV4(byte[] b) {
+		if (b.length != 16) {
+			return null;
+		}
+		int off = -1;
+		if (allZero(b, 0, 10) && (b[10] & 0xff) == 0xff && (b[11] & 0xff) == 0xff) {
+			off = 12; // IPv4-mapped
+		} else if (allZero(b, 0, 12) && !allZero(b, 12, 16)) {
+			off = 12; // IPv4-compatible
+		} else if ((b[0] & 0xff) == 0x00 && (b[1] & 0xff) == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
+			&& allZero(b, 4, 12)) {
+			off = 12; // NAT64 64:ff9b::/96
+		} else if ((b[0] & 0xff) == 0x20 && (b[1] & 0xff) == 0x02) {
+			off = 2; // 6to4 2002::/16
+		}
+		return off < 0 ? null : new byte[]{b[off], b[off + 1], b[off + 2], b[off + 3]};
 	}
 
 	private static void rejectMetadata(String hostLower, HostResolver resolver) {
