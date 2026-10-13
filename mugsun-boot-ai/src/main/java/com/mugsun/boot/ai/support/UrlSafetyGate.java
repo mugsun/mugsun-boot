@@ -67,9 +67,34 @@ public final class UrlSafetyGate {
 	}
 
 	/**
+	 * 在 {@link #guard(String, Collection, HostResolver)} 基础上再限制端口：白名单主机不限端口；
+	 * 其它主机只允许 allowedPorts（空表示不限）。缺省端口按 scheme 取 80/443。
+	 */
+	public static String guard(String rawUrl, Collection<String> allowHosts, Collection<Integer> allowedPorts,
+							   HostResolver resolver) {
+		String normalized = guard(rawUrl, allowHosts, resolver);
+		URI uri = URI.create(normalized);
+		if (allowedPorts == null || allowedPorts.isEmpty() || isAllowed(uri.getHost(), allowHosts)) {
+			return normalized;
+		}
+		int port = uri.getPort();
+		if (port < 0) {
+			port = "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+		}
+		if (!allowedPorts.contains(port)) {
+			throw new ServiceException("出站地址端口不在允许范围内");
+		}
+		return normalized;
+	}
+
+	/**
 	 * 解析主机并逐个校验地址，返回<b>已校验</b>的地址供连接直接使用（钉 IP，防 DNS rebinding：
 	 * 校验与连接之间不再二次解析）。白名单主机跳过内网拦截；任一地址落在禁止网段即整体拒绝。
 	 */
+	static boolean isIpLiteral(String host) {
+		return host.indexOf(':') >= 0 || host.matches("\\d{1,3}(\\.\\d{1,3}){3}");
+	}
+
 	public static InetAddress[] resolveSafe(String host, Collection<String> allowHosts, HostResolver resolver) {
 		if (host == null || host.isBlank()) {
 			throw new ServiceException("出站 URL 缺少主机");
@@ -82,7 +107,8 @@ public final class UrlSafetyGate {
 		}
 		InetAddress[] addrs;
 		try {
-			addrs = resolver.resolve(hostLower);
+			// IP 字面量直接按字面解析，不交给（可能被替换的）解析器
+			addrs = isIpLiteral(hostLower) ? new InetAddress[]{InetAddress.getByName(hostLower)} : resolver.resolve(hostLower);
 		} catch (Exception e) {
 			throw new ServiceException("出站地址主机解析失败");
 		}
@@ -157,6 +183,11 @@ public final class UrlSafetyGate {
 			if ((b[0] & 0xff) == 0x20 && (b[1] & 0xff) == 0x02) {
 				return isPrivateV4(b, 2);
 			}
+			// 2001:db8::/32 文档地址、2001::/32 Teredo（内嵌 IPv4 取反存储，整段禁止）
+			if ((b[0] & 0xff) == 0x20 && (b[1] & 0xff) == 0x01
+				&& (((b[2] & 0xff) == 0x0d && (b[3] & 0xff) == 0xb8) || (b[2] == 0 && b[3] == 0))) {
+				return true;
+			}
 			return false;
 		}
 		return true;
@@ -173,6 +204,10 @@ public final class UrlSafetyGate {
 			|| (b0 == 172 && b1 >= 16 && b1 <= 31)
 			|| (b0 == 192 && b1 == 168)
 			|| (b0 == 192 && b1 == 0 && b2 == 0) // 192.0.0.0/24 IETF 协议分配
+			|| (b0 == 192 && b1 == 0 && b2 == 2) // 192.0.2.0/24 文档地址
+			|| (b0 == 192 && b1 == 88 && b2 == 99) // 192.88.99.0/24 6to4 中继
+			|| (b0 == 198 && b1 == 51 && b2 == 100) // 198.51.100.0/24 文档地址
+			|| (b0 == 203 && b1 == 0 && b2 == 113) // 203.0.113.0/24 文档地址
 			|| (b0 == 198 && (b1 == 18 || b1 == 19)) // 198.18/15 基准测试
 			|| b0 >= 224; // 组播 + 240/4 保留 + 广播
 	}

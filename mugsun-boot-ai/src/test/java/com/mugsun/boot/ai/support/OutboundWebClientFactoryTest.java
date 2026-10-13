@@ -54,9 +54,11 @@ class OutboundWebClientFactoryTest {
 		server.stop(0);
 	}
 
-	private OutboundWebClientFactory factory(List<String> allow, UrlSafetyGate.HostResolver resolver) {
+	OutboundWebClientFactory factory(List<String> allow, UrlSafetyGate.HostResolver resolver) {
 		AiOutboundProperties props = new AiOutboundProperties();
 		props.setAllowHosts(allow);
+		// 测试服务在随机端口：放行该端口，确保被拦是因为地址而不是端口
+		props.setAllowedPorts(List.of(80, 443, port));
 		OutboundWebClientFactory f = new OutboundWebClientFactory(WebClient.builder(), props);
 		f.setResolver(resolver);
 		return f;
@@ -77,14 +79,16 @@ class OutboundWebClientFactoryTest {
 
 	@Test
 	void dnsRebindingToLoopbackIsRefusedAtConnect() {
-		// 第一次解析（前置 guard）给公网地址，之后的解析（建连）换成回环
+		// 每个请求：第一次解析（逐请求 guard）给公网地址，第二次解析（建连）换成回环
 		AtomicInteger calls = new AtomicInteger();
-		UrlSafetyGate.HostResolver rebinding = h -> calls.getAndIncrement() == 0 ? ip("93.184.216.34") : ip("127.0.0.1");
+		UrlSafetyGate.HostResolver rebinding = h -> calls.getAndIncrement() % 2 == 0 ? ip("93.184.216.34") : ip("127.0.0.1");
 		String url = "http://rebind.test:" + port + "/ok";
-		assertDoesNotThrow(() -> UrlSafetyGate.guard(url, List.of(), rebinding));
 		OutboundWebClientFactory f = factory(List.of(), rebinding);
+		calls.set(0);
 		assertThrows(Exception.class, () -> f.create().get().uri(url)
 			.retrieve().bodyToMono(String.class).block(Duration.ofSeconds(5)));
+		assertTrue(calls.get() >= 2, "逐请求 guard 通过后，建连时又解析了一次并被拦");
+		calls.set(0);
 		assertThrows(Exception.class, () -> f.createStrict().get().uri(url)
 			.retrieve().bodyToMono(String.class).block(Duration.ofSeconds(5)));
 		assertEquals(0, hits.get(), "回环服务不应收到任何请求");
@@ -115,5 +119,27 @@ class OutboundWebClientFactoryTest {
 			.block(Duration.ofSeconds(5));
 		assertEquals(302, status);
 		assertEquals(0, secretHits.get(), "重定向目标不应被请求");
+	}
+
+	@Test
+	void literalIpIsGuardedPerRequest() {
+		// IP 字面量不经过解析器，只能靠逐请求 guard 拦住
+		OutboundWebClientFactory f = factory(List.of(), h -> ip("93.184.216.34"));
+		assertThrows(Exception.class, () -> f.create().get().uri("http://127.0.0.1:" + port + "/ok")
+			.retrieve().bodyToMono(String.class).block(Duration.ofSeconds(5)));
+		assertEquals(0, hits.get());
+	}
+
+	@Test
+	void nonStandardPortRejectedUnlessAllowlisted() {
+		AiOutboundProperties props = new AiOutboundProperties();
+		OutboundWebClientFactory f = new OutboundWebClientFactory(WebClient.builder(), props);
+		f.setResolver(h -> ip("93.184.216.34"));
+		assertThrows(Exception.class, () -> f.create().get().uri("http://public.test:6379/")
+			.retrieve().bodyToMono(String.class).block(Duration.ofSeconds(5)));
+		props.setAllowHosts(List.of("svc.test"));
+		f.setResolver(h -> ip("127.0.0.1"));
+		assertEquals("pong", f.create().get().uri("http://svc.test:" + port + "/ok")
+			.retrieve().bodyToMono(String.class).block(Duration.ofSeconds(5)), "白名单主机不限端口");
 	}
 }

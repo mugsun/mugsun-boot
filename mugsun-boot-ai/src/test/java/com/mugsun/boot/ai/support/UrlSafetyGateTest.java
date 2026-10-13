@@ -109,6 +109,12 @@ class UrlSafetyGateTest {
 		rejected("http://255.255.255.255/", none);
 		rejected("http://192.0.0.170/", none);
 		rejected("http://x.localhost/", none);
+		rejected("http://192.0.2.1/", none);
+		rejected("http://192.88.99.1/", none);
+		rejected("http://198.51.100.7/", none);
+		rejected("http://203.0.113.9/", none);
+		rejected("http://[2001:db8::1]/", none);
+		rejected("http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/", none); // Teredo
 		assertFalse(UrlSafetyGate.isPrivate(InetAddress.getByName("2606:4700:4700::1111")));
 		assertFalse(UrlSafetyGate.isPrivate(InetAddress.getByName("[64:ff9b::808:808]")));
 		assertFalse(UrlSafetyGate.isPrivate(InetAddress.getByName("8.8.8.8")));
@@ -122,5 +128,16 @@ class UrlSafetyGateTest {
 		assertThrows(ServiceException.class, () -> UrlSafetyGate.resolveSafe("metadata.google.internal", List.of(), FAKE));
 		InetAddress[] mixed = {InetAddress.getByName("93.184.216.34"), InetAddress.getByName("10.0.0.1")};
 		assertThrows(ServiceException.class, () -> UrlSafetyGate.resolveSafe("mixed", List.of(), h -> mixed));
+	}
+
+	@Test
+	void portPolicy() {
+		List<Integer> ports = List.of(80, 443);
+		assertNotNull(UrlSafetyGate.guard("https://public.example.com/v1", List.of(), ports, FAKE));
+		assertNotNull(UrlSafetyGate.guard("http://public.example.com:80/v1", List.of(), ports, FAKE));
+		assertThrows(ServiceException.class, () -> UrlSafetyGate.guard("http://public.example.com:6379/", List.of(), ports, FAKE));
+		assertThrows(ServiceException.class, () -> UrlSafetyGate.guard("https://93.184.216.34:25/", List.of(), ports, FAKE));
+		assertNotNull(UrlSafetyGate.guard("http://localhost:11434/v1", List.of("localhost"), ports, FAKE), "白名单主机不限端口");
+		assertNotNull(UrlSafetyGate.guard("http://public.example.com:8080/", List.of(), List.of(), FAKE), "空列表不限端口");
 	}
 }

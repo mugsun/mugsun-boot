@@ -17,6 +17,17 @@ public class AiOutboundProperties {
 
 	private List<String> allowHosts = new ArrayList<>();
 
+	/** 非白名单主机允许的端口；默认只放 80/443，空列表表示不限 */
+	private List<Integer> allowedPorts = new ArrayList<>(List.of(80, 443));
+
+	public List<Integer> getAllowedPorts() {
+		return allowedPorts;
+	}
+
+	public void setAllowedPorts(List<Integer> allowedPorts) {
+		this.allowedPorts = allowedPorts == null ? new ArrayList<>() : allowedPorts;
+	}
+
 	public List<String> getAllowHosts() {
 		return allowHosts;
 	}
@@ -27,6 +38,6 @@ public class AiOutboundProperties {
 
 	/** 校验并返回规范化 URL；不合规抛 ServiceException。 */
 	public String guard(String url) {
-		return UrlSafetyGate.guard(url, allowHosts, UrlSafetyGate.SYSTEM_RESOLVER);
+		return UrlSafetyGate.guard(url, allowHosts, allowedPorts, UrlSafetyGate.SYSTEM_RESOLVER);
 	}
 }

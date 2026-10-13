@@ -2,7 +2,9 @@ package com.mugsun.boot.ai.support;
 
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 
 import java.util.Collection;
@@ -10,12 +12,13 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * 用户可配置地址的出站 WebClient（知识库抓取 / 渠道 Webhook / MCP 远程 / 工作流 HTTP 节点）。
+ * AI 模块所有「地址可由用户配置」的出站 WebClient（模型调用 / 知识库抓取 / 渠道 Webhook / MCP 远程 / 工作流 HTTP 节点）。
  * <ul>
- *   <li>建连解析走 {@link GuardedAddressResolverGroup}：解析后即校验、钉住校验过的 IP 连接；</li>
- *   <li>禁止自动跟随重定向（3xx 原样返回），避免公网地址 302 到内网绕过校验。</li>
+ *   <li>每个请求发出前强制 {@link UrlSafetyGate#guard}（含 IP 字面量、端口）——新增调用点漏写前置校验也拦得住；</li>
+ *   <li>建连解析走 {@link GuardedAddressResolverGroup}：解析后即校验、钉住校验过的 IP 连接（防 DNS rebinding）；</li>
+ *   <li>禁止自动跟随重定向（3xx 原样返回）。</li>
  * </ul>
- * 调用方仍应先用 {@link UrlSafetyGate#guard} 做前置校验（给出友好提示、拦 IP 字面量）。
+ * 内网地址只能经平台级配置 {@code mugsun.ai.outbound.allow-hosts} 放行（yaml，租户不可配）。
  */
 @Component
 public class OutboundWebClientFactory {
@@ -45,9 +48,18 @@ public class OutboundWebClientFactory {
 	}
 
 	private WebClient build(Supplier<Collection<String>> allowHosts) {
+		UrlSafetyGate.HostResolver dns = resolver;
 		HttpClient http = HttpClient.create()
-			.resolver(new GuardedAddressResolverGroup(allowHosts, resolver))
+			.resolver(new GuardedAddressResolverGroup(allowHosts, dns))
 			.followRedirect(false);
-		return builder.clone().clientConnector(new ReactorClientHttpConnector(http)).build();
+		ExchangeFilterFunction guardEach = ExchangeFilterFunction.ofRequestProcessor(request ->
+			Mono.fromCallable(() -> {
+				UrlSafetyGate.guard(request.url().toString(), allowHosts.get(), properties.getAllowedPorts(), dns);
+				return request;
+			}));
+		return builder.clone()
+			.clientConnector(new ReactorClientHttpConnector(http))
+			.filter(guardEach)
+			.build();
 	}
 }
