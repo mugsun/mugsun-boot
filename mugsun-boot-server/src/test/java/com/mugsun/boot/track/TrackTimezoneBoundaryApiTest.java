@@ -30,6 +30,7 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 	private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
 	private static final String APP = "it-tz-dash";
 	private static final String APP_RET = "it-tz-ret";
+	private static final String APP_SAME = "it-tz-same";
 
 	@Autowired
 	private TrackEventStore store;
@@ -42,6 +43,7 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 		adminToken = loginAdmin();
 		seedApp(APP);
 		seedApp(APP_RET);
+		seedApp(APP_SAME);
 		localToday = LocalDate.now(SHANGHAI);
 		long midnight = localToday.atStartOfDay(SHANGHAI).toInstant().toEpochMilli();
 		long before = midnight - 1000L;
@@ -61,7 +63,10 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 			ev(APP, "tz_step_b", after + 30, y, "/after", "{}"),
 			// 留存：r 当地昨天 23:59:59 首访、今天 00:00:01 回访 → 昨天 cohort 的 D+1
 			ev(APP_RET, "$pageview", before, r, "/r", "{}"),
-			ev(APP_RET, "$pageview", after, r, "/r", "{}")));
+			ev(APP_RET, "$pageview", after, r, "/r", "{}"),
+			// UX-111：当地 00:00:01（UTC 仍是前一天 16:00:01）的同一批 PV + 错误
+			ev(APP_SAME, "$pageview", after, r, "/s", "{}"),
+			errorEv(APP_SAME, after, r, "fp-ux111")));
 	}
 
 	@Test
@@ -115,6 +120,33 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 		assertThat(row.path("cohortDate").asText()).as("首访日 = 当地昨天").isEqualTo(localToday.minusDays(1).toString());
 		assertThat(row.path("cohortSize").asLong()).isEqualTo(1L);
 		assertThat(row.path("retained").path("1").asLong()).as("当地 0 点后 1 秒算次日回访").isEqualTo(1L);
+	}
+
+	/** UX-111：同一批事件，概览趋势与错误列表必须落在同一个当地日 */
+	@Test
+	void overviewAndErrorListAgreeOnLocalDay() {
+		JsonNode trend = readBodyAssertOk(get("/system/track/trend?appKey=" + APP_SAME + "&days=7&dimType=overview", adminToken));
+		String trendDay = null;
+		for (JsonNode p : trend) {
+			if (p.path("eventCount").asLong() > 0) {
+				assertThat(trendDay).as("只有一天有数据").isNull();
+				trendDay = p.path("date").asText();
+			}
+		}
+		JsonNode errors = readBodyAssertOk(get("/system/track/errors/page?appKey=" + APP_SAME + "&days=7", adminToken));
+		long firstTime = errors.path("records").get(0).path("firstTime").asLong();
+		String errorDay = java.time.Instant.ofEpochMilli(firstTime).atZone(SHANGHAI).toLocalDate().toString();
+		assertThat(trendDay).as("概览趋势与错误列表同一天").isEqualTo(errorDay).isEqualTo(localToday.toString());
+		JsonNode cards = readBodyAssertOk(get("/system/track/overview?appKey=" + APP_SAME + "&days=1", adminToken)).path("cards");
+		assertThat(cards.path("eventCount").asLong()).as("概览卡片「今天」也含这批事件").isEqualTo(2L);
+		JsonNode errToday = readBodyAssertOk(get("/system/track/errors/page?appKey=" + APP_SAME + "&days=1", adminToken));
+		assertThat(errToday.path("totalRow").asLong()).isEqualTo(1L);
+	}
+
+	private TrackIngestEvent errorEv(String appKey, long ms, String distinctId, String fp) {
+		TrackIngestEvent e = ev(appKey, TrackConstants.EVENT_ERROR, ms, distinctId, "/s", "{\"message\":\"" + fp + "\"}");
+		e.setErrorFingerprint(fp);
+		return e;
 	}
 
 	private void seedApp(String appKey) {
