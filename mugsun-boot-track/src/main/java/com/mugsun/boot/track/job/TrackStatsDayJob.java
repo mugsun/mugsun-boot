@@ -22,8 +22,8 @@ import java.util.List;
  * <p>分日基准 = received_at（UTC 日界；迟到数据归入接收当日，历史不被追改）。
  * 聚合昨日（含）以前的闭合日；今日由看板「当日分区直算」覆盖，本任务不写开放日。
  * <p><b>口径钉死（§4.4/§6）</b>：
- * <br>① UV 精确去重：{@link TrackConstants#UV_EXPR}（按 distinct_id）
- * LEFT JOIN track_identity 归并（跨设备同 user 合一；UV 不可从子窗口相加，必须从明细算）；
+ * <br>① UV 精确去重：{@link TrackConstants#UV_EXPR}（按 distinct_id，一个设备计 1；不再 JOIN track_identity 归并登录用户。
+ * UV 不可从子窗口相加，必须从明细算。T1 里 track_stats_day.uv 的列注释仍写旧口径，T1 已发布不改，以本注释为准）；
  * <br>② overview 行（dim_key=ALL）的 session_count/bounce_count 来自 track_session
  * （按 start_time 归日；跳出 = pageviews&lt;=1，与结算任务 is_bounce 定义一致，不依赖 settled 时序）；
  * <br>③ 维度行（event/page/referrer/device）的 session_count 为当日明细 count(distinct session_id)，bounce_count 恒 0；
@@ -47,30 +47,29 @@ public class TrackStatsDayJob extends AbstractTrackRollupJob {
 		+ " session_count = EXCLUDED.session_count, bounce_count = EXCLUDED.bounce_count,"
 		+ " duration_sum = EXCLUDED.duration_sum, event_count = EXCLUDED.event_count, update_time = now()";
 
-	/** 身份归并 JOIN（UV 唯一事实源；首绑不覆盖语义见 §4.7） */
-	private static final String IDENTITY_JOIN = " FROM track_event e LEFT JOIN track_identity m"
-		+ " ON m.app_key = e.app_key AND m.distinct_id = e.distinct_id AND m.is_deleted = 0"
+	/** 当日明细范围（UV 按 distinct_id，不再 JOIN track_identity） */
+	private static final String DETAIL_FROM = " FROM track_event e"
 		+ " WHERE e.app_key = ? AND e.received_at >= ? AND e.received_at < ?";
 
 	/** overview 行：事件侧指标（session_count/bounce_count 另查 track_session 覆盖） */
-	static final String AGG_OVERVIEW = "SELECT count(*) FILTER (WHERE e.event_name = '"
+	private static final String AGG_OVERVIEW = "SELECT count(*) FILTER (WHERE e.event_name = '"
 		+ TrackConstants.EVENT_PAGEVIEW + "') AS pv, count(*) AS cnt,"
 		+ " " + TrackConstants.UV_EXPR + " AS uv,"
-		+ " coalesce(sum(e.duration_ms), 0) AS dur" + IDENTITY_JOIN;
+		+ " coalesce(sum(e.duration_ms), 0) AS dur" + DETAIL_FROM;
 
 	/** overview 行：会话侧指标（按 start_time 归日；跳出 = pageviews<=1，与结算定稿同定义） */
 	private static final String AGG_SESSION = "SELECT count(*) AS sessions,"
 		+ " count(*) FILTER (WHERE pageviews <= 1) AS bounce"
 		+ " FROM track_session WHERE app_key = ? AND start_time >= ? AND start_time < ? AND is_deleted = 0";
 
-	/** 维度聚合（event/page/referrer/device）：UV 经 identity 归并；bounce 不适用于维度行 */
-	static final String AGG_EVENT = dimSql("e.event_name", TrackConstants.DIM_EVENT, null);
-	static final String AGG_PAGE = dimSql(
+	/** 维度聚合（event/page/referrer/device）：UV 按 distinct_id；bounce 不适用于维度行 */
+	private static final String AGG_EVENT = dimSql("e.event_name", TrackConstants.DIM_EVENT, null);
+	private static final String AGG_PAGE = dimSql(
 		"left(coalesce(nullif(e.route_path, ''), e.url_path), " + TrackConstants.DIM_MAX_LEN + ")", TrackConstants.DIM_PAGE,
 		"coalesce(nullif(e.route_path, ''), e.url_path) IS NOT NULL");
-	static final String AGG_REFERRER = dimSql("e.referrer_domain", TrackConstants.DIM_REFERRER,
+	private static final String AGG_REFERRER = dimSql("e.referrer_domain", TrackConstants.DIM_REFERRER,
 		"e.referrer_domain IS NOT NULL AND e.referrer_domain <> ''");
-	static final String AGG_DEVICE = dimSql("e.device", TrackConstants.DIM_DEVICE,
+	private static final String AGG_DEVICE = dimSql("e.device", TrackConstants.DIM_DEVICE,
 		"e.device IS NOT NULL AND e.device <> ''");
 
 	private final TrackJobGuard guard;
@@ -179,20 +178,20 @@ public class TrackStatsDayJob extends AbstractTrackRollupJob {
 		});
 	}
 
-	/** 执行一个维度聚合（UV 经 identity 归并；维度行 bounce=0） */
+	/** 执行一个维度聚合（UV 按 distinct_id；维度行 bounce=0） */
 	private List<DayRow> queryDim(String sql, String appKey, OffsetDateTime from, OffsetDateTime to) {
 		return jdbc.query(sql, (rs, i) -> new DayRow(rs.getString("dimType"), rs.getString("dim"),
 				rs.getLong("pv"), rs.getLong("cnt"), rs.getLong("sessions"), rs.getLong("uv"), rs.getLong("dur"), 0L),
 			appKey, from, to);
 	}
 
-	/** 维度聚合 SQL 组装（dimExpr 非空过滤条件可选；uv 经 identity 归并） */
+	/** 维度聚合 SQL 组装（dimExpr 非空过滤条件可选；uv 按 distinct_id） */
 	private static String dimSql(String dimExpr, String dimType, String dimFilter) {
 		return "SELECT '" + dimType + "' AS \"dimType\", " + dimExpr + " AS dim,"
 			+ " count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
 			+ " count(*) AS cnt, count(DISTINCT e.session_id) AS sessions,"
 			+ " " + TrackConstants.UV_EXPR + " AS uv,"
-			+ " coalesce(sum(e.duration_ms), 0) AS dur" + IDENTITY_JOIN
+			+ " coalesce(sum(e.duration_ms), 0) AS dur" + DETAIL_FROM
 			+ (dimFilter == null ? "" : " AND " + dimFilter)
 			+ " GROUP BY " + dimExpr;
 	}

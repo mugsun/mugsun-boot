@@ -14,7 +14,18 @@ mugsun:
     flyway-enabled: ${MUGSUN_TRACK_FLYWAY_ENABLED:true}
     # 历史日表 UV 回填（distinct_id 口径，升级说明见 docs/upgrade/track-uv-backfill.md）
     uv-backfill:
-      # 回填最近多少个闭合日（UTC）
+      # 回填最近多少个闭合日（UTC），从昨天往前倒序
       days: ${MUGSUN_TRACK_UV_BACKFILL_DAYS:90}
-      # true：启动后在后台跑一遍回填（幂等，跑完建议关掉）
+      # 每处理完一个 应用×天 的间隔（毫秒）
+      sleep-millis: ${MUGSUN_TRACK_UV_BACKFILL_SLEEP_MILLIS:300}
+      # 单个 应用×天 事务的 statement_timeout（秒）
+      statement-timeout-seconds: 120
+      # 独立锁 TTL（秒），每个 应用×天 处理完续期
+      lock-ttl-seconds: 600
+      # 只在运行时段执行（默认北京时间 02:00–07:00）；false 表示不限
+      window-enabled: ${MUGSUN_TRACK_UV_BACKFILL_WINDOW_ENABLED:true}
+      window-start: "02:00"
+      window-end: "07:00"
+      window-zone: Asia/Shanghai
+      # true：启动后在后台跑一遍（幂等；高峰期不要开，跑完关掉）
       on-startup: ${MUGSUN_TRACK_UV_BACKFILL_ON_STARTUP:false}
