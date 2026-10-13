@@ -14,10 +14,14 @@ services:
     # 没有扩展时应用不会报错，而是静默全量回落 Java 侧——查询慢数倍、矢量瓦片直接不可用，
     # 且只留一行 WARN 日志，运维极难发现。所以镜像即交付物，别在本地手工 apt 装扩展了事。
     # 基于 postgis/postgis:16-3.4 再装 pgvector。官方镜像仅 amd64，Apple Silicon 走仿真。
+    # Apple Silicon 原生构建（免 amd64 仿真）：
+    #   MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 docker compose up -d --build
     build:
       context: ./docker/postgres
+      args:
+        POSTGIS_IMAGE: ${MUGSUN_PG_BASE_IMAGE:-postgis/postgis:16-3.4}
     image: mugsun-postgis-pgvector:16-3.4
-    platform: linux/amd64
+    platform: ${MUGSUN_PG_PLATFORM:-linux/amd64}
     container_name: mugsun-pg
     environment:
       POSTGRES_USER: postgres
