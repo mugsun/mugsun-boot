@@ -2,7 +2,7 @@
 
 本目录存放**达梦 / Oracle 语法**脚本，与 `classpath:db/migration`（PostgreSQL）同版本号、同业务语义。由 `scripts/pg_to_dm.py` 从 PG 脚本机械转换后经达梦实例校验。
 
-**0.1.0 基线**：只保留 `V1__baseline_0_1.sql`。AI 表、向量表占位和菜单修正已并进这份基线。0.1 未发布，不要另起 `V2`。带 `pg2dm: manual` 的脚本不要用 `pg_to_dm.py` 覆盖。
+`V1__baseline_0_1.sql` 是 0.1.0 发布基线，**已发布，不可修改**；之后每次改库新增 `Vn__*.sql`，与 PG 同号（规则见 [`../migration/README.md`](../migration/README.md)，清单 `db/RELEASED.sha256`）。带 `pg2dm: manual` 的脚本（如 V2、V3）不要用 `pg_to_dm.py` 覆盖。
 
 > **目录故意与 PG 并列**（`db/migration-dm`，而非 `db/migration/dm`）：Flyway 默认会递归扫描 `db/migration/**`。
 

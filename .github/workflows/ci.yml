@@ -58,6 +58,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: mugsun-boot
+          fetch-depth: 0
+
+      - name: Guard released migrations
+        working-directory: mugsun-boot
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: scripts/check-released-migrations.sh
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
