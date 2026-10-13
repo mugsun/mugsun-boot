@@ -72,6 +72,30 @@ class UrlSafetyGateTest {
 	}
 
 	@Test
+	void allowlistNeverPermitsCloudMetadata() {
+		UrlSafetyGate.HostResolver dns = host -> switch (host) {
+			case "meta.corp.example" -> new InetAddress[]{InetAddress.getByName("169.254.169.254")};
+			case "ali.corp.example" -> new InetAddress[]{InetAddress.getByName("100.100.100.200")};
+			case "v6.corp.example" -> new InetAddress[]{InetAddress.getByName("fd00:ec2::254")};
+			case "mixed.corp.example" -> new InetAddress[]{InetAddress.getByName("192.168.1.20"),
+				InetAddress.getByName("169.254.169.254")};
+			case "ollama.corp.example" -> new InetAddress[]{InetAddress.getByName("192.168.1.20")};
+			default -> throw new UnknownHostException(host);
+		};
+		List<String> allow = List.of("169.254.169.254", "100.100.100.200", "fd00:ec2::254", "*.corp.example");
+		for (String url : List.of("http://169.254.169.254/latest/meta-data/", "http://100.100.100.200/latest/meta-data/",
+			"http://[fd00:ec2::254]/latest/", "http://[::ffff:169.254.169.254]/", "http://meta.corp.example/",
+			"http://ali.corp.example/", "http://v6.corp.example/", "http://mixed.corp.example/")) {
+			assertThrows(ServiceException.class, () -> UrlSafetyGate.guard(url, allow, dns), url);
+			assertThrows(ServiceException.class, () -> UrlSafetyGate.guard(url, allow, List.of(80, 443), dns), url);
+		}
+		assertThrows(ServiceException.class, () -> UrlSafetyGate.resolveSafe("meta.corp.example", allow, dns));
+		// 白名单内网模型照常放行
+		assertNotNull(UrlSafetyGate.guard("http://ollama.corp.example:11434/v1", allow, dns));
+		assertEquals(1, UrlSafetyGate.resolveSafe("ollama.corp.example", allow, dns).length);
+	}
+
+	@Test
 	void allowlistWildcard() {
 		List<String> allow = List.of("*.lan.example");
 		assertNotNull(UrlSafetyGate.guard("http://gpu.lan.example/v1", allow, FAKE));

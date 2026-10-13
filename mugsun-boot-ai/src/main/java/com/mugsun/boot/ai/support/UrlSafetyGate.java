@@ -57,6 +57,8 @@ public final class UrlSafetyGate {
 		}
 		String hostLower = stripBrackets(host.toLowerCase(Locale.ROOT));
 		if (isAllowed(hostLower, allowHosts)) {
+			// 白名单主机：IP 字面量直接判；域名能解析时也判（解析失败留给连接时，连接期 resolveSafe 同样会拦）
+			rejectMetadata(hostLower, resolver);
 			return uri.toString();
 		}
 		if (BLOCKED_HOSTS.contains(hostLower) || hostLower.endsWith(".local") || hostLower.endsWith(".internal")) {
@@ -115,6 +117,11 @@ public final class UrlSafetyGate {
 		if (addrs == null || addrs.length == 0) {
 			throw new ServiceException("出站地址主机解析失败");
 		}
+		for (InetAddress addr : addrs) {
+			if (addr == null || isCloudMetadata(addr)) {
+				throw new ServiceException("出站地址禁止访问云元数据地址");
+			}
+		}
 		if (!allowed) {
 			for (InetAddress addr : addrs) {
 				if (addr == null || isPrivate(addr)) {
@@ -123,6 +130,51 @@ public final class UrlSafetyGate {
 			}
 		}
 		return addrs.clone();
+	}
+
+	/** 云元数据地址（AWS/GCP/Azure 169.254.169.254、阿里云 100.100.100.200、AWS IPv6 fd00:ec2::254），含 IPv4 映射形式；白名单也不放行 */
+	static boolean isCloudMetadata(InetAddress addr) {
+		byte[] b = addr.getAddress();
+		if (b.length == 16) {
+			boolean mapped = true;
+			for (int i = 0; i < 10; i++) {
+				mapped &= b[i] == 0;
+			}
+			mapped &= (b[10] & 0xff) == 0xff && (b[11] & 0xff) == 0xff;
+			if (mapped) {
+				b = new byte[]{b[12], b[13], b[14], b[15]};
+			} else {
+				return java.util.Arrays.equals(b, METADATA_V6);
+			}
+		}
+		int b0 = b[0] & 0xff, b1 = b[1] & 0xff, b2 = b[2] & 0xff, b3 = b[3] & 0xff;
+		return (b0 == 169 && b1 == 254 && b2 == 169 && b3 == 254) || (b0 == 100 && b1 == 100 && b2 == 100 && b3 == 200);
+	}
+
+	private static void rejectMetadata(String hostLower, HostResolver resolver) {
+		InetAddress[] addrs;
+		try {
+			addrs = isIpLiteral(hostLower) ? new InetAddress[]{InetAddress.getByName(hostLower)} : resolver.resolve(hostLower);
+		} catch (Exception e) {
+			return;
+		}
+		if (addrs != null) {
+			for (InetAddress addr : addrs) {
+				if (addr != null && isCloudMetadata(addr)) {
+					throw new ServiceException("出站地址禁止访问云元数据地址");
+				}
+			}
+		}
+	}
+
+	private static final byte[] METADATA_V6 = metadataV6();
+
+	private static byte[] metadataV6() {
+		try {
+			return InetAddress.getByName("fd00:ec2::254").getAddress();
+		} catch (java.net.UnknownHostException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	/** 白名单匹配：精确主机（忽略大小写），或 {@code *.example.com} 匹配其任意子域（不含 example.com 本身）。 */
