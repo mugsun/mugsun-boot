@@ -50,7 +50,15 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar
 
 打包产物：`mugsun-boot-server/target/mugsun-boot.jar`。
 
-Compose 暴露端口：`5432`（PostgreSQL）、`6379`（Redis）。开发库账号默认与 JDBC 配置一致（`mugsun` / `mugsun`）。无 Docker 时可参考 `scripts/init-db.sql`。
+Compose 暴露端口：`5432`（PostgreSQL）、`6379`（Redis）。本机已有 PostgreSQL / Redis 占用这两个端口时，换端口启动并让后端用同一变量：
+
+```bash
+export MUGSUN_DB_PORT=55432 MUGSUN_REDIS_PORT=56379
+docker compose up -d
+java -jar mugsun-boot-server/target/mugsun-boot.jar
+```
+
+后端可用的环境变量：`MUGSUN_DB_HOST`、`MUGSUN_DB_PORT`、`MUGSUN_DB_NAME`、`MUGSUN_DB_USERNAME`、`MUGSUN_DB_PASSWORD`（或整条 `MUGSUN_DB_URL`）、`MUGSUN_REDIS_HOST`、`MUGSUN_REDIS_PORT`；埋点库 `mugsun_track` 默认跟随同一主机端口，仍可用 `TRACK_JDBC_URL` 单独覆盖。`prod` 配置不读这些变量，仍用 `JDBC_URL`、`REDIS_HOST` 等。开发库账号默认与 JDBC 配置一致（`mugsun` / `mugsun`）。无 Docker 时可参考 `scripts/init-db.sql`。
 
 本地配置文件路径：`optional:file:./config/application-local.yml`（已列入 `.gitignore`）。工作目录须为本仓库根目录。生产配置注入说明见 [配置](https://docs.mugsun.com/boot/configuration)。
 

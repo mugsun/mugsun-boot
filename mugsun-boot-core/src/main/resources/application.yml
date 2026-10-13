@@ -37,8 +37,9 @@ spring:
     placeholder-replacement: false
   data:
     redis:
-      host: localhost
-      port: 6379
+      # 本机已有 Redis 占 6379 时：导出 MUGSUN_REDIS_PORT（compose 映射端口同一变量）
+      host: ${MUGSUN_REDIS_HOST:localhost}
+      port: ${MUGSUN_REDIS_PORT:6379}
       database: 3
       timeout: 3000ms
   mail:
@@ -79,9 +80,10 @@ mybatis-flex:
   datasource:
     primary:
       type: hikari
-      url: jdbc:postgresql://localhost:5432/mugsun
-      username: mugsun
-      password: mugsun
+      # 本机已有 PG 占 5432 时：导出 MUGSUN_DB_PORT（compose 映射端口同一变量）；整条 URL 可用 MUGSUN_DB_URL 覆盖
+      url: ${MUGSUN_DB_URL:jdbc:postgresql://${MUGSUN_DB_HOST:localhost}:${MUGSUN_DB_PORT:5432}/${MUGSUN_DB_NAME:mugsun}}
+      username: ${MUGSUN_DB_USERNAME:mugsun}
+      password: ${MUGSUN_DB_PASSWORD:mugsun}
   default-datasource-key: primary
   global-config:
     print-banner: false
@@ -101,7 +103,7 @@ jetcache:
       keyConvertor: bean:tenantKeyConvertor
       valueEncoder: bean:jsonValueEncoder
       valueDecoder: bean:jsonValueDecoder
-      uri: redis://localhost:6379/3
+      uri: redis://${MUGSUN_REDIS_HOST:localhost}:${MUGSUN_REDIS_PORT:6379}/3
 dromara:
   x-file-storage:
     default-platform: local-plus-1
