@@ -148,6 +148,7 @@ public class TrackAnalysisService {
 	 * 时间序列：days&lt;=2 走 track_stats_5m（5 分钟粒度，开放窗口已由任务重算覆盖当日）；
 	 * days&gt;2 走 track_stats_day（日粒度）。dimType=overview 时——day 表取 dim_key=ALL 行，
 	 * 5m 表无 overview 维，等价取 event 维全量求和（全站口径；sessionCount 为多事件名求和仅供参考）。
+ * day 表只含闭合日：overview 维的当日行由明细直算追加（与 overview 卡片今日部分同口径）。
 	 */
 	public List<Map<String, Object>> trend(String appKey, Integer days, String dimType, String dimKey) {
 		appKey = assertAppKey(appKey);
@@ -192,7 +193,44 @@ public class TrackAnalysisService {
 		}
 		sql.append(tenantFrag(null, tenant, args));
 		sql.append(" GROUP BY stat_date ORDER BY stat_date");
-		return jdbc.queryForList(sql.toString(), args.toArray());
+		List<Map<String, Object>> rows = new ArrayList<>(jdbc.queryForList(sql.toString(), args.toArray()));
+		// stats_day 只写闭合日（TrackStatsDayJob 不落当日），当日行须直算明细补上，否则当日数据在趋势里永远缺席
+		if (TrackConstants.DIM_OVERVIEW.equals(dimType)) {
+			String todayKey = today.toString();
+			rows.removeIf(r -> todayKey.equals(String.valueOf(r.get("date"))));
+			Map<String, Object> todayRow = todayOverviewRow(appKey, today, tenant);
+			if (num(todayRow, "eventCount") > 0) {
+				rows.add(todayRow);
+			}
+		}
+		return rows;
+	}
+
+	/** 当日总览行（明细直算，口径与 overview 今日部分一致；bounceCount 取当日已结算会话） */
+	private Map<String, Object> todayOverviewRow(String appKey, LocalDate today, String tenant) {
+		OffsetDateTime todayStart = today.atStartOfDay().atOffset(ZoneOffset.UTC);
+		List<Object> args = new ArrayList<>(List.of(appKey, todayStart));
+		Map<String, Object> ev = queryOne(
+			"SELECT count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
+				+ " count(*) AS ec, count(DISTINCT e.session_id) AS sc,"
+				+ " count(DISTINCT coalesce(m.user_id::text, e.distinct_id)) AS uv"
+				+ " FROM track_event e" + IDENTITY_JOIN
+				+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, args),
+			args);
+		List<Object> sessArgs = new ArrayList<>(List.of(appKey, today.atStartOfDay()));
+		Map<String, Object> sess = queryOne(
+			"SELECT count(*) FILTER (WHERE pageviews <= 1) AS bounce FROM track_session"
+				+ " WHERE app_key = ? AND start_time >= ? AND settled = 1 AND is_deleted = 0"
+				+ tenantFrag(null, tenant, sessArgs),
+			sessArgs);
+		Map<String, Object> row = new LinkedHashMap<>();
+		row.put("date", today.toString());
+		row.put("pv", num(ev, "pv"));
+		row.put("uv", num(ev, "uv"));
+		row.put("sessionCount", num(ev, "sc"));
+		row.put("bounceCount", num(sess, "bounce"));
+		row.put("eventCount", num(ev, "ec"));
+		return row;
 	}
 
 	// ==================== 页面 / 性能 ====================

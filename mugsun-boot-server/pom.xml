@@ -51,6 +51,9 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
 					<mainClass>com.mugsun.boot.MugsunApplication</mainClass>
+					<skip>false</skip>
+					<!-- 与 java -jar 一致：以仓库根目录为工作目录，读取 ./config/application-local.yml -->
+					<workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
 				</configuration>
 			</plugin>
 		</plugins>
