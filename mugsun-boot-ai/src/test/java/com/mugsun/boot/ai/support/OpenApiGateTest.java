@@ -1,6 +1,7 @@
 package com.mugsun.boot.ai.support;
 
 import com.mugsun.core.tool.exception.ServiceException;
+import com.mugsun.boot.common.web.ClientIpResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -11,7 +12,7 @@ class OpenApiGateTest {
 
 	@AfterEach
 	void reset() {
-		OpenApiGate.setTrustedProxies("");
+		ClientIpResolver.setTrustedProxies("");
 	}
 
 	private static boolean allowed(String list, String ip) {
@@ -59,7 +60,7 @@ class OpenApiGateTest {
 
 	@Test
 	void invalidEntriesIgnored() {
-		assertFalse(allowed("garbage, 10.0.0.0/33, 1.2.3.*", "1.2.3.4"));
+		assertFalse(allowed("garbage, 10.0.0.0/33, 1.*.3.*", "1.2.3.4"));
 		assertTrue(allowed("garbage, 10.0.0.0/8", "10.9.9.9"));
 		assertFalse(allowed("10.0.0.0/8", "not-an-ip"));
 	}
@@ -71,13 +72,13 @@ class OpenApiGateTest {
 		r.addHeader("X-Forwarded-For", "10.0.0.1");
 		r.addHeader("X-Real-IP", "10.0.0.1");
 		assertEquals("203.0.113.9", OpenApiGate.clientIp(r));
-		OpenApiGate.setTrustedProxies("172.16.0.0/12");
+		ClientIpResolver.setTrustedProxies("172.16.0.0/12");
 		assertEquals("203.0.113.9", OpenApiGate.clientIp(r));
 	}
 
 	@Test
 	void xffRightToLeftWhenTrusted() {
-		OpenApiGate.setTrustedProxies("172.16.0.0/12, 10.0.0.0/8");
+		ClientIpResolver.setTrustedProxies("172.16.0.0/12, 10.0.0.0/8");
 		MockHttpServletRequest r = new MockHttpServletRequest();
 		r.setRemoteAddr("172.16.0.2");
 		// 客户端伪造最左值 1.1.1.1；真实客户端 198.51.100.7；10.0.0.3 为内层代理
@@ -87,7 +88,7 @@ class OpenApiGateTest {
 
 	@Test
 	void xffAllTrustedOrInvalidFallsBack() {
-		OpenApiGate.setTrustedProxies("10.0.0.0/8");
+		ClientIpResolver.setTrustedProxies("10.0.0.0/8");
 		MockHttpServletRequest r = new MockHttpServletRequest();
 		r.setRemoteAddr("10.0.0.2");
 		r.addHeader("X-Forwarded-For", "10.0.0.9");

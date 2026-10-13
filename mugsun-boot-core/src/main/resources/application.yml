@@ -133,6 +133,10 @@ powerjob:
 liteflow:
   rule-source: flow/*.el.xml
 mugsun:
+  openapi:
+    # 可信反向代理（CIDR 列表，逗号分隔，如 10.0.0.0/8,::1/128）。默认空：只用 remoteAddr，忽略 X-Forwarded-For。
+    # 仅当 remoteAddr 落在此列表内时，才从 X-Forwarded-For 右往左取第一个不在列表内的地址作为客户端 IP。
+    trusted-proxies: ${MUGSUN_OPENAPI_TRUSTED_PROXIES:}
   web:
     # 管理端 origin；e2e :3007 / 反代域名设 MUGSUN_FRONT_URL，禁止代码写死端口
     front-url: ${MUGSUN_FRONT_URL:http://localhost:3006}

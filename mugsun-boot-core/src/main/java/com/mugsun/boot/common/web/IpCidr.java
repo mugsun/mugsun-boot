@@ -1,4 +1,4 @@
-package com.mugsun.boot.ai.support;
+package com.mugsun.boot.common.web;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +10,7 @@ import java.util.List;
 
 /**
  * 真正的 CIDR 匹配（IPv4 / IPv6，按位掩码）。单 IP 视为 /32 或 /128；非法条目忽略并 warn。
+ * 兼容旧通配写法：尾部全星 a.* / a.b.* / a.b.c.*（及 a.*.*.* 等）映射为 /8 /16 /24；中间夹星仍视为非法。
  * 仅接受字面量 IP，不做 DNS 解析。
  */
 public final class IpCidr {
@@ -33,6 +34,9 @@ public final class IpCidr {
 		if (s.isEmpty()) {
 			return null;
 		}
+		if (s.indexOf('*') >= 0) {
+			return parseWildcard(s);
+		}
 		String addr = s;
 		Integer pfx = null;
 		int slash = s.indexOf('/');
@@ -54,6 +58,41 @@ public final class IpCidr {
 			return null;
 		}
 		return new IpCidr(mask(bytes, p), p);
+	}
+
+	/** 旧写法 a.* / a.b.* / a.b.c.* / a.*.*.*：前缀段为数字、其后全为 *，映射为 /8·段数。 */
+	private static IpCidr parseWildcard(String s) {
+		String[] seg = s.split("\\.", -1);
+		if (seg.length < 2 || seg.length > 4) {
+			return null;
+		}
+		int fixed = 0;
+		while (fixed < seg.length && !"*".equals(seg[fixed])) {
+			fixed++;
+		}
+		if (fixed == 0 || fixed > 3) {
+			return null; // 全星请用 * 或 0.0.0.0/0
+		}
+		for (int i = fixed; i < seg.length; i++) {
+			if (!"*".equals(seg[i])) {
+				return null; // 中间夹星
+			}
+		}
+		StringBuilder addr = new StringBuilder();
+		for (int i = 0; i < 4; i++) {
+			if (i > 0) {
+				addr.append('.');
+			}
+			if (i < fixed) {
+				if (!seg[i].matches("\\d{1,3}") || Integer.parseInt(seg[i]) > 255) {
+					return null;
+				}
+				addr.append(seg[i]);
+			} else {
+				addr.append('0');
+			}
+		}
+		return parse(addr + "/" + (fixed * 8));
 	}
 
 	/** 解析列表（逗号/分号/空白分隔），非法条目 warn 后忽略。 */
@@ -94,7 +133,7 @@ public final class IpCidr {
 	}
 
 	/** 字面量 IP → 字节；IPv4 映射的 IPv6 由 JDK 自动折叠为 4 字节。 */
-	static byte[] toBytes(String addr) {
+	public static byte[] toBytes(String addr) {
 		if (addr == null || addr.isEmpty()) {
 			return null;
 		}
