@@ -15,8 +15,11 @@ start=$(date +%s)
 "${DC[@]}" up -d --build --wait --wait-timeout "${WAIT_TIMEOUT:-900}"
 up=$(date +%s)
 echo ">> 栈已就绪（$((up-start)) 秒）"
-"${DC[@]}" logs init | grep -q "管理员口令" || { echo "FAIL 首启日志里没有打印管理员口令"; exit 1; }
-curl -fsS "http://localhost:${MUGSUN_HTTP_PORT}/" | grep -qi "<html" || { echo "FAIL 管理台首页打不开"; exit 1; }
+# 先落到变量再匹配：pipefail 下 grep -q 提前退出会让上游吃 SIGPIPE 而误判失败
+init_log=$("${DC[@]}" logs init)
+[[ "$init_log" == *管理员口令* ]] || { echo "FAIL 首启日志里没有打印管理员口令"; exit 1; }
+home=$(curl -fsS "http://localhost:${MUGSUN_HTTP_PORT}/")
+[[ "$home" == *"<html"* || "$home" == *"<!DOCTYPE"* || "$home" == *"<!doctype"* ]] || { echo "FAIL 管理台首页打不开"; exit 1; }
 docker run --rm --network "${COMPOSE_PROJECT_NAME}_default" \
   -v "${COMPOSE_PROJECT_NAME}_secrets:/secrets:ro" -v "$PWD/docker/full/smoke.py:/smoke.py:ro" \
   python:3.12-alpine sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore gmssl redis && python /smoke.py"
