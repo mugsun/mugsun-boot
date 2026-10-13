@@ -19,6 +19,11 @@ public class CaptchaProperties {
 	private final Slider slider = new Slider();
 	private final Background background = new Background();
 	private final RateLimit rateLimit = new RateLimit();
+	/** 租户未单独配置启用类型时的默认集合（默认仅 SLIDER，保持升级前行为） */
+	private java.util.List<String> defaultTypes = new java.util.ArrayList<>(java.util.List.of("SLIDER"));
+	private final Rotate rotate = new Rotate();
+	private final Click click = new Click();
+	private final Jigsaw jigsaw = new Jigsaw();
 
 	public boolean isEnabled() { return enabled; }
 	public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -29,6 +34,62 @@ public class CaptchaProperties {
 	public Slider getSlider() { return slider; }
 	public Background getBackground() { return background; }
 	public RateLimit getRateLimit() { return rateLimit; }
+	public java.util.List<String> getDefaultTypes() { return defaultTypes; }
+	public void setDefaultTypes(java.util.List<String> defaultTypes) { this.defaultTypes = defaultTypes; }
+	public Rotate getRotate() { return rotate; }
+	public Click getClick() { return click; }
+	public Jigsaw getJigsaw() { return jigsaw; }
+
+	/** 旋转题：圆图直径（原始像素）、容差（度）、键盘步长（度）、最小初始偏转角 */
+	public static class Rotate {
+		private String dir = "classpath:captcha/rotate/";
+		private int pieceSize = 160;
+		private int toleranceDeg = 12;
+		private int keyboardStep = 5;
+		private int minAngle = 30;
+
+		public String getDir() { return dir; }
+		public void setDir(String dir) { this.dir = dir; }
+		public int getPieceSize() { return pieceSize; }
+		public void setPieceSize(int v) { this.pieceSize = v; }
+		public int getToleranceDeg() { return toleranceDeg; }
+		public void setToleranceDeg(int v) { this.toleranceDeg = v; }
+		public int getKeyboardStep() { return keyboardStep; }
+		public void setKeyboardStep(int v) { this.keyboardStep = v; }
+		public int getMinAngle() { return minAngle; }
+		public void setMinAngle(int v) { this.minAngle = v; }
+	}
+
+	/** 文字/图标点选：目标数、干扰数、命中半径下限、时长范围 */
+	public static class Click {
+		private int count = 3;
+		private int decoys = 2;
+		private int minRadiusPx = 22;
+		private long minDurationMs = 400;
+		private long maxDurationMs = 30000;
+
+		public int getCount() { return count; }
+		public void setCount(int v) { this.count = v; }
+		public int getDecoys() { return decoys; }
+		public void setDecoys(int v) { this.decoys = v; }
+		public int getMinRadiusPx() { return minRadiusPx; }
+		public void setMinRadiusPx(int v) { this.minRadiusPx = v; }
+		public long getMinDurationMs() { return minDurationMs; }
+		public void setMinDurationMs(long v) { this.minDurationMs = v; }
+		public long getMaxDurationMs() { return maxDurationMs; }
+		public void setMaxDurationMs(long v) { this.maxDurationMs = v; }
+	}
+
+	/** 拼图还原：行列数（2×2 起） */
+	public static class Jigsaw {
+		private int rows = 2;
+		private int cols = 2;
+
+		public int getRows() { return rows; }
+		public void setRows(int v) { this.rows = Math.max(2, Math.min(4, v)); }
+		public int getCols() { return cols; }
+		public void setCols(int v) { this.cols = Math.max(2, Math.min(4, v)); }
+	}
 
 	public boolean isSliderType() {
 		return !"IMAGE".equalsIgnoreCase(type == null ? "" : type.trim());

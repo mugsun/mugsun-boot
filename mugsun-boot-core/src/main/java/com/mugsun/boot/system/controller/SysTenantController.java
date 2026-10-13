@@ -42,13 +42,21 @@ public class SysTenantController {
 			throw new ServiceException("参数不完整。请选择租户和开关状态后再保存");
 		}
 		boolean on = Boolean.TRUE.equals(dto.enabled());
-		String code = tenantService.setCaptchaEnabled(dto.id(), on);
+		String types = null;
+		if (dto.types() != null) {
+			java.util.Set<com.mugsun.boot.captcha.CaptchaType> parsed = com.mugsun.boot.captcha.CaptchaType.parseAll(dto.types());
+			if (parsed == null || parsed.size() != dto.types().stream().distinct().count()) {
+				throw new ServiceException("验证码类型无效。可选：SLIDER、ROTATE、WORD_CLICK、ICON_CLICK、JIGSAW，至少选一种");
+			}
+			types = com.mugsun.boot.captcha.CaptchaType.toCsv(parsed);
+		}
+		String code = tenantService.setCaptcha(dto.id(), on, types);
 		usualLogService.record("warn", String.valueOf(cn.dev33.satoken.stp.StpUtil.getLoginIdDefaultNull()),
-			"租户验证码开关：" + code + " → " + (on ? "开启" : "关闭"), code);
+			"租户验证码开关：" + code + " → " + (on ? "开启" : "关闭") + (types == null ? "" : "，类型 " + types), code);
 		return R.success(Boolean.TRUE.equals(dto.enabled()) ? "已开启该租户的安全验证" : "已关闭该租户的安全验证");
 	}
 
-	public record CaptchaSwitchDTO(Long id, Boolean enabled) {
+	public record CaptchaSwitchDTO(Long id, Boolean enabled, java.util.List<String> types) {
 	}
 
 	@GetMapping("/list")

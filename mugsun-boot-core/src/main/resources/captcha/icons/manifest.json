@@ -1,0 +1,178 @@
+[
+ {
+  "slug": "sun",
+  "name_zh": "太阳"
+ },
+ {
+  "slug": "moon",
+  "name_zh": "月亮"
+ },
+ {
+  "slug": "star",
+  "name_zh": "星星"
+ },
+ {
+  "slug": "cloud",
+  "name_zh": "云"
+ },
+ {
+  "slug": "umbrella",
+  "name_zh": "雨伞"
+ },
+ {
+  "slug": "house",
+  "name_zh": "房子"
+ },
+ {
+  "slug": "tree",
+  "name_zh": "树"
+ },
+ {
+  "slug": "flower",
+  "name_zh": "花"
+ },
+ {
+  "slug": "leaf",
+  "name_zh": "叶子"
+ },
+ {
+  "slug": "fish",
+  "name_zh": "鱼"
+ },
+ {
+  "slug": "cat",
+  "name_zh": "猫脸"
+ },
+ {
+  "slug": "bell",
+  "name_zh": "铃铛"
+ },
+ {
+  "slug": "key",
+  "name_zh": "钥匙"
+ },
+ {
+  "slug": "lock",
+  "name_zh": "锁"
+ },
+ {
+  "slug": "heart",
+  "name_zh": "爱心"
+ },
+ {
+  "slug": "smile",
+  "name_zh": "笑脸"
+ },
+ {
+  "slug": "cup",
+  "name_zh": "杯子"
+ },
+ {
+  "slug": "book",
+  "name_zh": "书"
+ },
+ {
+  "slug": "pencil",
+  "name_zh": "铅笔"
+ },
+ {
+  "slug": "scissors",
+  "name_zh": "剪刀"
+ },
+ {
+  "slug": "flag",
+  "name_zh": "旗子"
+ },
+ {
+  "slug": "rocket",
+  "name_zh": "火箭"
+ },
+ {
+  "slug": "plane",
+  "name_zh": "飞机"
+ },
+ {
+  "slug": "car",
+  "name_zh": "汽车"
+ },
+ {
+  "slug": "bike",
+  "name_zh": "自行车"
+ },
+ {
+  "slug": "boat",
+  "name_zh": "帆船"
+ },
+ {
+  "slug": "camera",
+  "name_zh": "相机"
+ },
+ {
+  "slug": "note",
+  "name_zh": "音符"
+ },
+ {
+  "slug": "bolt",
+  "name_zh": "闪电"
+ },
+ {
+  "slug": "drop",
+  "name_zh": "水滴"
+ },
+ {
+  "slug": "fire",
+  "name_zh": "火焰"
+ },
+ {
+  "slug": "diamond",
+  "name_zh": "钻石"
+ },
+ {
+  "slug": "crown",
+  "name_zh": "皇冠"
+ },
+ {
+  "slug": "gift",
+  "name_zh": "礼物"
+ },
+ {
+  "slug": "bulb",
+  "name_zh": "灯泡"
+ },
+ {
+  "slug": "clock",
+  "name_zh": "时钟"
+ },
+ {
+  "slug": "envelope",
+  "name_zh": "信封"
+ },
+ {
+  "slug": "pin",
+  "name_zh": "地图针"
+ },
+ {
+  "slug": "mountain",
+  "name_zh": "山"
+ },
+ {
+  "slug": "hammer",
+  "name_zh": "锤子"
+ },
+ {
+  "slug": "piggy",
+  "name_zh": "存钱罐"
+ },
+ {
+  "slug": "phone",
+  "name_zh": "老式电话"
+ },
+ {
+  "slug": "glasses",
+  "name_zh": "眼镜"
+ },
+ {
+  "slug": "anchor",
+  "name_zh": "船锚"
+ }
+]

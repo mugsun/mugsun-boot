@@ -24,6 +24,16 @@ public class SysTenant extends BaseEntity {
 	private Integer accountCount;
 	/** 登录等场景的行为验证码开关：1/NULL 开、0 关（仅平台超管可改，见 /system/tenant/captcha） */
 	private Integer captchaEnabled;
+	/** 启用的验证码题型（逗号分隔，如 SLIDER,ROTATE）；NULL/空 = 平台默认 mugsun.captcha.default-types */
+	private String captchaTypes;
+
+	public String getCaptchaTypes() {
+		return captchaTypes;
+	}
+
+	public void setCaptchaTypes(String captchaTypes) {
+		this.captchaTypes = captchaTypes;
+	}
 
 	public String getTenantCode() {
 		return tenantCode;
