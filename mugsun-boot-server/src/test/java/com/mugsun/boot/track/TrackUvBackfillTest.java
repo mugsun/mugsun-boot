@@ -17,12 +17,16 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -266,6 +270,86 @@ class TrackUvBackfillTest extends AbstractTrackIntegrationTest {
 		// 游标已清：再跑一次从昨天开始
 		run(job(props(600, 0, false)), 10, app);
 		assertThat(dayRow(app, d1, "overview", "ALL").getLong("uv")).isEqualTo(2L);
+	}
+
+	@Test
+	void timedOutAppDayIsSkippedWithoutFailingOthers() throws Exception {
+		String slow = "it-uv-timeout-slow";
+		String ok = "it-uv-timeout-ok";
+		seedApp(slow);
+		seedApp(ok);
+		LocalDate d1 = daysAgo(1);
+		LocalDate d2 = daysAgo(2);
+		for (String app : List.of(slow, ok)) {
+			seedDay(app, d1);
+			seedDay(app, d2);
+		}
+		statsDayJob.rollupNow();
+		setUv(slow, d1, 99);
+		setUv(slow, d2, 99);
+		setUv(ok, d1, 99);
+		setUv(ok, d2, 99);
+		TrackUvBackfillProperties p = props(600, 0, false);
+		p.setAppStatementTimeout(Map.of(slow, Duration.ofMillis(1)));
+		TrackUvBackfillJob j = job(p);
+		// 另一事务锁住慢应用的日表行：1ms 超时必然在等锁/查询时触发 57014
+		Connection holder = DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+			try {
+				return dataSource.getConnection();
+			} catch (java.sql.SQLException e) {
+				throw new IllegalStateException(e);
+			}
+		});
+		TrackUvBackfillJob.Result r;
+		try {
+			holder.setAutoCommit(false);
+			try (Statement st = holder.createStatement()) {
+				st.execute("SELECT id FROM track_stats_day WHERE app_key = '" + slow + "' FOR UPDATE");
+			}
+			r = run(j, 10, null);
+		} finally {
+			holder.rollback();
+			holder.close();
+		}
+		assertThat(r.status()).as("整体不失败，但标未完成").isEqualTo(TrackUvBackfillJob.Status.PARTIAL);
+		assertThat(r.completed()).isFalse();
+		assertThat(r.timedOut()).contains(slow + "@" + d1);
+		assertThat(r.summary()).doesNotContain("UV 回填完成");
+		assertThat(dayRow(slow, d1, "overview", "ALL").getLong("uv")).as("超时日已回滚").isEqualTo(99L);
+		assertThat(dayRow(slow, d2, "overview", "ALL").getLong("uv")).as("该应用其余日子留到下次").isEqualTo(99L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_rollup_cursor WHERE job_key = 'uv_backfill'"
+			+ " AND app_key = ?", slow)).as("超时不推进游标").isZero();
+		assertThat(dayRow(ok, d1, "overview", "ALL").getLong("uv")).as("其它应用照常推进").isEqualTo(2L);
+		assertThat(dayRow(ok, d2, "overview", "ALL").getLong("uv")).isEqualTo(2L);
+
+		// 放宽超时后重跑：慢应用补齐
+		TrackUvBackfillJob.Result r2 = run(job(props(600, 0, false)), 10, slow);
+		assertThat(r2.status()).isEqualTo(TrackUvBackfillJob.Status.DONE);
+		assertThat(dayRow(slow, d1, "overview", "ALL").getLong("uv")).isEqualTo(2L);
+		assertThat(dayRow(slow, d2, "overview", "ALL").getLong("uv")).isEqualTo(2L);
+	}
+
+	@Test
+	void cursorAtFirstDayDoesNotRescan() {
+		String app = "it-uv-cursor-first";
+		seedApp(app);
+		LocalDate d1 = daysAgo(1);
+		LocalDate d2 = daysAgo(2);
+		seedDay(app, d1);
+		seedDay(app, d2);
+		statsDayJob.rollupNow();
+		setUv(app, d1, 99);
+		// 上次已处理到最早一天（days=2 → first=d2）后丢锁，游标停在 first
+		trackUpdate("INSERT INTO track_rollup_cursor (id, job_key, app_key, last_bucket, create_time, update_time)"
+				+ " VALUES (?, 'uv_backfill', ?, ?, now(), now())"
+				+ " ON CONFLICT (job_key, app_key) DO UPDATE SET last_bucket = EXCLUDED.last_bucket",
+			IdUtil.getSnowflakeNextId(), app, d2.atStartOfDay());
+		TrackUvBackfillJob.Result r = run(job(props(600, 0, false)), 2, app);
+		assertThat(r.status()).isEqualTo(TrackUvBackfillJob.Status.DONE);
+		assertThat(r.days()).as("不从头重扫").isZero();
+		assertThat(dayRow(app, d1, "overview", "ALL").getLong("uv")).isEqualTo(99L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_rollup_cursor WHERE job_key = 'uv_backfill'"
+			+ " AND app_key = ?", app)).as("收尾清游标").isZero();
 	}
 
 	@Test

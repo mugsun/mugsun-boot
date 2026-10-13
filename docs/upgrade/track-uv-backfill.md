@@ -17,7 +17,8 @@ PR #16 之后，概览卡片、今日数据和以后每天新生成的日表都�
 
 ## 对线上库的影响和限速
 
-- 每个「应用 × 天」一个事务：一条查询只扫一次当天明细（`GROUPING SETS` 同时算总览和四个维度的 UV），再用一条语句备份并更新变化的行。事务内设 `statement_timeout`（默认 120 秒），超时只回滚这一天。
+- 每个「应用 × 天」一个事务：一条查询只扫一次当天明细（`GROUPING SETS` 同时算总览和四个维度的 UV），再用一条语句备份并更新变化的行。事务内设 `statement_timeout`（默认 120 秒）和 `work_mem`（默认 256MB，减少 `GROUPING SETS` 排序落盘）。
+- **单天超时不会卡住整个回填**：某个「应用 × 天」超时（SQLState 57014）只回滚这一天，日志打 WARN（`UV 回填超时 ... app=... day=...`），该应用的游标不推进、其余日子留到下次，继续处理下一个应用；本次结果为「UV 回填未完成」并列出超时的 `应用@日期`。某个大应用每天都超时时，用 `app-statement-timeout` 单独给它放宽。
 - 每处理完一个「应用 × 天」停 `sleep-millis`（默认 300 毫秒）。
 - 默认只在**北京时间 02:00–07:00** 运行；不在时段内不启动，跑到时段末尾自动暂停。
 - 日期从昨天往前倒序处理，进度写在 `track_rollup_cursor`（`job_key = uv_backfill`）。中断、暂停或锁丢失后再执行会从断点继续；一个应用全部完成后游标删除。
@@ -32,6 +33,9 @@ mugsun:
       days: 90                    # MUGSUN_TRACK_UV_BACKFILL_DAYS，1–3660
       sleep-millis: 300           # MUGSUN_TRACK_UV_BACKFILL_SLEEP_MILLIS
       statement-timeout-seconds: 120
+      app-statement-timeout:      # 按 appKey 放宽单天超时，例：
+        big-app: 600s
+      work-mem: 256MB             # MUGSUN_TRACK_UV_BACKFILL_WORK_MEM，留空沿用库默认
       lock-ttl-seconds: 600
       window-enabled: true        # MUGSUN_TRACK_UV_BACKFILL_WINDOW_ENABLED，false 表示不限时段
       window-start: "02:00"
@@ -54,7 +58,11 @@ mugsun:
                           (e.referrer_domain), (e.device));
    ```
 
-   确认只扫当月分区、走 `app_key, received_at` 相关索引（而不是全分区顺序扫描），耗时远小于 `statement-timeout-seconds`。
+   执行前先在同一会话里 `SET work_mem = '256MB';`（与 `work-mem` 配置一致）。逐项确认：
+   - 只扫当天所在的**单个**月分区，走 `app_key, received_at` 相关索引（而不是全分区顺序扫描）；
+   - 计划里没有 `external merge`，`Buffers` 里没有（或很少）`temp read/written`；有的话调大 `work-mem` 再看；
+   - 总耗时远小于 `statement-timeout-seconds`（120 秒），否则给这个应用配 `app-statement-timeout`；
+   - `shared read` 低于旧做法（总览 + 四个维度各扫一遍，共 5 条查询）之和。
 2. 用一个小应用试跑一天：PowerJob 参数 `{"days": 1, "appKey": "小应用"}`，看日志里的改动行数和备份表。
 3. 同样参数再跑一次，确认日志里「改动 0 行」。
 4. 再按默认 90 天（或需要的天数）在低峰时段跑全量。
@@ -75,7 +83,8 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_track_event_202609_app_recv
 
 **高峰期不要打开 `on-startup`。** 任选一种：
 
-1. **PowerJob**：新建一个任务，处理器填 `com.mugsun.boot.track.powerjob.TrackUvBackfillProcessor`，在运行时段内手动运行（或配成每天 02:10 跑，直到日志显示完成）。
+1. **PowerJob**：新建一个任务，处理器填 `com.mugsun.boot.track.powerjob.TrackUvBackfillProcessor`，**配成每天 02:05 定时运行，直到日志出现 `UV 回填完成`** 再停用。
+   只有「UV 回填完成」时 PowerJob 结果才是成功；不在运行时段、跑到时段末尾暂停、锁丢失、有「应用 × 天」超时，结果都显示**失败（未完成）**，这是提醒还要继续跑，不是出错，下次定时会从断点续跑。
    任务参数可留空，或写 `{"days": 180}`、`{"days": 30, "appKey": "你的应用"}`。
 2. **没有 PowerJob**：设 `MUGSUN_TRACK_UV_BACKFILL_ON_STARTUP=true` 后在低峰期重启，启动后会在后台跑一遍（仍受运行时段限制）；日志里出现
    `UV 回填完成：run_id=...` 即完成。完成后把它改回 `false`。

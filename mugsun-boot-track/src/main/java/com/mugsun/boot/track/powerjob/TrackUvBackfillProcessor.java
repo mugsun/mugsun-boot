@@ -34,6 +34,7 @@ public class TrackUvBackfillProcessor implements BasicProcessor {
 		}
 		TrackUvBackfillJob.Result result = job.backfill(days, appKey);
 		context.getOmsLogger().info(result.summary());
-		return new ProcessResult(result.locked(), result.summary());
+		// 只有 DONE 算成功：窗外、暂停、锁丢失、部分超时都标未完成，提醒运维继续每天定时直到出现“UV 回填完成”
+		return new ProcessResult(result.completed(), result.summary());
 	}
 }

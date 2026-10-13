@@ -3,7 +3,10 @@ package com.mugsun.boot.track.job;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.LocalTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /** 历史 UV 回填配置（mugsun.track.uv-backfill.*） */
 @Component
@@ -16,6 +19,10 @@ public class TrackUvBackfillProperties {
 	private long sleepMillis = 300;
 	/** 单个 app×天 事务内 statement_timeout（秒） */
 	private int statementTimeoutSeconds = 120;
+	/** 按 appKey 覆盖单个 app×天 的 statement_timeout（如 big-app: 600s）；未配置的应用用 statementTimeoutSeconds */
+	private Map<String, Duration> appStatementTimeout = new LinkedHashMap<>();
+	/** 单个 app×天 事务内 SET LOCAL work_mem（如 256MB，单位 kB/MB/GB）；留空不设置，沿用库默认 */
+	private String workMem = "256MB";
 	/** 回填独立锁 TTL（秒）；每处理完一个 app×天 续期 */
 	private long lockTtlSeconds = 600;
 	/** 是否只在运行时段内执行 */
@@ -35,6 +42,10 @@ public class TrackUvBackfillProperties {
 	public void setSleepMillis(long sleepMillis) { this.sleepMillis = sleepMillis; }
 	public int getStatementTimeoutSeconds() { return statementTimeoutSeconds; }
 	public void setStatementTimeoutSeconds(int s) { this.statementTimeoutSeconds = s; }
+	public Map<String, Duration> getAppStatementTimeout() { return appStatementTimeout; }
+	public void setAppStatementTimeout(Map<String, Duration> m) { this.appStatementTimeout = m; }
+	public String getWorkMem() { return workMem; }
+	public void setWorkMem(String workMem) { this.workMem = workMem; }
 	public long getLockTtlSeconds() { return lockTtlSeconds; }
 	public void setLockTtlSeconds(long lockTtlSeconds) { this.lockTtlSeconds = lockTtlSeconds; }
 	public boolean isWindowEnabled() { return windowEnabled; }

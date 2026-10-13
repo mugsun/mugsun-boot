@@ -25,6 +25,8 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 历史 track_stats_day UV 回填：按 {@link TrackConstants#UV_EXPR}（distinct_id 口径）从明细重算已有日表行的 uv。
@@ -37,6 +39,8 @@ import java.util.List;
  *   <li><b>续跑</b>：日期从昨天往前倒序，进度写 {@code track_rollup_cursor}（job_key=uv_backfill，last_bucket=最近完成的日），
  *       一个应用全部完成后删掉游标，下次从头开始（幂等，空跑）。</li>
  *   <li><b>独立锁</b>：Redis 长 TTL 锁，每个 app×天 处理完用 token 校验的 Lua 续期；Redis 不可用时不执行；续期失败（锁丢了）立即停。</li>
+ *   <li><b>单日超时不卡死</b>：某个 app×天 超过 statement_timeout（SQLState 57014）时回滚该天、记 WARN 日志并计入结果的
+ *       失败清单，不推进该应用游标，跳过该应用其余日子，继续下一个应用；结果为 PARTIAL（未完成）。可按 appKey 单独放宽超时。</li>
  *   <li>只改 uv 列，不新增行；明细已清理（当日无事件）的日子跳过，不会清零。</li>
  * </ul>
  */
@@ -47,6 +51,9 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 	static final String JOB_KEY = "uv_backfill";
 	static final String LOCK_UV_BACKFILL = TrackConstants.REDIS_PREFIX + "lock:uv-backfill";
 	static final int MAX_DAYS = 3660;
+	/** PostgreSQL query_canceled（statement_timeout 触发） */
+	static final String SQLSTATE_QUERY_CANCELED = "57014";
+	private static final Pattern WORK_MEM = Pattern.compile("^[1-9][0-9]{0,6}(kB|MB|GB)$");
 
 	private static final String RENEW_SCRIPT = "if redis.call('get', KEYS[1]) == ARGV[1] then"
 		+ " return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end";
@@ -96,12 +103,25 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 	}
 
 	/** 结束原因 */
-	public enum Status { DONE, LOCK_BUSY, REDIS_UNAVAILABLE, OUTSIDE_WINDOW, PAUSED_WINDOW, LOCK_LOST }
+	public enum Status { DONE, PARTIAL, LOCK_BUSY, REDIS_UNAVAILABLE, OUTSIDE_WINDOW, PAUSED_WINDOW, LOCK_LOST }
 
-	/** 回填结果；noStatsDays=日表本无行的日子不计入（只处理有日表行的日子），noDetailDays=有日表行但明细已清理 */
-	public record Result(Status status, String runId, int apps, int days, int noDetailDays, long updatedRows) {
+	/**
+	 * 回填结果；noStatsDays=日表本无行的日子不计入（只处理有日表行的日子），noDetailDays=有日表行但明细已清理；
+	 * timedOut=因 statement_timeout 回滚、未推进游标的 app×天（"appKey@yyyy-MM-dd"）。
+	 */
+	public record Result(Status status, String runId, int apps, int days, int noDetailDays, long updatedRows,
+						 List<String> timedOut) {
+		public Result {
+			timedOut = timedOut == null ? List.of() : List.copyOf(timedOut);
+		}
+
 		public boolean locked() {
 			return status != Status.LOCK_BUSY && status != Status.REDIS_UNAVAILABLE;
+		}
+
+		/** 只有 DONE 才算完成；窗外、暂停、锁丢失、部分超时都是未完成（调度结果标失败，下次续跑） */
+		public boolean completed() {
+			return status == Status.DONE;
 		}
 
 		public String summary() {
@@ -109,8 +129,12 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 				case LOCK_BUSY -> "UV 回填未获锁（其它节点执行中），跳过";
 				case REDIS_UNAVAILABLE -> "UV 回填需要 Redis 锁，Redis 不可用，本次不执行";
 				case OUTSIDE_WINDOW -> "当前不在 UV 回填运行时段，本次不执行";
-				default -> (status == Status.DONE ? "UV 回填完成" : status == Status.PAUSED_WINDOW
-					? "UV 回填已到运行时段末尾，暂停（下次续跑）" : "UV 回填锁已失效，停止（下次续跑）")
+				default -> (switch (status) {
+					case DONE -> "UV 回填完成";
+					case PARTIAL -> "UV 回填未完成（部分 应用×天 超时，已跳过、下次重试：" + String.join(",", timedOut) + "）";
+					case PAUSED_WINDOW -> "UV 回填已到运行时段末尾，暂停（下次续跑）";
+					default -> "UV 回填锁已失效，停止（下次续跑）";
+				})
 					+ "：run_id=" + runId + "，应用 " + apps + " 个，重算 " + days + " 天（有日表行但明细已清理、保留原值 "
 					+ noDetailDays + " 天），改动 " + updatedRows + " 行（旧值已备份到 track_stats_day_uv_backup）";
 			};
@@ -134,7 +158,7 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 			throw new IllegalArgumentException("回填天数需在 1 到 " + MAX_DAYS + " 之间");
 		}
 		if (!inWindow()) {
-			return new Result(Status.OUTSIDE_WINDOW, null, 0, 0, 0, 0);
+			return new Result(Status.OUTSIDE_WINDOW, null, 0, 0, 0, 0, List.of());
 		}
 		String token = IdUtil.fastSimpleUUID();
 		Boolean acquired;
@@ -142,10 +166,10 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 			acquired = redis.opsForValue().setIfAbsent(LOCK_UV_BACKFILL, token, Duration.ofSeconds(props.getLockTtlSeconds()));
 		} catch (RuntimeException e) {
 			log.warn("UV 回填需要 Redis 锁，Redis 不可用，本次不执行：{}", e.getMessage());
-			return new Result(Status.REDIS_UNAVAILABLE, null, 0, 0, 0, 0);
+			return new Result(Status.REDIS_UNAVAILABLE, null, 0, 0, 0, 0, List.of());
 		}
 		if (!Boolean.TRUE.equals(acquired)) {
-			return new Result(Status.LOCK_BUSY, null, 0, 0, 0, 0);
+			return new Result(Status.LOCK_BUSY, null, 0, 0, 0, 0, List.of());
 		}
 		try {
 			Result r = doBackfill(days, appKey, token);
@@ -193,10 +217,13 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 		int processed = 0;
 		int noDetail = 0;
 		long updated = 0;
+		List<String> timedOut = new ArrayList<>();
+		appLoop:
 		for (AppScope app : apps) {
 			LocalDate cursor = readCursorDate(app.appKey());
 			// 游标 = 上次已完成到的日（倒序推进）；落在本次范围内则从它的前一天续跑
-			LocalDate start = cursor != null && !cursor.isAfter(yesterday) && cursor.isAfter(first)
+			// 游标 == first 表示最早一天已完成（例如完成后丢锁、没来得及删游标）：start 落到 first 之前，查不到日子，直接收尾
+			LocalDate start = cursor != null && !cursor.isAfter(yesterday) && !cursor.isBefore(first)
 				? cursor.minusDays(1) : yesterday;
 			// 一次查出范围内有日表行的日子（倒序）；没有日表行的日子不需要回填
 			List<LocalDate> statDays = jdbc.query("SELECT DISTINCT stat_date FROM track_stats_day"
@@ -204,9 +231,25 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 				(rs, i) -> rs.getObject(1, LocalDate.class), app.appKey(), first, start);
 			for (LocalDate day : statDays) {
 				if (!inWindow()) {
-					return new Result(Status.PAUSED_WINDOW, runId, apps.size(), processed, noDetail, updated);
+					return new Result(Status.PAUSED_WINDOW, runId, apps.size(), processed, noDetail, updated, timedOut);
 				}
-				Long n = backfillDay(app.appKey(), day, runId);
+				Long n;
+				try {
+					n = backfillDay(app.appKey(), day, runId);
+				} catch (RuntimeException e) {
+					if (!isQueryCanceled(e)) {
+						throw e;
+					}
+					// 单个 app×天 超时：已回滚；不推进游标（下次从这天重试），跳过该应用其余日子，继续下一个应用
+					timedOut.add(app.appKey() + "@" + day);
+					log.warn("UV 回填超时（SQLState 57014，statement_timeout={}ms）已回滚并跳过：app={} day={} run_id={}；"
+							+ "游标未推进，下次从这天重试。可调大 mugsun.track.uv-backfill.app-statement-timeout.{}",
+						statementTimeoutMillis(app.appKey()), app.appKey(), day, runId, app.appKey());
+					if (!renew(token)) {
+						return new Result(Status.LOCK_LOST, runId, apps.size(), processed, noDetail, updated, timedOut);
+					}
+					continue appLoop;
+				}
 				if (n == null) {
 					noDetail++;
 				} else {
@@ -215,13 +258,33 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 				}
 				advanceCursor(app.appKey(), day.atStartOfDay());
 				if (!renew(token)) {
-					return new Result(Status.LOCK_LOST, runId, apps.size(), processed, noDetail, updated);
+					return new Result(Status.LOCK_LOST, runId, apps.size(), processed, noDetail, updated, timedOut);
 				}
 				sleep();
 			}
 			jdbc.update("DELETE FROM track_rollup_cursor WHERE job_key = ? AND app_key = ?", JOB_KEY, app.appKey());
 		}
-		return new Result(Status.DONE, runId, apps.size(), processed, noDetail, updated);
+		return new Result(timedOut.isEmpty() ? Status.DONE : Status.PARTIAL, runId, apps.size(), processed, noDetail,
+			updated, timedOut);
+	}
+
+	static boolean isQueryCanceled(Throwable e) {
+		for (Throwable t = e; t != null; t = t.getCause()) {
+			if (t instanceof SQLException se && SQLSTATE_QUERY_CANCELED.equals(se.getSQLState())) {
+				return true;
+			}
+			if (t.getCause() == t) {
+				break;
+			}
+		}
+		return false;
+	}
+
+	long statementTimeoutMillis(String appKey) {
+		Map<String, Duration> overrides = props.getAppStatementTimeout();
+		Duration d = overrides == null ? null : overrides.get(appKey);
+		long ms = d != null ? d.toMillis() : props.getStatementTimeoutSeconds() * 1000L;
+		return Math.max(1L, ms);
 	}
 
 	private LocalDate readCursorDate(String appKey) {
@@ -248,7 +311,14 @@ public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 			c.setAutoCommit(false);
 			try {
 				try (Statement st = c.createStatement()) {
-					st.execute("SET LOCAL statement_timeout = '" + Math.max(1, props.getStatementTimeoutSeconds()) + "s'");
+					st.execute("SET LOCAL statement_timeout = " + statementTimeoutMillis(appKey));
+					String wm = props.getWorkMem();
+					if (wm != null && !wm.isBlank()) {
+						if (!WORK_MEM.matcher(wm).matches()) {
+							throw new IllegalStateException("mugsun.track.uv-backfill.work-mem 格式应为如 256MB：" + wm);
+						}
+						st.execute("SET LOCAL work_mem = '" + wm + "'");
+					}
 				}
 				List<String> types = new ArrayList<>();
 				List<String> keys = new ArrayList<>();
