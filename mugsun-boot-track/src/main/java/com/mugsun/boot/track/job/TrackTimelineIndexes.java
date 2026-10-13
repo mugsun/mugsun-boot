@@ -118,6 +118,12 @@ public final class TrackTimelineIndexes {
 	 */
 	public static Outcome ensurePartition(Connection conn, String partition, List<IndexSpec> specs, boolean onlyIfEmpty)
 		throws SQLException {
+		return ensurePartition(conn, partition, specs, onlyIfEmpty, null);
+	}
+
+	/** 同上；onStatement 拿到当前执行的 Statement（后台任务关停时可 cancel 正在跑的 CONCURRENTLY） */
+	public static Outcome ensurePartition(Connection conn, String partition, List<IndexSpec> specs, boolean onlyIfEmpty,
+										  java.util.function.Consumer<Statement> onStatement) throws SQLException {
 		checkIdent(partition);
 		Outcome result = Outcome.ATTACHED;
 		Boolean empty = null;
@@ -141,6 +147,9 @@ public final class TrackTimelineIndexes {
 			}
 			String child = childIndexName(partition, parentIndex);
 			try (Statement st = conn.createStatement()) {
+				if (onStatement != null) {
+					onStatement.accept(st);
+				}
 				if (Boolean.FALSE.equals(indexValid(conn, child))) {
 					log.warn("分区索引 {} 为 invalid（上次 CONCURRENTLY 中断），重建", child);
 					st.execute("DROP INDEX CONCURRENTLY IF EXISTS \"" + child + "\"");
@@ -159,6 +168,10 @@ public final class TrackTimelineIndexes {
 					throw new SQLException("分区索引 " + child + " 建完仍为 invalid，未挂接");
 				}
 				st.execute("ALTER INDEX " + parentIndex + " ATTACH PARTITION \"" + child + "\"");
+			} finally {
+				if (onStatement != null) {
+					onStatement.accept(null);
+				}
 			}
 		}
 		return result;

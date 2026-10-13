@@ -29,7 +29,8 @@ import java.util.zip.GZIPInputStream;
  * ① {@code e.user_id = ?}（登录段，走 idx_event_user_ts_timeline）；
  * ② 匿名段：取该 user 在 track_identity 的映射设备（按 last_seen_time 新→旧，最多 {@value #MAX_MAPPED_DEVICES} 个），
  * {@code CROSS JOIN LATERAL} 逐设备按 idx_event_distinct_ts_timeline 倒扫 n+1 行，且 {@code e.user_id IS DISTINCT FROM ?}
- * 排除已被 ① 命中的行——两支不相交，UNION ALL 即按 id 去重，结果集与原 OR 口径一致（设备数超上限时只看最近活跃的设备）。
+ * 排除已被 ① 命中的行——两支不相交，UNION ALL 即按 id 去重，结果集与原 OR 口径一致。
+ * 设备数超上限时只看最近活跃的设备，并在响应里返回 {@code devicesTruncated=true} 与 {@code deviceCount}（不静默截断）。
  * 两支各带 received_at 范围与游标，外层按 (ts,id) 倒序 LIMIT n+1 后再 LEFT JOIN track_session 取回放标记。
  * distinctId 直查不带归并（访客口径）。
  * <p><b>游标分页</b>：按 (ts, id) 倒序游标——ts 即页面上显示的发生时间（校时后），同 ts 以 id 定序保证翻页稳定
@@ -123,6 +124,17 @@ public class TrackUserTimelineService {
 		OffsetDateTime to = OffsetDateTime.ofInstant(Instant.ofEpochMilli(endTs), ZoneOffset.UTC);
 		List<Object> args = new ArrayList<>();
 		StringBuilder inner = new StringBuilder();
+		// 设备封顶不静默：先探 MAX+1 个映射，超了就在响应里标 devicesTruncated（前端提示改按访客标识查）
+		Integer deviceCount = null;
+		boolean devicesTruncated = false;
+		if (userId != null) {
+			Integer probed = jdbc.queryForObject("SELECT count(*) FROM (SELECT 1 FROM track_identity m"
+				+ " WHERE m.app_key = ? AND m.user_id = ? AND m.is_deleted = 0 LIMIT " + (MAX_MAPPED_DEVICES + 1) + ") t",
+				Integer.class, appKey.trim(), userId);
+			int n = probed == null ? 0 : probed;
+			devicesTruncated = n > MAX_MAPPED_DEVICES;
+			deviceCount = Math.min(n, MAX_MAPPED_DEVICES);
+		}
 		if (userId != null) {
 			// ① 登录段：e.user_id 直中，idx_event_user_ts_timeline 倒扫
 			inner.append("SELECT b.* FROM ((");
@@ -176,6 +188,11 @@ public class TrackUserTimelineService {
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("records", records);
 		result.put("nextCursor", nextCursor);
+		if (deviceCount != null) {
+			// userId 口径：本次归并的匿名设备数（≤上限）与是否超上限被截断
+			result.put("deviceCount", deviceCount);
+			result.put("devicesTruncated", devicesTruncated);
+		}
 		return result;
 	}
 

@@ -5,6 +5,7 @@ import com.mugsun.boot.track.TrackDS;
 import com.mugsun.boot.track.job.TrackTimelineIndexes.IndexSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import jakarta.annotation.PreDestroy;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.LocalTime;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 时间线 (ts, id) 索引后台补建：给 T4 跳过的存量非空分区逐个 CREATE INDEX CONCURRENTLY → 校验 indisvalid → ATTACH。
@@ -34,6 +37,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   不支持 PgBouncer transaction pooling）；取不到即跳过（多节点只有一个在跑）。</li>
  *   <li><b>进度</b>：每完成一个分区写 track_rollup_cursor（job_key={@value #JOB_KEY}，app_key=分区名，last_bucket=完成时间）；
  *   未完成的分区下次 tick 从 pg_index 现状续上（中断留下的 invalid 子索引会先 DROP 再重建）。</li>
+ *   <li><b>关停</b>：{@link #shutdown()}（@PreDestroy）置停止标志、cancel 正在执行的语句、shutdownNow 执行器；
+ *   停顿被中断即退出，不再开始下一个分区。</li>
+ *   <li><b>超时</b>：本会话 {@code SET statement_timeout = 0}（单个分区可能跑很久），结束时 RESET 还给连接池。</li>
  * </ul>
  */
 @Component
@@ -46,7 +52,7 @@ public class TrackTimelineIndexBackfillJob {
 	public static final String JOB_KEY = "timeline_index";
 
 	/** 一轮结果 */
-	public enum Status { DISABLED, OUTSIDE_WINDOW, ALREADY_RUNNING, LOCK_BUSY, NOTHING_TO_DO, DONE, PAUSED_WINDOW, PARTIAL }
+	public enum Status { DISABLED, OUTSIDE_WINDOW, ALREADY_RUNNING, LOCK_BUSY, NOTHING_TO_DO, DONE, PAUSED_WINDOW, PARTIAL, STOPPED }
 
 	public record Result(Status status, List<String> built, List<String> failed) {
 		public Result {
@@ -58,12 +64,20 @@ public class TrackTimelineIndexBackfillJob {
 	private final JdbcTemplate jdbc;
 	private final TrackTimelineIndexProperties props;
 	private final AtomicBoolean running = new AtomicBoolean(false);
-	private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+	private volatile ExecutorService executor = newExecutor();
+
+	private static ExecutorService newExecutor() {
+		return Executors.newSingleThreadExecutor(r -> {
 		Thread t = new Thread(r, "track-timeline-index-backfill");
 		t.setDaemon(true);
 		return t;
 	});
+	}
 	private volatile Clock clock = Clock.systemUTC();
+	/** 关停标志：置位后不再开始新分区 */
+	private volatile boolean stopping;
+	/** 当前正在执行的语句（关停时 cancel） */
+	private final AtomicReference<Statement> current = new AtomicReference<>();
 
 	public TrackTimelineIndexBackfillJob(DataSource dataSource, TrackTimelineIndexProperties props) {
 		this.jdbc = new JdbcTemplate(dataSource);
@@ -77,7 +91,7 @@ public class TrackTimelineIndexBackfillJob {
 
 	/** 由 TrackPartitionJob 每小时 tick 调用：开关/时段满足则异步跑一轮（不阻塞调度线程） */
 	public void runIfDue() {
-		if (!props.isBackfillEnabled() || !inWindow() || running.get()) {
+		if (stopping || !props.isBackfillEnabled() || !inWindow() || running.get()) {
 			return;
 		}
 		executor.submit(() -> {
@@ -97,6 +111,9 @@ public class TrackTimelineIndexBackfillJob {
 		if (!inWindow()) {
 			return new Result(Status.OUTSIDE_WINDOW, null, null);
 		}
+		if (stopping) {
+			return new Result(Status.STOPPED, null, null);
+		}
 		if (!running.compareAndSet(false, true)) {
 			return new Result(Status.ALREADY_RUNNING, null, null);
 		}
@@ -111,6 +128,18 @@ public class TrackTimelineIndexBackfillJob {
 		}
 	}
 
+	/** 在给定连接上跑一轮（测试用：验证会话级设置；不检查开关/时段） */
+	public Result runOn(Connection conn, List<IndexSpec> specs) throws SQLException {
+		if (!running.compareAndSet(false, true)) {
+			return new Result(Status.ALREADY_RUNNING, null, null);
+		}
+		try {
+			return backfill(conn, specs);
+		} finally {
+			running.set(false);
+		}
+	}
+
 	private Result backfill(Connection conn, List<IndexSpec> specs) throws SQLException {
 		if (!conn.getAutoCommit()) {
 			conn.setAutoCommit(true);
@@ -120,6 +149,10 @@ public class TrackTimelineIndexBackfillJob {
 		}
 		List<String> built = new ArrayList<>();
 		List<String> failed = new ArrayList<>();
+		try (Statement st = conn.createStatement()) {
+			// 单个分区 CONCURRENTLY 可能跑很久：本会话不设语句超时（结束时 RESET，见 finally）
+			st.execute("SET statement_timeout = 0");
+		}
 		try {
 			List<String> todo = new ArrayList<>();
 			for (String partition : TrackTimelineIndexes.partitions(conn)) {
@@ -132,24 +165,38 @@ public class TrackTimelineIndexBackfillJob {
 			}
 			for (int i = 0; i < todo.size(); i++) {
 				String partition = todo.get(i);
+				if (stopping) {
+					return new Result(Status.STOPPED, built, failed);
+				}
 				if (i > 0) {
 					if (!inWindow()) {
 						return new Result(Status.PAUSED_WINDOW, built, failed);
 					}
-					sleep(props.getPauseMillis());
+					if (!sleep(props.getPauseMillis()) || stopping) {
+						return new Result(Status.STOPPED, built, failed);
+					}
 				}
 				try {
 					long t0 = System.currentTimeMillis();
-					TrackTimelineIndexes.ensurePartition(conn, partition, specs, false);
+					TrackTimelineIndexes.ensurePartition(conn, partition, specs, false, current::set);
 					recordProgress(conn, partition);
 					built.add(partition);
 					log.info("时间线索引后台补建：分区 {} 完成（{} ms）", partition, System.currentTimeMillis() - t0);
 				} catch (SQLException e) {
+					if (stopping) {
+						log.warn("时间线索引后台补建：关停中断分区 {}（下次运行时重建）", partition);
+						return new Result(Status.STOPPED, built, failed);
+					}
 					failed.add(partition);
 					log.warn("时间线索引后台补建：分区 {} 失败，下次重试：{}", partition, e.getMessage());
 				}
 			}
 		} finally {
+			try (Statement st = conn.createStatement()) {
+				st.execute("RESET statement_timeout");
+			} catch (SQLException e) {
+				log.debug("RESET statement_timeout 失败（连接可能已被取消）：{}", e.getMessage());
+			}
 			TrackTimelineIndexes.unlock(conn);
 		}
 		return new Result(failed.isEmpty() ? Status.DONE : Status.PARTIAL, built, failed);
@@ -182,14 +229,49 @@ public class TrackTimelineIndexBackfillJob {
 		return s.isBefore(e) ? !now.isBefore(s) && now.isBefore(e) : !now.isBefore(s) || now.isBefore(e);
 	}
 
-	private static void sleep(long ms) {
+	/** 关停：置标志 → cancel 正在执行的语句 → 中断执行器线程。中断的 CONCURRENTLY 会留下 invalid 索引，下次运行先删再建 */
+	@PreDestroy
+	public void shutdown() {
+		stopping = true;
+		Statement st = current.get();
+		if (st != null) {
+			try {
+				st.cancel();
+			} catch (SQLException e) {
+				log.debug("取消时间线索引语句失败：{}", e.getMessage());
+			}
+		}
+		executor.shutdownNow();
+	}
+
+	/** 测试用：关停后恢复（单例 bean 在同一上下文里复用） */
+	public void resetForTest() {
+		stopping = false;
+		if (executor.isShutdown()) {
+			executor = newExecutor();
+		}
+	}
+
+	/** 是否有一轮正在执行 */
+	public boolean isRunning() {
+		return running.get();
+	}
+
+	public boolean isStopping() {
+		return stopping;
+	}
+
+	/** 停顿；被中断返回 false（调用方退出，不开始下一个分区） */
+	private static boolean sleep(long ms) {
 		if (ms <= 0) {
-			return;
+			return true;
 		}
 		try {
 			Thread.sleep(ms);
+			return true;
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
+			return false;
 		}
 	}
 }

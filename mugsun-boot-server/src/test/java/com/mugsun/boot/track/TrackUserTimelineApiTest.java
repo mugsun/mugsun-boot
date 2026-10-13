@@ -181,6 +181,8 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 
 		JsonNode data = readBodyAssertOk(timelineByUser(adminId, null));
 		assertThat(data.path("nextCursor").isNull()).as("单页查全（5 < 默认 20）").isTrue();
+		assertThat(data.path("devicesTruncated").asBoolean()).as("设备数未超上限").isFalse();
+		assertThat(data.path("deviceCount").asInt()).as("admin 映射了 d1 一个匿名设备").isGreaterThanOrEqualTo(1);
 		JsonNode records = data.path("records");
 		assertThat(records.size()).as("identity 归并后 5 条").isEqualTo(5);
 		Set<String> paths = new HashSet<>();
@@ -618,6 +620,88 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		}
 	}
 
+	/** ⑩d2 R-1：关停 = 停止标志 + 中断停顿 + 不再开始下一个分区；恢复后下次运行补齐（含中断留下的 invalid 索引） */
+	@Test
+	void backfillStopsOnShutdownAndResumes() throws Exception {
+		List<IndexSpec> specs = List.of(new IndexSpec("idx_event_tlstop_tl", "app_key, session_id, ts, id"));
+		boolean enabled = indexProps.isBackfillEnabled();
+		boolean window = indexProps.isWindowEnabled();
+		long pause = indexProps.getPauseMillis();
+		try (Connection conn = trackConnection()) {
+			exec(conn, "CREATE INDEX idx_event_tlstop_tl ON ONLY track_event (app_key, session_id, ts, id)");
+			int parts = TrackTimelineIndexes.partitions(conn).size();
+			assertThat(parts).as("至少两个分区才能验证『不开始下一个』").isGreaterThanOrEqualTo(2);
+			indexProps.setBackfillEnabled(true);
+			indexProps.setWindowEnabled(false);
+			indexProps.setPauseMillis(60_000);
+			java.util.concurrent.atomic.AtomicReference<TrackTimelineIndexBackfillJob.Result> result =
+				new java.util.concurrent.atomic.AtomicReference<>();
+			Thread worker = new Thread(() -> result.set(backfillJob.runNow(specs)));
+			worker.start();
+			// 第一个分区建完进入 60s 停顿后关停
+			awaitUntil("第一个分区补完", () -> trackLong(
+				"SELECT count(*) AS c FROM track_rollup_cursor WHERE job_key = 'timeline_index'") >= 1L);
+			Thread.sleep(300);
+			backfillJob.shutdown();
+			worker.interrupt(); // 测试线程代替执行器线程：shutdownNow 中断的是执行器线程
+			worker.join(10_000);
+			assertThat(worker.isAlive()).as("关停后应立即退出，不等 60s 停顿").isFalse();
+			assertThat(result.get().status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.STOPPED);
+			assertThat(result.get().built()).hasSize(1);
+			assertThat(TrackTimelineIndexes.allValid(conn, specs)).as("未开始后续分区").isFalse();
+			assertThat(backfillJob.runNow(specs).status()).as("停止期间不再运行").isEqualTo(TrackTimelineIndexBackfillJob.Status.STOPPED);
+
+			// 恢复：下次运行补齐剩余分区
+			backfillJob.resetForTest();
+			indexProps.setPauseMillis(0);
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.DONE);
+			assertThat(TrackTimelineIndexes.allValid(conn, specs)).isTrue();
+		} finally {
+			backfillJob.resetForTest();
+			indexProps.setBackfillEnabled(enabled);
+			indexProps.setWindowEnabled(window);
+			indexProps.setPauseMillis(pause);
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP INDEX IF EXISTS idx_event_tlstop_tl");
+				Db.updateBySql("DELETE FROM track_rollup_cursor WHERE job_key = 'timeline_index'");
+			});
+		}
+	}
+
+	/** ⑩d3 后台补建会话 statement_timeout=0：连接默认 200ms 超时下照样跑完（结束后 RESET） */
+	@Test
+	void backfillIgnoresSessionStatementTimeout() throws Exception {
+		List<IndexSpec> specs = List.of(new IndexSpec("idx_event_tlto_tl", "app_key, session_id, ts, id"));
+		boolean enabled = indexProps.isBackfillEnabled();
+		boolean window = indexProps.isWindowEnabled();
+		String db = env.getProperty("mybatis-flex.datasource.track.url").replaceAll("^.*/([^/?]+)(\\?.*)?$", "$1");
+		try (Connection conn = trackConnection()) {
+			exec(conn, "CREATE INDEX idx_event_tlto_tl ON ONLY track_event (app_key, session_id, ts, id)");
+			// 库级默认超时 200ms：只影响之后新建的连接，所以给任务一个新连接来跑（直接用 runNow 走连接池可能复用老连接，
+			// 这里改用独立连接 + 同一实现路径验证 SET 生效）
+			exec(conn, "ALTER DATABASE \"" + db + "\" SET statement_timeout = '200ms'");
+			try (Connection slow = trackConnection()) {
+				indexProps.setBackfillEnabled(true);
+				indexProps.setWindowEnabled(false);
+				TrackTimelineIndexBackfillJob.Result r = backfillJob.runOn(slow, specs);
+				assertThat(r.status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.DONE);
+				try (Statement st = slow.createStatement(); var rs = st.executeQuery("SHOW statement_timeout")) {
+					rs.next();
+					assertThat(rs.getString(1)).as("结束后 RESET 回连接默认值").isEqualTo("200ms");
+				}
+			} finally {
+				exec(conn, "ALTER DATABASE \"" + db + "\" RESET statement_timeout");
+			}
+		} finally {
+			indexProps.setBackfillEnabled(enabled);
+			indexProps.setWindowEnabled(window);
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP INDEX IF EXISTS idx_event_tlto_tl");
+				Db.updateBySql("DELETE FROM track_rollup_cursor WHERE job_key = 'timeline_index'");
+			});
+		}
+	}
+
 	/** ⑩e ATTACH 前校验 indisvalid：中断留下的 invalid 子索引先 DROP 再重建，挂上后 valid */
 	@Test
 	void invalidChildRebuiltBeforeAttach() throws Exception {
@@ -660,6 +744,8 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 			Set<String> paths = new HashSet<>();
 			data.path("records").forEach(r -> paths.add(r.path("urlPath").asText()));
 			assertThat(paths).contains("/cap-0").doesNotContain("/cap-1000");
+			assertThat(data.path("devicesTruncated").asBoolean()).as("超 1000 设备须显式标记截断").isTrue();
+			assertThat(data.path("deviceCount").asInt()).isEqualTo(1000);
 		} finally {
 			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
 				Db.updateBySql("DELETE FROM track_event WHERE app_key = ? AND distinct_id LIKE ?", APP_T, prefix + "%");
