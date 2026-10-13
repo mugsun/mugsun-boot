@@ -422,6 +422,38 @@ class TrackReplayApiTest extends AbstractTrackIntegrationTest {
 			.as("明文非合法 JSON 应 400").isEqualTo(400);
 	}
 
+	/** ⑪ SPA 页面数：rrweb 只有 1 个全量快照，但会话内 3 次路由切换各上报 $pageview → 列表/详情 pageCount=3 */
+	@Test
+	void spaRouteChangesCountedInPageCount() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		collectPageview(APP_R, sessionId, distinctId, "/spa-home");
+		collectPageview(APP_R, sessionId, distinctId, "/spa-list");
+		collectPageview(APP_R, sessionId, distinctId, "/spa-detail");
+		awaitUntil("三次 $pageview 计入会话", () -> {
+			Row s = trackRow("SELECT pageviews FROM track_session WHERE session_id = ?", sessionId);
+			return s != null && s.getInt("pageviews") == 3;
+		});
+		Block block = block(sessionId, 0, List.of(rrweb(2, 1000), rrweb(3, 2000), rrweb(3, 3000)));
+		assertThat(postReplay(APP_R, block).getStatusCode().value()).isEqualTo(200);
+		awaitUntil("回放元数据落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_replay WHERE session_id = ? AND is_deleted = 0", sessionId) == 1L);
+		assertThat(trackRow("SELECT page_count FROM track_replay WHERE session_id = ?", sessionId).getInt("page_count"))
+			.as("存储列仍是全量快照数").isEqualTo(1);
+
+		JsonNode page = readBody(get("/system/track/replay/page?appKey=" + APP_R + "&pageSize=50", adminToken)).path("data");
+		JsonNode found = null;
+		for (JsonNode row : page.path("records")) {
+			if (sessionId.equals(row.path("sessionId").asText())) {
+				found = row;
+			}
+		}
+		assertThat(found).as("分页应含 SPA 会话").isNotNull();
+		assertThat(found.path("pageCount").asInt()).as("SPA 路由切换计入页面数").isEqualTo(3);
+		JsonNode detail = readBody(get("/system/track/replay/detail?sessionId=" + sessionId, adminToken)).path("data");
+		assertThat(detail.path("replay").path("pageCount").asInt()).isEqualTo(3);
+	}
+
 	// ---------- 测试工具 ----------
 
 	/** ⑪ 回放会话事件打点（G105）：按 ts 升序返回精确三字段；空会话/不存在会话空数组；跨租户空数组；

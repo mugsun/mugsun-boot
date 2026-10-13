@@ -36,6 +36,7 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 
 	private static final String APP_A = "it-ana-a";
 	private static final String APP_B = "it-ana-b";
+	private static final String APP_ORDER = "it-ana-order";
 	private static final String LOW_USERNAME = "it_track_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-track-noperm";
@@ -264,6 +265,46 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(row.path("release").asText()).isEqualTo("1.0.0");
 		assertThat(row.path("props").asText()).as("props 含面包屑").contains("breadcrumbs");
 		assertThat(row.path("sessionId").asText()).isEqualTo(S1);
+	}
+
+	/** errors/detail：按显示的发生时间 ts 倒序（非接收顺序），同 ts 用 id 定序；pageSize=1 逐页翻仍单调不重 */
+	@Test
+	void errorDetailOrderedByTs() {
+		String fp = "fp-order-" + UUID.randomUUID().toString().substring(0, 8);
+		String sid = UUID.randomUUID().toString();
+		long base = System.currentTimeMillis() - 60000;
+		// 独立应用：不影响本类其它用例对 APP_A 的计数断言
+		seedApp(APP_ORDER, PLATFORM_TENANT);
+		Map<String, Object> late = event("$error", D1, sid, Map.of("message", "late", "error_fingerprint", fp));
+		late.put("ts", base + 2000);
+		post("/track/collect", payload(APP_ORDER, List.of(late)), null);
+		awaitUntil("第一批错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE error_fingerprint = ?", fp) == 1L);
+		Map<String, Object> same1 = event("$error", D1, sid, Map.of("message", "same-1", "error_fingerprint", fp));
+		same1.put("ts", base + 1000);
+		Map<String, Object> same2 = event("$error", D1, sid, Map.of("message", "same-2", "error_fingerprint", fp));
+		same2.put("ts", base + 1000);
+		Map<String, Object> earliest = event("$error", D1, sid, Map.of("message", "earliest", "error_fingerprint", fp));
+		earliest.put("ts", base);
+		post("/track/collect", payload(APP_ORDER, List.of(earliest, same1, same2)), null);
+		awaitUntil("第二批错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE error_fingerprint = ?", fp) == 4L);
+
+		List<Long> times = new ArrayList<>();
+		List<String> messages = new ArrayList<>();
+		for (int pageNum = 1; pageNum <= 4; pageNum++) {
+			JsonNode detail = readBody(get("/system/track/errors/detail?appKey=" + APP_ORDER + "&fingerprint=" + fp
+				+ "&pageNum=" + pageNum + "&pageSize=1", adminToken)).path("data");
+			assertThat(detail.path("totalRow").asLong()).isEqualTo(4L);
+			JsonNode row = detail.path("records").get(0);
+			times.add(row.path("time").asLong());
+			messages.add(row.path("message").asText());
+		}
+		assertThat(messages).as("逐页不重不漏").doesNotHaveDuplicates()
+			.containsExactlyInAnyOrder("late", "same-1", "same-2", "earliest");
+		assertThat(times).as("按显示时间严格非增").isSortedAccordingTo(java.util.Comparator.reverseOrder());
+		assertThat(messages.get(0)).as("先收到且 ts 最晚的在首位").isEqualTo("late");
+		assertThat(messages.get(3)).isEqualTo("earliest");
 	}
 
 	/** events/page：按事件名分组计数；eventName 过滤；realtime：Redis Stream 尾部含新事件（不等落库） */

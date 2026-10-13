@@ -507,7 +507,8 @@ public class TrackAnalysisService {
 			+ " props->>'" + TrackConstants.PROP_ERROR_MESSAGE + "' AS \"message\","
 			+ " props->>'release' AS \"release\", props->>'" + TrackConstants.PROP_ERROR_STACK + "' AS \"stack\","
 			+ " props::text AS \"props\""
-			+ cond + " ORDER BY received_at DESC LIMIT ? OFFSET ?";
+			// 按显示的发生时间（ts，校时后）倒序；同 ts 用 id 定序，保证翻页稳定不重不漏
+			+ cond + " ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?";
 		pageArgs.add(size);
 		pageArgs.add((pageNum - 1) * size);
 		List<Map<String, Object>> 		records = jdbc.queryForList(rowsSql, pageArgs.toArray());
