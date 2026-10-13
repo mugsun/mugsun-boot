@@ -33,7 +33,7 @@ import java.util.Map;
  * <b>显式租户条件</b>（{@link #currentTenant()} 与插件同语义：null=超管查看全部；无上下文 fail-closed 抛
  * {@code TenantException}）。Redis 通道（实时流/在线人数）无 SQL 可拼，先按 appKey 校验本租户可见性再读。
  * <p><b>今日/历史界限</b>：overview 卡片 = 历史（昨日及更早，查 stats_day）+ 今日（当日分区直算明细）。
- * 历史 UV 为日 UV 累加（跨日重访上界口径，stats 表不存跨日去重态）；今日 UV 精确（identity 归并）。
+ * UV 为区间明细精确去重（口径 {@link TrackConstants#UV_EXPR}，与事件分析一致）。
  * <p><b>缓存</b>：overview/trend/pages/vitals 走 JetCache LOCAL {@value TrackConstants#ANALYSIS_CACHE_SECONDS}s
  * （tenantKeyConvertor 自动加租户前缀，缓存层租户隔离天然成立）；自注入代理解 AOP（ParamService 同款）。
  */
@@ -42,10 +42,6 @@ import java.util.Map;
 public class TrackAnalysisService {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackAnalysisService.class);
-
-	/** 身份归并 JOIN 片段（UV 精确口径；表别名固定 e/m） */
-	private static final String IDENTITY_JOIN = " LEFT JOIN track_identity m"
-		+ " ON m.app_key = e.app_key AND m.distinct_id = e.distinct_id AND m.is_deleted = 0";
 
 	private final JdbcTemplate jdbc;
 	private final StringRedisTemplate redis;
@@ -83,14 +79,14 @@ public class TrackAnalysisService {
 				+ " AND stat_date >= ? AND stat_date <= ?" + tenantFrag(null, tenant, histArgs),
 			histArgs);
 
-		// 今日部分：当日分区直算（UV 精确 identity 归并）
+		// 今日部分：当日分区直算
 		OffsetDateTime todayStart = today.atStartOfDay().atOffset(ZoneOffset.UTC);
 		List<Object> todayArgs = new ArrayList<>(List.of(appKey, todayStart));
 		Map<String, Object> todayRow = queryOne(
 			"SELECT count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
 				+ " count(*) AS ec, count(DISTINCT e.session_id) AS sc,"
-				+ " count(DISTINCT coalesce(m.user_id::text, e.distinct_id)) AS uv"
-				+ " FROM track_event e" + IDENTITY_JOIN
+				+ " " + TrackConstants.UV_EXPR + " AS uv"
+				+ " FROM track_event e"
 				+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, todayArgs),
 			todayArgs);
 
@@ -105,7 +101,11 @@ public class TrackAnalysisService {
 			sessArgs);
 
 		long pv = num(hist, "pv") + num(todayRow, "pv");
-		long uv = num(hist, "uv") + num(todayRow, "uv");
+		// UV 区间精确去重（与事件分析同口径同时间窗；不再用日 UV 累加，否则跨日重访被重复计）
+		List<Object> uvArgs = new ArrayList<>(List.of(appKey, from.atStartOfDay().atOffset(ZoneOffset.UTC)));
+		Map<String, Object> uvRow = queryOne("SELECT " + TrackConstants.UV_EXPR + " AS uv FROM track_event e"
+			+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, uvArgs), uvArgs);
+		long uv = num(uvRow, "uv");
 		long sessionCount = num(hist, "sc") + num(todayRow, "sc");
 		long eventCount = num(hist, "ec") + num(todayRow, "ec");
 		long settledSessions = num(sess, "total");
@@ -197,7 +197,7 @@ public class TrackAnalysisService {
 
 	// ==================== 页面 / 性能 ====================
 
-	/** Top 页面（PV/UV/平均停留）：明细直算（分区裁剪）；UV 精确 identity 归并；平均停留 = $pageleave.duration_ms 均值 */
+	/** Top 页面（PV/UV/平均停留）：明细直算（分区裁剪）；UV 口径同 UV_EXPR；平均停留 = $pageleave.duration_ms 均值 */
 	public List<Map<String, Object>> pages(String appKey, Integer days, Integer limit) {
 		appKey = assertAppKey(appKey);
 		int d = assertDays(days);
@@ -213,10 +213,10 @@ public class TrackAnalysisService {
 		List<Object> args = new ArrayList<>(List.of(appKey, from));
 		String sql = "SELECT left(coalesce(nullif(e.route_path, ''), e.url_path), " + TrackConstants.DIM_MAX_LEN + ") AS \"pagePath\","
 			+ " count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS \"pv\","
-			+ " count(DISTINCT coalesce(m.user_id::text, e.distinct_id)) AS \"uv\","
+			+ " " + TrackConstants.UV_EXPR + " AS \"uv\","
 			+ " coalesce(round(avg(e.duration_ms) FILTER (WHERE e.event_name = '$pageleave'"
 			+ " AND e.duration_ms IS NOT NULL)), 0)::bigint AS \"avgDurationMs\""
-			+ " FROM track_event e" + IDENTITY_JOIN
+			+ " FROM track_event e"
 			+ " WHERE e.app_key = ? AND e.received_at >= ?"
 			+ " AND coalesce(nullif(e.route_path, ''), e.url_path) IS NOT NULL"
 			+ tenantFrag("e", tenant, args)
@@ -335,28 +335,28 @@ public class TrackAnalysisService {
 
 	// ==================== 事件分析 ====================
 
-	/** 事件分析分页：按事件名分组（次数/会话/UV/最近发生）；UV 为行级 user_id 口径（精确归并见 stats_day） */
+	/** 事件分析分页：按事件名分组（次数/会话/UV/最近发生）；UV 口径见 {@link TrackConstants#UV_EXPR} */
 	public Page<Map<String, Object>> eventsPage(String appKey, String eventName, Integer days, long pageNum, long pageSize) {
 		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
 		int d = assertDays(days);
 		long size = clampPageSize(pageSize);
 		OffsetDateTime from = LocalDate.now(ZoneOffset.UTC).minusDays(d - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
-		StringBuilder cond = new StringBuilder(" FROM track_event WHERE app_key = ? AND received_at >= ?");
+		StringBuilder cond = new StringBuilder(" FROM track_event e WHERE e.app_key = ? AND e.received_at >= ?");
 		List<Object> args = new ArrayList<>(List.of(appKey, from));
 		if (eventName != null && !eventName.isBlank()) {
-			cond.append(" AND event_name = ?");
+			cond.append(" AND e.event_name = ?");
 			args.add(eventName);
 		}
-		cond.append(tenantFrag(null, tenant, args));
+		cond.append(tenantFrag("e", tenant, args));
 
-		Long total = jdbc.queryForObject("SELECT count(DISTINCT event_name)" + cond, Long.class, args.toArray());
+		Long total = jdbc.queryForObject("SELECT count(DISTINCT e.event_name)" + cond, Long.class, args.toArray());
 		List<Object> pageArgs = new ArrayList<>(args);
-		String rowsSql = "SELECT event_name AS \"eventName\", count(*) AS \"eventCount\","
-			+ " count(DISTINCT session_id) AS \"sessionCount\","
-			+ " count(DISTINCT coalesce(user_id::text, distinct_id)) AS \"uv\","
-			+ " CAST(EXTRACT(EPOCH FROM max(received_at)) * 1000 AS BIGINT) AS \"lastTime\""
-			+ cond + " GROUP BY event_name ORDER BY \"eventCount\" DESC, \"eventName\" LIMIT ? OFFSET ?";
+		String rowsSql = "SELECT e.event_name AS \"eventName\", count(*) AS \"eventCount\","
+			+ " count(DISTINCT e.session_id) AS \"sessionCount\","
+			+ " " + TrackConstants.UV_EXPR + " AS \"uv\","
+			+ " CAST(EXTRACT(EPOCH FROM max(e.received_at)) * 1000 AS BIGINT) AS \"lastTime\""
+			+ cond + " GROUP BY e.event_name ORDER BY \"eventCount\" DESC, \"eventName\" LIMIT ? OFFSET ?";
 		pageArgs.add(size);
 		pageArgs.add((pageNum - 1) * size);
 		List<Map<String, Object>> records = jdbc.queryForList(rowsSql, pageArgs.toArray());
@@ -506,8 +506,8 @@ public class TrackAnalysisService {
 			"SELECT " + regionExpr + " AS \"region\","
 				+ " count(*) FILTER (WHERE e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "') AS pv,"
 				+ " count(*) AS \"eventCount\","
-				+ " count(DISTINCT coalesce(m.user_id::text, e.distinct_id)) AS uv"
-				+ " FROM track_event e" + IDENTITY_JOIN
+				+ " " + TrackConstants.UV_EXPR + " AS uv"
+				+ " FROM track_event e"
 				+ " WHERE e.app_key = ? AND e.received_at >= ?" + tenantFrag("e", tenant, regionArgs)
 				+ " GROUP BY 1 ORDER BY \"eventCount\" DESC, \"region\" LIMIT " + TrackConstants.GEO_REGIONS_MAX,
 			regionArgs.toArray());

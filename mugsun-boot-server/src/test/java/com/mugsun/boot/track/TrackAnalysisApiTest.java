@@ -278,6 +278,60 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(seen).as("实时流应含标记事件（不等落库）").isTrue();
 	}
 
+	/**
+	 * UV 统一口径（按 distinct_id 去重）：演示数据形态——多个设备（distinct_id）共用同一登录 user_id。
+	 * 回归：事件分析 UV 按 user_id 归并被压成 1，概览按设备算 40，两处不一致。
+	 */
+	@Test
+	void uvDefinitionConsistentAcrossOverviewAndEvents() {
+		String app = "it-ana-uv";
+		seedApp(app, PLATFORM_TENANT);
+		long now = System.currentTimeMillis();
+		String d1 = UUID.randomUUID().toString();
+		String d2 = UUID.randomUUID().toString();
+		String d3 = UUID.randomUUID().toString();
+		String s = UUID.randomUUID().toString();
+		List<TrackIngestEvent> rows = new ArrayList<>();
+		for (String d : List.of(d1, d2, d3)) {
+			// 三个设备同一 user_id，各 2 次 PV：设备各计 1，不因同账号被压成 1
+			rows.add(withUser(storeEvent(app, "$pageview", now, d, s, "/home"), 424242L));
+			rows.add(withUser(storeEvent(app, "$pageview", now + 1, d, s, "/home"), 424242L));
+		}
+		// 同一 distinct_id 多次自定义事件只计 1
+		rows.add(storeEvent(app, "uv_probe", now, d1, s, "/home"));
+		rows.add(storeEvent(app, "uv_probe", now + 1, d1, s, "/home"));
+		rows.add(storeEvent(app, "uv_probe", now + 2, d1, s, "/home"));
+		store.insertEvents(rows);
+
+		long overviewUv = readBody(get("/system/track/overview?appKey=" + app + "&days=7", adminToken))
+			.path("data").path("cards").path("uv").asLong();
+		assertThat(overviewUv).as("概览 UV=3 个设备").isEqualTo(3L);
+
+		JsonNode records = readBody(get("/system/track/events/page?appKey=" + app + "&days=7&pageSize=50", adminToken))
+			.path("data").path("records");
+		long pvUv = -1;
+		long probeUv = -1;
+		for (JsonNode row : records) {
+			if ("$pageview".equals(row.path("eventName").asText())) {
+				pvUv = row.path("uv").asLong();
+			}
+			if ("uv_probe".equals(row.path("eventName").asText())) {
+				probeUv = row.path("uv").asLong();
+				assertThat(row.path("eventCount").asLong()).isEqualTo(3L);
+			}
+		}
+		assertThat(pvUv).as("事件分析 $pageview UV 与概览同口径").isEqualTo(overviewUv);
+		assertThat(probeUv).as("同一 distinct_id 多事件计 1").isEqualTo(1L);
+
+		JsonNode pages = readBody(get("/system/track/pages?appKey=" + app + "&days=7", adminToken)).path("data");
+		assertThat(pages.get(0).path("uv").asLong()).as("页面 UV 同口径").isEqualTo(3L);
+	}
+
+	private static TrackIngestEvent withUser(TrackIngestEvent e, long userId) {
+		e.setUserId(userId);
+		return e;
+	}
+
 	/** online：ZSET 5 分钟窗计数（A 应用两个会话成员） */
 	@Test
 	void onlineCount() {

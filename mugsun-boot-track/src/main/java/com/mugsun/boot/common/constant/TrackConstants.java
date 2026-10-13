@@ -163,6 +163,14 @@ public interface TrackConstants {
 	String FIELD_TS = "ts";
 	/** 协议字段：匿名 ID */
 	String FIELD_DISTINCT_ID = "distinct_id";
+
+	/**
+	 * UV 统一口径（概览/趋势/页面/事件分析/地域/stats_day 共用，表别名固定 e）：按 distinct_id 去重。
+	 * distinct_id 即 SDK 设备级匿名 ID（恒有值、登录不变），故「无 distinct_id 回落设备 id」天然成立；
+	 * 不再用登录 user_id 归并——同一账号多设备各计 1，多个设备共用一个账号也不会被压成 1。
+	 * 漏斗/留存的行为主体 actor 仍按 identity 归并（§20.1），与 UV 不是同一概念。
+	 */
+	String UV_EXPR = "count(DISTINCT e.distinct_id)";
 	/** 协议字段：会话 ID */
 	String FIELD_SESSION_ID = "session_id";
 	/** 协议字段：自定义属性包 */

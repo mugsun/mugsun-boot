@@ -179,9 +179,9 @@ class TrackJobTest extends AbstractTrackIntegrationTest {
 			.isAfterOrEqualTo(w.plusMinutes(10));
 	}
 
-	/** ④ day rollup：UV 经 track_identity 归并（两 distinct_id 绑同 user → UV=1）；会话/跳出来自 track_session */
+	/** ④ day rollup：UV 按 distinct_id 去重（两 distinct_id 即便绑同 user 也计 2，口径见 TrackConstants.UV_EXPR）；会话/跳出来自 track_session */
 	@Test
-	void statsDayIdentityMergedUv() {
+	void statsDayUvByDistinctId() {
 		LocalDate yesterday = LocalDate.now(ZoneOffset.UTC).minusDays(1);
 		long base = yesterday.atTime(12, 0).toInstant(ZoneOffset.UTC).toEpochMilli();
 		String d1 = uuid();
@@ -208,20 +208,20 @@ class TrackJobTest extends AbstractTrackIntegrationTest {
 			+ " WHERE app_key = ? AND dim_type = 'overview' AND dim_key = 'ALL' AND stat_date = ?", APP_DAY, yesterday);
 		assertThat(ov).as("overview 行应存在").isNotNull();
 		assertThat(ov.getLong("pv")).isEqualTo(2L);
-		assertThat(ov.getLong("uv")).as("identity 归并：两 distinct_id 同 user → UV=1").isEqualTo(1L);
+		assertThat(ov.getLong("uv")).as("按 distinct_id：两设备同 user → UV=2").isEqualTo(2L);
 		assertThat(ov.getLong("event_count")).isEqualTo(3L);
 		assertThat(ov.getLong("session_count")).as("会话数来自 track_session（按 start_time 归日）").isEqualTo(2L);
 		assertThat(ov.getLong("bounce_count")).as("跳出 = pageviews<=1").isEqualTo(1L);
 
 		Row dim = trackRow("SELECT uv FROM track_stats_day WHERE app_key = ? AND dim_type = 'event'"
 			+ " AND dim_key = '$pageview' AND stat_date = ?", APP_DAY, yesterday);
-		assertThat(dim.getLong("uv")).as("维度行 UV 同样归并").isEqualTo(1L);
+		assertThat(dim.getLong("uv")).as("维度行 UV 同口径").isEqualTo(2L);
 
 		// 幂等：重跑数值不变
 		statsDayJob.rollupNow();
 		Row ov2 = trackRow("SELECT pv, uv, session_count, bounce_count, event_count FROM track_stats_day"
 			+ " WHERE app_key = ? AND dim_type = 'overview' AND dim_key = 'ALL' AND stat_date = ?", APP_DAY, yesterday);
-		assertThat(ov2.getLong("uv")).isEqualTo(1L);
+		assertThat(ov2.getLong("uv")).isEqualTo(2L);
 		assertThat(ov2.getLong("event_count")).isEqualTo(3L);
 	}
 
