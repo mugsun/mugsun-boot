@@ -12,6 +12,7 @@ import org.springframework.util.unit.DataSize;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.ToLongFunction;
 
 /**
  * 访问日志磁盘余量告警。访问日志留存 ≥180 天是硬要求（《网络安全法》第二十一条），logback 不设 totalSizeCap，
@@ -30,11 +31,18 @@ public class AccessLogCapacityMonitor {
 
 	private final Path dir;
 	private final long minFree;
+	private final ToLongFunction<Path> freeSpace;
 	private State state = State.OK;
 
 	public AccessLogCapacityMonitor(
 		@Value("${mugsun.demo.access-log.path:${logging.file.path:./logs}}") String dir,
 		@Value("${mugsun.demo.access-log.min-free-space:10GB}") String minFree) {
+		this(dir, minFree, AccessLogCapacityMonitor::freeBytes);
+	}
+
+	/** 测试用：可注入取余量的函数（返回 -1 表示读不到）。 */
+	AccessLogCapacityMonitor(String dir, String minFree, ToLongFunction<Path> freeSpace) {
+		this.freeSpace = freeSpace;
 		this.dir = Path.of(dir);
 		this.minFree = parseOrDefault(minFree);
 		if (this.minFree <= 0) {
@@ -66,7 +74,7 @@ public class AccessLogCapacityMonitor {
 		if (minFree <= 0) {
 			return;
 		}
-		long free = freeBytes(dir);
+		long free = freeSpace.applyAsLong(dir);
 		State next = free < 0 ? State.UNKNOWN : free < minFree ? State.LOW : State.OK;
 		if (next == state) {
 			return;

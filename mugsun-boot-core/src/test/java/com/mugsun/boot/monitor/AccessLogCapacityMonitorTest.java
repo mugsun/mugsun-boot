@@ -1,6 +1,11 @@
 package com.mugsun.boot.monitor;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -54,5 +59,25 @@ class AccessLogCapacityMonitorTest {
 	void freeBytesFallsBackToExistingParent(@TempDir Path dir) {
 		assertThat(AccessLogCapacityMonitor.freeBytes(dir)).isPositive();
 		assertThat(AccessLogCapacityMonitor.freeBytes(dir.resolve("missing/sub"))).isPositive();
+	}
+
+	@Test
+	void unreadableFreeSpaceWarnsExactlyOnce(@TempDir Path dir) {
+		Logger logger = (Logger) LoggerFactory.getLogger(AccessLogCapacityMonitor.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			AccessLogCapacityMonitor m = new AccessLogCapacityMonitor(dir.toString(), "10GB", p -> -1L);
+			m.check();
+			m.check();
+			m.check();
+			assertThat(m.state()).isEqualTo(AccessLogCapacityMonitor.State.UNKNOWN);
+			assertThat(appender.list).filteredOn(e -> e.getLevel() == Level.WARN)
+				.hasSize(1)
+				.allSatisfy(e -> assertThat(e.getFormattedMessage()).contains("无法读取"));
+		} finally {
+			logger.detachAppender(appender);
+		}
 	}
 }
