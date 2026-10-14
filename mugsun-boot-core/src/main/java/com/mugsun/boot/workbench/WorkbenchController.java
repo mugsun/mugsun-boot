@@ -81,9 +81,10 @@ public class WorkbenchController {
 		}
 		// 逐租户分布属平台级敏感运营数据：仅「查看全部」或平台超管可见；普通租户管理员不下发该键，前端隐藏卡片（避免空态误导）
 		if (tenant == null || com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()) {
-			charts.put("tenantUser", Db.selectListBySql(
+			// 横轴显示租户名称（UX-013），没有名称的租户仍显示编号
+			charts.put("tenantUser", com.mugsun.boot.tenant.TenantNames.label(Db.selectListBySql(
 				"SELECT COALESCE(tenant_id, '未分配') AS \"name\", count(*) AS \"value\" "
-					+ "FROM " + userTbl + " WHERE is_deleted = 0 GROUP BY tenant_id ORDER BY tenant_id"));
+					+ "FROM " + userTbl + " WHERE is_deleted = 0 GROUP BY tenant_id ORDER BY tenant_id")));
 		}
 		data.put("charts", charts);
 		return R.data(data);
