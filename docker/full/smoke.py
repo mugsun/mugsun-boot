@@ -5,7 +5,7 @@ from gmssl import sm2
 
 BASE = os.environ.get("BASE", "http://pc")  # 经 Nginx /api 反代，与浏览器同路径
 env = {}
-for line in open("/secrets/mugsun.env"):
+for line in open("/secrets/boot/boot.env"):  # 自检容器以 root 只读挂载后端的 secrets 卷
     if line.startswith("export "):
         k, v = line[7:].strip().split("=", 1)
         env[k] = v

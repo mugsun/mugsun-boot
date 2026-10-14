@@ -9,6 +9,7 @@ on:
       - scripts/compose-full-smoke.sh
       - scripts/init-db.sql
       - .github/workflows/compose-full.yml
+      - Dockerfile
   workflow_dispatch:
 
 jobs:
