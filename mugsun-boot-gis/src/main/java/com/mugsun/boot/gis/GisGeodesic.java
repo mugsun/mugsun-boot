@@ -92,8 +92,12 @@ public final class GisGeodesic {
 	}
 
 	/**
-	 * 图层查询用的距离：要素在极区或跨 180° 经线时不抛异常，改为以查询点为原点投影求几何上的最近点，
-	 * 再用 haversine 大圆距离；仍算不出（投影退化、拓扑异常、非有限值）返回 {@link Double#NaN}，调用方跳过。
+	 * 图层查询用的距离：要素在极区或跨 180° 经线时不抛异常，回落到大圆（haversine）距离，算到几何上的最近点。
+	 *
+	 * <p>跨 180° 的要素（相邻顶点经度差超过 180°）先把负经度加 360，变成连续的经度范围再加密，避免绕地球走长路；
+	 * 查询点也换到同一范围，取 lon 与 lon ± 360 里离要素包络中心较近的那个表示。
+	 * 最近点先以查询点为原点投影求出，再用逐顶点（加密后）haversine 最小值兜底校验：投影在查询点对蹠附近会退化，
+	 * 结果不可信时改用顶点最小值。仍算不出（平移后仍宽于 180°、非有限值、拓扑异常）返回 {@link Double#NaN}，调用方跳过。
 	 * 查询点本身须先经 {@link #checkPoint} 校验。
 	 */
 	public static double distanceLenient(Geometry wgs, double lon, double lat) {
@@ -106,18 +110,89 @@ public final class GisGeodesic {
 			// 落到下面的 haversine 回落
 		}
 		try {
-			Aeqd p = new Aeqd(lon, lat);
-			Coordinate[] pair = DistanceOp.nearestPoints(p.forward(densifyDeg(wgs)),
-				FACTORY.createPoint(new Coordinate(0d, 0d)));
-			if (pair[0].distance(pair[1]) == 0d) {
+			Geometry g = crossesAntimeridian(wgs) ? shiftNegativeLon(wgs) : wgs;
+			Envelope env = g.getEnvelopeInternal();
+			if (env.getWidth() > 180d) {
+				return Double.NaN;
+			}
+			double cx = env.centre().x;
+			double qLon = lon;
+			for (double cand : new double[] { lon - 360d, lon + 360d }) {
+				if (Math.abs(cand - cx) < Math.abs(qLon - cx)) {
+					qLon = cand;
+				}
+			}
+			Geometry dense = densifyDeg(g);
+			if (g.getDimension() == 2 && g.covers(FACTORY.createPoint(new Coordinate(qLon, lat)))) {
 				return 0d;
 			}
-			double[] near = p.inverse(pair[0].x, pair[0].y);
-			double d = greatCircle(lon, lat, near[0], near[1]);
-			return Double.isFinite(d) ? d : Double.NaN;
+			double vertexMin = Double.POSITIVE_INFINITY;
+			for (Coordinate c : dense.getCoordinates()) {
+				vertexMin = Math.min(vertexMin, greatCircle(qLon, lat, c.x, c.y));
+			}
+			if (!Double.isFinite(vertexMin)) {
+				return Double.NaN;
+			}
+			double proj = Double.NaN;
+			try {
+				Aeqd p = new Aeqd(qLon, lat);
+				Coordinate[] pair = DistanceOp.nearestPoints(p.forward(dense),
+					FACTORY.createPoint(new Coordinate(0d, 0d)));
+				double[] near = p.inverse(pair[0].x, pair[0].y);
+				proj = greatCircle(lon, lat, near[0], near[1]);
+			} catch (RuntimeException degenerate) {
+				// 投影退化，只用顶点最小值
+			}
+			// 加密步长 DENSIFY_DEG 下，真实最近点离最近顶点不超过半步（约 0.56 km）；超出这个范围说明投影结果不可信
+			double slack = DENSIFY_DEG * 111_320d;
+			if (Double.isFinite(proj) && proj <= vertexMin + 1d && proj >= vertexMin - slack) {
+				return proj;
+			}
+			return vertexMin;
 		} catch (RuntimeException e) {
 			return Double.NaN;
 		}
+	}
+
+	/** 是否跨 180° 经线：任一相邻顶点经度差超过 180° */
+	static boolean crossesAntimeridian(Geometry wgs) {
+		for (int i = 0; i < wgs.getNumGeometries(); i++) {
+			Geometry part = wgs.getGeometryN(i);
+			if (part instanceof org.locationtech.jts.geom.Polygon poly) {
+				if (ringCrosses(poly.getExteriorRing().getCoordinates())) {
+					return true;
+				}
+				for (int k = 0; k < poly.getNumInteriorRing(); k++) {
+					if (ringCrosses(poly.getInteriorRingN(k).getCoordinates())) {
+						return true;
+					}
+				}
+			} else if (ringCrosses(part.getCoordinates())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean ringCrosses(Coordinate[] cs) {
+		for (int i = 1; i < cs.length; i++) {
+			if (Math.abs(cs[i].x - cs[i - 1].x) > 180d) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** 负经度加 360，跨 180° 的要素变成 [0, 360) 内的连续几何 */
+	static Geometry shiftNegativeLon(Geometry wgs) {
+		Geometry copy = wgs.copy();
+		copy.apply((CoordinateFilter) c -> {
+			if (c.x < 0d) {
+				c.setX(c.x + 360d);
+			}
+		});
+		copy.geometryChanged();
+		return copy;
 	}
 
 	/** 图层查询用的缓冲：要素（含外扩）在极区或跨 180° 经线时返回 null，调用方跳过；其余同 {@link #buffer} */

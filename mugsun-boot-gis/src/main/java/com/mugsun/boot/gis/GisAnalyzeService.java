@@ -147,7 +147,7 @@ public class GisAnalyzeService {
 	private Map<String, Object> wrapSpatial(String op, Map<String, Object> spatial, Double bufferMeters) {
 		List<Map<String, Object>> feats = spatial.get("features") instanceof List<?> list
 			? (List<Map<String, Object>>) list : List.of();
-		Map<String, Object> metrics = measure(codec.fromCollection(wrapTemp(feats)));
+		Map<String, Object> metrics = measureLenient(codec.fromCollection(wrapTemp(feats)));
 		if (bufferMeters != null) {
 			metrics.put("bufferMeters", bufferMeters);
 		}
@@ -155,6 +155,9 @@ public class GisAnalyzeService {
 		out.put("engine", spatial.getOrDefault("engine", GisConstants.ENGINE_JAVA));
 		out.put("truncated", Boolean.TRUE.equals(spatial.get("truncated")));
 		out.put("count", spatial.getOrDefault("count", feats.size()));
+		if (spatial.get("skipped") instanceof Number n) {
+			out.put("skipped", n.intValue());
+		}
 		return out;
 	}
 
@@ -317,6 +320,34 @@ public class GisAnalyzeService {
 		metrics.put("count", geoms.size());
 		metrics.put("areaSqMeters", area);
 		metrics.put("lengthMeters", length);
+		return metrics;
+	}
+
+	/**
+	 * 转交图层查询后的汇总：命中要素里可能有极区 / 跨 180° 的（例如「包含」原样返回），它们不计入面积 / 长度，
+	 * 数量记在 {@code metricsSkipped}，避免汇总时抛异常让整次结果作废。
+	 */
+	private Map<String, Object> measureLenient(List<Geometry> geoms) {
+		double area = 0d;
+		double length = 0d;
+		int skipped = 0;
+		for (Geometry geom : geoms) {
+			try {
+				double a = GisGeodesic.area(geom);
+				double l = GisGeodesic.length(geom);
+				area += a;
+				length += l;
+			} catch (ServiceException outOfRange) {
+				skipped++;
+			}
+		}
+		Map<String, Object> metrics = new LinkedHashMap<>();
+		metrics.put("count", geoms.size());
+		metrics.put("areaSqMeters", area);
+		metrics.put("lengthMeters", length);
+		if (skipped > 0) {
+			metrics.put("metricsSkipped", skipped);
+		}
 		return metrics;
 	}
 

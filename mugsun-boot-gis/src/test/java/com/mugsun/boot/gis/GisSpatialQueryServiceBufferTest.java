@@ -208,4 +208,20 @@ class GisSpatialQueryServiceBufferTest {
 		assertThat(warns).hasSize(1);
 		assertThat(warns.get(0).getFormattedMessage()).contains("layerId=99", "数量=2", "polar", "cross");
 	}
+
+	@ParameterizedTest(name = "postgis={0} forceJava={1}")
+	@CsvSource({ "false, false", "true, true" })
+	@DisplayName("回落路径：跨 180° 的线从 (0,0) 查不会误命中，从 (179.95,0.1) 查约 11.1 km")
+	@SuppressWarnings("unchecked")
+	void antimeridianFeatureNoFalseHit(boolean postgisUp, boolean forceJava) {
+		GisSpatialQueryService svc = service(postgisUp);
+		GisLayer l = layer("{\"type\":\"LineString\",\"coordinates\":[[179.9,0.0],[-179.9,0.0]]}");
+		assertThat((List<?>) svc.radius(l, 0, 0, 200_000d, 10, forceJava).get("features")).isEmpty();
+		Map<String, Object> r = svc.radius(l, 179.95, 0.1, 20_000d, 10, forceJava);
+		List<Map<String, Object>> rf = (List<Map<String, Object>>) r.get("features");
+		assertThat(rf).hasSize(1);
+		double m = ((Number) ((Map<String, Object>) rf.get(0).get("properties")).get("meters")).doubleValue();
+		assertThat(m / GeodesicTruth.vincenty(179.95, 0.1, 179.95, 0) - 1).isBetween(-0.01, 0.01);
+		assertThat(r.get("skipped")).isEqualTo(0);
+	}
 }

@@ -226,4 +226,29 @@ class GisGeodesicTest {
 		assertThat(GisGeodesic.tryBuffer(point(179.95, 0), 20_000d)).isNull();
 		assertThat(GisGeodesic.tryBuffer(point(0, 0), 100d).isEmpty()).isFalse();
 	}
+
+	@Test
+	@DisplayName("跨 180° 要素的宽松距离：负经度加 360 后再加密，不绕地球走长路（评审实测的两个误差用例）")
+	void lenientAntimeridianFeature() {
+		Geometry cross = GF.createLineString(new Coordinate[] { new Coordinate(179.9, 0), new Coordinate(-179.9, 0) });
+		assertThat(GisGeodesic.crossesAntimeridian(cross)).isTrue();
+		double far = GisGeodesic.distanceLenient(cross, 0, 0);
+		System.out.printf("LENIENT|(0,0)|%.1f m%n", far);
+		// 最近点是 (±179.9, 0)，大圆约 179.9° × 111.195 km ≈ 20004 km，绝不能是 0
+		assertThat(far).isBetween(19_900_000d, 20_100_000d);
+		double near = GisGeodesic.distanceLenient(cross, 179.95, 0.1);
+		double truth = GeodesicTruth.vincenty(179.95, 0.1, 179.95, 0);
+		System.out.printf("LENIENT|(179.95,0.1)|%.1f m|truth %.1f m|err %+.3f%%%n", near, truth, (near / truth - 1) * 100);
+		assertThat(near / truth - 1).isBetween(-0.01, 0.01);
+		// 西侧查询点换到同一经度范围
+		double west = GisGeodesic.distanceLenient(cross, -179.95, -0.1);
+		assertThat(west / truth - 1).isBetween(-0.01, 0.01);
+		// 跨 180° 的面：查询点落在面内为 0
+		Geometry box = GF.createPolygon(new Coordinate[] { new Coordinate(179, -1), new Coordinate(-179, -1),
+			new Coordinate(-179, 1), new Coordinate(179, 1), new Coordinate(179, -1) });
+		assertThat(GisGeodesic.distanceLenient(box, -179.5, 0)).isZero();
+		assertThat(GisGeodesic.distanceLenient(box, 179.5, 0)).isZero();
+		double out = GisGeodesic.distanceLenient(box, 178, 0);
+		assertThat(out / GeodesicTruth.vincenty(178, 0, 179, 0) - 1).isBetween(-0.01, 0.01);
+	}
 }

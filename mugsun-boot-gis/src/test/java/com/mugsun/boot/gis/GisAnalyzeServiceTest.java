@@ -223,4 +223,31 @@ class GisAnalyzeServiceTest {
 		direct.put("payload", collection(Map.of("type", "Point", "coordinates", List.of(179.999, 0))));
 		assertThatThrownBy(() -> service.analyze(direct)).isInstanceOf(ServiceException.class).hasMessageContaining("180°");
 	}
+
+	@Test
+	@DisplayName("转交图层查询时 wrapSpatial 把 skipped 带回，极区命中要素不让汇总抛异常")
+	@SuppressWarnings("unchecked")
+	void wrapSpatialCarriesSkipped() {
+		GisSpatialQueryService spatial = mock(GisSpatialQueryService.class);
+		GisAnalyzeService svc = withLayer(spatial, "{\"type\":\"Point\",\"coordinates\":[116.4,39.9]}");
+		Map<String, Object> polarFeat = new LinkedHashMap<>();
+		polarFeat.put("type", "Feature");
+		polarFeat.put("properties", new LinkedHashMap<>());
+		polarFeat.put("geometry", Map.of("type", "Polygon", "coordinates",
+			List.of(List.of(List.of(0, 86), List.of(1, 86), List.of(1, 87), List.of(0, 86)))));
+		Map<String, Object> resp = new LinkedHashMap<>();
+		resp.put("features", new java.util.ArrayList<>(List.of(polarFeat)));
+		resp.put("engine", "java");
+		resp.put("count", 1);
+		resp.put("skipped", 3);
+		org.mockito.Mockito.when(spatial.contains(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(resp);
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("op", "contains");
+		body.put("layerId", 5L);
+		body.put("other", Map.of("type", "Point", "coordinates", List.of(0.5, 86.5)));
+		Map<String, Object> out = svc.analyze(body);
+		assertThat(out.get("skipped")).isEqualTo(3);
+		assertThat(((Map<String, Object>) out.get("metrics")).get("metricsSkipped")).isEqualTo(1);
+	}
 }
