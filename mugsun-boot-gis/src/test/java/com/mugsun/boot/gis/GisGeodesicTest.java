@@ -190,4 +190,40 @@ class GisGeodesicTest {
 			Math.cos(d) - Math.sin(phi1) * Math.sin(phi2));
 		return new double[] { Math.toDegrees(lam), Math.toDegrees(phi2) };
 	}
+
+	@Test
+	@DisplayName("预筛包络越过 ±180° 时拆成两个框，靠近极点时退化为全经度")
+	void looseEnvelopesSplitAtAntimeridian() {
+		List<org.locationtech.jts.geom.Envelope> east = GisGeodesic.looseEnvelopes(179.9, 0, 30_000d);
+		assertThat(east).hasSize(2);
+		assertThat(east).anyMatch(e -> e.contains(-179.9, 0));
+		assertThat(east).anyMatch(e -> e.contains(179.95, 0));
+		List<org.locationtech.jts.geom.Envelope> west = GisGeodesic.looseEnvelopes(-179.9, 0, 30_000d);
+		assertThat(west).hasSize(2).anyMatch(e -> e.contains(179.9, 0));
+		assertThat(GisGeodesic.looseEnvelopes(20, 10, 30_000d)).hasSize(1);
+		assertThat(GisGeodesic.looseEnvelopes(20, 84.99, 200_000d)).hasSize(1)
+			.allMatch(e -> e.getMaxY() <= 90d && e.contains(20, 85.5));
+		assertThat(GisGeodesic.looseEnvelopes(20, 89.99, 200_000d)).hasSize(1).allMatch(e -> e.getWidth() == 360d);
+	}
+
+	@Test
+	@DisplayName("图层查询用的宽松距离 / 缓冲：极区与跨 180° 要素不抛异常")
+	void lenientVariants() {
+		assertThatThrownBy(() -> GisGeodesic.checkPoint(0, 85.1)).isInstanceOf(ServiceException.class);
+		GisGeodesic.checkPoint(179.99, 84.9);
+		// 极区点：回落 haversine
+		double d = GisGeodesic.distanceLenient(point(20, 86), 20, 80);
+		assertThat(d / GisGeodesic.greatCircle(20, 80, 20, 86) - 1).isBetween(-0.001, 0.001);
+		// 正常要素：与严格版完全相同
+		assertThat(GisGeodesic.distanceLenient(point(21, 40), 20, 40))
+			.isEqualTo(GisGeodesic.distance(point(21, 40), 20, 40));
+		// 线段中部最近（非顶点）：Vincenty 算任意最近点对，对照真值 < 0.5%
+		Geometry seg = GF.createLineString(new Coordinate[] { new Coordinate(19, 41), new Coordinate(21, 41) });
+		double mid = GisGeodesic.distance(seg, 20, 40);
+		assertThat(mid / GeodesicTruth.vincenty(20, 40, 20, 41) - 1).isBetween(-0.005, 0.005);
+		assertThat(GisGeodesic.distanceLenient(GF.createPolygon(), 0, 0)).isEqualTo(Double.POSITIVE_INFINITY);
+		assertThat(GisGeodesic.tryBuffer(point(0, 86), 100d)).isNull();
+		assertThat(GisGeodesic.tryBuffer(point(179.95, 0), 20_000d)).isNull();
+		assertThat(GisGeodesic.tryBuffer(point(0, 0), 100d).isEmpty()).isFalse();
+	}
 }

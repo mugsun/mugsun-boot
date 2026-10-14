@@ -22,10 +22,13 @@ import org.locationtech.jts.operation.distance.DistanceOp;
  * WGS84 椭球测地距离的差异在 0.5% 以内（赤道最大，见 {@code GisGeodesicTest} 实测）。
  * 经纬度直线在投影面上是曲线，所以投影前按 {@link #DENSIFY_DEG} 加密、投回前按 {@link #DENSIFY_M} 加密。
  *
- * <p>距离：先在投影面上求最近点对，再把两点投回经纬度用 WGS84 Vincenty 反算（近对蹠点不收敛时回落大圆）。
+ * <p>距离：先在投影面上求最近点对（任意最近点对：顶点、边上任意点、面内为 0），再把这两点投回经纬度，
+ * 用 WGS84 Vincenty 反算（近对蹠点不收敛时回落大圆）。
  *
  * <p>适用范围：要素或缓冲范围进入极区（|纬度| > {@link GisConstants#GEODESIC_POLAR_LAT}°）或跨越 180° 经线时
- * 抛业务异常，不静默给出错误结果。空几何：距离为 +∞，缓冲为空几何，面积 / 长度为 0。
+ * 抛业务异常，不静默给出错误结果——这是分析单个几何时的行为。图层查询用 {@link #distanceLenient} /
+ * {@link #tryBuffer}，把这类要素单独处理（回落 haversine 或跳过），不让一个要素拖垮整次查询。
+ * 空几何：距离为 +∞，缓冲为空几何，面积 / 长度为 0。
  */
 public final class GisGeodesic {
 
@@ -88,6 +91,52 @@ public final class GisGeodesic {
 		return vincenty(lon, lat, near[0], near[1]);
 	}
 
+	/**
+	 * 图层查询用的距离：要素在极区或跨 180° 经线时不抛异常，改为以查询点为原点投影求几何上的最近点，
+	 * 再用 haversine 大圆距离；仍算不出（投影退化、拓扑异常、非有限值）返回 {@link Double#NaN}，调用方跳过。
+	 * 查询点本身须先经 {@link #checkPoint} 校验。
+	 */
+	public static double distanceLenient(Geometry wgs, double lon, double lat) {
+		if (wgs == null || wgs.isEmpty()) {
+			return Double.POSITIVE_INFINITY;
+		}
+		try {
+			return distance(wgs, lon, lat);
+		} catch (ServiceException outOfRange) {
+			// 落到下面的 haversine 回落
+		}
+		try {
+			Aeqd p = new Aeqd(lon, lat);
+			Coordinate[] pair = DistanceOp.nearestPoints(p.forward(densifyDeg(wgs)),
+				FACTORY.createPoint(new Coordinate(0d, 0d)));
+			if (pair[0].distance(pair[1]) == 0d) {
+				return 0d;
+			}
+			double[] near = p.inverse(pair[0].x, pair[0].y);
+			double d = greatCircle(lon, lat, near[0], near[1]);
+			return Double.isFinite(d) ? d : Double.NaN;
+		} catch (RuntimeException e) {
+			return Double.NaN;
+		}
+	}
+
+	/** 图层查询用的缓冲：要素（含外扩）在极区或跨 180° 经线时返回 null，调用方跳过；其余同 {@link #buffer} */
+	public static Geometry tryBuffer(Geometry wgs, double meters) {
+		try {
+			return buffer(wgs, meters);
+		} catch (ServiceException outOfRange) {
+			return null;
+		}
+	}
+
+	/** 查询点校验：在极区（|纬度| > 85°）抛业务异常；单点不存在跨经线问题 */
+	public static void checkPoint(double lon, double lat) {
+		if (Math.abs(lat) > GisConstants.GEODESIC_POLAR_LAT) {
+			throw new ServiceException(GisConstants.MSG_GEODESIC_POLAR_POINT);
+		}
+		checkRange(new Envelope(lon, lon, lat, lat), 0d);
+	}
+
 	/** 两个几何之间的地面最近距离（米）；任一为空返回 +∞ */
 	public static double distance(Geometry a, Geometry b) {
 		if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
@@ -134,6 +183,28 @@ public final class GisGeodesic {
 		double cos = Math.cos(Math.toRadians(top));
 		double dLon = cos < 1e-3 ? 360d : Math.min(360d, dLat / cos);
 		return new Envelope(lon - dLon, lon + dLon, lat - dLat, lat + dLat);
+	}
+
+	/**
+	 * {@link #looseEnvelope} 按 ±180° 拆开：越过 180° 的部分折回对侧单独成框，保证对侧要素不漏；
+	 * 经度跨度达到 360° 时退化为全经度一个框。纬度截到 [-90, 90]。
+	 */
+	public static java.util.List<Envelope> looseEnvelopes(double lon, double lat, double meters) {
+		Envelope e = looseEnvelope(lon, lat, meters);
+		double minY = Math.max(-90d, e.getMinY());
+		double maxY = Math.min(90d, e.getMaxY());
+		if (e.getWidth() >= 360d) {
+			return java.util.List.of(new Envelope(-180d, 180d, minY, maxY));
+		}
+		if (e.getMinX() < -180d) {
+			return java.util.List.of(new Envelope(-180d, e.getMaxX(), minY, maxY),
+				new Envelope(e.getMinX() + 360d, 180d, minY, maxY));
+		}
+		if (e.getMaxX() > 180d) {
+			return java.util.List.of(new Envelope(e.getMinX(), 180d, minY, maxY),
+				new Envelope(-180d, e.getMaxX() - 360d, minY, maxY));
+		}
+		return java.util.List.of(new Envelope(e.getMinX(), e.getMaxX(), minY, maxY));
 	}
 
 	/** 点到包络的地面距离下限（米）：只看纬度差，乘每度最短子午线弧长，必然 ≤ 真实测地距离 */

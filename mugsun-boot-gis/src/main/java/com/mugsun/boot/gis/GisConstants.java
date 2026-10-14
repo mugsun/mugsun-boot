@@ -126,6 +126,7 @@ public final class GisConstants {
 	/** 米制计算（缓冲 / 距离 / 面积 / 长度）的适用范围：极区阈值（度），与 Web Mercator 显示上限 85.05° 对齐 */
 	public static final double GEODESIC_POLAR_LAT = 85d;
 	public static final String MSG_GEODESIC_POLAR = "要素或缓冲范围进入极区（|纬度| > 85°），暂不支持米制缓冲 / 距离 / 面积计算";
+	public static final String MSG_GEODESIC_POLAR_POINT = "查询点位于极区（|纬度| > 85°），暂不支持米制半径 / 最近邻查询";
 	public static final String MSG_GEODESIC_ANTIMERIDIAN = "要素或缓冲范围跨越 180° 经线，暂不支持米制计算，请先在 180° 处拆分要素";
 	public static final String MSG_ANALYZE_OTHER = "该运算需要第二组几何（other）";
 	public static final String MSG_ANALYZE_EMPTY = "没有可运算的几何";

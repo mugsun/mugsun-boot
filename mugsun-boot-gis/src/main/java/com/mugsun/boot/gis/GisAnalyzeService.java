@@ -20,7 +20,8 @@ import java.util.Map;
  *
  * <p>当请求带 {@code layerId} 且库里有 PostGIS 时，缓冲 / 包含会转交
  * {@link GisSpatialQueryService} 下沉数据库（响应带 {@code engine}），避免把整层
- * {@code data_json} 拉进 JVM 再算一遍；没有扩展或强制 {@code engine=java} 时仍走 JTS。
+ * {@code data_json} 拉进 JVM 再算一遍（没有 PostGIS 时转交后走图层查询的 Java 分支，极区 / 跨 180° 的要素被跳过）。
+ * 请求带 {@code engine=java} 时不转交，整份入参在内存里用 JTS 分析；入参里有极区 / 跨 180° 的几何会报错。
  */
 @Service
 public class GisAnalyzeService {
@@ -49,7 +50,8 @@ public class GisAnalyzeService {
 		double distance = numberOf(body.get("distance"), GisConstants.BUFFER_DEFAULT_M);
 		int limit = body.get("limit") instanceof Number n ? n.intValue() : 0;
 		boolean forceJava = GisConstants.ENGINE_JAVA.equalsIgnoreCase(stringOf(body.get("engine")));
-		Map<String, Object> offloaded = tryOffload(op, body, distance, limit, forceJava);
+		// engine=java：整个请求按「分析单个几何」走内存 JTS，不转交图层查询（也就不会按图层查询的规则跳过要素）
+		Map<String, Object> offloaded = forceJava ? null : tryOffload(op, body, distance, limit);
 		if (offloaded != null) {
 			return offloaded;
 		}
@@ -96,7 +98,7 @@ public class GisAnalyzeService {
 	 * 返回 null 表示走不了下沉（没 layerId、不是这两个算子、或图层不适合索引）。
 	 */
 	private Map<String, Object> tryOffload(String op, Map<String, Object> body,
-										   double distance, int limit, boolean forceJava) {
+										   double distance, int limit) {
 		if (!(GisConstants.OP_BUFFER.equals(op) || GisConstants.OP_CONTAINS.equals(op))) {
 			return null;
 		}
@@ -116,7 +118,7 @@ public class GisAnalyzeService {
 			return null;
 		}
 		if (GisConstants.OP_BUFFER.equals(op)) {
-			Map<String, Object> spatial = spatialQuery.buffer(layer, distance, limit, forceJava);
+			Map<String, Object> spatial = spatialQuery.buffer(layer, distance, limit, false);
 			return wrapSpatial(GisConstants.OP_BUFFER, spatial, distance);
 		}
 		Object probe = body.get("other");
@@ -132,7 +134,7 @@ public class GisAnalyzeService {
 		if (probe == null) {
 			throw new ServiceException(GisConstants.MSG_ANALYZE_OTHER);
 		}
-		Map<String, Object> spatial = spatialQuery.contains(layer, probe, limit, forceJava);
+		Map<String, Object> spatial = spatialQuery.contains(layer, probe, limit, false);
 		Map<String, Object> out = wrapSpatial(GisConstants.OP_CONTAINS, spatial, null);
 		@SuppressWarnings("unchecked")
 		Map<String, Object> metrics = (Map<String, Object>) out.get("metrics");

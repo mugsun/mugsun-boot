@@ -5,6 +5,8 @@ import com.mugsun.boot.gis.entity.GisLayer;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 高频空间查询：视野范围（bbox）、半径内、与某几何相交、包含、最近邻、缓冲。
@@ -23,13 +26,24 @@ import java.util.PriorityQueue;
  *
  * <p>米制口径：PostGIS 侧用 {@code geography} 走真实大地距离；Java 侧（半径、最近邻、缓冲）用
  * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，距离再用 WGS84 Vincenty 反算；与 PostGIS
- * geography 的差异在 0.5% 以内。半径 / 最近邻先按经纬度包络预筛（只多收不漏），再精算。
+ * geography 的差异在 0.5% 以内。半径 / 最近邻先按经纬度包络预筛（只多收不漏，越过 ±180° 时拆成两个框），再精算。
+ *
+ * <p>Java 侧逐要素处理：极区（|纬度| > 85°）或跨 180° 经线的要素不让整次查询失败——半径 / 最近邻回落 haversine
+ * 到几何最近点，仍算不出就跳过；缓冲直接跳过。跳过数写进响应 {@code skipped}，并按「操作 + 图层」限频记 WARN。
+ * 查询点本身在极区则直接报错。
  */
 @Service
 public class GisSpatialQueryService {
 
 	/** 赤道处每度纬度约 110574 米。预过滤框用这个下限，避免把圆内的点挡在框外。精确距离仍由 geography 判断。 */
 	private static final double M_PER_DEG = 110_574d;
+
+	private static final Logger log = LoggerFactory.getLogger(GisSpatialQueryService.class);
+	/** 同一「操作 + 图层」的跳过 WARN 至少间隔这么久，其余降为 DEBUG */
+	static final long SKIP_WARN_INTERVAL_MS = 60_000L;
+	/** WARN 里最多列出的要素 id 数 */
+	private static final int SKIP_LOG_IDS = 10;
+	private static final Map<String, Long> LAST_SKIP_WARN = new ConcurrentHashMap<>();
 
 	private final GisSpatialSupport support;
 	private final GisFeatureStore featureStore;
@@ -86,14 +100,22 @@ public class GisSpatialQueryService {
 				"ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(" + lon + ", " + lat + "), 4326)::geography)",
 				cap);
 		}
-		Envelope box = GisGeodesic.looseEnvelope(lon, lat, meters);
-		return java(layer, cap, (geom, feat) -> {
-			if (!box.intersects(geom.getEnvelopeInternal())) {
+		GisGeodesic.checkPoint(lon, lat);
+		List<Envelope> boxes = GisGeodesic.looseEnvelopes(lon, lat, meters);
+		Skips skips = new Skips();
+		Map<String, Object> out = java(layer, cap, (geom, feat) -> {
+			Envelope env = geom.getEnvelopeInternal();
+			if (boxes.stream().noneMatch(b -> b.intersects(env))) {
 				return null;
 			}
-			double d = GisGeodesic.distance(geom, lon, lat);
+			double d = GisGeodesic.distanceLenient(geom, lon, lat);
+			if (Double.isNaN(d)) {
+				skips.add(feat);
+				return null;
+			}
 			return d <= meters ? d : null;
 		});
+		return skips.finish(out, "radius", layer);
 	}
 
 	public Map<String, Object> intersects(GisLayer layer, Object geometry, int limit, boolean forceJava) {
@@ -127,13 +149,19 @@ public class GisSpatialQueryService {
 				"ST_Distance(geom::geography, " + point + "::geography)",
 				cap, " ORDER BY geom <-> " + point);
 		}
+		GisGeodesic.checkPoint(lon, lat);
+		Skips skips = new Skips();
 		// 包络预筛：已有 cap 个候选时，纬度差下限都比第 cap 近的还远的要素直接跳过，不做精算
 		PriorityQueue<Double> best = new PriorityQueue<>(Comparator.reverseOrder());
 		Map<String, Object> out = java(layer, Integer.MAX_VALUE, (geom, feat) -> {
 			if (best.size() >= cap && GisGeodesic.lowerBound(geom.getEnvelopeInternal(), lat) > best.peek()) {
 				return null;
 			}
-			double d = GisGeodesic.distance(geom, lon, lat);
+			double d = GisGeodesic.distanceLenient(geom, lon, lat);
+			if (Double.isNaN(d)) {
+				skips.add(feat);
+				return null;
+			}
 			best.offer(d);
 			if (best.size() > cap) {
 				best.poll();
@@ -147,7 +175,7 @@ public class GisSpatialQueryService {
 			out.put("features", new ArrayList<>(feats.subList(0, cap)));
 		}
 		out.put("count", ((List<?>) out.get("features")).size());
-		return out;
+		return skips.finish(out, "nearest", layer);
 	}
 
 	/**
@@ -198,6 +226,7 @@ public class GisSpatialQueryService {
 			return collection(feats, GisConstants.ENGINE_POSTGIS, cap);
 		}
 		List<Map<String, Object>> feats = new ArrayList<>();
+		Skips skips = new Skips();
 		for (Map<?, ?> feat : features(layer)) {
 			Object geomRaw = feat.get("geometry");
 			if (!(geomRaw instanceof Map<?, ?> geomMap)) {
@@ -212,8 +241,12 @@ public class GisSpatialQueryService {
 			if (geom == null || geom.isEmpty()) {
 				continue;
 			}
-			Geometry buf = GisGeodesic.buffer(geom, meters);
-			if (buf == null || buf.isEmpty()) {
+			Geometry buf = GisGeodesic.tryBuffer(geom, meters);
+			if (buf == null) {
+				skips.add(feat);
+				continue;
+			}
+			if (buf.isEmpty()) {
 				continue;
 			}
 			Map<String, Object> props = new LinkedHashMap<>();
@@ -227,7 +260,43 @@ public class GisSpatialQueryService {
 				break;
 			}
 		}
-		return collection(feats, GisConstants.ENGINE_JAVA, cap);
+		return skips.finish(collection(feats, GisConstants.ENGINE_JAVA, cap), "buffer", layer);
+	}
+
+	/** 一次查询里因极区 / 跨 180° 被跳过的要素：计数 + 前几个 id，结束时写进响应并限频记 WARN */
+	static final class Skips {
+
+		private int count;
+		private final List<String> ids = new ArrayList<>();
+
+		void add(Map<?, ?> feat) {
+			count++;
+			if (ids.size() < SKIP_LOG_IDS) {
+				Object id = feat.get("id");
+				if (id == null && feat.get("properties") instanceof Map<?, ?> p) {
+					id = p.get("id");
+				}
+				ids.add(String.valueOf(id));
+			}
+		}
+
+		Map<String, Object> finish(Map<String, Object> out, String op, GisLayer layer) {
+			out.put("skipped", count);
+			if (count == 0) {
+				return out;
+			}
+			String key = op + ":" + layer.getId();
+			long now = System.currentTimeMillis();
+			boolean warn = LAST_SKIP_WARN.compute(key, (k, last) ->
+				last == null || now - last >= SKIP_WARN_INTERVAL_MS ? now : last) == now;
+			String fmt = "GIS {} 跳过极区或跨 180° 经线的要素：layerId={} 数量={} 要素id(前{}个)={}";
+			if (warn) {
+				log.warn(fmt, op, layer.getId(), count, SKIP_LOG_IDS, ids);
+			} else if (log.isDebugEnabled()) {
+				log.debug(fmt, op, layer.getId(), count, SKIP_LOG_IDS, ids);
+			}
+			return out;
+		}
 	}
 
 	// ==================== 下沉数据库 ====================
