@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackDS;
@@ -48,6 +50,7 @@ import java.util.regex.Pattern;
  */
 @Component
 @TrackDS
+@ConditionalOnNotDemo
 public class TrackUvBackfillJob extends AbstractTrackRollupJob {
 
 	static final String JOB_KEY = "uv_backfill";

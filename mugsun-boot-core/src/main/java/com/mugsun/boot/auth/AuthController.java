@@ -155,7 +155,7 @@ public class AuthController {
 		}
 		String tenantId = (dto.getTenantId() == null || dto.getTenantId().isBlank()) ? TenantConstants.DEFAULT_TENANT_ID : dto.getTenantId();
 		// 锁定按「租户+账号」维度：多租户同名账号（各租户 admin）独立计数，防跨租户连锁锁死
-		String lockKey = loginLockService.keyOf(tenantId, username);
+		String lockKey = loginLockService.keyForLogin(tenantId, username, request.getRemoteAddr());
 		loginLockService.assertNotLocked(lockKey);
 		SysUser user = TenantContext.ignore(() ->
 			userMapper.selectOneByQuery(QueryWrapper.create().eq("tenant_id", tenantId).eq("username", username)));

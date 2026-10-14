@@ -68,7 +68,7 @@ public class AuthLoginService {
 		}
 		String tenantId = (tenantIdRaw == null || tenantIdRaw.isBlank())
 			? TenantConstants.DEFAULT_TENANT_ID : tenantIdRaw;
-		String lockKey = loginLockService.keyOf(tenantId, username);
+		String lockKey = loginLockService.keyForLogin(tenantId, username, request.getRemoteAddr());
 		loginLockService.assertNotLocked(lockKey);
 		SysUser user = TenantContext.ignore(() ->
 			userMapper.selectOneByQuery(QueryWrapper.create().eq("tenant_id", tenantId).eq("username", username)));

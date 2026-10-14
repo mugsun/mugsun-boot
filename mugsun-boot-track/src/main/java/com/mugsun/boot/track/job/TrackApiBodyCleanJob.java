@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackApiBodyStorage;
 import com.mugsun.boot.track.TrackDS;
@@ -34,6 +36,7 @@ import java.util.Set;
  */
 @Component
 @TrackDS
+@ConditionalOnNotDemo
 public class TrackApiBodyCleanJob {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackApiBodyCleanJob.class);

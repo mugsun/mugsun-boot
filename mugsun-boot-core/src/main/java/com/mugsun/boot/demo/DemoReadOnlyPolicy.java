@@ -12,7 +12,7 @@ import java.util.Set;
  * <ul>
  *   <li>默认拒绝：GET/HEAD/OPTIONS 之外的方法只放行 {@link #WRITE_ALLOWLIST} 中精确列出的路径；新加的写端点默认就被拒。</li>
  *   <li>{@link #ALWAYS_BLOCKED_PREFIXES} 下任何方法都拒（含 GET）：开放平台 /open、OAuth2 授权（GET /authorize 会签发授权码）、
- *       AI OpenAI 兼容接口 /v1、国密演示 /system/crypto。</li>
+ *       AI OpenAI 兼容接口 /v1、国密演示 /system/crypto、社交登录 /auth/social、AI 管理 /system/ai。</li>
  *   <li>带 X-HTTP-Method-Override 等方法覆盖头或 {@code _method} 参数的请求一律拒绝，防止 GET 伪装写方法。</li>
  *   <li>路径先规范化（去 context-path、去 {@code ;} 矩阵参数、URL 解码、合并重复斜杠、去尾斜杠）再匹配；
  *       含 {@code ..}、反斜杠或解码失败的路径一律拒绝。</li>
@@ -50,7 +50,10 @@ public final class DemoReadOnlyPolicy {
 		"/open",
 		"/oauth2",
 		"/v1",
-		"/system/crypto");
+		"/system/crypto",
+		// 安全复审 F4：社交登录（render 写 state、mock-authorize）与 AI（可能访问外部模型）在演示环境整体关闭
+		"/auth/social",
+		"/system/ai");
 
 	/** 方法覆盖头：存在即拒绝 */
 	public static final List<String> METHOD_OVERRIDE_HEADERS = List.of(

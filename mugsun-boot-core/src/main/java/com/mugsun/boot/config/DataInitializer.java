@@ -1,5 +1,7 @@
 package com.mugsun.boot.config;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.common.constant.UserConstants;
@@ -27,6 +29,7 @@ import org.springframework.stereotype.Component;
  * 幂等播种内置普通用户角色（自助注册默认归属）。
  */
 @Component
+@ConditionalOnNotDemo
 public class DataInitializer implements CommandLineRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);

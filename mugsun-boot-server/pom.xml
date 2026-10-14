@@ -46,6 +46,32 @@
 	<build>
 		<finalName>mugsun-boot</finalName>
 		<plugins>
+			<!-- DemoAccountsApiTest 需要 demo profile 的独立 Spring 上下文；warm-flow 静态 SpringUtil 不允许同 JVM 多上下文，故单独 fork -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>default-test</id>
+						<configuration>
+							<excludes>
+								<exclude>**/DemoAccountsApiTest.java</exclude>
+							</excludes>
+						</configuration>
+					</execution>
+					<execution>
+						<id>demo-accounts-it</id>
+						<goals>
+							<goal>test</goal>
+						</goals>
+						<configuration>
+							<includes>
+								<include>**/DemoAccountsApiTest.java</include>
+							</includes>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>

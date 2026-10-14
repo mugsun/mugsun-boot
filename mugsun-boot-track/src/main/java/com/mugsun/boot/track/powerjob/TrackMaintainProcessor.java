@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.powerjob;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.mugsun.boot.track.job.TrackPartitionJob;
 import com.mugsun.boot.track.job.TrackSessionSettleJob;
 import org.springframework.stereotype.Component;
@@ -12,6 +14,7 @@ import tech.powerjob.worker.core.processor.sdk.BasicProcessor;
  * 维护逻辑（分布式锁 + 幂等）复用各 Job 的立即执行方法，此处仅作调度入口。
  */
 @Component
+@ConditionalOnNotDemo
 public class TrackMaintainProcessor implements BasicProcessor {
 
 	private final TrackSessionSettleJob settleJob;
