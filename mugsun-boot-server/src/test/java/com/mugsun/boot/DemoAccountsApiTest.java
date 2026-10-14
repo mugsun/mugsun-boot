@@ -318,11 +318,29 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		String big = "{\"csp-report\":{\"document-uri\":\"" + "a".repeat(9000) + "\"}}";
 		assertThat(rest.postForEntity("/csp-report", new org.springframework.http.HttpEntity<>(big, h), String.class)
 			.getStatusCode().value()).isEqualTo(413);
-		// 默认 30 次/分钟/IP（上面已用 2 次）
+		// report-to 格式（application/reports+json，数组）同样接受并清洗
+		org.springframework.http.HttpHeaders rj = new org.springframework.http.HttpHeaders();
+		rj.setContentType(org.springframework.http.MediaType.parseMediaType("application/reports+json"));
+		String reportTo = "[{\"type\":\"csp-violation\",\"url\":\"https://demo.example.com/y?token=RJ-SECRET\","
+			+ "\"body\":{\"documentURL\":\"https://demo.example.com/y?token=RJ-SECRET\","
+			+ "\"blockedURL\":\"https://evil.example/collect?c=RJ-SECRET\",\"effectiveDirective\":\"img-src\"}}]";
+		assertThat(rest.postForEntity("/csp-report", new org.springframework.http.HttpEntity<>(reportTo, rj), String.class)
+			.getStatusCode().value()).isEqualTo(204);
+		assertThat(output.getAll()).contains("https://evil.example/collect").doesNotContain("RJ-SECRET");
+		// 同一 IP 连发 1000 次：默认 30 次/分钟/IP（上面已用 3 次），超出后全部 429
+		int ok = 0;
+		int limited = 0;
 		int last = 0;
-		for (int i = 0; i < 30; i++) {
+		for (int i = 0; i < 1000; i++) {
 			last = rest.postForEntity("/csp-report", entity, String.class).getStatusCode().value();
+			if (last == 204) {
+				ok++;
+			} else if (last == 429) {
+				limited++;
+			}
 		}
+		assertThat(ok).isLessThanOrEqualTo(27);
+		assertThat(ok + limited).isEqualTo(1000);
 		assertThat(last).isEqualTo(429);
 		// 原文不进接口日志 / 操作日志
 		Thread.sleep(500);

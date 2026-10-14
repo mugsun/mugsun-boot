@@ -1,0 +1,12 @@
+# 只读演示站叠加文件：叠在 docker-compose.full.yml 之上用
+#   docker compose -f docker-compose.full.yml -f docker-compose.demo.yml up -d --build
+# - 管理台 CSP 改为强制拦截，违规报告发到后端收集端 POST /api/csp-report（经 pc 的 Nginx 反代到 boot 的 /csp-report）。
+#   MUGSUN_CSP_MODE / MUGSUN_CSP_REPORT_URI 需要 mugsun-pc#61 及以后的 pc 镜像；在 full 文件固定的 pc 提交合入 #61 之前，
+#   用 MUGSUN_PC_SRC 指向含 #61 的 pc 源码，否则这两个变量会被旧镜像忽略（仍是旧的 CSP 行为）。
+# - 收集端只在后端开了只读演示模式（mugsun.demo.enabled=true，prod,demo profile）时存在，并按 IP 限流
+#   （MUGSUN_DEMO_CSP_PER_IP_PER_MINUTE，默认 30）；没开 demo 时 /api/csp-report 是 404，报告丢失但不影响页面。
+services:
+  pc:
+    environment:
+      MUGSUN_CSP_MODE: enforce
+      MUGSUN_CSP_REPORT_URI: /api/csp-report
