@@ -96,6 +96,44 @@ public class CaptchaGate {
 		}
 	}
 
+	/**
+	 * 该场景/租户启用的题型（服务端随机选题用）。发短信与租户无关，用平台默认；
+	 * 租户未配置、配置非法或读取失败 → 平台默认 default-types（仍非法则仅 SLIDER）。
+	 */
+	public Set<CaptchaType> enabledTypes(String scene, String tenantId) {
+		Set<CaptchaType> def = CaptchaType.parseAll(props.getDefaultTypes());
+		if (def == null) {
+			def = java.util.EnumSet.of(CaptchaType.SLIDER);
+		}
+		if (SCENE_SMS.equals(scene)) {
+			return def;
+		}
+		try {
+			SysTenant t = tenantValidator.loadTenant(tenantId);
+			Set<CaptchaType> own = t == null ? null : CaptchaType.parseCsv(t.getCaptchaTypes());
+			return own == null ? def : own;
+		} catch (RuntimeException e) {
+			log.warn("读取租户验证码类型失败，按平台默认：{}", e.getMessage());
+			return def;
+		}
+	}
+
+	/**
+	 * Redis 计数/去重键用的规范化租户码：租户存在 → 库里的 tenant_code；不存在、短信场景或读取失败 → "_unknown"。
+	 * 不把请求里未经解析的 tenantId 拼进键名。
+	 */
+	public String statTenant(String scene, String tenantId) {
+		if (SCENE_SMS.equals(scene)) {
+			return "_unknown";
+		}
+		try {
+			SysTenant t = tenantValidator.loadTenant(tenantId);
+			return t == null || t.getTenantCode() == null ? "_unknown" : t.getTenantCode();
+		} catch (RuntimeException e) {
+			return "_unknown";
+		}
+	}
+
 	/** 发短信⓪：短窗口频率限制（所有请求计数，自动恢复） */
 	public void hitSmsBurstIp(HttpServletRequest request) {
 		slider.hitSmsBurstIp(ClientIpResolver.clientIp(request));
