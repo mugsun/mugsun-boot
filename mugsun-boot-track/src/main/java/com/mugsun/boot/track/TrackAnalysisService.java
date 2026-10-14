@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -205,7 +206,30 @@ public class TrackAnalysisService {
 				rows.add(todayRow);
 			}
 		}
-		return rows;
+		return fillMissingDays(rows, from, today);
+	}
+
+	/** 日粒度补零：区间内每天一行（from..today 升序），无数据日各指标为 0，图表横轴恒为 days 个点（UX-011） */
+	static List<Map<String, Object>> fillMissingDays(List<Map<String, Object>> rows, LocalDate from, LocalDate to) {
+		Map<String, Map<String, Object>> byDate = new HashMap<>();
+		for (Map<String, Object> r : rows) {
+			byDate.put(String.valueOf(r.get("date")), r);
+		}
+		List<Map<String, Object>> out = new ArrayList<>();
+		for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+			Map<String, Object> r = byDate.get(d.toString());
+			if (r == null) {
+				r = new LinkedHashMap<>();
+				r.put("date", d.toString());
+				r.put("pv", 0L);
+				r.put("uv", 0L);
+				r.put("sessionCount", 0L);
+				r.put("bounceCount", 0L);
+				r.put("eventCount", 0L);
+			}
+			out.add(r);
+		}
+		return out;
 	}
 
 	/** 当日总览行（明细直算，口径与 overview 今日部分一致；bounceCount 取当日已结算会话） */
@@ -460,7 +484,7 @@ public class TrackAnalysisService {
 
 	// ==================== 错误监控 ====================
 
-	/** 错误分组分页：按 error_fingerprint 聚合（次数/影响会话/首末次/最近消息） */
+	/** 错误分组分页：按 error_fingerprint 聚合（次数/影响会话/首末次/最近消息：按发生时间 ts 取最晚一条） */
 	public Page<Map<String, Object>> errorsPage(String appKey, Integer days, long pageNum, long pageSize) {
 		appKey = assertAppKey(appKey);
 		String tenant = currentTenant();
@@ -478,7 +502,8 @@ public class TrackAnalysisService {
 			+ " count(DISTINCT session_id) AS \"sessionCount\","
 			+ " CAST(EXTRACT(EPOCH FROM min(received_at)) * 1000 AS BIGINT) AS \"firstTime\","
 			+ " CAST(EXTRACT(EPOCH FROM max(received_at)) * 1000 AS BIGINT) AS \"lastTime\","
-			+ " (array_agg(props->>'" + TrackConstants.PROP_ERROR_MESSAGE + "' ORDER BY received_at DESC))[1] AS \"message\""
+			// 代表消息取发生时间（ts，校时后）最晚的一条，同 ts 以 id 定序——与错误明细/时间线排序口径一致（非接收时间）
+			+ " (array_agg(props->>'" + TrackConstants.PROP_ERROR_MESSAGE + "' ORDER BY ts DESC, id DESC))[1] AS \"message\""
 			+ cond + " GROUP BY error_fingerprint ORDER BY \"lastTime\" DESC LIMIT ? OFFSET ?";
 		pageArgs.add(size);
 		pageArgs.add((pageNum - 1) * size);

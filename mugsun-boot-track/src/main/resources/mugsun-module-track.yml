@@ -4,14 +4,26 @@ mybatis-flex:
     # 埋点独立数据源（G99）：静态、租户无关；与业务库物理隔离（同实例独立 database，L1 层）
     track:
       type: hikari
-      url: ${TRACK_JDBC_URL:jdbc:postgresql://localhost:5432/mugsun_track}
-      username: ${TRACK_JDBC_USERNAME:mugsun}
-      password: ${TRACK_JDBC_PASSWORD:mugsun}
+      # 回落顺序：TRACK_JDBC_URL → MUGSUN_DB_URL（换库名为 mugsun_track，见 TrackDbUrlEnvironmentPostProcessor）→ MUGSUN_DB_HOST/PORT
+      url: ${TRACK_JDBC_URL:${mugsun.track.derived-jdbc-url:jdbc:postgresql://${MUGSUN_DB_HOST:localhost}:${MUGSUN_DB_PORT:5432}/mugsun_track}}
+      username: ${TRACK_JDBC_USERNAME:${MUGSUN_DB_USERNAME:mugsun}}
+      password: ${TRACK_JDBC_PASSWORD:${MUGSUN_DB_PASSWORD:mugsun}}
 
 mugsun:
   track:
     enabled: ${MUGSUN_TRACK_ENABLED:true}
     flyway-enabled: ${MUGSUN_TRACK_FLYWAY_ENABLED:true}
+    # 时间线 (ts,id) 索引：T4 启动期只处理空分区，存量非空分区由后台任务低峰期补建（升级说明见文档 upgrade/track-timeline-index）
+    timeline-index:
+      # false：不在后台补建存量分区（新分区/空分区仍由 T4 与分区任务处理）
+      backfill-enabled: ${MUGSUN_TRACK_TIMELINE_INDEX_BACKFILL_ENABLED:true}
+      # 两个分区之间停顿（毫秒）
+      pause-millis: 5000
+      # 只在运行时段内开始新分区（默认北京时间 02:00–06:00）；false 表示不限
+      window-enabled: ${MUGSUN_TRACK_TIMELINE_INDEX_WINDOW_ENABLED:true}
+      window-start: "02:00"
+      window-end: "06:00"
+      window-zone: Asia/Shanghai
     # 历史日表 UV 回填（distinct_id 口径，升级说明见 docs/upgrade/track-uv-backfill.md）
     uv-backfill:
       # 回填最近多少个闭合日（UTC），从昨天往前倒序

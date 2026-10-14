@@ -31,6 +31,12 @@ Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway, Sp
 
 Prerequisites: JDK 21, Maven 3.9+, Docker. `mugsun-core` 0.1.0 is on Maven Central and is resolved automatically; a sibling clone is not required.
 
+The first `docker compose up -d` builds the database image locally (`postgis/postgis:16-3.4` + pgvector). The official PostGIS image is amd64 only, so on Apple Silicon it runs under emulation by default: the first build takes several extra minutes and the database is slower. To run natively, switch to a multi-arch base image:
+
+```bash
+MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 docker compose up -d --build
+```
+
 ```bash
 docker compose up -d
 cp config/application-local.yml.example config/application-local.yml
@@ -44,13 +50,21 @@ Run `java -jar` from the repository root, otherwise `config/application-local.ym
 
 Health check: http://localhost:8080/ping
 
-Default initial account: `admin` / `123456` (override with `MUGSUN_INIT_PASSWORD`). Production deployments must change the password. The `prod` profile refuses to start without an injected initial password.
+Default initial account: `admin` / `123456`. The code reads `mugsun.security.init-password`, falling back to the `MUGSUN_INIT_PASSWORD` environment variable (see `SecurityPolicyService`). It is deliberately absent from `application.yml`: the prod startup guard uses its presence to tell whether a password was injected. Production deployments must change the password. The `prod` profile refuses to start without an injected initial password.
 
 Admin console: [mugsun-pc](https://github.com/mugsun/mugsun-pc) (development default port `3006`, proxied to this service on `8080`). Walkthrough: [Documentation · Getting started](https://docs.mugsun.com/en/guide/getting-started).
 
 Package artifact: `mugsun-boot-server/target/mugsun-boot.jar`.
 
-Compose ports: `5432` (PostgreSQL), `6379` (Redis). Development database credentials default to the JDBC settings (`mugsun` / `mugsun`). Without Docker, see `scripts/init-db.sql`.
+Compose ports: `5432` (PostgreSQL), `6379` (Redis). If a local PostgreSQL / Redis already uses these ports, pick other ports and give the backend the same variables:
+
+```bash
+export MUGSUN_DB_PORT=55432 MUGSUN_REDIS_PORT=56379
+docker compose up -d
+java -jar mugsun-boot-server/target/mugsun-boot.jar
+```
+
+Backend environment variables: `MUGSUN_DB_HOST`, `MUGSUN_DB_PORT`, `MUGSUN_DB_NAME`, `MUGSUN_DB_USERNAME`, `MUGSUN_DB_PASSWORD` (or a full `MUGSUN_DB_URL`), `MUGSUN_REDIS_HOST`, `MUGSUN_REDIS_PORT`. The track database `mugsun_track` follows the same host and port by default and can still be overridden with `TRACK_JDBC_URL`. The `prod` profile ignores these and keeps using `JDBC_URL`, `REDIS_HOST`, etc. Development database credentials default to the JDBC settings (`mugsun` / `mugsun`). Without Docker, see `scripts/init-db.sql`.
 
 Local configuration path: `optional:file:./config/application-local.yml` (gitignored). The working directory must be the repository root. Production injection: [Configuration](https://docs.mugsun.com/en/boot/configuration).
 

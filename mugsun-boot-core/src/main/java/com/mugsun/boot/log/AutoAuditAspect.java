@@ -16,6 +16,7 @@ import java.util.Set;
 /**
  * 写接口自动审计切面：所有 Controller 的写操作（POST/PUT/DELETE）**无需手工注解**自动留痕。
  * <ul><li>已标 {@link OperationLog} 的方法由 {@link OperationLogAspect} 处理，此处排除避免重复；</li>
+ * <li>{@code mugsun.oper-log.exclude-paths} 列出的路径（默认埋点上报 /track/collect、/track/replay）不留痕；</li>
  * <li>密码类字段自动脱敏、超长参数截断、异步落库（并接入哈希链+签名防篡改）。</li></ul>
  */
 @Aspect
@@ -26,10 +27,12 @@ public class AutoAuditAspect {
 
 	private final OperationLogService logService;
 	private final ObjectMapper objectMapper;
+	private final OperLogProperties properties;
 
-	public AutoAuditAspect(OperationLogService logService, ObjectMapper objectMapper) {
+	public AutoAuditAspect(OperationLogService logService, ObjectMapper objectMapper, OperLogProperties properties) {
 		this.logService = logService;
 		this.objectMapper = objectMapper;
+		this.properties = properties;
 	}
 
 	@Around("execution(* com.mugsun.boot..*Controller.*(..)) "
@@ -39,6 +42,9 @@ public class AutoAuditAspect {
 		String httpMethod = req == null ? null : req.getMethod();
 		// 仅写操作自动留痕；读操作（GET）不记
 		if (httpMethod == null || !WRITE_METHODS.contains(httpMethod.toUpperCase())) {
+			return point.proceed();
+		}
+		if (properties.isExcluded(pathWithinApp(req))) {
 			return point.proceed();
 		}
 		long start = System.currentTimeMillis();
@@ -74,6 +80,12 @@ public class AutoAuditAspect {
 		} catch (Exception e) {
 			return null;
 		}
+	}
+
+	private static String pathWithinApp(HttpServletRequest req) {
+		String uri = req.getRequestURI();
+		String ctx = req.getContextPath();
+		return ctx != null && !ctx.isEmpty() && uri != null && uri.startsWith(ctx) ? uri.substring(ctx.length()) : uri;
 	}
 
 	private void fillOperator(SysOperLog log) {
