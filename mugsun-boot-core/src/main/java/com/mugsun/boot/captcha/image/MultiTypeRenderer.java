@@ -235,28 +235,51 @@ public class MultiTypeRenderer {
 		int d = Math.max(60, Math.min(cfg.getPieceSize(), h - 4));
 		int applied = randomAngle(cfg.getMinAngle(), cfg.getKeyboardStep(), rnd);
 		List<BufferedImage> pool = rotatePool();
-		// 每题对旋转原图随机缩放/裁切/镜像/调色（与底图同一套扰动），不能与公开原图逐像素比对
-		BufferedImage src = pool.isEmpty() ? library.next(d, d)
-			: BackgroundLibrary.perturb(pool.get(rnd.nextInt(pool.size())), d, d, rnd);
+		// 同图挖圆（参考 tianai StandardRotateImageCaptchaGenerator）：一张经扰动（随机缩放/裁切/镜像/调色）的 w×h 原图，
+		// 中心 d×d 圆旋转 applied 度作 piece，原位盖半透明遮罩 + 细描边作 background，二者来自同一张图
+		BufferedImage base = pool.isEmpty() ? library.next(w, h)
+			: BackgroundLibrary.perturb(pool.get(rnd.nextInt(pool.size())), w, h, rnd);
+		BufferedImage[] pair = composeRotate(base, d, applied);
+		BufferedImage bg = pair[0];
+		BufferedImage piece = pair[1];
+		noise(piece, 5);
+		noise(bg, 6);
+		int answer = Math.floorMod(360 - applied, 360);
+		return new Rotate(jpeg(bg), png(piece), w, h, d, answer);
+	}
+
+	/** 圆孔遮罩颜色（半透明深色）与描边颜色 */
+	static final Color ROTATE_MASK = new Color(20, 30, 50, 110);
+	static final Color ROTATE_OUTLINE = new Color(255, 255, 255, 200);
+
+	/**
+	 * 由同一张 w×h 底图生成 [background, piece]（未加噪点）：
+	 * piece 为底图中心 d×d 圆、绕圆心顺时针旋转 applied 度；background 为底图拷贝，圆位置盖半透明遮罩并描细边。
+	 */
+	static BufferedImage[] composeRotate(BufferedImage base, int d, int applied) {
+		int w = base.getWidth();
+		int h = base.getHeight();
+		int x0 = (w - d) / 2;
+		int y0 = (h - d) / 2;
 		BufferedImage piece = new BufferedImage(d, d, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = piece.createGraphics();
 		smooth(g);
 		g.setClip(new Ellipse2D.Double(0, 0, d, d));
 		g.rotate(Math.toRadians(applied), d / 2.0, d / 2.0);
-		g.drawImage(src, 0, 0, d, d, null);
+		g.drawImage(base, -x0, -y0, null);
 		g.dispose();
-		noise(piece, 5);
-		BufferedImage bg = library.next(w, h);
+		BufferedImage bg = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
 		Graphics2D bgG = bg.createGraphics();
+		bgG.drawImage(base, 0, 0, null);
 		smooth(bgG);
-		bgG.setColor(new Color(255, 255, 255, 120));
-		bgG.fillRect(0, 0, w, h);
-		bgG.setColor(new Color(20, 30, 50, 60));
-		bgG.fill(new Ellipse2D.Double((w - d) / 2.0 - 3, (h - d) / 2.0 - 3, d + 6, d + 6));
+		Ellipse2D hole = new Ellipse2D.Double(x0, y0, d, d);
+		bgG.setColor(ROTATE_MASK);
+		bgG.fill(hole);
+		bgG.setStroke(new BasicStroke(1.5f));
+		bgG.setColor(ROTATE_OUTLINE);
+		bgG.draw(hole);
 		bgG.dispose();
-		noise(bg, 6);
-		int answer = Math.floorMod(360 - applied, 360);
-		return new Rotate(jpeg(bg), png(piece), w, h, d, answer);
+		return new BufferedImage[] {bg, piece};
 	}
 
 	/**
