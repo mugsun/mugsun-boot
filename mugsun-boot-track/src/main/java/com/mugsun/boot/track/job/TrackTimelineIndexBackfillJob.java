@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.track.TrackDS;
 import com.mugsun.boot.track.job.TrackTimelineIndexes.IndexSpec;
@@ -44,6 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @Component
 @TrackDS
+@ConditionalOnNotDemo
 public class TrackTimelineIndexBackfillJob {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackTimelineIndexBackfillJob.class);

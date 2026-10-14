@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackDS;
@@ -27,6 +29,7 @@ import java.util.List;
  */
 @Component
 @TrackDS
+@ConditionalOnNotDemo
 public class TrackStats5mJob extends AbstractTrackRollupJob {
 
 	/** 窗口粒度（分钟）：5 分钟 */

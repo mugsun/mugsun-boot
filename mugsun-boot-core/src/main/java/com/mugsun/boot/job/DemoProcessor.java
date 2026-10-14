@@ -1,5 +1,7 @@
 package com.mugsun.boot.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -11,6 +13,7 @@ import tech.powerjob.worker.core.processor.sdk.BasicProcessor;
  * 示例任务处理器：由 PowerJob 调度执行。
  */
 @Component
+@ConditionalOnNotDemo
 public class DemoProcessor implements BasicProcessor {
 
 	private static final Logger log = LoggerFactory.getLogger(DemoProcessor.class);

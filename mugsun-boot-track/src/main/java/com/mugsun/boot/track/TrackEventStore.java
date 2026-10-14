@@ -102,8 +102,17 @@ public class TrackEventStore {
 	private final JdbcTemplate jdbc;
 
 	/** 注入全局路由数据源（FlexDataSource）：连接获取时按 {@code @TrackDS} 压栈的 DataSourceKey 路由埋点库 */
-	public TrackEventStore(DataSource dataSource) {
+	private final String sessionUpsertSql;
+	private final String identityUpsertSql;
+	private final String eventDefUpsertSql;
+
+	/** demo 下埋点账号只有 INSERT/SELECT，upsert 降级为 DO NOTHING（见 TrackInsertOnlySql） */
+	public TrackEventStore(DataSource dataSource,
+			@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}") boolean demo) {
 		this.jdbc = new JdbcTemplate(dataSource);
+		this.sessionUpsertSql = TrackInsertOnlySql.pick(SESSION_UPSERT, demo);
+		this.identityUpsertSql = TrackInsertOnlySql.pick(IDENTITY_UPSERT, demo);
+		this.eventDefUpsertSql = TrackInsertOnlySql.pick(EVENT_DEF_UPSERT, demo);
 	}
 
 	/** 批量 INSERT 事件流水（ON CONFLICT (event_id, received_at) DO NOTHING 同接收窗幂等兜底） */
@@ -169,7 +178,7 @@ public class TrackEventStore {
 
 	/** 会话增量 upsert（批内已按 session 聚合；SQL 写死乱序安全语义） */
 	public void upsertSessions(List<SessionAggregate> sessions) {
-		jdbc.batchUpdate(SESSION_UPSERT, new BatchPreparedStatementSetter() {
+		jdbc.batchUpdate(sessionUpsertSql, new BatchPreparedStatementSetter() {
 			@Override
 			public void setValues(PreparedStatement ps, int i) throws SQLException {
 				SessionAggregate s = sessions.get(i);
@@ -209,7 +218,7 @@ public class TrackEventStore {
 
 	/** $identify 绑定 upsert（首绑不覆盖：冲突只刷 last_seen_time） */
 	public void upsertIdentities(List<IdentityBinding> bindings) {
-		jdbc.batchUpdate(IDENTITY_UPSERT, new BatchPreparedStatementSetter() {
+		jdbc.batchUpdate(identityUpsertSql, new BatchPreparedStatementSetter() {
 			@Override
 			public void setValues(PreparedStatement ps, int i) throws SQLException {
 				IdentityBinding b = bindings.get(i);
@@ -229,7 +238,7 @@ public class TrackEventStore {
 
 	/** 未见事件名自动注册（冲突只刷 last_seen_time；status 停用语义由采集端后续波次接） */
 	public void upsertEventDefs(List<EventDefSeen> defs) {
-		jdbc.batchUpdate(EVENT_DEF_UPSERT, new BatchPreparedStatementSetter() {
+		jdbc.batchUpdate(eventDefUpsertSql, new BatchPreparedStatementSetter() {
 			@Override
 			public void setValues(PreparedStatement ps, int i) throws SQLException {
 				EventDefSeen d = defs.get(i);

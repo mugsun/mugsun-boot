@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackDS;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -31,6 +33,7 @@ import java.util.regex.Pattern;
  */
 @Component
 @TrackDS
+@ConditionalOnNotDemo
 public class TrackPartitionJob {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackPartitionJob.class);

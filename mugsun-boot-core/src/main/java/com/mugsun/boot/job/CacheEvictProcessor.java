@@ -1,5 +1,7 @@
 package com.mugsun.boot.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -16,6 +18,7 @@ import java.util.List;
  * 安全边界：仅允许 mugsun: 命名空间、单次上限 1000 键（防爆量/防误清全域）。
  */
 @Component
+@ConditionalOnNotDemo
 public class CacheEvictProcessor implements BasicProcessor {
 
 	/** 允许清理的键命名空间（平台键统一 mugsun: 前缀） */
