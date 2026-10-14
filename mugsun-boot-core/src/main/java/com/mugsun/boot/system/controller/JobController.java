@@ -56,14 +56,20 @@ public class JobController {
 		this.jobServerRegistry = jobServerRegistry;
 	}
 
+	/** 不用 synchronized：锁内有阻塞 IO，虚拟线程在 synchronized 上会钉住载体线程（JDK 21） */
+	private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
 	private volatile PowerJobClient client;
 
 	private PowerJobClient client() {
 		if (client == null) {
-			synchronized (this) {
+			lock.lock();
+			try {
 				if (client == null) {
 					client = new PowerJobClient(serverAddress, appName, password);
 				}
+			} finally {
+				lock.unlock();
 			}
 		}
 		return client;

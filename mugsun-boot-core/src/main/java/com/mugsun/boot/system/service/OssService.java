@@ -47,6 +47,9 @@ public class OssService {
 		this.ossMapper = ossMapper;
 	}
 
+	/** 不用 synchronized：锁内有阻塞 IO，虚拟线程在 synchronized 上会钉住载体线程（JDK 21） */
+	private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
 	/** 当前启用的存储平台名；无启用配置时回退 yaml 默认平台 */
 	public String activePlatform() {
 		SysOss oss = ossMapper.selectOneByQuery(
@@ -56,13 +59,16 @@ public class OssService {
 		}
 		String fp = fingerprintOf(oss);
 		if (!fp.equals(fingerprint)) {
-			synchronized (this) {
+			lock.lock();
+			try {
 				if (!fp.equals(fingerprint)) {
 					register(oss);
 					this.platform = oss.getOssCode();
 					this.fingerprint = fp;
 					log.info("对象存储平台已按启用配置重建 platform={}, category={}", oss.getOssCode(), oss.getCategory());
 				}
+			} finally {
+				lock.unlock();
 			}
 		}
 		return platform;

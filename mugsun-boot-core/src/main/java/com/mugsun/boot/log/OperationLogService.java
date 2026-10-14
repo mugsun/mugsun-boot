@@ -17,12 +17,16 @@ import java.util.Map;
  * 操作日志异步落库 + 防篡改（哈希链 + SM2 签名，等保三级审计完整性）。
  * <p>每条记录 {@code record_hash = SM3(规范字段 ‖ prev_hash)}、{@code prev_hash} 指向上一条 record_hash 形成链，
  * 并对 record_hash 做 SM2 签名。任一历史记录被改/删/插，其后所有记录的链哈希与签名即失配，验签可精确定位首个被篡改点。
- * <p>落库串行化（synchronized）以保证链一致；链为全局（忽略租户），验签亦忽略租户。
+ * <p>落库串行化（ReentrantLock）以保证链一致；链为全局（忽略租户），验签亦忽略租户。
+ * <p>不用 synchronized：@Async 跑在虚拟线程上，JDK 21 下在 synchronized 上等待会钉住载体线程，
+ * 持锁者等数据库连接、持连接的虚拟线程又拿不到载体线程，会互相卡死（连接池耗尽）。
  */
 @Service
 public class OperationLogService {
 
 	private static final String GENESIS = "0";
+
+	private final java.util.concurrent.locks.ReentrantLock appendLock = new java.util.concurrent.locks.ReentrantLock();
 
 	private final SysOperLogMapper operLogMapper;
 	private final com.mugsun.boot.system.service.ParamService paramService;
@@ -39,21 +43,26 @@ public class OperationLogService {
 	}
 
 	/** 串行化：算链哈希 + 签名 + 落库，保证哈希链一致 */
-	private synchronized void append(SysOperLog log) {
-		String prevHash = lastRecordHash();
-		log.setPrevHash(prevHash);
-		String recordHash = SmUtil.sm3(canonical(log) + "|" + prevHash);
-		log.setRecordHash(recordHash);
-		log.setSign(Sm2Util.signHex(recordHash));
+	private void append(SysOperLog log) {
+		appendLock.lock();
 		try {
-			// 有租户上下文（认证写请求，经 TenantTaskDecorator 透传）→ 正常落库并打租户标
-			operLogMapper.insertSelective(log);
-		} catch (Exception e) {
-			// 无租户上下文（如未认证写请求）→ 忽略隔离补插，保证审计不丢（tenant_id 空）
-			TenantContext.ignore(() -> {
+			String prevHash = lastRecordHash();
+			log.setPrevHash(prevHash);
+			String recordHash = SmUtil.sm3(canonical(log) + "|" + prevHash);
+			log.setRecordHash(recordHash);
+			log.setSign(Sm2Util.signHex(recordHash));
+			try {
+				// 有租户上下文（认证写请求，经 TenantTaskDecorator 透传）→ 正常落库并打租户标
 				operLogMapper.insertSelective(log);
-				return null;
-			});
+			} catch (Exception e) {
+				// 无租户上下文（如未认证写请求）→ 忽略隔离补插，保证审计不丢（tenant_id 空）
+				TenantContext.ignore(() -> {
+					operLogMapper.insertSelective(log);
+					return null;
+				});
+			}
+		} finally {
+			appendLock.unlock();
 		}
 	}
 
