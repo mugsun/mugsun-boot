@@ -506,7 +506,8 @@ public class TrackAnalysisService {
 		String tenant = currentTenant();
 		int d = assertDays(days);
 		long size = clampPageSize(pageSize);
-		OffsetDateTime from = LocalDate.now(ZoneOffset.UTC).minusDays(d - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
+		// 按租户时区切日：「今天」从当地 0 点开始（与概览/错误列表同口径）
+		OffsetDateTime from = TrackDayWindow.of(timezones.zoneFor(tenant), Instant.now(), d).fromOffset();
 		StringBuilder cond = new StringBuilder(" FROM track_event e WHERE e.app_key = ? AND e.received_at >= ?");
 		List<Object> args = new ArrayList<>(List.of(appKey, from));
 		if (eventName != null && !eventName.isBlank()) {
@@ -661,7 +662,8 @@ public class TrackAnalysisService {
 
 	/** 即席查询（无缓存）：摄入后立刻可在概览/工作台看见，便于验收与运营排障。 */
 	public Map<String, Object> queryGeo(String appKey, int days, String tenant) {
-		OffsetDateTime from = LocalDate.now(ZoneOffset.UTC).minusDays(days - 1L).atStartOfDay().atOffset(ZoneOffset.UTC);
+		// 按租户时区切日：「今天」从当地 0 点开始（与概览/错误列表同口径）
+		OffsetDateTime from = TrackDayWindow.of(timezones.zoneFor(tenant), Instant.now(), days).fromOffset();
 		String regionExpr = "CASE"
 			+ " WHEN e.ip_region IS NULL OR btrim(e.ip_region) = '' THEN '" + TrackConstants.GEO_REGION_UNKNOWN + "'"
 			+ " WHEN e.ip_region LIKE '%内网%' THEN '" + TrackConstants.GEO_REGION_INTRANET + "'"
