@@ -7,15 +7,43 @@
 # 文件齐全则原样复用：重启、重建容器口令和密钥都不变。
 # 只能用 docker compose down -v 连同数据卷一起清空：单删 secrets 卷而保留 pg-data，新口令与库里的旧口令对不上。
 # 管理员口令不打印到日志（日志可能被转发到集中日志）；查看：docker compose -f docker-compose.full.yml run --rm init show
+# （admin 改过口令后 show 只提示「初始密码已失效」，见 show_admin_password）
 set -eu
 BOOT=/secrets/boot/boot.env
 PG=/secrets/postgres/db.env
 REDIS=/secrets/redis/redis.conf
 BOOT_UID=10001 PG_UID=999 REDIS_UID=999
 
+# init show：管理员改过口令后不再打印初始口令。
+# 判断依据是库里 admin 当前的口令哈希还能不能用初始口令验证通过（bcrypt），而不是另存一个「已改密」标记：
+#   - 任何改密途径（个人中心、找回密码、管理员重置、以后首次登录强制改密）都会换哈希，这里不用跟着改；
+#   - 被管理员重置回初始口令时，初始口令确实又能登录了，这时照常显示。
+# 不清掉 secrets 卷里的 MUGSUN_INIT_PASSWORD：后端 prod 启动守卫要求它存在，重置口令和新建租户管理员也用它。
+# 连不上库（postgres 没起、口令不对）时照常显示，但提示「无法确认」。
+show_admin_password() {
+  INIT_PW=$(sed -n 's/^export MUGSUN_INIT_PASSWORD=//p' "$BOOT")
+  DBPW=$(sed -n 's/^export JDBC_PASSWORD=//p' "$BOOT")
+  HASH=$(PGPASSWORD="$DBPW" PGCONNECT_TIMEOUT=5 psql -h "${MUGSUN_DB_HOST:-postgres}" -U "${MUGSUN_DB_USER:-mugsun}" \
+    -d "${MUGSUN_DB_NAME:-mugsun}" -tAqX -v ON_ERROR_STOP=1 \
+    -c "SELECT password FROM sys_user WHERE username = 'admin' AND tenant_id = '000000' ORDER BY id LIMIT 1" 2>/dev/null) || HASH=
+  if [ -z "$HASH" ]; then
+    echo "管理员口令：$INIT_PW"
+    echo "（无法连接数据库确认是否已改过口令；如果已经改过，这个初始口令已失效）"
+    return 0
+  fi
+  rc=0
+  INIT_PW="$INIT_PW" HASH="$HASH" python3 /init-pw-check.py || rc=$?
+  case "$rc" in
+    0) echo "管理员口令：$INIT_PW" ;;
+    1) echo "初始密码已失效：admin 已修改过口令。忘记口令请用其他管理员账号重置，或按文档找回" ;;
+    *) echo "管理员口令：$INIT_PW"
+       echo "（无法识别库里的口令哈希格式，不能确认是否已改过口令）" ;;
+  esac
+}
+
 if [ -s "$BOOT" ] && [ -s "$PG" ] && [ -s "$REDIS" ]; then
   if [ "${1:-}" = show ]; then
-    sed -n 's/^export MUGSUN_INIT_PASSWORD=/管理员口令：/p' "$BOOT"
+    show_admin_password
   else
     echo ">> 复用已有密钥（管理员口令：docker compose -f docker-compose.full.yml run --rm init show）"
   fi
