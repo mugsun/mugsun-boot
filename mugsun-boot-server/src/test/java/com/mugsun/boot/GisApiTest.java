@@ -236,7 +236,8 @@ class GisApiTest extends AbstractIntegrationTest {
 		assertThat(numericId.path("data").path("count").asInt()).isEqualTo(2);
 
 		JsonNode badBbox = readBody(get("/system/gis/spatial/bbox?layerId=" + id
-			+ "&minLon=116.41&minLat=39.90&maxLon=116.39&maxLat=39.92", adminToken));
+			+ "&minLon=116.39&minLat=39.92&maxLon=116.41&maxLat=39.90", adminToken));
+		// 西>东是合法的跨 180° 范围（RFC 7946 §5.2），南>北才非法
 		assertThat(badBbox.path("code").asInt()).isEqualTo(400);
 		JsonNode overRadius = readBody(get("/system/gis/spatial/radius?layerId=" + id
 			+ "&lon=116.4&lat=39.9&meters=999999", adminToken));

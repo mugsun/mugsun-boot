@@ -136,7 +136,7 @@ class GisSpatialQueryServiceTest {
 	@Test
 	@DisplayName("非法范围 / 半径 / 几何都给明确提示")
 	void rejectsBadArguments() {
-		assertThatThrownBy(() -> service.bbox(vector(), 116.41, 39.9, 116.39, 39.92, 0, false))
+		assertThatThrownBy(() -> service.bbox(vector(), 116.39, 39.92, 116.41, 39.9, 0, false))
 			.hasMessage(GisConstants.MSG_SPATIAL_BBOX);
 		assertThatThrownBy(() -> service.bbox(vector(), -200, 39.9, 116.39, 39.92, 0, false))
 			.hasMessage(GisConstants.MSG_SPATIAL_BBOX);
