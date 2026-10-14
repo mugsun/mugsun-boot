@@ -56,7 +56,8 @@ public class CaptchaController {
 			throw CaptchaException.disabled();
 		}
 		return R.data(slider.challenge(sc, client.getClientId(), tenant, req == null ? null : req.inputMode(),
-			ClientIpResolver.clientIp(request), gate.enabledTypes(sc, tenant), gate.statTenant(sc, tenant)));
+			ClientIpResolver.clientIp(request), gate.enabledTypes(sc, tenant), gate.statTenant(sc, tenant),
+			request.getHeader("Accept-Language") == null ? null : request.getLocale()));
 	}
 
 	@PostMapping("/verify")

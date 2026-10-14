@@ -58,7 +58,11 @@ public class MultiTypeRenderer {
 	private final boolean iconClickAvailable;
 
 	/** confusable：manifest.json 里该图标所属的易混组名（可属多组）；同一题内每组最多出现一个 */
-	public record Icon(String slug, String name, Set<String> confusable, BufferedImage image) {
+	public record Icon(String slug, String name, String nameEn, Set<String> confusable, BufferedImage image) {
+		/** 英文提示名；清单未给 name_en 时退回中文名 */
+		public String name(boolean english) {
+			return english && nameEn != null && !nameEn.isBlank() ? nameEn : name;
+		}
 	}
 
 	public record Rotate(String background, String piece, int bgWidth, int bgHeight, int pieceSize, int answerAngle) {
@@ -413,7 +417,8 @@ public class MultiTypeRenderer {
 			int[] p = pos.get(i);
 			int fs = size - SIZE_JITTER + rnd.nextInt(2 * SIZE_JITTER + 1);
 			String ch = i < prompt.size() ? prompt.get(i) : decoys.get(i - prompt.size());
-			drawGlyph(g, ch, p[0], p[1], fs, rnd.nextInt(-35, 36), rnd);
+			int maxDeg = isLowStroke(ch) ? 15 : 35;
+			drawGlyph(g, ch, p[0], p[1], fs, rnd.nextInt(-maxDeg, maxDeg + 1), rnd);
 			if (i < prompt.size()) {
 				answer.add(new int[]{p[0], p[1], hitRadius(fs)});
 			} else {
@@ -432,7 +437,19 @@ public class MultiTypeRenderer {
 		return new Click(jpeg(bg), w, h, prompt, png(pi), answer, size, word, decoyPos, List.copyOf(decoys));
 	}
 
+	/** 笔画少于 3 的字（一、二、十、人…）大角度旋转后易认错（如 十/乂、人/入），只转 ±15° */
+	static final String LOW_STROKE = "一乙二十丁厂七卜八人入儿匕几九刁了乃刀力又乂";
+
+	static boolean isLowStroke(String ch) {
+		return ch != null && ch.length() == 1 && LOW_STROKE.indexOf(ch.charAt(0)) >= 0;
+	}
+
 	public Click renderIconClick() {
+		return renderIconClick(false);
+	}
+
+	/** 图标点选；english = 提示名用 name_en */
+	public Click renderIconClick(boolean english) {
 		CaptchaProperties.Click cfg = props.getClick();
 		RandomGenerator rnd = Rng.get();
 		int total = cfg.getCount() + Math.max(0, cfg.getDecoys());
@@ -442,6 +459,8 @@ public class MultiTypeRenderer {
 		BufferedImage bg = library.next(w, h);
 		Graphics2D g = bg.createGraphics();
 		smooth(g);
+		// 干扰线先画，图标盖在上面（线不压图标，图标仍清晰）
+		distractLines(g, w, h, rnd);
 		int size = 36;
 		List<int[]> pos = scatter(icons.size(), w, h, hitRadius(size + SIZE_JITTER), minSpacing(size), rnd);
 		List<int[]> answer = new ArrayList<>();
@@ -449,11 +468,16 @@ public class MultiTypeRenderer {
 		for (int i = 0; i < icons.size(); i++) {
 			int[] p = pos.get(i);
 			int s = size - SIZE_JITTER + rnd.nextInt(2 * SIZE_JITTER + 1);
-			g.setColor(new Color(255, 255, 255, 170));
-			g.fill(new Ellipse2D.Double(p[0] - s * 0.7, p[1] - s * 0.7, s * 1.4, s * 1.4));
+			// 不再垫白色圆盘（它让候选位置一眼可找）；改为贴合图标轮廓的柔和投影 + 细白描边
 			AffineTransform old = g.getTransform();
 			g.rotate(Math.toRadians(rnd.nextInt(-30, 31)), p[0], p[1]);
-			g.drawImage(icons.get(i).image(), p[0] - s / 2, p[1] - s / 2, s, s, null);
+			BufferedImage img = icons.get(i).image();
+			g.drawImage(silhouette(img, new Color(0, 0, 0, 90)), p[0] - s / 2 + 2, p[1] - s / 2 + 2, s, s, null);
+			BufferedImage halo = silhouette(img, new Color(255, 255, 255, 150));
+			for (int[] o : new int[][]{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
+				g.drawImage(halo, p[0] - s / 2 + o[0], p[1] - s / 2 + o[1], s, s, null);
+			}
+			g.drawImage(img, p[0] - s / 2, p[1] - s / 2, s, s, null);
 			g.setTransform(old);
 			if (i < cfg.getCount()) {
 				answer.add(new int[]{p[0], p[1], hitRadius(s)});
@@ -461,7 +485,6 @@ public class MultiTypeRenderer {
 				decoyPos.add(new int[]{p[0], p[1], hitRadius(s)});
 			}
 		}
-		distractLines(g, w, h, rnd);
 		g.dispose();
 		noise(bg, 8);
 		List<String> names = new ArrayList<>();
@@ -469,11 +492,24 @@ public class MultiTypeRenderer {
 		Graphics2D pg = pi.createGraphics();
 		smooth(pg);
 		for (int i = 0; i < cfg.getCount(); i++) {
-			names.add(icons.get(i).name());
+			names.add(icons.get(i).name(english));
 			pg.drawImage(icons.get(i).image(), 6 + i * 34, 3, 30, 30, null);
 		}
 		pg.dispose();
 		return new Click(jpeg(bg), w, h, names, png(pi), answer, size, null, decoyPos, List.of());
+	}
+
+	/** 图标形状的单色剪影（保留 alpha） */
+	static BufferedImage silhouette(BufferedImage src, Color c) {
+		BufferedImage out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
+		int rgb = c.getRGB() & 0xFFFFFF;
+		for (int y = 0; y < src.getHeight(); y++) {
+			for (int x = 0; x < src.getWidth(); x++) {
+				int a = (src.getRGB(x, y) >>> 24) * c.getAlpha() / 255;
+				out.setRGB(x, y, (a << 24) | rgb);
+			}
+		}
+		return out;
 	}
 
 	/** 选图标：同一易混组（manifest confusable）最多一个；public 仅供测试 */
@@ -520,7 +556,7 @@ public class MultiTypeRenderer {
 		java.util.Random shuffler = new java.util.Random(Rng.get().nextLong());
 		do {
 			Collections.shuffle(perm, shuffler);
-		} while (isIdentity(perm));
+		} while (misplaced(perm) < Math.min(3, n));
 		// tiles[i] 显示原图第 perm[i] 块；正确排列：格 c 放 perm[i]==c 的那块 i
 		List<String> tiles = new ArrayList<>();
 		int[] answer = new int[n];
@@ -541,9 +577,9 @@ public class MultiTypeRenderer {
 
 	/** 拼图块各自独立的轻微色偏，打散接缝处的颜色连续性（M3 部分落地：仅块间色偏；接缝扰动、3×3 未做，JIGSAW 仍不宜单独作强题型） */
 	private static void tileTint(BufferedImage img, java.util.Random r) {
-		int dr = r.nextInt(17) - 8;
-		int dg = r.nextInt(17) - 8;
-		int db = r.nextInt(17) - 8;
+		int dr = r.nextInt(9) - 4;
+		int dg = r.nextInt(9) - 4;
+		int db = r.nextInt(9) - 4;
 		for (int y = 0; y < img.getHeight(); y++) {
 			for (int x = 0; x < img.getWidth(); x++) {
 				int p = img.getRGB(x, y);
@@ -553,14 +589,17 @@ public class MultiTypeRenderer {
 		}
 	}
 
-	private static boolean isIdentity(List<Integer> perm) {
+	/** 不在原位的块数 */
+	static int misplaced(List<Integer> perm) {
+		int k = 0;
 		for (int i = 0; i < perm.size(); i++) {
 			if (perm.get(i) != i) {
-				return false;
+				k++;
 			}
 		}
-		return true;
+		return k;
 	}
+
 
 	// ------------------------------------------------------------------ helpers
 
@@ -709,7 +748,7 @@ public class MultiTypeRenderer {
 	}
 
 	/** 图标清单条目：slug、中文名、易混组名（manifest.json 的 confusable，字符串或字符串数组） */
-	public record ManifestEntry(String slug, String name, Set<String> confusable) {
+	public record ManifestEntry(String slug, String name, String nameEn, Set<String> confusable) {
 	}
 
 	/** 读取默认图标目录的 manifest.json */
@@ -730,7 +769,8 @@ public class MultiTypeRenderer {
 					} else if (c.isTextual() && !c.asText().isBlank()) {
 						groups.add(c.asText());
 					}
-					out.add(new ManifestEntry(n.path("slug").asText(), n.path("name_zh").asText(), Set.copyOf(groups)));
+					out.add(new ManifestEntry(n.path("slug").asText(), n.path("name_zh").asText(),
+						n.path("name_en").asText(""), Set.copyOf(groups)));
 				}
 			}
 		} catch (Exception e) {
@@ -755,7 +795,7 @@ public class MultiTypeRenderer {
 			try (InputStream in = RESOLVER.getResource(base(iconDir) + e.slug() + ".png").getInputStream()) {
 				BufferedImage img = ImageIO.read(in);
 				if (img != null) {
-					out.add(new Icon(e.slug(), e.name(), e.confusable(), img));
+					out.add(new Icon(e.slug(), e.name(), e.nameEn(), e.confusable(), img));
 				}
 			} catch (Exception ex) {
 				log.warn("验证码图标读取失败：{}", e.slug());

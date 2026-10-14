@@ -148,6 +148,26 @@ public class SliderCaptchaService {
 	 */
 	public ChallengeVO challenge(String scene, String clientId, String tenantId, String inputMode, String ip,
 								 Set<CaptchaType> enabled, String statTenant) {
+		return challenge(scene, clientId, tenantId, inputMode, ip, enabled, statTenant, null);
+	}
+
+	/** 英文界面：不出汉字点选（WORD_CLICK），改从其他启用题型里选；只启用了 WORD_CLICK 时仍出它。英文下图标提示用 name_en */
+	static Set<CaptchaType> forLocale(Set<CaptchaType> enabled, boolean english) {
+		if (!english || enabled == null || !enabled.contains(CaptchaType.WORD_CLICK) || enabled.size() == 1) {
+			return enabled;
+		}
+		EnumSet<CaptchaType> out = EnumSet.copyOf(enabled);
+		out.remove(CaptchaType.WORD_CLICK);
+		return out;
+	}
+
+	static boolean isEnglish(java.util.Locale locale) {
+		return locale != null && "en".equalsIgnoreCase(locale.getLanguage());
+	}
+
+	public ChallengeVO challenge(String scene, String clientId, String tenantId, String inputMode, String ip,
+								 Set<CaptchaType> enabled, String statTenant, java.util.Locale locale) {
+		boolean english = isEnglish(locale);
 		String statKeyTenant = statTenant == null || !FIELD.matcher(statTenant).matches() ? "_unknown" : statTenant;
 		String mode = normalizeMode(inputMode);
 		requireField(scene);
@@ -170,6 +190,9 @@ public class SliderCaptchaService {
 			}
 		}
 		Set<CaptchaType> avail = available(enabled);
+		if (avail != null && !avail.isEmpty()) {
+			avail = forLocale(avail, english);
+		}
 		if (!kb && enabled != null && !enabled.isEmpty() && avail.isEmpty()) {
 			// R3′：租户只启用了启动校验不可用的题型（如图标清单缺失时的 ICON_CLICK）→ 明确报错 40016，不静默降为 SLIDER
 			String dedup = K_TYPES_UNAVAILABLE_AUDIT + statKeyTenant + ":" + ipKey;
@@ -195,6 +218,7 @@ public class SliderCaptchaService {
 		long ttl = props.getSlider().getExpireSeconds();
 		boolean permit = acquireRender();
 		String answer;
+		String bgSize = null;
 		ChallengeVO vo;
 		try {
 			switch (type) {
@@ -206,7 +230,8 @@ public class SliderCaptchaService {
 						null, null, null, null, null, null, null, null, null, null);
 				}
 				case WORD_CLICK, ICON_CLICK -> {
-					MultiTypeRenderer.Click c = type == CaptchaType.WORD_CLICK ? multi.renderWordClick() : multi.renderIconClick();
+					MultiTypeRenderer.Click c = type == CaptchaType.WORD_CLICK ? multi.renderWordClick() : multi.renderIconClick(english);
+					bgSize = c.bgWidth() + "x" + c.bgHeight();
 					StringBuilder sb = new StringBuilder();
 					for (int[] a : c.answer()) {
 						sb.append(sb.isEmpty() ? "" : ";").append(a[0]).append(',').append(a[1]).append(',').append(a[2]);
@@ -243,6 +268,9 @@ public class SliderCaptchaService {
 		}
 		String record = String.join("|", answer, scene, clientId, tenantId,
 			String.valueOf(clock.getAsLong()), mode, type.name());
+		if (bgSize != null) {
+			record = record + "|" + bgSize;
+		}
 		store.put(K_CHALLENGE + id, record, ttl);
 		return vo;
 	}
@@ -288,10 +316,10 @@ public class SliderCaptchaService {
 			throw CaptchaException.expired();
 		}
 		String[] parts = raw.split("\\|", -1);
-		if (parts.length != 6 && parts.length != 7) {
+		if (parts.length < 6 || parts.length > 8) {
 			throw CaptchaException.expired();
 		}
-		CaptchaType type = parts.length == 7 ? CaptchaType.parse(parts[6]) : CaptchaType.SLIDER;
+		CaptchaType type = parts.length >= 7 ? CaptchaType.parse(parts[6]) : CaptchaType.SLIDER;
 		long issuedAt = Long.parseLong(parts[4]);
 		// 题目 TTL（expire-seconds）从签发算起；超过即按过期处理（40010，不计失败），与存储过期一致
 		if (clock.getAsLong() - issuedAt > props.getSlider().getExpireSeconds() * 1000) {
@@ -303,7 +331,7 @@ public class SliderCaptchaService {
 			ok = type != null && parts[5].equals(mode) && switch (type) {
 				case SLIDER -> judge(req, mode, Integer.parseInt(parts[0]), issuedAt);
 				case ROTATE -> judgeRotate(req, mode, Integer.parseInt(parts[0]), issuedAt);
-				case WORD_CLICK, ICON_CLICK -> judgeClick(req, mode, parts[0], issuedAt);
+				case WORD_CLICK, ICON_CLICK -> judgeClick(req, mode, parts[0], issuedAt, parts.length == 8 ? parts[7] : null);
 				case JIGSAW -> judgeJigsaw(req, mode, parts[0], issuedAt);
 			};
 		} catch (RuntimeException e) {
@@ -434,7 +462,7 @@ public class SliderCaptchaService {
 			throw CaptchaException.expired();
 		}
 		String[] p = raw.split("\\|", -1);
-		return new String[]{p[0], p.length == 7 ? p[6] : TYPE_SLIDER};
+		return new String[]{p[0], p.length >= 7 ? p[6] : TYPE_SLIDER};
 	}
 
 	public int peekAnswerX(String captchaId) {
@@ -507,8 +535,11 @@ public class SliderCaptchaService {
 	}
 
 	private Integer displayWidth(VerifyRequest req) {
+		return displayWidth(req, props.getSlider().getWidth());
+	}
+
+	private Integer displayWidth(VerifyRequest req, int bgW) {
 		Integer display = req.bgDisplayWidth();
-		int bgW = props.getSlider().getWidth();
 		if (display == null || display < Math.max(MIN_DISPLAY_WIDTH, bgW / 2) || display > bgW * 3) {
 			return null;
 		}
@@ -578,12 +609,20 @@ public class SliderCaptchaService {
 	}
 
 	/** 点选：恰 count 个点，按顺序落在各目标半径内（原始像素） */
-	private boolean judgeClick(VerifyRequest req, String mode, String encoded, long issuedAt) {
+	private boolean judgeClick(VerifyRequest req, String mode, String encoded, long issuedAt, String size) {
 		if (!MODE_POINTER.equals(mode)) {
 			return false;
 		}
 		CaptchaProperties.Click c = props.getClick();
-		Integer display = displayWidth(req);
+		// 按出题时存进记录的底图尺寸换算（配置在题目有效期内被改也不影响判定）；旧记录无尺寸时退回配置值
+		int bgW = props.getSlider().getWidth();
+		int bgH = props.getSlider().getHeight();
+		if (size != null) {
+			String[] wh = size.split("x");
+			bgW = Integer.parseInt(wh[0]);
+			bgH = Integer.parseInt(wh[1]);
+		}
+		Integer display = displayWidth(req, bgW);
 		if (display == null || !timing(req, issuedAt, c.getMinDurationMs(), c.getMaxDurationMs())) {
 			return false;
 		}
@@ -592,8 +631,8 @@ public class SliderCaptchaService {
 		if (pts == null || pts.size() != targets.length) {
 			return false;
 		}
-		double scale = (double) props.getSlider().getWidth() / display;
-		double maxY = display * (double) props.getSlider().getHeight() / props.getSlider().getWidth();
+		double scale = (double) bgW / display;
+		double maxY = display * (double) bgH / bgW;
 		for (int i = 0; i < targets.length; i++) {
 			VerifyRequest.Point p = pts.get(i);
 			if (p == null || p.x() == null || p.y() == null || !Double.isFinite(p.x()) || !Double.isFinite(p.y())

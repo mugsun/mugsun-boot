@@ -78,7 +78,78 @@ class MultiTypeCaptchaServiceTest {
 		}
 	}
 
+	/** 审计 5：点选按出题时记录的底图宽度判定，题目有效期内改配置不影响 */
+	@Test
+	void clickJudgesAgainstStoredBgWidth() {
+		ChallengeVO c = issue(CaptchaType.ICON_CLICK, "pointer");
+		List<VerifyRequest.Point> pts = new ArrayList<>();
+		for (String s : svc.peekAnswer(c.captchaId())[0].split(";")) {
+			String[] p = s.split(",");
+			pts.add(new VerifyRequest.Point((double) Integer.parseInt(p[0]), (double) Integer.parseInt(p[1])));
+		}
+		assertThat(svc.peekAnswer(c.captchaId())[1]).isEqualTo("ICON_CLICK");
+		// 改成 1000 宽后，按配置判会把 display=320 判为过小（< 宽/2）且比例错；按记录的 320 判应通过
+		props.getSlider().setWidth(1000);
+		props.getSlider().setHeight(560);
+		assertThat(pass(req(c.captchaId(), "pointer", 1500, new VerifyRequest.Answer(null, null, pts, null), null, null)))
+			.isTrue();
+	}
+
+	/** 审计 3：英文界面不出汉字点选，回退到其他启用题型；只启用了 WORD_CLICK 时仍出它 */
+	@Test
+	void englishLocaleSkipsWordClick() {
+		java.util.Locale en = java.util.Locale.ENGLISH;
+		for (int i = 0; i < 40; i++) {
+			ChallengeVO c = svc.challenge("login", "web", "000000", "pointer", IP,
+				EnumSet.of(CaptchaType.WORD_CLICK, CaptchaType.ICON_CLICK), "000000", en);
+			assertThat(c.type()).isEqualTo("ICON_CLICK");
+			assertThat(c.promptNames()).allSatisfy(n -> assertThat(n).matches("[a-z ]+"));
+		}
+		assertThat(svc.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.WORD_CLICK), "000000", en)
+			.type()).isEqualTo("WORD_CLICK");
+		assertThat(svc.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.ICON_CLICK), "000000",
+			java.util.Locale.SIMPLIFIED_CHINESE).promptNames()).allSatisfy(n -> assertThat(n).doesNotMatch("[a-z ]+"));
+		assertThat(SliderCaptchaService.forLocale(EnumSet.of(CaptchaType.SLIDER, CaptchaType.WORD_CLICK), false))
+			.contains(CaptchaType.WORD_CLICK);
+	}
+
+	/** 审计 2：清单每个图标都有 name_en */
+	@Test
+	void manifestHasEnglishNames() {
+		assertThat(MultiTypeRenderer.loadManifest()).isNotEmpty()
+			.allSatisfy(e -> assertThat(e.nameEn()).as(e.slug()).isNotBlank().matches("[a-z ]+"));
+	}
+
 	// ---------------------------------------------------------------- ROTATE
+
+	/** N6：ROTATE 失败计入失败锁定（pointer 与 keyboard 各自的上限），触发的那次回 40012，之后取题也被拒 */
+	@Test
+	void rotateFailuresCountTowardLockout() {
+		for (String mode : List.of("pointer", "keyboard")) {
+			props.getRateLimit().setVerifyFailMax(3);
+			props.getRateLimit().setKeyboardFailMax(3);
+			List<String> locked = new ArrayList<>();
+			BackgroundLibrary lib = new BackgroundLibrary(props);
+			svc = new SliderCaptchaService(new MemoryCaptchaStore(now::get), props, new PuzzleRenderer(props, lib),
+				new MultiTypeRenderer(props, lib), (ip, m, tenant, sec) -> locked.add(m), now::get);
+			assertThat(rotate(90, mode)).as(mode + " fail 1").isFalse();
+			assertThat(rotate(90, mode)).as(mode + " fail 2").isFalse();
+			assertThat(locked).isEmpty();
+			ChallengeVO c = issue(CaptchaType.ROTATE, mode);
+			double wrong = Math.floorMod(Integer.parseInt(svc.peekAnswer(c.captchaId())[0]) + 90, 360);
+			VerifyRequest r = "keyboard".equals(mode)
+				? req(c.captchaId(), mode, 1200, new VerifyRequest.Answer(null, wrong, null, null), null,
+					(int) Math.round(wrong / c.keyboardStep()))
+				: req(c.captchaId(), mode, 900, new VerifyRequest.Answer(null, wrong, null, null), track(wrong / 360 * 320, 900), null);
+			assertThatThrownBy(() -> svc.verify(r, IP, "JUnit")).isInstanceOfSatisfying(CaptchaException.class,
+				e -> assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED));
+			assertThat(locked).containsExactly(mode);
+			assertThatThrownBy(() -> svc.challenge("login", "web", "000000", mode, IP, EnumSet.of(CaptchaType.ROTATE)))
+				.isInstanceOfSatisfying(CaptchaException.class,
+					e -> assertThat(e.getCode()).isEqualTo(CaptchaCodes.RATE_LIMITED));
+		}
+	}
+
 
 	private boolean rotate(double delta, String mode) {
 		ChallengeVO c = issue(CaptchaType.ROTATE, mode);
