@@ -12,27 +12,18 @@ import java.io.File;
 import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.SplittableRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 旋转验证码：piece 与 background 来自同一张图（同图挖圆），且下发字段不变 */
+/** 旋转验证码：piece 与 background 同图挖圆；孔内不留原像素；对抗 NCC 求解命中率受限；字段不变 */
 class RotateSameImageTest {
 
-	private static final double A = ROTATE_MASK_ALPHA();
-
-	private static double ROTATE_MASK_ALPHA() {
-		return MultiTypeRenderer.ROTATE_MASK.getAlpha() / 255.0;
-	}
-
-	/** 平滑渐变底图：双线性插值误差小，便于逐像素比对 */
 	private static BufferedImage gradient(int w, int h) {
 		BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
 		for (int y = 0; y < h; y++) {
 			for (int x = 0; x < w; x++) {
-				int r = x * 255 / (w - 1);
-				int g = y * 255 / (h - 1);
-				int b = (x + y) * 255 / (w + h - 2);
-				img.setRGB(x, y, (r << 16) | (g << 8) | b);
+				img.setRGB(x, y, ((x * 255 / (w - 1)) << 16) | ((y * 255 / (h - 1)) << 8) | ((x + y) * 255 / (w + h - 2)));
 			}
 		}
 		return img;
@@ -43,13 +34,10 @@ class RotateSameImageTest {
 	}
 
 	@Test
-	void pieceIsCentreOfSameImageRotatedByAppliedAngle() {
+	void pieceGeometryIsCentreOfSameImageRotatedByAppliedAngle() {
 		int w = 320, h = 180, d = 120, applied = 75;
 		BufferedImage base = gradient(w, h);
-		BufferedImage[] pair = MultiTypeRenderer.composeRotate(base, d, applied);
-		BufferedImage bg = pair[0];
-		BufferedImage piece = pair[1];
-		assertThat(piece.getWidth()).isEqualTo(d);
+		BufferedImage piece = MultiTypeRenderer.cutPiece(base, d, applied);
 		int x0 = (w - d) / 2, y0 = (h - d) / 2;
 		double c = d / 2.0, rad = Math.toRadians(applied);
 		int checked = 0;
@@ -59,42 +47,70 @@ class RotateSameImageTest {
 				if (Math.hypot(dx, dy) > c - 4) {
 					continue;
 				}
-				// 逆旋转回原图坐标（Java2D 正角为屏幕顺时针）
 				double sx = c + dx * Math.cos(rad) + dy * Math.sin(rad);
 				double sy = c - dx * Math.sin(rad) + dy * Math.cos(rad);
-				int bx = x0 + (int) Math.floor(sx), by = y0 + (int) Math.floor(sy);
-				int p = piece.getRGB(px, py);
-				int o = base.getRGB(bx, by);
-				assertThat(p >>> 24).isEqualTo(255);
+				int p = piece.getRGB(px, py), o = base.getRGB(x0 + (int) Math.floor(sx), y0 + (int) Math.floor(sy));
 				for (int s : new int[]{16, 8, 0}) {
 					assertThat(Math.abs(ch(p, s) - ch(o, s))).as("piece(%d,%d)", px, py).isLessThanOrEqualTo(6);
-				}
-				// background 同一位置是原图盖半透明遮罩：可由遮罩反推回原图
-				int q = bg.getRGB(bx, by);
-				int m = MultiTypeRenderer.ROTATE_MASK.getRGB();
-				for (int s : new int[]{16, 8, 0}) {
-					double unmasked = (ch(q, s) - A * ch(m, s)) / (1 - A);
-					assertThat(Math.abs(unmasked - ch(o, s))).isLessThanOrEqualTo(3.5);
 				}
 				checked++;
 			}
 		}
 		assertThat(checked).isGreaterThan(800);
-		// 圆外：background 就是原图，没有整图白色盖层
-		assertThat(piece.getRGB(1, 1) >>> 24).isZero();
-		for (int[] pt : new int[][]{{2, 2}, {w - 3, 2}, {2, h - 3}, {w - 3, h - 3}, {x0 - 10, h / 2}}) {
-			assertThat(bg.getRGB(pt[0], pt[1])).isEqualTo(base.getRGB(pt[0], pt[1]));
+	}
+
+	@Test
+	void holeIsOpaqueAndOutsideIsUntouched() {
+		int w = 320, h = 180, d = 120;
+		BufferedImage base = gradient(w, h);
+		BufferedImage bg = MultiTypeRenderer.holeBackground(base, d);
+		int fill = MultiTypeRenderer.ROTATE_HOLE_FILL.getRGB() & 0xFFFFFF;
+		double cx = w / 2.0, cy = h / 2.0;
+		for (int y = 0; y < h; y++) {
+			for (int x = 0; x < w; x++) {
+				double r = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+				if (r < d / 2.0 + MultiTypeRenderer.ROTATE_HOLE_MARGIN_PX - 3) {
+					assertThat(bg.getRGB(x, y) & 0xFFFFFF).as("hole(%d,%d)", x, y).isEqualTo(fill);
+				} else if (r > d / 2.0 + MultiTypeRenderer.ROTATE_HOLE_MARGIN_PX + 3) {
+					assertThat(bg.getRGB(x, y)).isEqualTo(base.getRGB(x, y));
+				}
+			}
 		}
 	}
 
 	@Test
-	void renderedPairMatchesAtAnswerAngleOnlyAndFieldsUnchanged() throws Exception {
+	void disguiseChangesPieceAndFeathersEdge() {
+		int d = 120;
+		BufferedImage piece = MultiTypeRenderer.cutPiece(gradient(320, 180), d, 90);
+		BufferedImage raw = MultiTypeRenderer.cutPiece(gradient(320, 180), d, 90);
+		MultiTypeRenderer.disguisePiece(piece, new SplittableRandom(7));
+		double diff = 0;
+		int n = 0;
+		for (int y = 20; y < d - 20; y++) {
+			for (int x = 20; x < d - 20; x++) {
+				int a = piece.getRGB(x, y), b = raw.getRGB(x, y);
+				for (int s : new int[]{16, 8, 0}) {
+					diff += Math.abs(ch(a, s) - ch(b, s));
+					n++;
+				}
+			}
+		}
+		assertThat(diff / n).as("mean channel shift").isGreaterThan(8);
+		// 外缘 1px 处 alpha 明显低于内部
+		assertThat(piece.getRGB(d / 2, 1) >>> 24).isLessThan(100);
+		assertThat(piece.getRGB(d / 2, 10) >>> 24).isEqualTo(255);
+	}
+
+	@Test
+	void nccSolverRarelyFindsAnswerAndFieldsUnchanged() throws Exception {
 		assertThat(Arrays.stream(MultiTypeRenderer.Rotate.class.getRecordComponents()).map(RecordComponent::getName))
 			.containsExactly("background", "piece", "bgWidth", "bgHeight", "pieceSize", "answerAngle");
 		CaptchaProperties props = new CaptchaProperties();
 		MultiTypeRenderer r = new MultiTypeRenderer(props, new BackgroundLibrary(props));
 		String out = System.getProperty("rotate.sample.dir");
-		for (int i = 0; i < 5; i++) {
+		int n = Integer.getInteger("rotate.adversarial.n", 40);
+		int hits = 0;
+		for (int i = 0; i < n; i++) {
 			MultiTypeRenderer.Rotate rot = r.renderRotate();
 			BufferedImage bg = decode(rot.background());
 			BufferedImage piece = decode(rot.piece());
@@ -102,10 +118,11 @@ class RotateSameImageTest {
 			assertThat(bg.getHeight()).isEqualTo(rot.bgHeight());
 			assertThat(piece.getWidth()).isEqualTo(rot.pieceSize());
 			assertThat(rot.answerAngle() % props.getRotate().getKeyboardStep()).isZero();
-			double right = diff(bg, piece, rot.answerAngle());
-			double wrong = diff(bg, piece, rot.answerAngle() + 90);
-			assertThat(right).as("diff at answer angle").isLessThan(14);
-			assertThat(right * 1.8).as("answer angle must be clearly best: %s vs %s", right, wrong).isLessThan(wrong);
+			int guess = solve(bg, piece);
+			int err = Math.abs(guess - rot.answerAngle()) % 360;
+			if (Math.min(err, 360 - err) <= 10) {
+				hits++;
+			}
 			if (out != null && i == 0) {
 				new File(out).mkdirs();
 				ImageIO.write(bg, "png", new File(out, "fixed-background.png"));
@@ -113,6 +130,106 @@ class RotateSameImageTest {
 				ImageIO.write(preview(bg, piece, rot.answerAngle()), "png", new File(out, "fixed-solved.png"));
 			}
 		}
+		System.out.printf("ROTATE-ADVERSARIAL hits=%d/%d (%.1f%%)%n", hits, n, 100.0 * hits / n);
+		assertThat(hits).as("NCC solver within ±10° in %d/%d", hits, n).isLessThan((int) Math.ceil(n * 0.2));
+	}
+
+	/**
+	 * 移植自安全评审的 NCC 求解器：piece 转一整圈（步长 2°），每个角度对 piece 圆盘与孔内区域求 NCC，
+	 * 再对 piece 外缘环与孔外环的角度剖面求 NCC，取两项之和最大的角度（即预测的顺时针回正角）。
+	 */
+	static int solve(BufferedImage bg, BufferedImage piece) {
+		int d = piece.getWidth(), x0 = (bg.getWidth() - d) / 2, y0 = (bg.getHeight() - d) / 2;
+		double c = d / 2.0;
+		// 攻击者已知孔的实际半径（可从底图直接量出），取孔外紧邻的 6px 环
+		double ro = c + MultiTypeRenderer.ROTATE_HOLE_MARGIN_PX + 2;
+		int bins = 180;
+		double[] outer = new double[bins];
+		int[] oc = new int[bins];
+		for (int y = Math.max(0, y0 - 30); y < Math.min(bg.getHeight(), y0 + d + 30); y++) {
+			for (int x = Math.max(0, x0 - 30); x < Math.min(bg.getWidth(), x0 + d + 30); x++) {
+				double dx = x - x0 + 0.5 - c, dy = y - y0 + 0.5 - c, rr = Math.hypot(dx, dy);
+				if (rr > ro && rr < ro + 6) {
+					int b = bin(dx, dy, bins);
+					outer[b] += gray(bg.getRGB(x, y));
+					oc[b]++;
+				}
+			}
+		}
+		avg(outer, oc);
+		double best = -9;
+		int bestA = 0;
+		for (int a = 0; a < 360; a += 2) {
+			BufferedImage p = rotated(piece, a);
+			double[] inner = new double[bins];
+			int[] ic = new int[bins];
+			double sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+			int m = 0;
+			for (int y = 0; y < d; y++) {
+				for (int x = 0; x < d; x++) {
+					int pv = p.getRGB(x, y);
+					if ((pv >>> 24) < 16) {
+						continue;
+					}
+					double dx = x + 0.5 - c, dy = y + 0.5 - c, rr = Math.hypot(dx, dy);
+					double g1 = gray(pv);
+					if (rr > c - 9 && rr < c - 1) {
+						int b = bin(dx, dy, bins);
+						inner[b] += g1;
+						ic[b]++;
+					}
+					double g2 = gray(bg.getRGB(x0 + x, y0 + y));
+					sa += g1; sb += g2; saa += g1 * g1; sbb += g2 * g2; sab += g1 * g2;
+					m++;
+				}
+			}
+			avg(inner, ic);
+			double va = saa - sa * sa / m, vb = sbb - sb * sb / m;
+			double disc = va > 1e-6 && vb > 1e-6 ? (sab - sa * sb / m) / Math.sqrt(va * vb) : 0;
+			double score = disc + ncc(inner, outer);
+			if (score > best) {
+				best = score;
+				bestA = a;
+			}
+		}
+		return bestA;
+	}
+
+	private static int bin(double dx, double dy, int bins) {
+		return (int) Math.min(bins - 1, (Math.atan2(dy, dx) + Math.PI) / (2 * Math.PI) * bins);
+	}
+
+	private static void avg(double[] v, int[] c) {
+		double mean = 0;
+		int k = 0;
+		for (int i = 0; i < v.length; i++) {
+			if (c[i] > 0) {
+				v[i] /= c[i];
+				mean += v[i];
+				k++;
+			}
+		}
+		mean = k == 0 ? 0 : mean / k;
+		for (int i = 0; i < v.length; i++) {
+			if (c[i] == 0) {
+				v[i] = mean;
+			}
+		}
+	}
+
+	private static double ncc(double[] a, double[] b) {
+		double ma = Arrays.stream(a).average().orElse(0), mb = Arrays.stream(b).average().orElse(0);
+		double ab = 0, aa = 0, bb = 0;
+		for (int i = 0; i < a.length; i++) {
+			ab += (a[i] - ma) * (b[i] - mb);
+			aa += (a[i] - ma) * (a[i] - ma);
+			bb += (b[i] - mb) * (b[i] - mb);
+		}
+		return aa > 1e-9 && bb > 1e-9 ? ab / Math.sqrt(aa * bb) : 0;
+	}
+
+	private static double gray(int p) {
+		return 0.299 * ch(p, 16) + 0.587 * ch(p, 8) + 0.114 * ch(p, 0);
 	}
 
 	private static BufferedImage decode(String dataOrB64) throws Exception {
@@ -129,28 +246,6 @@ class RotateSameImageTest {
 		g.drawImage(piece, 0, 0, null);
 		g.dispose();
 		return o;
-	}
-
-	/** piece 转 angle 后与 background 中心（反推遮罩）的平均通道差 */
-	private static double diff(BufferedImage bg, BufferedImage piece, int angle) {
-		BufferedImage p = rotated(piece, angle);
-		int d = p.getWidth(), x0 = (bg.getWidth() - d) / 2, y0 = (bg.getHeight() - d) / 2;
-		int m = MultiTypeRenderer.ROTATE_MASK.getRGB();
-		double sum = 0;
-		int n = 0;
-		for (int y = 0; y < d; y++) {
-			for (int x = 0; x < d; x++) {
-				if (Math.hypot(x + 0.5 - d / 2.0, y + 0.5 - d / 2.0) > d / 2.0 - 6) {
-					continue;
-				}
-				int a = p.getRGB(x, y), q = bg.getRGB(x0 + x, y0 + y);
-				for (int s : new int[]{16, 8, 0}) {
-					sum += Math.abs((ch(q, s) - A * ch(m, s)) / (1 - A) - ch(a, s));
-				}
-				n += 3;
-			}
-		}
-		return sum / n;
 	}
 
 	private static BufferedImage preview(BufferedImage bg, BufferedImage piece, int answer) {

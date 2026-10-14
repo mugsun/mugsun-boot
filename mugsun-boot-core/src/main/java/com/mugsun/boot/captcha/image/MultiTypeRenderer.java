@@ -236,31 +236,32 @@ public class MultiTypeRenderer {
 		int applied = randomAngle(cfg.getMinAngle(), cfg.getKeyboardStep(), rnd);
 		List<BufferedImage> pool = rotatePool();
 		// 同图挖圆（参考 tianai StandardRotateImageCaptchaGenerator）：一张经扰动（随机缩放/裁切/镜像/调色）的 w×h 原图，
-		// 中心 d×d 圆旋转 applied 度作 piece，原位盖半透明遮罩 + 细描边作 background，二者来自同一张图
+		// 中心 d×d 圆旋转 applied 度作 piece；background 的圆孔用不透明纯色填充（不保留原像素）并描细边。
+		// piece 另做独立调色/模糊/噪点与边缘羽化，削弱逐像素和边缘环匹配（安全评审 R5-1/2/3）
 		BufferedImage base = pool.isEmpty() ? library.next(w, h)
 			: BackgroundLibrary.perturb(pool.get(rnd.nextInt(pool.size())), w, h, rnd);
-		BufferedImage[] pair = composeRotate(base, d, applied);
-		BufferedImage bg = pair[0];
-		BufferedImage piece = pair[1];
-		noise(piece, 5);
+		BufferedImage piece = cutPiece(base, d, applied);
+		disguisePiece(piece, rnd);
+		BufferedImage bg = holeBackground(base, d);
 		noise(bg, 6);
 		int answer = Math.floorMod(360 - applied, 360);
 		return new Rotate(jpeg(bg), png(piece), w, h, d, answer);
 	}
 
-	/** 圆孔遮罩颜色（半透明深色）与描边颜色 */
-	static final Color ROTATE_MASK = new Color(20, 30, 50, 110);
-	static final Color ROTATE_OUTLINE = new Color(255, 255, 255, 200);
+	/** 圆孔不透明填充色（与原图无关的中性灰）与描边颜色 */
+	static final Color ROTATE_HOLE_FILL = new Color(206, 210, 218);
+	static final Color ROTATE_OUTLINE = new Color(255, 255, 255, 220);
+	/** 孔比 piece 半径多出的不透明边距（像素）：遮住紧贴圆边的原图像素，削弱孔外环与 piece 外缘的连续性匹配 */
+	static final int ROTATE_HOLE_MARGIN_PX = Integer.getInteger("mugsun.captcha.rotate.hole-margin", 6);
+	/** piece 边缘羽化宽度（像素） */
+	static final int ROTATE_FEATHER_PX = 5;
+	/** piece 独立噪点幅度（逐像素逐通道） */
+	static final int ROTATE_PIECE_NOISE = 9;
 
-	/**
-	 * 由同一张 w×h 底图生成 [background, piece]（未加噪点）：
-	 * piece 为底图中心 d×d 圆、绕圆心顺时针旋转 applied 度；background 为底图拷贝，圆位置盖半透明遮罩并描细边。
-	 */
-	static BufferedImage[] composeRotate(BufferedImage base, int d, int applied) {
-		int w = base.getWidth();
-		int h = base.getHeight();
-		int x0 = (w - d) / 2;
-		int y0 = (h - d) / 2;
+	/** 底图中心 d×d 圆，绕圆心顺时针旋转 applied 度（纯几何，不含扰动） */
+	static BufferedImage cutPiece(BufferedImage base, int d, int applied) {
+		int x0 = (base.getWidth() - d) / 2;
+		int y0 = (base.getHeight() - d) / 2;
 		BufferedImage piece = new BufferedImage(d, d, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = piece.createGraphics();
 		smooth(g);
@@ -268,18 +269,82 @@ public class MultiTypeRenderer {
 		g.rotate(Math.toRadians(applied), d / 2.0, d / 2.0);
 		g.drawImage(base, -x0, -y0, null);
 		g.dispose();
+		return piece;
+	}
+
+	/** 底图拷贝，中心 d×d 圆孔不透明纯色填充（不留任何原像素）并描细边 */
+	static BufferedImage holeBackground(BufferedImage base, int d) {
+		int w = base.getWidth();
+		int h = base.getHeight();
 		BufferedImage bg = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
-		Graphics2D bgG = bg.createGraphics();
-		bgG.drawImage(base, 0, 0, null);
-		smooth(bgG);
-		Ellipse2D hole = new Ellipse2D.Double(x0, y0, d, d);
-		bgG.setColor(ROTATE_MASK);
-		bgG.fill(hole);
-		bgG.setStroke(new BasicStroke(1.5f));
-		bgG.setColor(ROTATE_OUTLINE);
-		bgG.draw(hole);
-		bgG.dispose();
-		return new BufferedImage[] {bg, piece};
+		Graphics2D g = bg.createGraphics();
+		g.drawImage(base, 0, 0, null);
+		smooth(g);
+		int m = ROTATE_HOLE_MARGIN_PX;
+		Ellipse2D hole = new Ellipse2D.Double((w - d) / 2.0 - m, (h - d) / 2.0 - m, d + 2.0 * m, d + 2.0 * m);
+		g.setColor(ROTATE_HOLE_FILL);
+		g.fill(hole);
+		g.setStroke(new BasicStroke(1.5f));
+		g.setColor(ROTATE_OUTLINE);
+		g.draw(hole);
+		g.dispose();
+		return bg;
+	}
+
+	/**
+	 * piece 独立扰动：亮度 ±10–15%、色相 ±10–15°、高斯模糊 σ≈0.8、逐像素噪点 ±9，
+	 * 外缘 ROTATE_FEATHER_PX 像素羽化（alpha 渐隐，颜色同步向填充色过渡）。
+	 */
+	static void disguisePiece(BufferedImage piece, RandomGenerator rnd) {
+		int d = piece.getWidth();
+		float bright = 1f + (rnd.nextBoolean() ? 1 : -1) * (0.10f + rnd.nextFloat() * 0.05f);
+		float hue = (rnd.nextBoolean() ? 1 : -1) * (10f + rnd.nextFloat() * 5f) / 360f;
+		float[] k = gaussian3(0.8);
+		java.awt.image.BufferedImage blurred = new java.awt.image.ConvolveOp(new java.awt.image.Kernel(3, 3, k),
+			java.awt.image.ConvolveOp.EDGE_NO_OP, null).filter(piece, null);
+		RandomGenerator nz = Rng.noise();
+		float[] hsb = new float[3];
+		double c = d / 2.0;
+		int fr = ROTATE_HOLE_FILL.getRed(), fg = ROTATE_HOLE_FILL.getGreen(), fb = ROTATE_HOLE_FILL.getBlue();
+		for (int y = 0; y < d; y++) {
+			for (int x = 0; x < d; x++) {
+				int p = blurred.getRGB(x, y);
+				int a = piece.getRGB(x, y) >>> 24;
+				if (a == 0) {
+					piece.setRGB(x, y, 0);
+					continue;
+				}
+				Color.RGBtoHSB((p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF, hsb);
+				int rgb = Color.HSBtoRGB(hsb[0] + hue + 1f, hsb[1], Math.min(1f, hsb[2] * bright));
+				int r = ((rgb >> 16) & 0xFF) + nz.nextInt(-ROTATE_PIECE_NOISE, ROTATE_PIECE_NOISE + 1);
+				int g = ((rgb >> 8) & 0xFF) + nz.nextInt(-ROTATE_PIECE_NOISE, ROTATE_PIECE_NOISE + 1);
+				int b = (rgb & 0xFF) + nz.nextInt(-ROTATE_PIECE_NOISE, ROTATE_PIECE_NOISE + 1);
+				double edge = c - Math.hypot(x + 0.5 - c, y + 0.5 - c);
+				double t = Math.max(0, Math.min(1, edge / ROTATE_FEATHER_PX));
+				if (t < 1) {
+					r = (int) Math.round(fr + (r - fr) * t);
+					g = (int) Math.round(fg + (g - fg) * t);
+					b = (int) Math.round(fb + (b - fb) * t);
+					a = (int) Math.round(a * t);
+				}
+				piece.setRGB(x, y, (a << 24) | (BackgroundLibrary.clamp(r) << 16)
+					| (BackgroundLibrary.clamp(g) << 8) | BackgroundLibrary.clamp(b));
+			}
+		}
+	}
+
+	private static float[] gaussian3(double sigma) {
+		float[] k = new float[9];
+		float sum = 0;
+		for (int i = 0; i < 9; i++) {
+			int dx = i % 3 - 1, dy = i / 3 - 1;
+			k[i] = (float) Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
+			sum += k[i];
+		}
+		for (int i = 0; i < 9; i++) {
+			k[i] /= sum;
+		}
+		return k;
 	}
 
 	/**
