@@ -81,7 +81,7 @@ public class AccessLogFilter extends OncePerRequestFilter {
 	}
 
 	private static final java.util.regex.Pattern TOKEN_LIKE =
-		java.util.regex.Pattern.compile("(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\\-.~=%]{24,}|[0-9a-fA-F]{32,}");
+		java.util.regex.Pattern.compile("(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\\-.~=%]{24,}|(?=.*[0-9])[0-9a-fA-F]{32,}");
 
 	/**
 	 * 路径脱敏：去掉每段 {@code ;} 之后的 matrix 参数（{@code ;jsessionid=} 等）；看起来像令牌或签名的段
