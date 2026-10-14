@@ -20,7 +20,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 概览卡片 / 页面 / 性能 / 漏斗 / 留存 按租户时区切日（默认 Asia/Shanghai）：
+ * 概览卡片 / 页面 / 性能 / 漏斗 / 留存 / 事件分析 / 地域地图 按租户时区切日（默认 Asia/Shanghai）：
  * 事件落在当地 0 点前 1 秒（= UTC 前一天 15:59:59）与 0 点后 1 秒，days=1 只能看到 0 点之后的。
  * 按 UTC 切日时两者同属一个 UTC 日（UTC 08:00 后运行时），断言会失败。
  */
@@ -31,6 +31,7 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP = "it-tz-dash";
 	private static final String APP_RET = "it-tz-ret";
 	private static final String APP_SAME = "it-tz-same";
+	private static final String APP_EVGEO = "it-tz-evgeo";
 
 	@Autowired
 	private TrackEventStore store;
@@ -44,6 +45,7 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 		seedApp(APP);
 		seedApp(APP_RET);
 		seedApp(APP_SAME);
+		seedApp(APP_EVGEO);
 		localToday = LocalDate.now(SHANGHAI);
 		long midnight = localToday.atStartOfDay(SHANGHAI).toInstant().toEpochMilli();
 		long before = midnight - 1000L;
@@ -66,7 +68,10 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 			ev(APP_RET, "$pageview", after, r, "/r", "{}"),
 			// UX-111：当地 00:00:01（UTC 仍是前一天 16:00:01）的同一批 PV + 错误
 			ev(APP_SAME, "$pageview", after, r, "/s", "{}"),
-			errorEv(APP_SAME, after, r, "fp-ux111")));
+			errorEv(APP_SAME, after, r, "fp-ux111"),
+			// 事件分析 / 地域地图：当地 0 点前一条 tz_ev_before（北京），0 点后一条 tz_ev_after（上海）
+			geoEv(ev(APP_EVGEO, "tz_ev_before", before, x, "/before", "{}"), "中国|0|北京|北京市|电信", 116.4, 39.9),
+			geoEv(ev(APP_EVGEO, "tz_ev_after", after, y, "/after", "{}"), "中国|0|上海|上海市|电信", 121.5, 31.2)));
 	}
 
 	@Test
@@ -144,6 +149,37 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 		assertThat(cards.path("eventCount").asLong()).as("概览卡片「今天」也含这批事件").isEqualTo(2L);
 		JsonNode errToday = readBodyAssertOk(get("/system/track/errors/page?appKey=" + APP_SAME + "&days=1", adminToken));
 		assertThat(errToday.path("totalRow").asLong()).isEqualTo(1L);
+	}
+
+	@Test
+	void eventListTodayStartsAtLocalMidnight() {
+		JsonNode today = readBodyAssertOk(get("/system/track/events/page?appKey=" + APP_EVGEO + "&days=1", adminToken));
+		List<String> names = new ArrayList<>();
+		today.path("records").forEach(r -> names.add(r.path("eventName").asText()));
+		assertThat(names).as("今天只含当地 0 点后的事件").containsExactly("tz_ev_after");
+		assertThat(today.path("totalRow").asLong()).isEqualTo(1L);
+		JsonNode two = readBodyAssertOk(get("/system/track/events/page?appKey=" + APP_EVGEO + "&days=2", adminToken));
+		assertThat(two.path("totalRow").asLong()).as("近 2 天含当地昨天 23:59:59").isEqualTo(2L);
+	}
+
+	@Test
+	void geoTodayStartsAtLocalMidnight() {
+		JsonNode today = readBodyAssertOk(get("/system/track/geo?appKey=" + APP_EVGEO + "&days=1", adminToken));
+		List<String> regions = new ArrayList<>();
+		today.path("regions").forEach(r -> regions.add(r.path("region").asText()));
+		assertThat(regions).as("今天的属地只有 0 点后的上海").containsExactly("上海");
+		assertThat(today.path("points").size()).isEqualTo(1);
+		assertThat(today.path("geoCount").asLong()).isEqualTo(1L);
+		JsonNode two = readBodyAssertOk(get("/system/track/geo?appKey=" + APP_EVGEO + "&days=2", adminToken));
+		assertThat(two.path("geoCount").asLong()).isEqualTo(2L);
+		assertThat(two.path("regions").size()).isEqualTo(2);
+	}
+
+	private TrackIngestEvent geoEv(TrackIngestEvent e, String region, double lon, double lat) {
+		e.setIpRegion(region);
+		e.setGeoLon(lon);
+		e.setGeoLat(lat);
+		return e;
 	}
 
 	private TrackIngestEvent errorEv(String appKey, long ms, String distinctId, String fp) {

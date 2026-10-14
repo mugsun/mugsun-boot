@@ -1,0 +1,9 @@
+# 全栈自检（scripts/compose-full-smoke.sh）用的 Python 依赖：版本 + sha256 全部锁死，pip 以 --require-hashes 安装
+# 升级：改版本后从 https://pypi.org/pypi/<包>/<版本>/json 取 musllinux / py3-none-any 轮子的 sha256
+gmssl==3.2.2 \
+    --hash=sha256:59f069a91eb19ef59b9e7be4d436ed01c92ce064d3d7d45a8778fc07fd2cd068
+pycryptodomex==3.24.1 \
+    --hash=sha256:bd06ab1d9cf90e8b198daae3b364e9ac23a640d210bb8faddad6627cf2e33be7 \
+    --hash=sha256:8321c315c4418dfe45a811b792380438ec81185deaaf202dbcd77711b4f51796
+redis==5.2.1 \
+    --hash=sha256:ee7e1056b9aea0f04c6c2ed59452947f34c4940ee025f5dd83e6a6418b6989e4

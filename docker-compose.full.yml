@@ -1,17 +1,21 @@
-# Mugsun 一条命令起全套：PostgreSQL(PostGIS+pgvector) + Redis + 后端 + 管理台(Nginx 反代 /api)
+# Mugsun 一条命令起全套：PostgreSQL(PostGIS+pgvector) + Redis + 后端 + 管理台(mugsun-pc 镜像，Nginx 反代 /api)
 #
 #   docker compose -f docker-compose.full.yml up -d --build
-#   浏览器打开 http://localhost:8088 ，账号 admin，口令见：
-#   docker compose -f docker-compose.full.yml logs init
+#   浏览器打开 http://localhost:8088 ，账号 admin，口令（不写日志）：
+#   docker compose -f docker-compose.full.yml run --rm init show
 #
-# 只需要 Docker（Compose v2.17+）。管理台与埋点 SDK 源码默认从 GitHub main 拉取构建；
+# 只需要 Docker（Compose v2.17+）。管理台直接用 mugsun-pc 仓库自己的 Dockerfile 和 nginx 配置构建
+# （nginx-unprivileged 非 root、基础镜像固定 digest、CSP、用 $remote_addr 覆盖 X-Forwarded-For），
+# 源码固定在下面 MUGSUN_PC_SRC / MUGSUN_TRACK_SRC 默认值里的提交 sha（可复现；升级时一起改 sha）。
 # 本地已有平级 mugsun-pc / mugsun-track 时可改用本地源码：
 #   MUGSUN_PC_SRC=../mugsun-pc MUGSUN_TRACK_SRC=../mugsun-track docker compose -f docker-compose.full.yml up -d --build
 #
 # 默认安全：不带任何弱口令。首次启动由 init 生成数据库/Redis 口令、管理员口令与 SM4/SM2/文件签名密钥，
-# 存进 secrets 卷，重启不变；后端以 prod 配置运行（strict-keys、验证码开启、OpenAPI 关闭）。
-# 只对外暴露管理台端口（MUGSUN_HTTP_PORT，默认 8088），数据库和 Redis 不映射到宿主机。
-# 清空重来（会删数据和密钥）：docker compose -f docker-compose.full.yml down -v
+# 按服务拆进三个 secrets 卷（每个文件 0600、属主是对应服务用户），每个服务只挂自己的卷；重启不变。
+# 后端以 prod 配置运行（strict-keys、验证码开启、OpenAPI 关闭）。
+# 管理台端口默认只绑 127.0.0.1:8088；要给局域网访问显式设 MUGSUN_HTTP_BIND=0.0.0.0。数据库和 Redis 不映射到宿主机。
+# 清空重来只能用（会删数据和密钥）：docker compose -f docker-compose.full.yml down -v
+# 不要单删 secrets 卷而保留 pg-data：库口令只在首次初始化时写入，新生成的口令会对不上。
 name: mugsun-full
 
 services:
@@ -21,7 +25,9 @@ services:
       dockerfile: docker/full/init.Dockerfile
     image: mugsun-full-init:local
     volumes:
-      - secrets:/secrets
+      - secrets-boot:/secrets/boot
+      - secrets-postgres:/secrets/postgres
+      - secrets-redis:/secrets/redis
 
   postgres:
     build:
@@ -30,12 +36,12 @@ services:
         # 基础镜像固定到 digest（可复现）；Apple Silicon 想原生 arm64 可设 MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4@sha256:...
         POSTGIS_IMAGE: ${MUGSUN_PG_BASE_IMAGE:-postgis/postgis:16-3.4@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5}
     image: mugsun-full-postgres:local
-    # 超级用户 postgres 与应用账号 mugsun 用同一随机口令（来自 secrets 卷），库只在 compose 内网可达
-    entrypoint: ["sh", "-c", ". /secrets/mugsun.env && export POSTGRES_PASSWORD=\"$$MUGSUN_DB_PASSWORD\" && exec docker-entrypoint.sh postgres"]
+    # 超级用户 postgres 与应用账号 mugsun 用同一随机口令（只挂 postgres 专用的 secrets 卷，里面只有库口令），库只在 compose 内网可达
+    entrypoint: ["sh", "-c", ". /secrets/db.env && export POSTGRES_PASSWORD=\"$$MUGSUN_DB_PASSWORD\" && exec docker-entrypoint.sh postgres"]
     environment:
       POSTGRES_USER: postgres
     volumes:
-      - secrets:/secrets:ro
+      - secrets-postgres:/secrets:ro
       - pg-data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/initdb/init-db.sql:ro
       - ./docker/postgres/00-init-db.sh:/docker-entrypoint-initdb.d/00-init-db.sh:ro
@@ -52,16 +58,16 @@ services:
   redis:
     # 与 mugsun-pc#18 同一 digest
     image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
-    # 口令不进进程参数：gen-secrets 生成 /secrets/redis.conf（requirepass），这里只传配置文件路径
+    # 口令不进进程参数：gen-secrets 生成 /secrets/redis.conf（requirepass，0600 属 redis），这里只传配置文件路径
     command: ["redis-server", "/secrets/redis.conf"]
     volumes:
-      - secrets:/secrets:ro
+      - secrets-redis:/secrets:ro
       - redis-data:/data
     depends_on:
       init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", ". /secrets/mugsun.env && REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(sed -n 's/^requirepass //p' /secrets/redis.conf)\" redis-cli ping | grep PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -90,10 +96,11 @@ services:
       SMS_SK: unset
       SMS_SIGNATURE: unset
       SMS_TEMPLATE_ID: unset
-      # 只信任 pc（Nginx）容器的固定 IP 传来的 X-Forwarded-For，不信任整个子网
-      MUGSUN_OPENAPI_TRUSTED_PROXIES: ${MUGSUN_PC_IP:-172.30.89.10}/32
+      # 只信任 pc（Nginx）容器的固定 IP 传来的 X-Forwarded-For，不信任整个子网；
+      # pc 的 nginx 用 $remote_addr 覆盖 XFF（不保留客户端自带的），前置网关由 pc 侧 MUGSUN_GATEWAY_CIDRS 处理
+      MUGSUN_OPENAPI_TRUSTED_PROXIES: ${MUGSUN_PC_IP:-172.30.88.10}/32
     volumes:
-      - secrets:/secrets:ro
+      - secrets-boot:/secrets:ro
       - files:/var/lib/mugsun/files
     depends_on:
       postgres:
@@ -109,18 +116,27 @@ services:
     restart: unless-stopped
 
   pc:
+    # 直接用 mugsun-pc 仓库的 Dockerfile + docker/nginx（pc#18 加固 + pc#37 的网关 CIDR 校验和 CSP 域名过滤），
+    # 这里不再维护单独的 nginx 配置。源码固定到提交 sha（不跟 main）；pc 镜像里 pnpm 用 --frozen-lockfile。
+    # 固定在 mugsun-pc main 上 pc#37 的合入提交 1dbc009（含 pc#18 + pc#37 加固）。
     build:
-      context: ./docker/full
-      dockerfile: pc.Dockerfile
+      context: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#1dbc009627e0c2ad1b91ec79a7c6438af392bf22}
+      dockerfile: Dockerfile
       additional_contexts:
-        pc: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#main}
-        track: ${MUGSUN_TRACK_SRC:-https://github.com/mugsun/mugsun-track.git#main}
+        track: ${MUGSUN_TRACK_SRC:-https://github.com/mugsun/mugsun-track.git#b66963f740af911db3697f35a33b8bb7065e6d3c}
     image: mugsun-full-pc:local
+    environment:
+      MUGSUN_API_UPSTREAM: http://boot:8080
+      # 前置网关（TLS 终端/负载均衡）网段，逗号分隔；默认空 = 不信任任何前置代理传来的 XFF
+      MUGSUN_GATEWAY_CIDRS: ${MUGSUN_GATEWAY_CIDRS:-}
+      MUGSUN_CSP_TILE_HOSTS: ${MUGSUN_CSP_TILE_HOSTS:-}
+      MUGSUN_CSP_TRACK_HOSTS: ${MUGSUN_CSP_TRACK_HOSTS:-}
     ports:
-      - "${MUGSUN_HTTP_PORT:-8088}:80"
+      # 容器内 nginx 以非 root（uid 101）监听 8080；宿主机默认只绑回环地址
+      - "${MUGSUN_HTTP_BIND:-127.0.0.1}:${MUGSUN_HTTP_PORT:-8088}:8080"
     networks:
       default:
-        ipv4_address: ${MUGSUN_PC_IP:-172.30.89.10}
+        ipv4_address: ${MUGSUN_PC_IP:-172.30.88.10}
     depends_on:
       boot:
         condition: service_healthy
@@ -130,11 +146,15 @@ networks:
   default:
     ipam:
       config:
-        # 固定子网，pc 用固定 IP 供后端信任；与宿主机网段冲突时同时改 MUGSUN_COMPOSE_SUBNET 和 MUGSUN_PC_IP
-        - subnet: ${MUGSUN_COMPOSE_SUBNET:-172.30.89.0/24}
+        # 与 mugsun-pc 的 compose 一致：固定子网，pc 用固定 IP .10 供后端信任；
+        # 动态分配只在 .128/25，任何其它容器都拿不到 .10。与宿主机网段冲突时同时改这三个变量
+        - subnet: ${MUGSUN_COMPOSE_SUBNET:-172.30.88.0/24}
+          ip_range: ${MUGSUN_COMPOSE_IP_RANGE:-172.30.88.128/25}
 
 volumes:
-  secrets:
+  secrets-boot:
+  secrets-postgres:
+  secrets-redis:
   pg-data:
   redis-data:
   files:

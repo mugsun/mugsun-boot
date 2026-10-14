@@ -118,6 +118,33 @@ class TrackCollectApiTest extends AbstractTrackIntegrationTest {
 		assertThat(row.getLong("ts_ms")).as("无偏差时 ts 等于 client_ts").isEqualTo(clientTs);
 	}
 
+	/** ①b Web SDK 只报完整 referrer URL：服务端取主机名落 referrer_domain（事件与会话） */
+	@Test
+	void referrerUrlDerivesReferrerDomain() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String e1 = uuid();
+		String e2 = uuid();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(e1, "$pageview", clientTs, distinctId, sessionId, Map.of(
+			"url_path", "/landing", "referrer", "https://www.Baidu.com/s?wd=mugsun")));
+		events.add(event(e2, "$pageview", clientTs + 100, distinctId, sessionId, Map.of(
+			"url_path", "/next", "referrer", "")));
+
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条事件落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+
+		assertThat(trackRow("SELECT referrer_domain FROM track_event WHERE event_id = ?", e1).getString("referrer_domain"))
+			.isEqualTo("www.baidu.com");
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ? AND referrer_domain IS NULL", e2))
+			.as("空 referrer（直接访问）不落域名").isEqualTo(1L);
+		awaitUntil("会话来源域名", () -> trackLong("SELECT count(*) AS c FROM track_session"
+			+ " WHERE session_id = ? AND referrer_domain = 'www.baidu.com'", sessionId) == 1L);
+	}
+
 	/** ①c 错误堆栈保留到 4096 字符（与 SDK error 插件一致），其它字符串值仍 ≤1024 */
 	@Test
 	void errorStackKeptUpTo4096() {
