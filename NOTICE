@@ -13,10 +13,3 @@ GeographicLib-Java (net.sf.geographiclib:GeographicLib-Java)
   Licensed under the MIT/X11 License.
   https://geographiclib.sourceforge.io/  https://github.com/geographiclib/geographiclib-java
   Used by mugsun-boot-gis for geodesic distance on the WGS84 ellipsoid.
-
-Proj4J (org.locationtech.proj4j:proj4j)
-  Copyright (c) LocationTech Proj4J contributors
-  Licensed under the Apache License, Version 2.0.
-  https://github.com/locationtech/proj4j
-  Used by mugsun-boot-gis for local azimuthal equidistant / Lambert azimuthal
-  equal-area projections. The EPSG dataset module (proj4j-epsg) is not used.

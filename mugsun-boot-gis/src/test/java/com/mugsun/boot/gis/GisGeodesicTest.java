@@ -101,11 +101,11 @@ class GisGeodesicTest {
 			// 点在面内 → 0
 			Geometry poly = polygon(lon, lat);
 			assertThat(GisGeodesic.distance(poly, poly.getCentroid().getX(), poly.getCentroid().getY())).isZero();
-			// 线段中部穿过查询点附近：距离取线上最近点而不是顶点
+			// 线段中部穿过查询点附近：距离取线上最近点而不是顶点；边按测地线（与 PostGIS geography 一致），真值沿测地线取点
 			Geometry seg = GF.createLineString(new Coordinate[] { new Coordinate(lon - 0.1, lat),
 				new Coordinate(lon + 0.1, lat) });
 			double d = GisGeodesic.distance(seg, lon, lat + 0.001);
-			assertThat(d / GeodesicTruth.inverse(lon, lat, lon, lat + 0.001) - 1).isBetween(-TOL, TOL);
+			assertThat(d / GeodesicTruth.minDistance(seg, lon, lat + 0.001) - 1).isBetween(-TOL, TOL);
 			// 长度、面积
 			Geometry square = polygon(lon, lat);
 			Coordinate[] c = square.getCoordinates();
@@ -160,19 +160,71 @@ class GisGeodesicTest {
 			.isInstanceOf(ServiceException.class).hasMessageContaining("180°");
 	}
 
+	@ParameterizedTest(name = "{0} {2}m")
+	@MethodSource("polarShapes")
+	@DisplayName("纬度 88–90° 的线和面（长边、跨大经度）缓冲：边界到原要素的测地距离误差 < 0.1%")
+	void polarLineAndPolygonBuffer(String name, Geometry geom, double meters) {
+		Geometry buf = GisGeodesic.buffer(geom, meters);
+		double[] err = GeodesicTruth.relErrorRange(geom, buf, meters, Math.min(0.0005, meters / 111_000d / 20));
+		System.out.printf("POLAR|%s|%.0f|%+.4f%%|%+.4f%%%n", name, meters, err[0] * 100, err[1] * 100);
+		assertThat(err[0]).isGreaterThan(-BUF_TOL);
+		assertThat(err[1]).isLessThan(BUF_TOL);
+	}
+
+	static Stream<Arguments> polarShapes() {
+		Geometry line = GF.createLineString(new Coordinate[] { new Coordinate(10, 89.5), new Coordinate(100, 89.6),
+			new Coordinate(170, 89.2) });
+		Geometry south = GF.createLineString(new Coordinate[] { new Coordinate(-60, -88), new Coordinate(60, -88.5) });
+		Geometry poly = GF.createPolygon(new Coordinate[] { new Coordinate(0, 88), new Coordinate(40, 88),
+			new Coordinate(40, 89), new Coordinate(0, 89), new Coordinate(0, 88) });
+		Geometry wide = GF.createPolygon(new Coordinate[] { new Coordinate(-80, -88.2), new Coordinate(80, -88.2),
+			new Coordinate(80, -89.6), new Coordinate(-80, -89.6), new Coordinate(-80, -88.2) });
+		List<Arguments> out = new java.util.ArrayList<>();
+		for (double m : new double[] { 500d, 5_000d, 20_000d }) {
+			out.add(Arguments.of("线 88–88.5°S 跨 120°", south, m));
+			out.add(Arguments.of("面 88–89°N 40°宽", poly, m));
+		}
+		// 这两个离极点不到 50 km：20 km 缓冲会包住极点或绕过 180°，只测 500 m / 5 km
+		for (double m : new double[] { 500d, 5_000d }) {
+			out.add(Arguments.of("线 89.2–89.6°N 跨 160°", line, m));
+			out.add(Arguments.of("面 88.2–89.6°S 160°宽", wide, m));
+		}
+		return out.stream();
+	}
+
 	@Test
-	@DisplayName("投影选择：面积按 PostGIS bestsrid（中心 |纬度| > 70° 且跨度 < 45° 用极点 LAEA），缓冲 / 量距 88° 以上用极点 AEQD")
+	@DisplayName("面积用 GeographicLib PolygonArea：与环方向无关、扣除内环；极区长边面积大于按经纬度直边算的面积")
+	void polygonAreaGeodesicEdges() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry ccw = r.read("POLYGON ((0 20, 60 20, 60 80, 0 80, 0 20))");
+		Geometry cw = r.read("POLYGON ((0 20, 0 80, 60 80, 60 20, 0 20))");
+		assertThat(GisGeodesic.area(cw)).isEqualTo(GisGeodesic.area(ccw));
+		Geometry holed = r.read("POLYGON ((0 20, 60 20, 60 80, 0 80, 0 20), (10 30, 20 30, 20 40, 10 40, 10 30))");
+		Geometry hole = r.read("POLYGON ((10 30, 20 30, 20 40, 10 40, 10 30))");
+		assertThat(GisGeodesic.area(holed)).isCloseTo(GisGeodesic.area(ccw) - GisGeodesic.area(hole),
+			org.assertj.core.data.Offset.offset(1d));
+		// 高纬 170° 宽：测地线边向极点弯（75° 那条边最高弯到 89° 附近），面积远小于纬线边围成的带
+		Geometry wide = r.read("POLYGON ((0 75, 170 75, 170 88, 0 88, 0 75))");
+		double a = 6378137d, band = 2 * Math.PI * a * a * (Math.sin(Math.toRadians(88)) - Math.sin(Math.toRadians(75)))
+			* 170 / 360;
+		assertThat(GisGeodesic.area(wide)).isLessThan(band / 10);
+	}
+
+	@Test
+	@DisplayName("投影选择：缓冲 / 量距 88° 以上用极点 AEQD，其余用包络中心 AEQD（原点不取整）；lon_0 接近 180° 也能正反算")
 	void projectionSelection() {
-		assertThat(GisProjection.polar(new org.locationtech.jts.geom.Envelope(0, 10, 70.5, 75))).isTrue();
-		assertThat(GisProjection.polar(new org.locationtech.jts.geom.Envelope(0, 10, -80, -75))).isTrue();
-		assertThat(GisProjection.polar(new org.locationtech.jts.geom.Envelope(0, 10, 60, 69))).isFalse();
-		assertThat(GisProjection.polar(new org.locationtech.jts.geom.Envelope(0, 10, 30, 89))).isFalse();
+		assertThat(GisProjection.forDistance(new org.locationtech.jts.geom.Envelope(0, 1, -89, -88.5)).originLat())
+			.isEqualTo(-90d);
+		assertThat(GisProjection.forDistance(new org.locationtech.jts.geom.Envelope(0.004, 0.006, 10.001, 10.003))
+			.originLon()).isEqualTo(0.005d);
+		GisProjection e = GisProjection.aeqd(179.9, 0);
+		double[] w = e.forward(-179.9, 0);
+		assertThat(w[0] / GeodesicTruth.inverse(179.9, 0, -179.9, 0) - 1).isBetween(-1e-9, 1e-9);
+		assertThat(e.inverse(w[0], w[1])[0]).isCloseTo(180.1, org.assertj.core.data.Offset.offset(1e-9));
 		GisProjection n = GisProjection.forDistance(new org.locationtech.jts.geom.Envelope(0, 1, 88.5, 89));
 		assertThat(n.originLat()).isEqualTo(90d);
 		assertThat(GisProjection.forDistance(new org.locationtech.jts.geom.Envelope(0, 1, 80, 81)).originLat())
 			.isEqualTo(80.5d);
-		GisProjection a = GisProjection.forArea(new org.locationtech.jts.geom.Envelope(0, 1, -80, -79));
-		assertThat(a.originLat()).isEqualTo(-90d);
 		GisProjection c = GisProjection.forDistance(new org.locationtech.jts.geom.Envelope(116, 117, 39, 40));
 		assertThat(c.originLon()).isEqualTo(116.5d);
 		// 椭球 AEQD：原点到任意点的平面距离等于测地距离

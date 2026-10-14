@@ -2,39 +2,47 @@ package com.mugsun.boot.gis;
 
 import com.mugsun.core.tool.exception.ServiceException;
 import net.sf.geographiclib.Geodesic;
+import net.sf.geographiclib.GeodesicData;
+import net.sf.geographiclib.GeodesicLine;
 import net.sf.geographiclib.GeodesicMask;
-import org.locationtech.jts.densify.Densifier;
+import net.sf.geographiclib.PolygonArea;
+import net.sf.geographiclib.PolygonResult;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.CoordinateFilter;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.geom.util.GeometryTransformer;
 import org.locationtech.jts.geom.util.LinearComponentExtracter;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.distance.DistanceOp;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 回落路径（无 PostGIS / forceJava）的米制计算，全部建立在成熟开源库上：
  * <ul>
  *   <li>测地距离：GeographicLib-Java（Karney，MIT），与 PostGIS 2.2+ {@code geography} 同一算法；</li>
- *   <li>局部投影：proj4j（Apache-2.0）椭球 AEQD / LAEA，选法参照 PostGIS {@code geography_bestsrid}，见 {@link GisProjection}；</li>
- *   <li>平面缓冲 / 最近点对 / 加密：JTS。</li>
+ *   <li>面积：GeographicLib {@code PolygonArea}（边按测地线），与 PostGIS {@code ST_Area(geography)} 同一算法；</li>
+ *   <li>局部投影：由 GeographicLib 正反算定义的椭球 AEQD，见 {@link GisProjection}；</li>
+ *   <li>平面缓冲 / 最近点对：JTS。</li>
  * </ul>
  *
  * <p>早先统一投到 Web Mercator 再按米缓冲 / 量距 / 量面积，没有纬度修正（北京 500 m 缓冲实际约 383 m）；
  * 后来改用自写的球面 AEQD，误差 ≤0.5% 且 85° 以上不支持。现在改为椭球投影：从原点出发的距离就是测地距离，
  * 极区用以极点为原点的投影，85° 以上也能算。
- * 经纬度直线在投影面上是曲线，所以投影前按 {@link #DENSIFY_DEG} 加密、投回前按 {@link #DENSIFY_M} 加密。
+ * 与 PostGIS geography 一样把两顶点间的边当作测地线：投影前、投回后都沿 {@link GeodesicLine} 每 {@link #DENSIFY_M} 米取点加密。
  *
  * <ul>
  *   <li>缓冲：包络中心 |纬度| ≥ 88° 用极点 AEQD，否则包络中心 AEQD（椭球 AEQD 在任意纬度都成立）；</li>
  *   <li>距离：以查询点（或两几何包络）为原点的 AEQD 求任意最近点对，再对这一对点做 {@link #inverse}；</li>
- *   <li>面积：极点 LAEA 或包络中心 LAEA（等积）；</li>
- *   <li>长度：加密后逐段 {@link #inverse} 求和。</li>
+ *   <li>面积：{@code PolygonArea} 外环减内环；</li>
+ *   <li>长度：逐段 {@link #inverse} 求和（边即测地线，无需加密）。</li>
  * </ul>
  *
  * <p>适用范围（分析单个几何时抛业务异常，图层查询走 {@link #distanceLenient} / {@link #tryBuffer} 单独处理）：
@@ -42,9 +50,7 @@ import java.util.List;
  */
 public final class GisGeodesic {
 
-	/** 投影前经纬度加密步长（度），约 1 km */
-	static final double DENSIFY_DEG = 0.01d;
-	/** 投回前平面加密步长（米） */
+	/** 沿测地线加密的步长（米） */
 	static final double DENSIFY_M = 1_000d;
 	/**
 	 * 每 1/4 圆 32 段（JTS 默认 8 段）。折线弦会向内凹 R·(1−cos(π/4/n))：16 段约 0.12%，32 段约 0.03%。
@@ -69,7 +75,7 @@ public final class GisGeodesic {
 		}
 		requireNoAntimeridian(wgs);
 		GisProjection p = GisProjection.forDistance(wgs.getEnvelopeInternal());
-		Geometry plane = p.forward(densifyDeg(wgs));
+		Geometry plane = p.forward(densify(wgs));
 		Geometry buf = BufferOp.bufferOp(plane, meters, QUADRANT_SEGMENTS, BufferParameters.CAP_ROUND);
 		if (buf == null || buf.isEmpty()) {
 			return FACTORY.createPolygon();
@@ -81,7 +87,7 @@ public final class GisGeodesic {
 				throw new ServiceException(GisConstants.MSG_GEODESIC_POLE);
 			}
 		}
-		Geometry out = p.inverse(Densifier.densify(buf, DENSIFY_M));
+		Geometry out = densify(p.inverse(buf));
 		if (outOfLonRange(out) || crossesAntimeridian(out)) {
 			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
 		}
@@ -104,7 +110,7 @@ public final class GisGeodesic {
 		}
 		requireNoAntimeridian(wgs);
 		GisProjection p = GisProjection.aeqd(lon, lat);
-		Geometry plane = p.forward(densifyDeg(wgs));
+		Geometry plane = p.forward(densify(wgs));
 		double[] origin = p.forward(lon, lat);
 		Coordinate[] pair = DistanceOp.nearestPoints(plane, FACTORY.createPoint(new Coordinate(origin[0], origin[1])));
 		if (pair[0].distance(pair[1]) == 0d) {
@@ -144,7 +150,7 @@ public final class GisGeodesic {
 					qLon = cand;
 				}
 			}
-			Geometry dense = densifyDeg(g);
+			Geometry dense = densify(g);
 			if (g.getDimension() == 2 && g.covers(FACTORY.createPoint(new Coordinate(qLon, lat)))) {
 				return 0d;
 			}
@@ -166,8 +172,8 @@ public final class GisGeodesic {
 			} catch (RuntimeException degenerate) {
 				// 投影退化，只用顶点最小值
 			}
-			// 加密步长 DENSIFY_DEG 下，真实最近点离最近顶点不超过半步（约 0.56 km）；超出这个范围说明投影结果不可信
-			double slack = DENSIFY_DEG * 111_320d;
+			// 加密步长 DENSIFY_M 下，真实最近点离最近顶点不超过半步；超出这个范围说明投影结果不可信
+			double slack = DENSIFY_M;
 			if (Double.isFinite(proj) && proj <= vertexMin + 1d && proj >= vertexMin - slack) {
 				return proj;
 			}
@@ -190,7 +196,7 @@ public final class GisGeodesic {
 			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
 		}
 		GisProjection p = GisProjection.forDistance(env);
-		Coordinate[] pair = DistanceOp.nearestPoints(p.forward(densifyDeg(a)), p.forward(densifyDeg(b)));
+		Coordinate[] pair = DistanceOp.nearestPoints(p.forward(densify(a)), p.forward(densify(b)));
 		if (pair[0].distance(pair[1]) == 0d) {
 			return 0d;
 		}
@@ -199,7 +205,7 @@ public final class GisGeodesic {
 		return inverse(u[0], u[1], v[0], v[1]);
 	}
 
-	/** 地面面积（平方米），在等积 LAEA 上量；空几何为 0 */
+	/** 地面面积（平方米）：GeographicLib PolygonArea，边按测地线，逐面外环减内环；空几何为 0 */
 	public static double area(Geometry wgs) {
 		if (wgs == null || wgs.isEmpty()) {
 			return 0d;
@@ -208,10 +214,19 @@ public final class GisGeodesic {
 		if (wgs.getDimension() < 2) {
 			return 0d;
 		}
-		return GisProjection.forArea(wgs.getEnvelopeInternal()).forward(densifyDeg(wgs)).getArea();
+		double sum = 0d;
+		for (int i = 0; i < wgs.getNumGeometries(); i++) {
+			if (wgs.getGeometryN(i) instanceof Polygon poly && !poly.isEmpty()) {
+				sum += ringArea(poly.getExteriorRing().getCoordinates());
+				for (int k = 0; k < poly.getNumInteriorRing(); k++) {
+					sum -= ringArea(poly.getInteriorRingN(k).getCoordinates());
+				}
+			}
+		}
+		return sum;
 	}
 
-	/** 地面长度（米）：加密后逐段测地距离求和（面取周长）；空几何为 0 */
+	/** 地面长度（米）：逐段测地距离求和（面取周长），边即测地线；空几何为 0 */
 	public static double length(Geometry wgs) {
 		if (wgs == null || wgs.isEmpty()) {
 			return 0d;
@@ -219,7 +234,7 @@ public final class GisGeodesic {
 		requireNoAntimeridian(wgs);
 		double sum = 0d;
 		@SuppressWarnings("unchecked")
-		List<LineString> lines = LinearComponentExtracter.getLines(densifyDeg(wgs));
+		List<LineString> lines = LinearComponentExtracter.getLines(wgs);
 		for (LineString line : lines) {
 			Coordinate[] cs = line.getCoordinates();
 			for (int i = 1; i < cs.length; i++) {
@@ -330,10 +345,46 @@ public final class GisGeodesic {
 		return copy;
 	}
 
-	private static Geometry densifyDeg(Geometry wgs) {
-		if (wgs.getDimension() == 0) {
+	/** 环面积绝对值（平方米），不依赖环的方向 */
+	private static double ringArea(Coordinate[] ring) {
+		PolygonArea pa = new PolygonArea(Geodesic.WGS84, false);
+		for (int i = 0; i < ring.length - 1; i++) {
+			pa.AddPoint(ring[i].y, ring[i].x);
+		}
+		PolygonResult r = pa.Compute(false, true);
+		return Math.abs(r.area);
+	}
+
+	/** 把每条边当作测地线，沿 {@link GeodesicLine} 每 {@link #DENSIFY_M} 米插点；经度保持与前一点连续 */
+	static Geometry densify(Geometry wgs) {
+		if (wgs.getDimension() == 0 || wgs.isEmpty()) {
 			return wgs;
 		}
-		return Densifier.densify(wgs, DENSIFY_DEG);
+		return new GeometryTransformer() {
+			@Override
+			protected CoordinateSequence transformCoordinates(CoordinateSequence seq, Geometry parent) {
+				Coordinate[] cs = seq.toCoordinateArray();
+				if (cs.length < 2) {
+					return factory.getCoordinateSequenceFactory().create(cs);
+				}
+				List<Coordinate> out = new ArrayList<>(cs.length);
+				out.add(new Coordinate(cs[0].x, cs[0].y));
+				for (int i = 1; i < cs.length; i++) {
+					Coordinate a = cs[i - 1];
+					Coordinate b = cs[i];
+					GeodesicLine line = Geodesic.WGS84.InverseLine(a.y, a.x, b.y, b.x,
+						GeodesicMask.DISTANCE_IN | GeodesicMask.LATITUDE | GeodesicMask.LONGITUDE);
+					int n = (int) Math.ceil(line.Distance() / DENSIFY_M);
+					for (int k = 1; k < n; k++) {
+						GeodesicData d = line.Position(line.Distance() * k / n,
+							GeodesicMask.LATITUDE | GeodesicMask.LONGITUDE);
+						double prev = out.get(out.size() - 1).x;
+						out.add(new Coordinate(d.lon2 - Math.rint((d.lon2 - prev) / 360d) * 360d, d.lat2));
+					}
+					out.add(new Coordinate(b.x, b.y));
+				}
+				return factory.getCoordinateSequenceFactory().create(out.toArray(new Coordinate[0]));
+			}
+		}.transform(wgs);
 	}
 }

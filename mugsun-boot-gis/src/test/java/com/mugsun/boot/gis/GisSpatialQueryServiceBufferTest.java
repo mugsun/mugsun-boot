@@ -73,7 +73,10 @@ class GisSpatialQueryServiceBufferTest {
 		// 东西向长线，两端顶点都在 5km 外，中段离查询点约 1.1 km（0.01° 纬度）
 		GisLayer l = layer("{\"type\":\"LineString\",\"coordinates\":[[" + (lon - 0.5) + "," + (lat + 0.01) + "],["
 			+ (lon + 0.5) + "," + (lat + 0.01) + "]]}");
-		double truth = GeodesicTruth.inverse(lon, lat, lon, lat + 0.01);
+		// 边按测地线（与 PostGIS geography 一致），高纬时中段向极点弯，真值沿测地线取点
+		double truth = GeodesicTruth.minDistance(GeodesicTruth.GF.createLineString(new org.locationtech.jts.geom.Coordinate[] {
+			new org.locationtech.jts.geom.Coordinate(lon - 0.5, lat + 0.01),
+			new org.locationtech.jts.geom.Coordinate(lon + 0.5, lat + 0.01) }), lon, lat);
 		Map<String, Object> r = svc.radius(l, lon, lat, 2000d, 10, forceJava);
 		List<Map<String, Object>> feats = (List<Map<String, Object>>) ((Map<String, Object>) r.getOrDefault(
 			"collection", r)).get("features");
