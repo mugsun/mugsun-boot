@@ -170,6 +170,59 @@ class TrackCollectApiTest extends AbstractTrackIntegrationTest {
 			.as("超长堆栈截到 4096").isEqualTo(4096L);
 	}
 
+	/** ①d 堆栈：超 16KB 先缩 stack（其它键保留）；帧 URL query 去掉；不拆代理对 */
+	@Test
+	void errorStackShrinksFirstAndDropsUrlQuery() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String e1 = uuid();
+		String e2 = uuid();
+		Map<String, Object> big = new java.util.LinkedHashMap<>();
+		big.put("message", "boom");
+		big.put("stack", "错".repeat(4096));
+		for (int i = 0; i < 6; i++) {
+			big.put("k" + i, "值".repeat(300));
+		}
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(e1, "$error", clientTs, distinctId, sessionId, big));
+		events.add(event(e2, "$error", clientTs + 1, distinctId, sessionId, Map.of(
+			"message", "q", "stack", "Error\n    at f (https://x.com/a.js?token=SECRET:1:2)\n" + "a".repeat(4090) + "😀😀")));
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+		assertThat(trackLong("SELECT octet_length(props::text) AS c FROM track_event WHERE event_id = ?", e1))
+			.as("总量不超 16KB（jsonb 文本形态有空格，留余量）").isLessThanOrEqualTo(16384L + 64);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ? AND props->>'k5' IS NOT NULL"
+			+ " AND length(props->>'k5') = 300", e1)).as("尾部键保留").isEqualTo(1L);
+		long stackLen = trackLong("SELECT length(props->>'stack') AS c FROM track_event WHERE event_id = ?", e1);
+		assertThat(stackLen).as("stack 被缩短").isGreaterThan(1000L).isLessThan(4096L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ?"
+			+ " AND props->>'stack' LIKE '%a.js:1:2)%' AND props->>'stack' NOT LIKE '%SECRET%'", e2))
+			.as("帧 URL query 去掉").isEqualTo(1L);
+	}
+
+	/** ①e 错误指纹：服务端计算前先去掉帧 URL query，仅 query 不同的同一错误归为一组 */
+	@Test
+	void errorFingerprintIgnoresStackUrlQuery() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(uuid(), "$error", clientTs, distinctId, sessionId, Map.of(
+			"message", "fp", "stack", "at f (https://x.com/a.js?token=AAA:1:2)\n    at g")));
+		events.add(event(uuid(), "$error", clientTs + 1, distinctId, sessionId, Map.of(
+			"message", "fp", "stack", "at f (https://x.com/a.js?token=BBB#h:1:2)\n    at g")));
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+		assertThat(trackLong("SELECT count(DISTINCT error_fingerprint) AS c FROM track_event"
+			+ " WHERE session_id = ? AND error_fingerprint IS NOT NULL", sessionId))
+			.as("query 不同不拆组").isEqualTo(1L);
+	}
+
 	/** ② 伪 app_key / 停用应用 4xx（不存在的 key 走负缓存，不打库风暴） */
 	@Test
 	void fakeAppKeyRejected() {
