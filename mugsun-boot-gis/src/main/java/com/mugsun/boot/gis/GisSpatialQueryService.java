@@ -224,19 +224,28 @@ public class GisSpatialQueryService {
 		}
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
-			String select = "SELECT ST_AsGeoJSON(ST_Buffer(geom::geography, ?)::geometry) AS geom, props_json"
+			// 横跨全经度、平移后仍宽于 180° 的面（极冠这类包住极点的面）在 geography 里被理解成另一块区域，
+			// ST_Buffer 会悄悄丢掉极冠（mugsun-boot#63）。这类要素不缓冲，计入 skipped，与 Java 路径口径一致
+			String select = "SELECT CASE WHEN " + AMBIGUOUS + " THEN NULL"
+				+ " ELSE ST_AsGeoJSON(ST_Buffer(geom::geography, ?)::geometry) END AS geom, props_json, id"
 				+ " FROM gis_feature WHERE layer_id = ? AND is_deleted = 0 LIMIT ?";
 			List<Map<String, Object>> feats = new ArrayList<>();
+			Skips sqlSkips = new Skips();
 			support.jdbc().query(select, rs -> {
+				String geomJson = rs.getString("geom");
+				if (geomJson == null) {
+					sqlSkips.add(Map.of("id", rs.getString("id")));
+					return;
+				}
 				Map<String, Object> props = readProps(rs.getString("props_json"));
 				props.put("bufferMeters", meters);
 				Map<String, Object> feat = new LinkedHashMap<>();
 				feat.put("type", "Feature");
-				feat.put("geometry", readJson(rs.getString("geom")));
+				feat.put("geometry", readJson(geomJson));
 				feat.put("properties", props);
 				feats.add(feat);
 			}, meters, layer.getId(), cap);
-			return collection(feats, GisConstants.ENGINE_POSTGIS, cap);
+			return sqlSkips.finish(collection(feats, GisConstants.ENGINE_POSTGIS, cap), "buffer", layer);
 		}
 		List<Map<String, Object>> feats = new ArrayList<>();
 		Skips skips = new Skips();
@@ -313,6 +322,13 @@ public class GisSpatialQueryService {
 	}
 
 	// ==================== 下沉数据库 ====================
+
+	/**
+	 * 平面包络宽于 180°、负经度加 360（{@code ST_ShiftLongitude}）后仍宽于 180° 的要素：经度走向无法确定
+	 * （典型是在 ±180 切开、带极点边的极冠）。与 Java 侧 {@code GisGeodesic.unwrapPart} 抛异常的条件一致。
+	 */
+	static final String AMBIGUOUS = "(ST_XMax(geom) - ST_XMin(geom) > 180"
+		+ " AND ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) > 180)";
 
 	private Map<String, Object> sql(GisLayer layer, String where, Object[] args, String distanceExpr, int limit) {
 		return sql(layer, where, args, distanceExpr, limit, "");
