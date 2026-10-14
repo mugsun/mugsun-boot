@@ -35,6 +35,11 @@ hdr=$(curl -fsSI "http://127.0.0.1:${MUGSUN_HTTP_PORT}/")
 ngx=$("${DC[@]}" exec -T pc nginx -T 2>/dev/null)
 [[ "$ngx" == *'X-Forwarded-For $remote_addr'* ]] || fail "pc nginx 没有用 \$remote_addr 覆盖 X-Forwarded-For"
 [[ "$ngx" != *proxy_add_x_forwarded_for* ]] || fail "pc nginx 仍在追加客户端自带的 X-Forwarded-For"
+# pc#37：非法网关网段 / CSP 域名必须让 nginx 拒绝启动
+docker run --rm mugsun-full-pc:local nginx -t >/dev/null 2>&1 || fail "pc 默认配置 nginx -t 不通过"
+for bad in "MUGSUN_GATEWAY_CIDRS=0.0.0.0/0" "MUGSUN_CSP_TILE_HOSTS=a;b"; do
+  ! docker run --rm -e "$bad" mugsun-full-pc:local nginx -t >/dev/null 2>&1 || fail "pc 没有拒绝 $bad"
+done
 # 网络与 pc 仓一致：pc 固定 .10，动态段 .128/25
 pcip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$("${DC[@]}" ps -q pc)")
 [ "$pcip" = 172.30.88.10 ] || fail "pc IP 不是 172.30.88.10：$pcip"
