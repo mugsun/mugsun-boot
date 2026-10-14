@@ -373,11 +373,24 @@ public class TrackIngestService {
 			if (!out.has(key)) {
 				JsonNode value = field.getValue();
 				out.set(key, TrackConstants.PROP_ERROR_STACK.equals(key) && value != null && value.isTextual()
-					? TextNode.valueOf(truncate(value.asText(), TrackConstants.PROPS_STACK_MAX_LEN))
+					? TextNode.valueOf(truncate(TrackPropsText.stripStackUrlQuery(value.asText()), TrackConstants.PROPS_STACK_MAX_LEN))
 					: sanitizeValue(value, 1));
 			}
 		}
 		String json = out.toString();
+		// 超总量时先缩 stack（按 UTF-8 字节、不拆字符），仍超再从尾部摘键；JSON 转义使实际字节 ≥ 原文，最多复核 3 次
+		JsonNode stackNode = out.get(TrackConstants.PROP_ERROR_STACK);
+		if (stackNode != null && stackNode.isTextual()) {
+			String stack = stackNode.asText();
+			int size = TrackPropsText.utf8Length(json);
+			int target = TrackPropsText.utf8Length(stack) - (size - TrackConstants.PROPS_TOTAL_MAX_BYTES);
+			for (int i = 0; i < 3 && size > TrackConstants.PROPS_TOTAL_MAX_BYTES && target > 0; i++) {
+				out.put(TrackConstants.PROP_ERROR_STACK, TrackPropsText.truncateUtf8(stack, target));
+				json = out.toString();
+				size = TrackPropsText.utf8Length(json);
+				target -= size - TrackConstants.PROPS_TOTAL_MAX_BYTES;
+			}
+		}
 		while (json.getBytes(StandardCharsets.UTF_8).length > TrackConstants.PROPS_TOTAL_MAX_BYTES && out.size() > 0) {
 			String last = null;
 			Iterator<String> names = out.fieldNames();
@@ -504,9 +517,6 @@ public class TrackIngestService {
 	}
 
 	private String truncate(String s, int max) {
-		if (s == null) {
-			return null;
-		}
-		return s.length() > max ? s.substring(0, max) : s;
+		return TrackPropsText.truncate(s, max);
 	}
 }
