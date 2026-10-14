@@ -130,7 +130,7 @@ class GisGeodesicTest {
 	}
 
 	@Test
-	@DisplayName("极区可算（不再有 85° 限制）；缓冲包住极点、跨 180° 经线才抛业务异常")
+	@DisplayName("极区可算（不再有 85° 限制）；缓冲包住极点、单个部件宽于 180° 才抛业务异常")
 	void polarComputableExceptPoleAndAntimeridian() {
 		assertThat(GisGeodesic.buffer(point(0, 85.5), 100d).isEmpty()).isFalse();
 		assertThat(GisGeodesic.buffer(point(0, 84.5), 100_000d).isEmpty()).isFalse();
@@ -149,14 +149,12 @@ class GisGeodesicTest {
 			.isInstanceOf(ServiceException.class).hasMessageContaining("极点");
 		assertThatThrownBy(() -> GisGeodesic.buffer(point(0, 90), 10d))
 			.isInstanceOf(ServiceException.class).hasMessageContaining("极点");
-		// 179.95° 的点做 20 km 缓冲会越过 180°
-		assertThatThrownBy(() -> GisGeodesic.buffer(point(179.95, 10), 20_000d))
+		// 单个部件不跨 180° 却宽于 180°：走向无法确定
+		Geometry wide = GF.createLineString(new Coordinate[] {
+			new Coordinate(-100, 0), new Coordinate(0, 0), new Coordinate(100, 0) });
+		assertThatThrownBy(() -> GisGeodesic.length(wide))
 			.isInstanceOf(ServiceException.class).hasMessageContaining("180°");
-		// 179° 与 -179° 连线被读成绕地球一整圈
-		Geometry cross = GF.createLineString(new Coordinate[] { new Coordinate(179, 0), new Coordinate(-179, 0) });
-		assertThatThrownBy(() -> GisGeodesic.length(cross))
-			.isInstanceOf(ServiceException.class).hasMessageContaining("180°");
-		assertThatThrownBy(() -> GisGeodesic.distance(cross, 0, 0))
+		assertThatThrownBy(() -> GisGeodesic.buffer(wide, 10d))
 			.isInstanceOf(ServiceException.class).hasMessageContaining("180°");
 	}
 
@@ -208,6 +206,63 @@ class GisGeodesicTest {
 		double a = 6378137d, band = 2 * Math.PI * a * a * (Math.sin(Math.toRadians(88)) - Math.sin(Math.toRadians(75)))
 			* 170 / 360;
 		assertThat(GisGeodesic.area(wide)).isLessThan(band / 10);
+	}
+
+	@Test
+	@DisplayName("跨 180°（RFC 7946 §3.1.9）：越过 180° 的缓冲切成两块且面积不变，179↔-179 的线走短路")
+	void antimeridianBufferIsCut() {
+		Geometry cut = GisGeodesic.buffer(point(179.95, 10), 20_000d);
+		assertThat(cut.getGeometryType()).isEqualTo("MultiPolygon");
+		assertThat(cut.getNumGeometries()).isEqualTo(2);
+		org.locationtech.jts.geom.Envelope e = cut.getEnvelopeInternal();
+		assertThat(e.getMinX()).isEqualTo(-180d);
+		assertThat(e.getMaxX()).isEqualTo(180d);
+		double same = GisGeodesic.area(GisGeodesic.buffer(point(9.95, 10), 20_000d));
+		assertThat(GisGeodesic.area(cut) / same - 1).isBetween(-1e-4, 1e-4);
+		// 179.999° 的 500 m 缓冲同样切开
+		assertThat(GisGeodesic.buffer(point(179.999, 0), 500d).getNumGeometries()).isEqualTo(2);
+		Geometry cross = GF.createLineString(new Coordinate[] { new Coordinate(179, 0), new Coordinate(-179, 0) });
+		assertThat(GisGeodesic.length(cross) / GeodesicTruth.inverse(179, 0, -179, 0) - 1).isBetween(-1e-9, 1e-9);
+		// 查询点在线的近对蹠处：AEQD 在对蹠点附近变形最大，平面最近点略偏近，实测 −0.07%
+		assertThat(GisGeodesic.distance(cross, 0, 0) / GeodesicTruth.inverse(0, 0, 179, 0) - 1).isBetween(-1e-3, 1e-6);
+		assertThat(GisGeodesic.distance(cross, -179.5, 0.5) / GeodesicTruth.inverse(-179.5, 0.5, -179.5, 0) - 1)
+			.isBetween(-1e-3, 1e-3);
+	}
+
+	@Test
+	@DisplayName("RFC 7946 §3.1.9 示例：在 180° 拆开的 MultiLineString / MultiPolygon 按一个整体计算")
+	void rfc7946Examples() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry ml = r.read("MULTILINESTRING ((170 45, 180 45), (-180 45, -170 45))");
+		double expectLen = GeodesicTruth.inverse(170, 45, 180, 45) + GeodesicTruth.inverse(-180, 45, -170, 45);
+		assertThat(GisGeodesic.length(ml) / expectLen - 1).isBetween(-1e-9, 1e-9);
+		Geometry mp = r.read("MULTIPOLYGON (((180 40, 180 50, 170 50, 170 40, 180 40)),"
+			+ " ((-170 40, -170 50, -180 50, -180 40, -170 40)))");
+		Geometry same = r.read("MULTIPOLYGON (((0 40, 0 50, -10 50, -10 40, 0 40)), ((10 40, 10 50, 0 50, 0 40, 10 40)))");
+		assertThat(GisGeodesic.area(mp) / GisGeodesic.area(same) - 1).isBetween(-1e-4, 1e-4);
+		assertThat(GisGeodesic.distance(mp, -175, 45)).isZero();
+		// 离两块都有距离的点：取各部件最小值
+		double d = GisGeodesic.distance(mp, -165, 45);
+		assertThat(d / GeodesicTruth.inverse(-165, 45, -170, 45) - 1).isBetween(-0.01, 0.001);
+		Geometry buf = GisGeodesic.buffer(mp, 1000d);
+		assertThat(buf.getNumGeometries()).isEqualTo(2);
+		assertThat(GisGeodesic.distance(buf, 179.999, 45)).isZero();
+		// 两几何间距离：跨 180° 两侧取短路
+		assertThat(GisGeodesic.distance(point(179.9, 0), point(-179.9, 0)) / GeodesicTruth.inverse(179.9, 0, -179.9, 0) - 1)
+			.isBetween(-1e-6, 1e-6);
+	}
+
+	@Test
+	@DisplayName("斐济：跨 180° 的单个面（环内相邻顶点跨经线）面积与等大的普通面一致，缓冲切成两块")
+	void fijiPolygon() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry fiji = r.read("POLYGON ((177 -16, -179 -16, -179 -19, 177 -19, 177 -16))");
+		Geometry same = r.read("POLYGON ((0 -16, 4 -16, 4 -19, 0 -19, 0 -16))");
+		assertThat(GisGeodesic.area(fiji) / GisGeodesic.area(same) - 1).isBetween(-1e-4, 1e-4);
+		assertThat(GisGeodesic.distance(fiji, 179.5, -17.5)).isZero();
+		Geometry buf = GisGeodesic.buffer(fiji, 5000d);
+		assertThat(buf.getNumGeometries()).isEqualTo(2);
+		assertThat(buf.getEnvelopeInternal().getWidth()).isEqualTo(360d);
 	}
 
 	@Test
@@ -305,7 +360,8 @@ class GisGeodesicTest {
 		assertThat(GisGeodesic.distanceLenient(GF.createPolygon(), 0, 0)).isEqualTo(Double.POSITIVE_INFINITY);
 		assertThat(GisGeodesic.tryBuffer(point(0, 89.995), 1000d)).isNull();
 		assertThat(GisGeodesic.tryBuffer(point(0, 86), 100d)).isNotNull();
-		assertThat(GisGeodesic.tryBuffer(point(179.95, 0), 20_000d)).isNull();
+		// 越过 180° 的缓冲不再跳过，切成两块（RFC 7946）
+		assertThat(GisGeodesic.tryBuffer(point(179.95, 0), 20_000d).getNumGeometries()).isEqualTo(2);
 		assertThat(GisGeodesic.tryBuffer(point(0, 0), 100d).isEmpty()).isFalse();
 	}
 

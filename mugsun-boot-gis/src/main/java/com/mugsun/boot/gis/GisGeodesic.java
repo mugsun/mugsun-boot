@@ -9,6 +9,8 @@ import net.sf.geographiclib.PolygonArea;
 import net.sf.geographiclib.PolygonResult;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.CoordinateFilter;
+import org.locationtech.jts.geom.CoordinateSequence;
+import org.locationtech.jts.geom.CoordinateSequenceFilter;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -17,6 +19,7 @@ import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.util.GeometryTransformer;
 import org.locationtech.jts.geom.util.LinearComponentExtracter;
+import org.locationtech.jts.geom.util.PolygonExtracter;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.distance.DistanceOp;
@@ -46,7 +49,9 @@ import java.util.List;
  * </ul>
  *
  * <p>适用范围（分析单个几何时抛业务异常，图层查询走 {@link #distanceLenient} / {@link #tryBuffer} 单独处理）：
- * 缓冲结果包住极点；要素跨越 180° 经线或缓冲结果越过 180°。空几何：距离为 +∞，缓冲为空几何，面积 / 长度为 0。
+ * 缓冲结果包住极点；单个部件展开后经度跨度仍超过 180°（走向无法确定）。
+ * 跨 180° 经线按 RFC 7946 §3.1.9 处理：输入逐部件展开成连续经度（{@link #unwrap}）后计算，
+ * 缓冲结果越过 180° 时在 180° 处切开成 MultiPolygon（{@link #cutAntimeridian}）。空几何：距离为 +∞，缓冲为空几何，面积 / 长度为 0。
  */
 public final class GisGeodesic {
 
@@ -73,9 +78,9 @@ public final class GisGeodesic {
 		if (wgs == null || wgs.isEmpty()) {
 			return FACTORY.createPolygon();
 		}
-		requireNoAntimeridian(wgs);
-		GisProjection p = GisProjection.forDistance(wgs.getEnvelopeInternal());
-		Geometry plane = p.forward(densify(wgs));
+		Geometry g = unwrap(wgs);
+		GisProjection p = GisProjection.forDistance(g.getEnvelopeInternal());
+		Geometry plane = p.forward(densify(g));
 		Geometry buf = BufferOp.bufferOp(plane, meters, QUADRANT_SEGMENTS, BufferParameters.CAP_ROUND);
 		if (buf == null || buf.isEmpty()) {
 			return FACTORY.createPolygon();
@@ -87,14 +92,14 @@ public final class GisGeodesic {
 				throw new ServiceException(GisConstants.MSG_GEODESIC_POLE);
 			}
 		}
-		Geometry out = densify(p.inverse(buf));
-		if (outOfLonRange(out) || crossesAntimeridian(out)) {
+		Geometry out = densify(unwrapSequential(p.inverse(buf)));
+		if (out.getEnvelopeInternal().getWidth() >= 360d) {
 			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
 		}
-		return out;
+		return cutAntimeridian(out);
 	}
 
-	/** 图层查询用的缓冲：结果包住极点或跨 180° 经线时返回 null，调用方跳过；其余同 {@link #buffer} */
+	/** 图层查询用的缓冲：结果包住极点或要素无法确定走向（单个部件宽于 180°）时返回 null，调用方跳过；其余同 {@link #buffer} */
 	public static Geometry tryBuffer(Geometry wgs, double meters) {
 		try {
 			return buffer(wgs, meters);
@@ -103,14 +108,14 @@ public final class GisGeodesic {
 		}
 	}
 
-	/** 点 (lon, lat) 到几何的地面最近距离（米）；点在面内为 0，空几何为 +∞；要素跨 180° 经线时抛异常 */
+	/** 点 (lon, lat) 到几何的地面最近距离（米）；点在面内为 0，空几何为 +∞。跨 180° 的要素按 RFC 7946 逐部件展开后计算 */
 	public static double distance(Geometry wgs, double lon, double lat) {
 		if (wgs == null || wgs.isEmpty()) {
 			return Double.POSITIVE_INFINITY;
 		}
-		requireNoAntimeridian(wgs);
+		Geometry g = unwrap(wgs);
 		GisProjection p = GisProjection.aeqd(lon, lat);
-		Geometry plane = p.forward(densify(wgs));
+		Geometry plane = p.forward(densify(g));
 		double[] origin = p.forward(lon, lat);
 		Coordinate[] pair = DistanceOp.nearestPoints(plane, FACTORY.createPoint(new Coordinate(origin[0], origin[1])));
 		if (pair[0].distance(pair[1]) == 0d) {
@@ -188,15 +193,15 @@ public final class GisGeodesic {
 		if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
 			return Double.POSITIVE_INFINITY;
 		}
-		requireNoAntimeridian(a);
-		requireNoAntimeridian(b);
-		Envelope env = new Envelope(a.getEnvelopeInternal());
-		env.expandToInclude(b.getEnvelopeInternal());
+		Geometry ua = unwrap(a);
+		Geometry ub = alignTo(unwrap(b), ua.getEnvelopeInternal().centre().x);
+		Envelope env = new Envelope(ua.getEnvelopeInternal());
+		env.expandToInclude(ub.getEnvelopeInternal());
 		if (env.getWidth() > 180d) {
 			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
 		}
 		GisProjection p = GisProjection.forDistance(env);
-		Coordinate[] pair = DistanceOp.nearestPoints(p.forward(densify(a)), p.forward(densify(b)));
+		Coordinate[] pair = DistanceOp.nearestPoints(p.forward(densify(ua)), p.forward(densify(ub)));
 		if (pair[0].distance(pair[1]) == 0d) {
 			return 0d;
 		}
@@ -205,18 +210,22 @@ public final class GisGeodesic {
 		return inverse(u[0], u[1], v[0], v[1]);
 	}
 
-	/** 地面面积（平方米）：GeographicLib PolygonArea，边按测地线，逐面外环减内环；空几何为 0 */
+	/**
+	 * 地面面积（平方米）：逐部件用 GeographicLib PolygonArea 计算（外环减内环）再求和。PolygonArea 的边按测地线，
+	 * 跨 180° 的环（如 179 → -179）本身就走短边；RFC 7946 在 180° 拆开的多部件互不重叠，直接相加。
+	 * 单个部件展开后仍宽于 180°（走向无法确定）时抛业务异常。空几何为 0
+	 */
 	public static double area(Geometry wgs) {
 		if (wgs == null || wgs.isEmpty()) {
 			return 0d;
 		}
-		requireNoAntimeridian(wgs);
 		if (wgs.getDimension() < 2) {
 			return 0d;
 		}
 		double sum = 0d;
 		for (int i = 0; i < wgs.getNumGeometries(); i++) {
 			if (wgs.getGeometryN(i) instanceof Polygon poly && !poly.isEmpty()) {
+				unwrapPart(poly);
 				sum += ringArea(poly.getExteriorRing().getCoordinates());
 				for (int k = 0; k < poly.getNumInteriorRing(); k++) {
 					sum -= ringArea(poly.getInteriorRingN(k).getCoordinates());
@@ -231,10 +240,9 @@ public final class GisGeodesic {
 		if (wgs == null || wgs.isEmpty()) {
 			return 0d;
 		}
-		requireNoAntimeridian(wgs);
 		double sum = 0d;
 		@SuppressWarnings("unchecked")
-		List<LineString> lines = LinearComponentExtracter.getLines(wgs);
+		List<LineString> lines = LinearComponentExtracter.getLines(unwrap(wgs));
 		for (LineString line : lines) {
 			Coordinate[] cs = line.getCoordinates();
 			for (int i = 1; i < cs.length; i++) {
@@ -292,16 +300,125 @@ public final class GisGeodesic {
 		return gap * M_PER_DEG_MIN * 0.999d;
 	}
 
-	/** 要素本身跨越 180° 经线（相邻顶点经度差超过 180°，或包络宽于 180°）时抛业务异常 */
-	static void requireNoAntimeridian(Geometry wgs) {
-		if (wgs.getEnvelopeInternal().getWidth() > 180d || crossesAntimeridian(wgs)) {
+	/**
+	 * 按 RFC 7946 §3.1.9 把要素展开成经度连续的几何：逐部件处理，部件内相邻顶点经度差超过 180° 视为跨 180° 经线，
+	 * 负经度加 360；再把每个部件平移 ±360 对齐到第一个部件的中心经度，使在 180° 处拆开的多部件要素重新连成一片。
+	 * 结果经度可能超出 ±180（例如 [170, 190]）。单个部件展开后仍宽于 180° 时走向无法确定，抛业务异常。
+	 */
+	static Geometry unwrap(Geometry wgs) {
+		int n = wgs.getNumGeometries();
+		if (n == 1 && wgs.getGeometryN(0) == wgs) {
+			return unwrapPart(wgs);
+		}
+		List<Geometry> parts = new ArrayList<>(n);
+		double ref = Double.NaN;
+		for (int i = 0; i < n; i++) {
+			Geometry part = wgs.getGeometryN(i);
+			if (part.isEmpty()) {
+				continue;
+			}
+			Geometry u = unwrapPart(part);
+			if (Double.isNaN(ref)) {
+				ref = u.getEnvelopeInternal().centre().x;
+			} else {
+				u = alignTo(u, ref);
+			}
+			parts.add(u);
+		}
+		if (parts.isEmpty()) {
+			return wgs;
+		}
+		Geometry out = FACTORY.buildGeometry(parts);
+		if (out.getEnvelopeInternal().getWidth() >= 360d) {
 			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
 		}
+		return out;
 	}
 
-	private static boolean outOfLonRange(Geometry g) {
+	/** 单个部件展开：跨 180° 时负经度加 360；展开后仍宽于 180° 抛业务异常 */
+	static Geometry unwrapPart(Geometry part) {
+		Geometry u = crossesAntimeridian(part) ? shiftNegativeLon(part) : part;
+		if (u.getEnvelopeInternal().getWidth() > 180d) {
+			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
+		}
+		return u;
+	}
+
+	/** 整体平移 360 的整数倍，使包络中心经度离 ref 最近 */
+	static Geometry alignTo(Geometry g, double ref) {
+		double k = Math.rint((ref - g.getEnvelopeInternal().centre().x) / 360d);
+		return k == 0d ? g : shift(g, k * 360d);
+	}
+
+	private static Geometry shift(Geometry g, double dx) {
+		Geometry copy = g.copy();
+		copy.apply((CoordinateFilter) c -> c.setX(c.x + dx));
+		copy.geometryChanged();
+		return copy;
+	}
+
+	/** 逐坐标序列把经度改成连续的（相邻点经度差不超过 180°）；用于投影反算后的结果，靠近极点时经度会在 ±180 处跳变 */
+	static Geometry unwrapSequential(Geometry g) {
+		Geometry copy = g.copy();
+		copy.apply(new CoordinateSequenceFilter() {
+			@Override
+			public void filter(CoordinateSequence seq, int i) {
+				if (i == 0) {
+					return;
+				}
+				double prev = seq.getX(i - 1);
+				double x = seq.getX(i);
+				seq.setOrdinate(i, 0, x - Math.rint((x - prev) / 360d) * 360d);
+			}
+
+			@Override
+			public boolean isDone() {
+				return false;
+			}
+
+			@Override
+			public boolean isGeometryChanged() {
+				return true;
+			}
+		});
+		copy.geometryChanged();
+		return copy;
+	}
+
+	/**
+	 * 按 RFC 7946 §3.1.9 在 180° 经线处切开：与 [-540,-180]、[-180,180]、[180,540] 三个框分别求交（JTS），
+	 * 框外的部分平移回 [-180, 180]，多块时组成 MultiPolygon。经度本来就在 ±180 内的几何原样返回。
+	 */
+	static Geometry cutAntimeridian(Geometry g) {
 		Envelope e = g.getEnvelopeInternal();
-		return e.getMinX() < -180d || e.getMaxX() > 180d;
+		if (e.getMinX() >= -180d && e.getMaxX() <= 180d) {
+			return g;
+		}
+		List<Geometry> pieces = new ArrayList<>();
+		for (int k = -1; k <= 1; k++) {
+			double off = k * 360d;
+			Envelope box = new Envelope(-180d + off, 180d + off, -90d, 90d);
+			if (!box.intersects(e)) {
+				continue;
+			}
+			Geometry piece = g.intersection(FACTORY.toGeometry(box));
+			if (piece.isEmpty()) {
+				continue;
+			}
+			if (off != 0d) {
+				piece = shift(piece, -off);
+			}
+			if (g.getDimension() == 2) {
+				@SuppressWarnings("unchecked")
+				List<Geometry> polys = PolygonExtracter.getPolygons(piece);
+				pieces.addAll(polys);
+			} else {
+				for (int i = 0; i < piece.getNumGeometries(); i++) {
+					pieces.add(piece.getGeometryN(i));
+				}
+			}
+		}
+		return FACTORY.buildGeometry(pieces);
 	}
 
 	/** 是否跨 180° 经线：任一相邻顶点经度差超过 180° */
