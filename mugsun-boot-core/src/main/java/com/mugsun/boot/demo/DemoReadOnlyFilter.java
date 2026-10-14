@@ -38,7 +38,7 @@ public class DemoReadOnlyFilter extends OncePerRequestFilter {
 	private final ObjectMapper objectMapper;
 
 	public DemoReadOnlyFilter(ObjectMapper objectMapper,
-							  @Value("${mugsun.demo.track-collect:true}") boolean trackCollect) {
+							  @Value("${mugsun.demo.track-collect:false}") boolean trackCollect) {
 		this.objectMapper = objectMapper;
 		this.policy = new DemoReadOnlyPolicy(trackCollect);
 		log.warn("[demo] 只读演示模式已开启：非 GET 请求仅放行 {}", policy.writeAllowlist());
@@ -88,8 +88,16 @@ public class DemoReadOnlyFilter extends OncePerRequestFilter {
 			}
 		}
 		String q = request.getQueryString();
-		return q != null && (q.startsWith(DemoReadOnlyPolicy.METHOD_OVERRIDE_PARAM + "=")
-			|| q.contains("&" + DemoReadOnlyPolicy.METHOD_OVERRIDE_PARAM + "="));
+		if (q != null && (q.startsWith(DemoReadOnlyPolicy.METHOD_OVERRIDE_PARAM + "=")
+			|| q.contains("&" + DemoReadOnlyPolicy.METHOD_OVERRIDE_PARAM + "="))) {
+			return true;
+		}
+		// 表单 body 里的 _method（HiddenHttpMethodFilter 读的就是它）：仅 urlencoded 表单才解析，JSON/二进制 body 不动
+		String ct = request.getContentType();
+		if (ct != null && ct.toLowerCase(java.util.Locale.ROOT).startsWith("application/x-www-form-urlencoded")) {
+			return request.getParameter(DemoReadOnlyPolicy.METHOD_OVERRIDE_PARAM) != null;
+		}
+		return false;
 	}
 
 	static void reject(HttpServletResponse response, ObjectMapper objectMapper) throws IOException {

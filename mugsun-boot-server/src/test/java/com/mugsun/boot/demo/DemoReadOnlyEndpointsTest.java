@@ -189,6 +189,8 @@ class DemoReadOnlyEndpointsTest {
 	@Test
 	void filterRejectsWithDemoReadonlyBodyAndMethodOverride() throws Exception {
 		DemoReadOnlyFilter filter = new DemoReadOnlyFilter(new ObjectMapper(), true);
+		assertThat(new DemoReadOnlyFilter(new ObjectMapper(), false).policy().isAllowed("POST", "/track/collect", false))
+			.as("track-collect 关闭时采集被拒").isFalse();
 
 		MockHttpServletResponse res = run(filter, "POST", "/api", "/api/auth/register", null, null);
 		assertThat(res.getStatus()).isEqualTo(403);
@@ -201,6 +203,24 @@ class DemoReadOnlyEndpointsTest {
 		assertThat(run(filter, "GET", "", "/system/user/list", null, "_method=DELETE").getStatus()).isEqualTo(403);
 		assertThat(run(filter, "GET", "", "/system/user/list", null, "a=1&_method=PUT").getStatus()).isEqualTo(403);
 		assertThat(run(filter, "GET", "", "/system/user/list", null, "a=1").getStatus()).isEqualTo(200);
+
+		// 表单 body 里的 _method（F5）
+		MockHttpServletRequest form = new MockHttpServletRequest("POST", "/auth/login");
+		form.setContentType("application/x-www-form-urlencoded");
+		form.addParameter("_method", "DELETE");
+		MockHttpServletResponse formRes = new MockHttpServletResponse();
+		filter.doFilter(form, formRes, new MockFilterChain());
+		assertThat(formRes.getStatus()).isEqualTo(403);
+	}
+
+	/** 供运行时映射交叉核对测试复用：静态扫描得到的 (方法 路径) 集合 */
+	static Set<String> staticMappings() throws Exception {
+		if (endpoints == null) {
+			scan();
+		}
+		Set<String> s = new TreeSet<>();
+		endpoints.forEach(e -> s.add(e.method() + " " + e.path()));
+		return s;
 	}
 
 	private static MockHttpServletResponse run(DemoReadOnlyFilter filter, String method, String ctx, String uri,

@@ -4,5 +4,14 @@
 mugsun:
   demo:
     enabled: true
-    # 埋点采集在演示环境保持开启（/track/collect|replay|api-body），写独立埋点库、独立账号（仅 INSERT/SELECT）
-    track-collect: ${MUGSUN_DEMO_TRACK_COLLECT:true}
+    # 埋点采集（/track/collect|replay|api-body）：决定是演示环境开启，写独立埋点库、独立账号（仅 INSERT/SELECT）。
+    # 但在 B3（输出转义/敏感词）和配额、容量告警落地前，匿名写入有刷库和存储型 XSS 风险（安全复审 F3），默认先关。
+    track-collect: ${MUGSUN_DEMO_TRACK_COLLECT:false}
+    # WebSocket 允许的来源（安全复审 F7）：demo 下只放管理端 origin，逗号分隔
+    ws-allowed-origins: ${MUGSUN_DEMO_WS_ALLOWED_ORIGINS:${mugsun.web.front-url}}
+spring:
+  mvc:
+    hiddenmethod:
+      filter:
+        # 安全复审 F5：demo 下强制关闭 HiddenHttpMethodFilter（_method 表单参数改写方法），防止以后被误开
+        enabled: false
