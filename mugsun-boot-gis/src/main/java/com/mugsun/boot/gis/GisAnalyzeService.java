@@ -4,8 +4,6 @@ import com.mugsun.boot.gis.entity.GisLayer;
 import com.mugsun.boot.gis.mapper.GisLayerMapper;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.operation.buffer.BufferOp;
-import org.locationtech.jts.operation.distance.DistanceOp;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.springframework.stereotype.Service;
@@ -172,14 +170,13 @@ public class GisAnalyzeService {
 				truncated = true;
 				break;
 			}
-			Geometry merc = codec.toMercator(geoms.get(i));
-			Geometry buf = BufferOp.bufferOp(merc, meters);
+			Geometry buf = GisGeodesic.buffer(geoms.get(i), meters);
 			if (buf == null || buf.isEmpty()) {
 				continue;
 			}
 			Map<String, Object> props = featureProps(source, i, GisConstants.OP_BUFFER);
 			props.put("bufferMeters", meters);
-			feats.add(codec.toFeature(codec.toWgs84(buf), props, idOf(source, i)));
+			feats.add(codec.toFeature(buf, props, idOf(source, i)));
 		}
 		Map<String, Object> metrics = measure(codec.fromCollection(wrapTemp(feats)));
 		metrics.put("bufferMeters", meters);
@@ -207,9 +204,7 @@ public class GisAnalyzeService {
 	}
 
 	private Map<String, Object> distanceOf(Map<String, Object> source, List<Geometry> left, List<Geometry> right) {
-		Geometry a = codec.toMercator(UnaryUnionOp.union(left));
-		Geometry b = codec.toMercator(UnaryUnionOp.union(right));
-		double meters = DistanceOp.distance(a, b);
+		double meters = GisGeodesic.distance(UnaryUnionOp.union(left), UnaryUnionOp.union(right));
 		Map<String, Object> metrics = measure(left);
 		metrics.put("distanceMeters", meters);
 		return envelopeResult(GisConstants.OP_DISTANCE, copyFeatures(source), metrics);
@@ -313,9 +308,8 @@ public class GisAnalyzeService {
 		double area = 0d;
 		double length = 0d;
 		for (Geometry geom : geoms) {
-			Geometry merc = codec.toMercator(geom);
-			area += merc.getArea();
-			length += merc.getLength();
+			area += GisGeodesic.area(geom);
+			length += GisGeodesic.length(geom);
 		}
 		Map<String, Object> metrics = new LinkedHashMap<>();
 		metrics.put("count", geoms.size());

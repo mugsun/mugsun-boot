@@ -3,7 +3,6 @@ package com.mugsun.boot.gis;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.gis.entity.GisLayer;
 import com.mugsun.core.tool.exception.ServiceException;
-import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.springframework.stereotype.Service;
 
@@ -20,8 +19,8 @@ import java.util.Map;
  * 没有时回落读整层 {@code data_json} 在 Java 侧算——口径一致，但要素多了就慢，响应里的
  * {@code engine} 字段会如实标明走了哪条路。
  *
- * <p>米制口径：PostGIS 侧用 {@code geography} 走真实大地距离；Java 侧用以查询点纬度为基准的
- * 局部等距近似（经度按 cos(lat) 收缩），小范围内误差可忽略，跨洲距离不要指望这条回落路径。
+ * <p>米制口径：PostGIS 侧用 {@code geography} 走真实大地距离；Java 侧（半径、最近邻、缓冲）用
+ * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，与 WGS84 测地距离差异在 0.5% 以内。
  */
 @Service
 public class GisSpatialQueryService {
@@ -84,10 +83,8 @@ public class GisSpatialQueryService {
 				"ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(" + lon + ", " + lat + "), 4326)::geography)",
 				cap);
 		}
-		Metric metric = new Metric(lat);
-		Coordinate center = metric.project(lon, lat);
 		return java(layer, cap, (geom, feat) -> {
-			double d = metric.distance(geom, center);
+			double d = GisGeodesic.distance(geom, lon, lat);
 			return d <= meters ? d : null;
 		});
 	}
@@ -123,9 +120,7 @@ public class GisSpatialQueryService {
 				"ST_Distance(geom::geography, " + point + "::geography)",
 				cap, " ORDER BY geom <-> " + point);
 		}
-		Metric metric = new Metric(lat);
-		Coordinate center = metric.project(lon, lat);
-		Map<String, Object> out = java(layer, Integer.MAX_VALUE, (geom, feat) -> metric.distance(geom, center));
+		Map<String, Object> out = java(layer, Integer.MAX_VALUE, (geom, feat) -> GisGeodesic.distance(geom, lon, lat));
 		@SuppressWarnings("unchecked")
 		List<Map<String, Object>> feats = (List<Map<String, Object>>) out.get("features");
 		feats.sort(Comparator.comparingDouble(f -> distanceOf(f)));
@@ -198,8 +193,7 @@ public class GisSpatialQueryService {
 			if (geom == null || geom.isEmpty()) {
 				continue;
 			}
-			Geometry buf = org.locationtech.jts.operation.buffer.BufferOp.bufferOp(
-				codec.toMercator(geom), meters);
+			Geometry buf = GisGeodesic.buffer(geom, meters);
 			if (buf == null || buf.isEmpty()) {
 				continue;
 			}
@@ -208,7 +202,7 @@ public class GisSpatialQueryService {
 				p.forEach((k, v) -> props.put(String.valueOf(k), v));
 			}
 			props.put("bufferMeters", meters);
-			feats.add(codec.toFeature(codec.toWgs84(buf), props,
+			feats.add(codec.toFeature(buf, props,
 				feat.get("id") == null ? null : String.valueOf(feat.get("id"))));
 			if (feats.size() >= cap) {
 				break;
@@ -311,43 +305,6 @@ public class GisSpatialQueryService {
 			throw new ServiceException(GisConstants.MSG_LAYER_INVALID);
 		}
 		return out;
-	}
-
-	/**
-	 * 半正矢（haversine）球面距离。
-	 *
-	 * <p>早先用的是「经度按 cos(lat) 收缩」的局部等距近似，2 公里半径下就会把边界要素判反
-	 * （与 PostGIS 的 geography 结果差 1 个），既然两条路要求口径一致，这里按球面距离算。
-	 * 与 PostGIS 的椭球距离仍有约 0.3% 的固有差异，来自球体假设而非算法。
-	 */
-	private static final class Metric {
-
-		private static final double EARTH_R = 6_371_008.8d;
-
-		Metric(double baseLat) {
-			// 保留构造参数以贴合调用方语义（以查询点为基准），球面公式本身不需要基准纬度
-		}
-
-		Coordinate project(double lon, double lat) {
-			return new Coordinate(lon, lat);
-		}
-
-		double distance(Geometry geom, Coordinate center) {
-			double best = Double.MAX_VALUE;
-			for (Coordinate c : geom.getCoordinates()) {
-				best = Math.min(best, haversine(center.y, center.x, c.y, c.x));
-			}
-			return best;
-		}
-
-		private static double haversine(double lat1, double lon1, double lat2, double lon2) {
-			double dLat = Math.toRadians(lat2 - lat1);
-			double dLon = Math.toRadians(lon2 - lon1);
-			double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-				+ Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-				* Math.sin(dLon / 2) * Math.sin(dLon / 2);
-			return 2 * EARTH_R * Math.asin(Math.min(1d, Math.sqrt(a)));
-		}
 	}
 
 	// ==================== 杂项 ====================

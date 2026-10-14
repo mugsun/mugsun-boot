@@ -133,12 +133,16 @@ class GisAnalyzeServiceTest {
 	}
 
 	@Test
-	@DisplayName("两点距离（米制）在合理量级：约 1° 经度 ≈ 111km")
+	@DisplayName("两点距离按地面米：赤道 1° 经度与 70°N 1° 经度都对上 WGS84 测地距离（误差 < 0.5%）")
 	void distanceNearEquator() {
-		Map<String, Object> req = body("distance", collection(point(0, 0)));
-		req.put("other", collection(point(1, 0)));
-		double meters = ((Number) ((Map<?, ?>) service.analyze(req).get("metrics")).get("distanceMeters")).doubleValue();
-		assertThat(meters).isCloseTo(111319d, within(50d));
+		for (double lat : new double[] { 0d, 70d }) {
+			Map<String, Object> req = body("distance", collection(point(0, lat)));
+			req.put("other", collection(point(1, lat)));
+			double meters = ((Number) ((Map<?, ?>) service.analyze(req).get("metrics")).get("distanceMeters"))
+				.doubleValue();
+			double truth = GeodesicTruth.vincenty(0, lat, 1, lat);
+			assertThat(meters / truth - 1).isBetween(-0.005, 0.005);
+		}
 	}
 
 	@Test
