@@ -11,7 +11,9 @@ class OperLogPropertiesTest {
 	@Test
 	void defaultsExcludeTrackSdkEndpointsOnly() {
 		OperLogProperties p = new OperLogProperties();
-		assertThat(p.getExcludePaths()).containsExactly("/track/collect", "/track/replay");
+		assertThat(p.getExcludePaths()).containsExactly("/track/collect", "/track/replay", "/track/api-body");
+		assertThat(p.isExcluded("/track/api-body")).isTrue();
+		assertThat(p.isExcluded("/system/track/user/api-body")).isFalse();
 		assertThat(p.isExcluded("/track/collect")).isTrue();
 		assertThat(p.isExcluded("/track/replay")).isTrue();
 		assertThat(p.isExcluded("/track/collect/")).isTrue();
