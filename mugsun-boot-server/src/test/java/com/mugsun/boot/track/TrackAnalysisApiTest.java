@@ -228,6 +228,23 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(todayRow.has("bounceCount")).isTrue();
 	}
 
+	/** trend 日粒度补零（UX-011）：days=7 恒返回 7 行、日期连续升序，无数据日各指标为 0 */
+	@Test
+	void trendDailyFillsMissingDaysWithZero() {
+		LocalDate today = LocalDate.now(ZoneOffset.UTC);
+		JsonNode day = readBody(get("/system/track/trend?appKey=" + APP_A + "&days=7&dimType=overview", adminToken)).path("data");
+		assertThat(day.size()).as("近 7 天应有 7 个点").isEqualTo(7);
+		for (int i = 0; i < 7; i++) {
+			assertThat(day.get(i).path("date").asText()).isEqualTo(today.minusDays(6L - i).toString());
+		}
+		JsonNode empty = day.get(0);
+		assertThat(empty.path("pv").asLong()).as("6 天前无数据补 0").isZero();
+		assertThat(empty.path("uv").asLong()).isZero();
+		assertThat(empty.path("eventCount").asLong()).isZero();
+		assertThat(empty.has("sessionCount")).isTrue();
+		assertThat(empty.has("bounceCount")).isTrue();
+	}
+
 	/** pages：Top 页面（PV/UV/平均停留）；/home pv=3（今日2+昨日1），uv=3 */
 	@Test
 	void pagesTopWithUvAndDuration() {
