@@ -65,6 +65,8 @@ public interface TrackConstants {
 	int PROPS_KEY_MAX_LEN = 64;
 	/** props 值截断长度 */
 	int PROPS_VALUE_MAX_LEN = 1024;
+	/** 顶层 props.stack（错误堆栈）截断长度：与 SDK error 插件一致，其它字符串仍按 PROPS_VALUE_MAX_LEN */
+	int PROPS_STACK_MAX_LEN = 4096;
 	/** props 单事件总量上限（字节，16KB） */
 	int PROPS_TOTAL_MAX_BYTES = 16384;
 	/** props 嵌套深度上限 */

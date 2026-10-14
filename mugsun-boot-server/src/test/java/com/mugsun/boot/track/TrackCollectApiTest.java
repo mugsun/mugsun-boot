@@ -118,6 +118,31 @@ class TrackCollectApiTest extends AbstractTrackIntegrationTest {
 		assertThat(row.getLong("ts_ms")).as("无偏差时 ts 等于 client_ts").isEqualTo(clientTs);
 	}
 
+	/** ①c 错误堆栈保留到 4096 字符（与 SDK error 插件一致），其它字符串值仍 ≤1024 */
+	@Test
+	void errorStackKeptUpTo4096() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String e1 = uuid();
+		String e2 = uuid();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(e1, "$error", clientTs, distinctId, sessionId, Map.of(
+			"message", "m".repeat(2000), "stack", "s".repeat(3000))));
+		events.add(event(e2, "$error", clientTs + 1, distinctId, sessionId, Map.of(
+			"message", "boom", "stack", "t".repeat(5000))));
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+		assertThat(trackLong("SELECT length(props->>'stack') AS c FROM track_event WHERE event_id = ?", e1))
+			.as("3000 字符堆栈完整保留").isEqualTo(3000L);
+		assertThat(trackLong("SELECT length(props->>'message') AS c FROM track_event WHERE event_id = ?", e1))
+			.as("其它字符串仍截到 1024").isEqualTo(1024L);
+		assertThat(trackLong("SELECT length(props->>'stack') AS c FROM track_event WHERE event_id = ?", e2))
+			.as("超长堆栈截到 4096").isEqualTo(4096L);
+	}
+
 	/** ② 伪 app_key / 停用应用 4xx（不存在的 key 走负缓存，不打库风暴） */
 	@Test
 	void fakeAppKeyRejected() {
