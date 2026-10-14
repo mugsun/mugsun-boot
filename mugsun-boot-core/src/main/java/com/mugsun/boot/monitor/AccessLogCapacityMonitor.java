@@ -3,6 +3,7 @@ package com.mugsun.boot.monitor;
 import com.mugsun.boot.demo.DemoConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -34,6 +35,7 @@ public class AccessLogCapacityMonitor {
 	private final ToLongFunction<Path> freeSpace;
 	private State state = State.OK;
 
+	@Autowired
 	public AccessLogCapacityMonitor(
 		@Value("${mugsun.demo.access-log.path:${logging.file.path:./logs}}") String dir,
 		@Value("${mugsun.demo.access-log.min-free-space:10GB}") String minFree) {
