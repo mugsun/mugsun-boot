@@ -1,6 +1,8 @@
 package com.mugsun.boot.gis;
 
 import com.mugsun.core.tool.exception.ServiceException;
+import net.sf.geographiclib.Geodesic;
+import net.sf.geographiclib.GeodesicMask;
 import org.locationtech.jts.densify.Densifier;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.CoordinateFilter;
@@ -23,11 +25,11 @@ import org.locationtech.jts.operation.distance.DistanceOp;
  * 经纬度直线在投影面上是曲线，所以投影前按 {@link #DENSIFY_DEG} 加密、投回前按 {@link #DENSIFY_M} 加密。
  *
  * <p>距离：先在投影面上求最近点对（任意最近点对：顶点、边上任意点、面内为 0），再把这两点投回经纬度，
- * 用 WGS84 Vincenty 反算（近对蹠点不收敛时回落大圆）。
+ * 用 GeographicLib 在 WGS84 椭球上反算（{@link #inverse}）。
  *
  * <p>适用范围：要素或缓冲范围进入极区（|纬度| > {@link GisConstants#GEODESIC_POLAR_LAT}°）或跨越 180° 经线时
  * 抛业务异常，不静默给出错误结果——这是分析单个几何时的行为。图层查询用 {@link #distanceLenient} /
- * {@link #tryBuffer}，把这类要素单独处理（回落 haversine 或跳过），不让一个要素拖垮整次查询。
+ * {@link #tryBuffer}，把这类要素单独处理（回落求最近点或跳过），不让一个要素拖垮整次查询。
  * 空几何：距离为 +∞，缓冲为空几何，面积 / 长度为 0。
  */
 public final class GisGeodesic {
@@ -46,9 +48,6 @@ public final class GisGeodesic {
 	private static final GeometryFactory FACTORY = new GeometryFactory();
 	/** 每度纬度的最短地面距离（赤道处子午线弧长），用作宽松换算的下限 */
 	static final double M_PER_DEG_MIN = 110_574d;
-	private static final double F = 1 / 298.257223563;
-	private static final double B = A * (1 - F);
-	private static final double MEAN_R = 6_371_008.8d;
 
 	private GisGeodesic() {
 	}
@@ -88,15 +87,15 @@ public final class GisGeodesic {
 			return 0d;
 		}
 		double[] near = p.inverse(pair[0].x, pair[0].y);
-		return vincenty(lon, lat, near[0], near[1]);
+		return inverse(lon, lat, near[0], near[1]);
 	}
 
 	/**
-	 * 图层查询用的距离：要素在极区或跨 180° 经线时不抛异常，回落到大圆（haversine）距离，算到几何上的最近点。
+	 * 图层查询用的距离：要素在极区或跨 180° 经线时不抛异常，回落为「以查询点为原点投影求几何最近点，再用 {@link #inverse} 算椭球测地距离」。
 	 *
 	 * <p>跨 180° 的要素（相邻顶点经度差超过 180°）先把负经度加 360，变成连续的经度范围再加密，避免绕地球走长路；
 	 * 查询点也换到同一范围，取 lon 与 lon ± 360 里离要素包络中心较近的那个表示。
-	 * 最近点先以查询点为原点投影求出，再用逐顶点（加密后）haversine 最小值兜底校验：投影在查询点对蹠附近会退化，
+	 * 最近点先以查询点为原点投影求出，再用逐顶点（加密后）测地距离最小值兜底校验：投影在查询点对蹠附近会退化，
 	 * 结果不可信时改用顶点最小值。仍算不出（平移后仍宽于 180°、非有限值、拓扑异常）返回 {@link Double#NaN}，调用方跳过。
 	 * 查询点本身须先经 {@link #checkPoint} 校验。
 	 */
@@ -107,7 +106,7 @@ public final class GisGeodesic {
 		try {
 			return distance(wgs, lon, lat);
 		} catch (ServiceException outOfRange) {
-			// 落到下面的 haversine 回落
+			// 落到下面的回落
 		}
 		try {
 			Geometry g = crossesAntimeridian(wgs) ? shiftNegativeLon(wgs) : wgs;
@@ -128,7 +127,7 @@ public final class GisGeodesic {
 			}
 			double vertexMin = Double.POSITIVE_INFINITY;
 			for (Coordinate c : dense.getCoordinates()) {
-				vertexMin = Math.min(vertexMin, greatCircle(qLon, lat, c.x, c.y));
+				vertexMin = Math.min(vertexMin, inverse(qLon, lat, c.x, c.y));
 			}
 			if (!Double.isFinite(vertexMin)) {
 				return Double.NaN;
@@ -139,7 +138,7 @@ public final class GisGeodesic {
 				Coordinate[] pair = DistanceOp.nearestPoints(p.forward(dense),
 					FACTORY.createPoint(new Coordinate(0d, 0d)));
 				double[] near = p.inverse(pair[0].x, pair[0].y);
-				proj = greatCircle(lon, lat, near[0], near[1]);
+				proj = inverse(lon, lat, near[0], near[1]);
 			} catch (RuntimeException degenerate) {
 				// 投影退化，只用顶点最小值
 			}
@@ -227,7 +226,7 @@ public final class GisGeodesic {
 		}
 		double[] u = p.inverse(pair[0].x, pair[0].y);
 		double[] v = p.inverse(pair[1].x, pair[1].y);
-		return vincenty(u[0], u[1], v[0], v[1]);
+		return inverse(u[0], u[1], v[0], v[1]);
 	}
 
 	/** 地面面积（平方米）；空几何为 0 */
@@ -305,62 +304,11 @@ public final class GisGeodesic {
 	}
 
 	/**
-	 * WGS84 Vincenty 反算（米）。近对蹠点 200 次迭代不收敛时回落大圆距离（平均半径），
-	 * 本模块的适用范围（非极区、不跨经线、单次 ≤ 数百公里）内不会触发。
+	 * WGS84 椭球测地距离（米）：GeographicLib（Karney 2013）反算，与 PostGIS 2.2+ {@code geography} 同一算法。
+	 * 任意点对都收敛（含近对蹠点），精度优于 15 nm。注意 GeographicLib 参数是先纬度后经度。
 	 */
-	public static double vincenty(double lon1, double lat1, double lon2, double lat2) {
-		double l = Math.toRadians(lon2 - lon1);
-		double u1 = Math.atan((1 - F) * Math.tan(Math.toRadians(lat1)));
-		double u2 = Math.atan((1 - F) * Math.tan(Math.toRadians(lat2)));
-		double sinU1 = Math.sin(u1);
-		double cosU1 = Math.cos(u1);
-		double sinU2 = Math.sin(u2);
-		double cosU2 = Math.cos(u2);
-		double lambda = l;
-		double prev;
-		double sinSigma;
-		double cosSigma;
-		double sigma;
-		double cosSqAlpha;
-		double cos2SigmaM;
-		int iter = 0;
-		do {
-			double sinL = Math.sin(lambda);
-			double cosL = Math.cos(lambda);
-			double t1 = cosU2 * sinL;
-			double t2 = cosU1 * sinU2 - sinU1 * cosU2 * cosL;
-			sinSigma = Math.sqrt(t1 * t1 + t2 * t2);
-			if (sinSigma == 0d) {
-				return 0d;
-			}
-			cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosL;
-			sigma = Math.atan2(sinSigma, cosSigma);
-			double sinAlpha = cosU1 * cosU2 * sinL / sinSigma;
-			cosSqAlpha = 1 - sinAlpha * sinAlpha;
-			cos2SigmaM = cosSqAlpha == 0d ? 0d : cosSigma - 2 * sinU1 * sinU2 / cosSqAlpha;
-			double c = F / 16 * cosSqAlpha * (4 + F * (4 - 3 * cosSqAlpha));
-			prev = lambda;
-			lambda = l + (1 - c) * F * sinAlpha
-				* (sigma + c * sinSigma * (cos2SigmaM + c * cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)));
-			if (++iter > 200) {
-				return greatCircle(lon1, lat1, lon2, lat2);
-			}
-		} while (Math.abs(lambda - prev) > 1e-12);
-		double uSq = cosSqAlpha * (A * A - B * B) / (B * B);
-		double bigA = 1 + uSq / 16384 * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)));
-		double bigB = uSq / 1024 * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)));
-		double dSigma = bigB * sinSigma * (cos2SigmaM + bigB / 4 * (cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)
-			- bigB / 6 * cos2SigmaM * (-3 + 4 * sinSigma * sinSigma) * (-3 + 4 * cos2SigmaM * cos2SigmaM)));
-		return B * bigA * (sigma - dSigma);
-	}
-
-	/** 大圆距离（haversine，平均半径），只作 Vincenty 不收敛时的回落 */
-	static double greatCircle(double lon1, double lat1, double lon2, double lat2) {
-		double dLat = Math.toRadians(lat2 - lat1);
-		double dLon = Math.toRadians(lon2 - lon1);
-		double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-			+ Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-		return 2 * MEAN_R * Math.asin(Math.min(1d, Math.sqrt(a)));
+	public static double inverse(double lon1, double lat1, double lon2, double lat2) {
+		return Geodesic.WGS84.Inverse(lat1, lon1, lat2, lon2, GeodesicMask.DISTANCE).s12;
 	}
 
 	private static Geometry densifyDeg(Geometry wgs) {

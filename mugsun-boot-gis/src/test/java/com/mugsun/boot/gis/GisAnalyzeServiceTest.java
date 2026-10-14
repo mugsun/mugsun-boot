@@ -140,7 +140,7 @@ class GisAnalyzeServiceTest {
 			req.put("other", collection(point(1, lat)));
 			double meters = ((Number) ((Map<?, ?>) service.analyze(req).get("metrics")).get("distanceMeters"))
 				.doubleValue();
-			double truth = GeodesicTruth.vincenty(0, lat, 1, lat);
+			double truth = GeodesicTruth.inverse(0, lat, 1, lat);
 			assertThat(meters / truth - 1).isBetween(-0.005, 0.005);
 		}
 	}
