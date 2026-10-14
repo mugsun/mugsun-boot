@@ -8,11 +8,12 @@ spring:
   # 本地密钥/验证码回显：把 config/application-local.yml.example 复制为 application-local.yml（gitignore）
   config:
     import:
-      - optional:file:./config/application-local.yml
       # 可选模块自带配置（jar 不在 classpath 时 optional 静默跳过）
       - optional:classpath:mugsun-module-track.yml
       - optional:classpath:mugsun-module-gis.yml
       - optional:classpath:mugsun-module-ai.yml
+      # 本地覆盖必须排在最后：import 列表后者覆盖前者，排在模块前会被模块默认值（如 track 数据源 URL）静默盖掉
+      - optional:file:./config/application-local.yml
   lifecycle:
     # 优雅停机在途请求最长等待
     timeout-per-shutdown-phase: 20s
