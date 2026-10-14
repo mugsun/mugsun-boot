@@ -73,7 +73,7 @@ class GisSpatialQueryServiceBufferTest {
 		// 东西向长线，两端顶点都在 5km 外，中段离查询点约 1.1 km（0.01° 纬度）
 		GisLayer l = layer("{\"type\":\"LineString\",\"coordinates\":[[" + (lon - 0.5) + "," + (lat + 0.01) + "],["
 			+ (lon + 0.5) + "," + (lat + 0.01) + "]]}");
-		double truth = GeodesicTruth.vincenty(lon, lat, lon, lat + 0.01);
+		double truth = GeodesicTruth.inverse(lon, lat, lon, lat + 0.01);
 		Map<String, Object> r = svc.radius(l, lon, lat, 2000d, 10, forceJava);
 		List<Map<String, Object>> feats = (List<Map<String, Object>>) ((Map<String, Object>) r.getOrDefault(
 			"collection", r)).get("features");
@@ -93,7 +93,7 @@ class GisSpatialQueryServiceBufferTest {
 		double lon = 20.0;
 		double r = 50_000d;
 		// 正东方向：经度跨度最大、最容易被过紧的包络挡掉
-		double dLonPerM = 1 / (GeodesicTruth.vincenty(lon, lat, lon + 1, lat));
+		double dLonPerM = 1 / (GeodesicTruth.inverse(lon, lat, lon + 1, lat));
 		double inLon = lon + r * 0.995 * dLonPerM;
 		double outLon = lon + r * 1.005 * dLonPerM;
 		GisLayer l = new GisLayer();
@@ -147,7 +147,7 @@ class GisSpatialQueryServiceBufferTest {
 		assertThat(nf).hasSize(3);
 		Map<String, Object> first = (Map<String, Object>) nf.get(0).get("properties");
 		assertThat(first.get("k")).isEqualTo("polar");
-		double expect = GisGeodesic.greatCircle(20, 84, 20, 85.5);
+		double expect = GeodesicTruth.inverse(20, 84, 20, 85.5);
 		assertThat(((Number) first.get("meters")).doubleValue() / expect - 1).isBetween(-0.001, 0.001);
 		assertThat(near.get("skipped")).isEqualTo(0);
 		Map<String, Object> r = svc.radius(mixedLayer(), 20.0, 84.0, 190_000d, 10, forceJava);
@@ -177,7 +177,7 @@ class GisSpatialQueryServiceBufferTest {
 		List<Map<String, Object>> rf = (List<Map<String, Object>>) r.get("features");
 		assertThat(rf).hasSize(1);
 		double m = ((Number) ((Map<String, Object>) rf.get(0).get("properties")).get("meters")).doubleValue();
-		assertThat(m / GeodesicTruth.vincenty(179.9, 0, -179.9, 0) - 1).isBetween(-0.005, 0.005);
+		assertThat(m / GeodesicTruth.inverse(179.9, 0, -179.9, 0) - 1).isBetween(-0.005, 0.005);
 		Map<String, Object> rw = svc.radius(layer("{\"type\":\"Point\",\"coordinates\":[179.9,0.0]}"),
 			-179.9, 0.0, 30_000d, 10, forceJava);
 		assertThat((List<?>) rw.get("features")).hasSize(1);
@@ -221,7 +221,7 @@ class GisSpatialQueryServiceBufferTest {
 		List<Map<String, Object>> rf = (List<Map<String, Object>>) r.get("features");
 		assertThat(rf).hasSize(1);
 		double m = ((Number) ((Map<String, Object>) rf.get(0).get("properties")).get("meters")).doubleValue();
-		assertThat(m / GeodesicTruth.vincenty(179.95, 0.1, 179.95, 0) - 1).isBetween(-0.01, 0.01);
+		assertThat(m / GeodesicTruth.inverse(179.95, 0.1, 179.95, 0) - 1).isBetween(-0.01, 0.01);
 		assertThat(r.get("skipped")).isEqualTo(0);
 	}
 }
