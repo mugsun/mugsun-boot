@@ -1,12 +1,113 @@
-# 只读演示站叠加文件：叠在 docker-compose.full.yml 之上用
+# 只读演示站叠加文件：叠在 docker-compose.full.yml 之上用（缺必填变量时 compose 直接报错，不会静默退化成可写后台）
+#   MUGSUN_DEMO_RO_DB_PASSWORD=... MUGSUN_DEMO_LOG_DB_PASSWORD=... MUGSUN_DEMO_TRACK_DB_PASSWORD=... \
 #   docker compose -f docker-compose.full.yml -f docker-compose.demo.yml up -d --build
-# - 管理台 CSP 改为强制拦截，违规报告发到后端收集端 POST /api/csp-report（经 pc 的 Nginx 反代到 boot 的 /csp-report）。
-#   MUGSUN_CSP_MODE / MUGSUN_CSP_REPORT_URI 需要 mugsun-pc#61 及以后的 pc 镜像；在 full 文件固定的 pc 提交合入 #61 之前，
-#   用 MUGSUN_PC_SRC 指向含 #61 的 pc 源码，否则这两个变量会被旧镜像忽略（仍是旧的 CSP 行为）。
-# - 收集端只在后端开了只读演示模式（mugsun.demo.enabled=true，prod,demo profile）时存在，并按 IP 限流
-#   （MUGSUN_DEMO_CSP_PER_IP_PER_MINUTE，默认 30）；没开 demo 时 /api/csp-report 是 404，报告丢失但不影响页面。
+# 启动顺序：init → postgres/redis → boot-migrate（owner 账号、prod profile、--mugsun.demo.migrate-only=true，迁移+初始化后退出）
+#   → demo-accounts（超级用户执行 docs/demo/sql/demo-accounts.sql，建三个低权限账号并授权）→ boot（prod,demo，低权限账号）→ pc。
+# 三个低权限口令只允许字母和数字（16 位以上），由部署方生成并自行保管。
+# 网络：沿用 full 的固定子网 172.30.88.0/24，pc（Nginx）固定 172.30.88.10；后端只信任这一个地址传来的 X-Forwarded-For。
 services:
+  boot-migrate:
+    image: mugsun-full-boot:local
+    build:
+      context: .
+      dockerfile: docker/full/boot.Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      JDBC_URL: jdbc:postgresql://postgres:5432/mugsun
+      JDBC_USERNAME: mugsun
+      TRACK_JDBC_URL: jdbc:postgresql://postgres:5432/mugsun_track
+      TRACK_JDBC_USERNAME: mugsun
+      REDIS_HOST: redis
+      REDIS_DB: ${MUGSUN_DEMO_REDIS_DB:-4}
+      MUGSUN_FRONT_URL: ${MUGSUN_DEMO_FRONT_URL:-http://localhost:${MUGSUN_HTTP_PORT:-8088}}
+      FILE_DOMAIN: ${MUGSUN_DEMO_FRONT_URL:-http://localhost:${MUGSUN_HTTP_PORT:-8088}}/api/file/
+      SMTP_HOST: smtp.invalid
+      SMTP_USERNAME: unset
+      SMTP_PASSWORD: unset
+      SMS_AK: unset
+      SMS_SK: unset
+      SMS_SIGNATURE: unset
+      SMS_TEMPLATE_ID: unset
+    entrypoint: ["sh", "-c", ". /secrets/boot.env && exec java $$JAVA_OPTS -jar /app/app.jar --mugsun.demo.migrate-only=true"]
+    volumes:
+      - secrets-boot:/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  demo-accounts:
+    image: mugsun-full-postgres:local
+    environment:
+      RO: ${MUGSUN_DEMO_RO_DB_PASSWORD:?设置只读业务账号口令 MUGSUN_DEMO_RO_DB_PASSWORD}
+      LOG: ${MUGSUN_DEMO_LOG_DB_PASSWORD:?设置日志账号口令 MUGSUN_DEMO_LOG_DB_PASSWORD}
+      TRK: ${MUGSUN_DEMO_TRACK_DB_PASSWORD:?设置埋点账号口令 MUGSUN_DEMO_TRACK_DB_PASSWORD}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        for v in "$$RO" "$$LOG" "$$TRK"; do
+          printf '%s' "$$v" | grep -Eq '^[A-Za-z0-9]{16,}$$' || { echo "演示账号口令只允许字母数字且至少 16 位" >&2; exit 1; }
+        done
+        . /secrets/db.env
+        export PGPASSWORD="$$MUGSUN_DB_PASSWORD"
+        sed -e "s/{{RO_PASSWORD}}/$$RO/" -e "s/{{LOG_PASSWORD}}/$$LOG/" -e "s/{{TRACK_PASSWORD}}/$$TRK/" \
+            -e "s/{{BIZ_DB}}/mugsun/" -e "s/{{TRACK_DB}}/mugsun_track/" -e "s/{{OWNER}}/mugsun/" \
+            /sql/demo-accounts.sql > /tmp/demo-accounts.sql
+        psql -h postgres -U postgres -d mugsun -v ON_ERROR_STOP=1 -q -f /tmp/demo-accounts.sql
+        # 口令以 SQL 里的为准：已存在的账号也同步一次（重复执行幂等）
+        psql -h postgres -U postgres -d mugsun -v ON_ERROR_STOP=1 -q \
+          -c "ALTER ROLE mugsun_demo_ro PASSWORD '$$RO'" -c "ALTER ROLE mugsun_demo_log PASSWORD '$$LOG'" \
+          -c "ALTER ROLE mugsun_demo_track PASSWORD '$$TRK'"
+        echo "demo accounts ready"
+    volumes:
+      - secrets-postgres:/secrets:ro
+      - ./docs/demo/sql:/sql:ro
+    depends_on:
+      boot-migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  boot:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod,demo
+      JDBC_USERNAME: mugsun_demo_ro
+      TRACK_JDBC_USERNAME: mugsun_demo_track
+      MUGSUN_DEMO_LOG_DB_USERNAME: mugsun_demo_log
+      MUGSUN_DEMO_RO_DB_PASSWORD: ${MUGSUN_DEMO_RO_DB_PASSWORD:?设置只读业务账号口令 MUGSUN_DEMO_RO_DB_PASSWORD}
+      MUGSUN_DEMO_LOG_DB_PASSWORD: ${MUGSUN_DEMO_LOG_DB_PASSWORD:?设置日志账号口令 MUGSUN_DEMO_LOG_DB_PASSWORD}
+      MUGSUN_DEMO_TRACK_DB_PASSWORD: ${MUGSUN_DEMO_TRACK_DB_PASSWORD:?设置埋点账号口令 MUGSUN_DEMO_TRACK_DB_PASSWORD}
+      MUGSUN_DEMO_REDIS_DB: ${MUGSUN_DEMO_REDIS_DB:-4}
+      REDIS_DB: ${MUGSUN_DEMO_REDIS_DB:-4}
+      MUGSUN_FRONT_URL: ${MUGSUN_DEMO_FRONT_URL:-http://localhost:${MUGSUN_HTTP_PORT:-8088}}
+      FILE_DOMAIN: ${MUGSUN_DEMO_FRONT_URL:-http://localhost:${MUGSUN_HTTP_PORT:-8088}}/api/file/
+      # 显式只信任 pc（Nginx）的固定地址
+      MUGSUN_OPENAPI_TRUSTED_PROXIES: ${MUGSUN_PC_IP:-172.30.88.10}/32
+    # boot.env 里是 owner 口令：读完后换成低权限账号口令
+    entrypoint: ["sh", "-c", ". /secrets/boot.env && export JDBC_PASSWORD=\"$$MUGSUN_DEMO_RO_DB_PASSWORD\" TRACK_JDBC_PASSWORD=\"$$MUGSUN_DEMO_TRACK_DB_PASSWORD\" && exec java $$JAVA_OPTS -jar /app/app.jar"]
+    volumes:
+      - boot-logs:/app/logs
+    depends_on:
+      demo-accounts:
+        condition: service_completed_successfully
+
   pc:
+    build:
+      # 含 pc#61（CSP_MODE / CSP_REPORT_URI）的 main 合并提交
+      context: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#2fd6ebe832b025e5cb2ab4c771608349b6e2f144}
     environment:
       MUGSUN_CSP_MODE: enforce
       MUGSUN_CSP_REPORT_URI: /api/csp-report
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${MUGSUN_COMPOSE_SUBNET:-172.30.88.0/24}
+          ip_range: ${MUGSUN_COMPOSE_IP_RANGE:-172.30.88.128/25}
+
+volumes:
+  boot-logs:

@@ -306,6 +306,14 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 
 	@Test
 	void cspReportCollectorAllowedRateLimitedAndNotLoggedRaw(org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+		// demo profile 下报告进单独文件（additivity=false），这里挂一个内存 appender 读同一个 logger
+		ch.qos.logback.classic.Logger cspLog = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("mugsun.csp-report");
+		ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> mem = new ch.qos.logback.core.read.ListAppender<>();
+		mem.start();
+		cspLog.addAppender(mem);
+		java.util.function.Supplier<String> cspLines = () -> mem.list.stream()
+			.map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).collect(java.util.stream.Collectors.joining("\n"));
+		try {
 		String report = "{\"csp-report\":{\"document-uri\":\"https://demo.example.com/x?token=CSP-SECRET\","
 			+ "\"blocked-uri\":\"wss://demo.example.com/api/ws/message?token=CSP-SECRET\",\"effective-directive\":\"connect-src\"}}";
 		org.springframework.http.HttpHeaders h = new org.springframework.http.HttpHeaders();
@@ -313,11 +321,17 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		var entity = new org.springframework.http.HttpEntity<>(report, h);
 		ResponseEntity<String> first = rest.postForEntity("/csp-report", entity, String.class);
 		assertThat(first.getStatusCode().value()).as("白名单放行，不是 403").isEqualTo(204);
-		assertThat(output.getAll()).contains("wss://demo.example.com/api/ws/message").doesNotContain("CSP-SECRET");
+		assertThat(cspLines.get()).contains("wss://demo.example.com").doesNotContain("CSP-SECRET").doesNotContain("/api/ws/message");
+		assertThat(output.getAll()).doesNotContain("CSP-SECRET");
 		// 超大 body 413
 		String big = "{\"csp-report\":{\"document-uri\":\"" + "a".repeat(9000) + "\"}}";
 		assertThat(rest.postForEntity("/csp-report", new org.springframework.http.HttpEntity<>(big, h), String.class)
 			.getStatusCode().value()).isEqualTo(413);
+		// 其它 Content-Type 一律 415（consumes 只收两种）
+		org.springframework.http.HttpHeaders tj = new org.springframework.http.HttpHeaders();
+		tj.setContentType(org.springframework.http.MediaType.TEXT_PLAIN);
+		assertThat(rest.postForEntity("/csp-report", new org.springframework.http.HttpEntity<>(report, tj), String.class)
+			.getStatusCode().value()).isEqualTo(415);
 		// report-to 格式（application/reports+json，数组）同样接受并清洗
 		org.springframework.http.HttpHeaders rj = new org.springframework.http.HttpHeaders();
 		rj.setContentType(org.springframework.http.MediaType.parseMediaType("application/reports+json"));
@@ -326,7 +340,8 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 			+ "\"blockedURL\":\"https://evil.example/collect?c=RJ-SECRET\",\"effectiveDirective\":\"img-src\"}}]";
 		assertThat(rest.postForEntity("/csp-report", new org.springframework.http.HttpEntity<>(reportTo, rj), String.class)
 			.getStatusCode().value()).isEqualTo(204);
-		assertThat(output.getAll()).contains("https://evil.example/collect").doesNotContain("RJ-SECRET");
+		assertThat(cspLines.get()).contains("https://evil.example").doesNotContain("RJ-SECRET").doesNotContain("evil.example/collect");
+		assertThat(output.getAll()).doesNotContain("RJ-SECRET");
 		// 同一 IP 连发 1000 次：默认 30 次/分钟/IP（上面已用 3 次），超出后全部 429
 		int ok = 0;
 		int limited = 0;
@@ -345,5 +360,8 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		// 原文不进接口日志 / 操作日志
 		Thread.sleep(500);
 		assertThat(count("SELECT COUNT(*) FROM sys_api_log WHERE request_uri LIKE ? OR params LIKE ?", "%csp-report%", "%CSP-SECRET%")).isZero();
+		} finally {
+			cspLog.detachAppender(mem);
+		}
 	}
 }

@@ -40,7 +40,7 @@ public class CspReportController {
 		this.objectMapper = objectMapper;
 	}
 
-	@PostMapping("/csp-report")
+	@PostMapping(value = "/csp-report", consumes = {"application/csp-report", "application/reports+json"})
 	public ResponseEntity<Void> report(HttpServletRequest request) throws IOException {
 		if (request.getContentLengthLong() > MAX_BODY) {
 			return ResponseEntity.status(413).build();

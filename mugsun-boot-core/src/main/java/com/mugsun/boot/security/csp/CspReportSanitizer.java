@@ -81,10 +81,11 @@ public final class CspReportSanitizer {
 	private static Map<String, Object> record(String document, String blocked, String directive, String source,
 											  Integer line, String disposition) {
 		Map<String, Object> m = new LinkedHashMap<>();
-		m.put("document", stripUrl(document));
-		m.put("blocked", stripUrl(blocked));
+		// 页面地址留路径（定位哪一页），但去 matrix 参数、令牌样的路径段；被拦资源和脚本来源只留 origin
+		m.put("document", redactPath(stripUrl(document)));
+		m.put("blocked", originOnly(stripUrl(blocked)));
 		m.put("directive", clip(directive));
-		m.put("source", stripUrl(source));
+		m.put("source", originOnly(stripUrl(source)));
 		m.put("line", line);
 		m.put("disposition", clip(disposition));
 		return m;
@@ -118,6 +119,46 @@ public final class CspReportSanitizer {
 		}
 		int at = noQuery.indexOf('@');
 		return clip(at < 0 ? noQuery : noQuery.substring(at + 1));
+	}
+
+	private static final java.util.regex.Pattern TOKEN_LIKE =
+		java.util.regex.Pattern.compile("(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\\-.~=%]{24,}|(?=.*[0-9])[0-9a-fA-F]{32,}");
+
+	/** 只留 scheme://host[:port]；关键字、相对路径（同源）给出 "self" 之外的原值不再保留路径 */
+	static String originOnly(String stripped) {
+		if (stripped == null || !stripped.contains("://")) {
+			return stripped == null || stripped.startsWith("/") ? (stripped == null ? null : "'self'") : stripped;
+		}
+		int slash = stripped.indexOf('/', stripped.indexOf("://") + 3);
+		return slash < 0 ? stripped : stripped.substring(0, slash);
+	}
+
+	/** 去掉每段 ; 之后的 matrix 参数；令牌或签名样的段（≥24 位字母数字混合，或 ≥32 位十六进制）换成 :redacted */
+	static String redactPath(String url) {
+		if (url == null) {
+			return null;
+		}
+		int start = url.contains("://") ? url.indexOf('/', url.indexOf("://") + 3) : 0;
+		if (start < 0) {
+			return url;
+		}
+		String[] segs = url.substring(start).split("/", -1);
+		StringBuilder sb = new StringBuilder(url.substring(0, start));
+		for (int i = 0; i < segs.length; i++) {
+			String seg = segs[i];
+			int semi = seg.indexOf(';');
+			if (semi >= 0) {
+				seg = seg.substring(0, semi);
+			}
+			if (TOKEN_LIKE.matcher(seg).matches()) {
+				seg = ":redacted";
+			}
+			if (i > 0) {
+				sb.append('/');
+			}
+			sb.append(seg);
+		}
+		return sb.toString();
 	}
 
 	private static int indexOfAny(String s, char a, char b) {

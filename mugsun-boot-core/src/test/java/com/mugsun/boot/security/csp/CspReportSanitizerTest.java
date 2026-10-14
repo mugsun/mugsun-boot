@@ -28,8 +28,8 @@ class CspReportSanitizerTest {
 		assertThat(r).hasSize(1);
 		Map<String, Object> m = r.get(0);
 		assertThat(m.get("document")).isEqualTo("https://demo.example.com/system/user");
-		assertThat(m.get("blocked")).isEqualTo("wss://demo.example.com/api/ws/message");
-		assertThat(m.get("source")).isEqualTo("https://demo.example.com/assets/index.js");
+		assertThat(m.get("blocked")).isEqualTo("wss://demo.example.com");
+		assertThat(m.get("source")).isEqualTo("https://demo.example.com");
 		assertThat(m.get("directive")).isEqualTo("connect-src");
 		assertThat(m.get("line")).isEqualTo(12);
 		assertThat(m.toString()).doesNotContain("SECRET-TOKEN", "token=", "cookie", "frag");
@@ -59,5 +59,11 @@ class CspReportSanitizerTest {
 		Map<String, Object> m = parse("{\"csp-report\":{\"document-uri\":\"" + longPath + "\"}}").get(0);
 		assertThat((String) m.get("document")).hasSize(CspReportSanitizer.MAX_FIELD).doesNotContain("token");
 		assertThat(CspReportSanitizer.stripUrl("/relative/path?token=1#x")).isEqualTo("/relative/path");
+		assertThat(CspReportSanitizer.redactPath("https://demo.example.com/share/aB3dE5fG7hJ9kL1mN3pQ5rS7tU/v;jsessionid=X"))
+			.isEqualTo("https://demo.example.com/share/:redacted/v");
+		assertThat(CspReportSanitizer.originOnly("https://cdn.example.com/f/9f86d081884c7d659a2feaa0c55ad015/a.js"))
+			.isEqualTo("https://cdn.example.com");
+		assertThat(CspReportSanitizer.originOnly("/api/file/x")).isEqualTo("'self'");
+		assertThat(CspReportSanitizer.originOnly("inline")).isEqualTo("inline");
 	}
 }
