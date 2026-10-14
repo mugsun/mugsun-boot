@@ -4,8 +4,6 @@ import com.mugsun.boot.gis.entity.GisLayer;
 import com.mugsun.boot.gis.mapper.GisLayerMapper;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.operation.buffer.BufferOp;
-import org.locationtech.jts.operation.distance.DistanceOp;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.springframework.stereotype.Service;
@@ -17,12 +15,13 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 空间分析内核：入站与图层 ingest 同一套规范化，运算走 JTS（米制 3857，出入 WGS84）。
+ * 空间分析内核：入站与图层 ingest 同一套规范化，运算走 JTS；米制（缓冲 / 距离 / 面积 / 长度）走 {@link GisGeodesic}，出入 WGS84。
  * 其它业务模块只要 POST 坐标或 layerId，不必感知地图页。
  *
  * <p>当请求带 {@code layerId} 且库里有 PostGIS 时，缓冲 / 包含会转交
  * {@link GisSpatialQueryService} 下沉数据库（响应带 {@code engine}），避免把整层
- * {@code data_json} 拉进 JVM 再算一遍；没有扩展或强制 {@code engine=java} 时仍走 JTS。
+ * {@code data_json} 拉进 JVM 再算一遍（没有 PostGIS 时转交后走图层查询的 Java 分支，极区 / 跨 180° 的要素被跳过）。
+ * 请求带 {@code engine=java} 时不转交，整份入参在内存里用 JTS 分析；入参里有极区 / 跨 180° 的几何会报错。
  */
 @Service
 public class GisAnalyzeService {
@@ -51,7 +50,8 @@ public class GisAnalyzeService {
 		double distance = numberOf(body.get("distance"), GisConstants.BUFFER_DEFAULT_M);
 		int limit = body.get("limit") instanceof Number n ? n.intValue() : 0;
 		boolean forceJava = GisConstants.ENGINE_JAVA.equalsIgnoreCase(stringOf(body.get("engine")));
-		Map<String, Object> offloaded = tryOffload(op, body, distance, limit, forceJava);
+		// engine=java：整个请求按「分析单个几何」走内存 JTS，不转交图层查询（也就不会按图层查询的规则跳过要素）
+		Map<String, Object> offloaded = forceJava ? null : tryOffload(op, body, distance, limit);
 		if (offloaded != null) {
 			return offloaded;
 		}
@@ -98,7 +98,7 @@ public class GisAnalyzeService {
 	 * 返回 null 表示走不了下沉（没 layerId、不是这两个算子、或图层不适合索引）。
 	 */
 	private Map<String, Object> tryOffload(String op, Map<String, Object> body,
-										   double distance, int limit, boolean forceJava) {
+										   double distance, int limit) {
 		if (!(GisConstants.OP_BUFFER.equals(op) || GisConstants.OP_CONTAINS.equals(op))) {
 			return null;
 		}
@@ -118,7 +118,7 @@ public class GisAnalyzeService {
 			return null;
 		}
 		if (GisConstants.OP_BUFFER.equals(op)) {
-			Map<String, Object> spatial = spatialQuery.buffer(layer, distance, limit, forceJava);
+			Map<String, Object> spatial = spatialQuery.buffer(layer, distance, limit, false);
 			return wrapSpatial(GisConstants.OP_BUFFER, spatial, distance);
 		}
 		Object probe = body.get("other");
@@ -134,7 +134,7 @@ public class GisAnalyzeService {
 		if (probe == null) {
 			throw new ServiceException(GisConstants.MSG_ANALYZE_OTHER);
 		}
-		Map<String, Object> spatial = spatialQuery.contains(layer, probe, limit, forceJava);
+		Map<String, Object> spatial = spatialQuery.contains(layer, probe, limit, false);
 		Map<String, Object> out = wrapSpatial(GisConstants.OP_CONTAINS, spatial, null);
 		@SuppressWarnings("unchecked")
 		Map<String, Object> metrics = (Map<String, Object>) out.get("metrics");
@@ -147,7 +147,7 @@ public class GisAnalyzeService {
 	private Map<String, Object> wrapSpatial(String op, Map<String, Object> spatial, Double bufferMeters) {
 		List<Map<String, Object>> feats = spatial.get("features") instanceof List<?> list
 			? (List<Map<String, Object>>) list : List.of();
-		Map<String, Object> metrics = measure(codec.fromCollection(wrapTemp(feats)));
+		Map<String, Object> metrics = measureLenient(codec.fromCollection(wrapTemp(feats)));
 		if (bufferMeters != null) {
 			metrics.put("bufferMeters", bufferMeters);
 		}
@@ -155,6 +155,9 @@ public class GisAnalyzeService {
 		out.put("engine", spatial.getOrDefault("engine", GisConstants.ENGINE_JAVA));
 		out.put("truncated", Boolean.TRUE.equals(spatial.get("truncated")));
 		out.put("count", spatial.getOrDefault("count", feats.size()));
+		if (spatial.get("skipped") instanceof Number n) {
+			out.put("skipped", n.intValue());
+		}
 		return out;
 	}
 
@@ -172,14 +175,13 @@ public class GisAnalyzeService {
 				truncated = true;
 				break;
 			}
-			Geometry merc = codec.toMercator(geoms.get(i));
-			Geometry buf = BufferOp.bufferOp(merc, meters);
+			Geometry buf = GisGeodesic.buffer(geoms.get(i), meters);
 			if (buf == null || buf.isEmpty()) {
 				continue;
 			}
 			Map<String, Object> props = featureProps(source, i, GisConstants.OP_BUFFER);
 			props.put("bufferMeters", meters);
-			feats.add(codec.toFeature(codec.toWgs84(buf), props, idOf(source, i)));
+			feats.add(codec.toFeature(buf, props, idOf(source, i)));
 		}
 		Map<String, Object> metrics = measure(codec.fromCollection(wrapTemp(feats)));
 		metrics.put("bufferMeters", meters);
@@ -207,9 +209,7 @@ public class GisAnalyzeService {
 	}
 
 	private Map<String, Object> distanceOf(Map<String, Object> source, List<Geometry> left, List<Geometry> right) {
-		Geometry a = codec.toMercator(UnaryUnionOp.union(left));
-		Geometry b = codec.toMercator(UnaryUnionOp.union(right));
-		double meters = DistanceOp.distance(a, b);
+		double meters = GisGeodesic.distance(UnaryUnionOp.union(left), UnaryUnionOp.union(right));
 		Map<String, Object> metrics = measure(left);
 		metrics.put("distanceMeters", meters);
 		return envelopeResult(GisConstants.OP_DISTANCE, copyFeatures(source), metrics);
@@ -313,14 +313,41 @@ public class GisAnalyzeService {
 		double area = 0d;
 		double length = 0d;
 		for (Geometry geom : geoms) {
-			Geometry merc = codec.toMercator(geom);
-			area += merc.getArea();
-			length += merc.getLength();
+			area += GisGeodesic.area(geom);
+			length += GisGeodesic.length(geom);
 		}
 		Map<String, Object> metrics = new LinkedHashMap<>();
 		metrics.put("count", geoms.size());
 		metrics.put("areaSqMeters", area);
 		metrics.put("lengthMeters", length);
+		return metrics;
+	}
+
+	/**
+	 * 转交图层查询后的汇总：命中要素里可能有极区 / 跨 180° 的（例如「包含」原样返回），它们不计入面积 / 长度，
+	 * 数量记在 {@code metricsSkipped}，避免汇总时抛异常让整次结果作废。
+	 */
+	private Map<String, Object> measureLenient(List<Geometry> geoms) {
+		double area = 0d;
+		double length = 0d;
+		int skipped = 0;
+		for (Geometry geom : geoms) {
+			try {
+				double a = GisGeodesic.area(geom);
+				double l = GisGeodesic.length(geom);
+				area += a;
+				length += l;
+			} catch (ServiceException outOfRange) {
+				skipped++;
+			}
+		}
+		Map<String, Object> metrics = new LinkedHashMap<>();
+		metrics.put("count", geoms.size());
+		metrics.put("areaSqMeters", area);
+		metrics.put("lengthMeters", length);
+		if (skipped > 0) {
+			metrics.put("metricsSkipped", skipped);
+		}
 		return metrics;
 	}
 
