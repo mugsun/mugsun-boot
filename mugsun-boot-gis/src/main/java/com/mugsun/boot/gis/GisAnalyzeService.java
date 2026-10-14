@@ -15,7 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 空间分析内核：入站与图层 ingest 同一套规范化，运算走 JTS（米制 3857，出入 WGS84）。
+ * 空间分析内核：入站与图层 ingest 同一套规范化，运算走 JTS；米制（缓冲 / 距离 / 面积 / 长度）走 {@link GisGeodesic}，出入 WGS84。
  * 其它业务模块只要 POST 坐标或 layerId，不必感知地图页。
  *
  * <p>当请求带 {@code layerId} 且库里有 PostGIS 时，缓冲 / 包含会转交

@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.mugsun.core.tool.exception.ServiceException;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -79,5 +82,43 @@ class GisSpatialQueryServiceBufferTest {
 		assertThat(meters / truth - 1).isBetween(-0.01, 0.01);
 		Map<String, Object> n = svc.nearest(l, lon, lat, 1, forceJava);
 		assertThat(n.get("engine")).isEqualTo(GisConstants.ENGINE_JAVA);
+	}
+
+	@ParameterizedTest(name = "{0}° postgis={1} forceJava={2}")
+	@CsvSource({ "39.9, false, false", "72.0, true, true", "80.0, false, false" })
+	@DisplayName("半径包络预筛不漏：贴着半径内侧（0.995·r）的点必须命中，外侧（1.005·r）不命中")
+	@SuppressWarnings("unchecked")
+	void radiusPrefilterDoesNotMiss(double lat, boolean postgisUp, boolean forceJava) {
+		GisSpatialQueryService svc = service(postgisUp);
+		double lon = 20.0;
+		double r = 50_000d;
+		// 正东方向：经度跨度最大、最容易被过紧的包络挡掉
+		double dLonPerM = 1 / (GeodesicTruth.vincenty(lon, lat, lon + 1, lat));
+		double inLon = lon + r * 0.995 * dLonPerM;
+		double outLon = lon + r * 1.005 * dLonPerM;
+		GisLayer l = new GisLayer();
+		l.setId(1L);
+		l.setKind("vector");
+		l.setDataJson("{\"type\":\"FeatureCollection\",\"features\":["
+			+ "{\"type\":\"Feature\",\"id\":\"in\",\"properties\":{\"k\":\"in\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[" + inLon + "," + lat + "]}},"
+			+ "{\"type\":\"Feature\",\"id\":\"out\",\"properties\":{\"k\":\"out\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[" + outLon + "," + lat + "]}}]}");
+		Map<String, Object> res = svc.radius(l, lon, lat, r, 10, forceJava);
+		List<Map<String, Object>> feats = (List<Map<String, Object>>) res.get("features");
+		assertThat(feats).hasSize(1);
+		assertThat(((Map<String, Object>) feats.get(0).get("properties")).get("k")).isEqualTo("in");
+		Map<String, Object> near = svc.nearest(l, lon, lat, 1, forceJava);
+		List<Map<String, Object>> nf = (List<Map<String, Object>>) near.get("features");
+		assertThat(((Map<String, Object>) nf.get(0).get("properties")).get("k")).isEqualTo("in");
+	}
+
+	@ParameterizedTest(name = "postgis={0} forceJava={1}")
+	@CsvSource({ "false, false", "true, true" })
+	@DisplayName("回落路径：极区 / 跨 180° 经线的缓冲给出业务异常")
+	void fallbackRejectsPolarAndAntimeridian(boolean postgisUp, boolean forceJava) {
+		GisSpatialQueryService svc = service(postgisUp);
+		assertThatThrownBy(() -> svc.buffer(layer("{\"type\":\"Point\",\"coordinates\":[0,86]}"), 1000d, 10, forceJava))
+			.isInstanceOf(ServiceException.class).hasMessageContaining("极区");
+		assertThatThrownBy(() -> svc.buffer(layer("{\"type\":\"Point\",\"coordinates\":[179.99,0]}"), 5000d, 10, forceJava))
+			.isInstanceOf(ServiceException.class).hasMessageContaining("180°");
 	}
 }

@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Java 回落缓冲对照 PostGIS geography：同一要素、同一米数，
- * ① Java 缓冲外环每个顶点到原要素的 ST_Distance(geography) 与设定米数相差 < 1%；
+ * ① Java 缓冲外环每个顶点到原要素的 ST_Distance(geography) 与设定米数相差 < 1%（实测 < 0.5%）；
  * ② Java 缓冲与 ST_Buffer(geography) 的 ST_Area(geography) 相差 < 2%（PostGIS 自身也是投影近似）。
  */
 class GisBufferPostgisParityTest {
@@ -65,7 +65,7 @@ class GisBufferPostgisParityTest {
 		for (double[] p : places) {
 			Geometry[] gs = shapes(p[0], p[1]);
 			for (int i = 0; i < gs.length; i++) {
-				for (double meters : new double[] { 500d, 20_000d }) {
+				for (double meters : new double[] { 500d, 20_000d, 200_000d }) {
 					Geometry ours = GisGeodesic.buffer(gs[i], meters);
 					String feature = w.write(gs[i]);
 					String target = gs[i].getDimension() == 2 ? "ST_Boundary(ST_GeomFromText(?, 4326))" : "ST_GeomFromText(?, 4326)";

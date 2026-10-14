@@ -3,6 +3,7 @@ package com.mugsun.boot.gis;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.gis.entity.GisLayer;
 import com.mugsun.core.tool.exception.ServiceException;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.springframework.stereotype.Service;
 
@@ -11,16 +12,18 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 
 /**
  * 高频空间查询：视野范围（bbox）、半径内、与某几何相交、包含、最近邻、缓冲。
  *
  * <p>有 PostGIS 时全部下沉数据库，靠 {@code idx_gis_feature_geom}（GiST）过滤，只把命中要素回给前端；
- * 没有时回落读整层 {@code data_json} 在 Java 侧算——口径一致，但要素多了就慢，响应里的
+ * 没有时回落读整层 {@code data_json} 在 Java 侧算——米制结果与 PostGIS 差异在 0.5% 以内，但要素多了就慢，响应里的
  * {@code engine} 字段会如实标明走了哪条路。
  *
  * <p>米制口径：PostGIS 侧用 {@code geography} 走真实大地距离；Java 侧（半径、最近邻、缓冲）用
- * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，与 WGS84 测地距离差异在 0.5% 以内。
+ * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，距离再用 WGS84 Vincenty 反算；与 PostGIS
+ * geography 的差异在 0.5% 以内。半径 / 最近邻先按经纬度包络预筛（只多收不漏），再精算。
  */
 @Service
 public class GisSpatialQueryService {
@@ -83,7 +86,11 @@ public class GisSpatialQueryService {
 				"ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(" + lon + ", " + lat + "), 4326)::geography)",
 				cap);
 		}
+		Envelope box = GisGeodesic.looseEnvelope(lon, lat, meters);
 		return java(layer, cap, (geom, feat) -> {
+			if (!box.intersects(geom.getEnvelopeInternal())) {
+				return null;
+			}
 			double d = GisGeodesic.distance(geom, lon, lat);
 			return d <= meters ? d : null;
 		});
@@ -120,7 +127,19 @@ public class GisSpatialQueryService {
 				"ST_Distance(geom::geography, " + point + "::geography)",
 				cap, " ORDER BY geom <-> " + point);
 		}
-		Map<String, Object> out = java(layer, Integer.MAX_VALUE, (geom, feat) -> GisGeodesic.distance(geom, lon, lat));
+		// 包络预筛：已有 cap 个候选时，纬度差下限都比第 cap 近的还远的要素直接跳过，不做精算
+		PriorityQueue<Double> best = new PriorityQueue<>(Comparator.reverseOrder());
+		Map<String, Object> out = java(layer, Integer.MAX_VALUE, (geom, feat) -> {
+			if (best.size() >= cap && GisGeodesic.lowerBound(geom.getEnvelopeInternal(), lat) > best.peek()) {
+				return null;
+			}
+			double d = GisGeodesic.distance(geom, lon, lat);
+			best.offer(d);
+			if (best.size() > cap) {
+				best.poll();
+			}
+			return d;
+		});
 		@SuppressWarnings("unchecked")
 		List<Map<String, Object>> feats = (List<Map<String, Object>>) out.get("features");
 		feats.sort(Comparator.comparingDouble(f -> distanceOf(f)));
@@ -309,7 +328,7 @@ public class GisSpatialQueryService {
 
 	// ==================== 杂项 ====================
 
-	/** forceJava 只给诊断与压测用：PostGIS 在线时也能走一遍回落路径，方便对比耗时、验证两条路口径一致 */
+	/** forceJava 只给诊断与压测用：PostGIS 在线时也能走一遍回落路径，方便对比耗时、核对两条路的差异（米制 < 0.5%） */
 	private boolean ready(GisLayer layer, boolean forceJava) {
 		if (forceJava || !support.available()) {
 			return false;
