@@ -234,7 +234,8 @@ public class TrackIngestService {
 		event.setUrlPath(truncate(text(props, TrackConstants.PROP_URL_PATH), TrackConstants.URL_MAX_LEN));
 		event.setRoutePath(truncate(text(props, TrackConstants.PROP_ROUTE_PATH), TrackConstants.DIM_MAX_LEN));
 		event.setPageTitle(truncate(text(props, TrackConstants.PROP_PAGE_TITLE), TrackConstants.PAGE_TITLE_MAX_LEN));
-		event.setReferrerDomain(truncate(text(props, TrackConstants.PROP_REFERRER_DOMAIN), TrackConstants.DIM_MAX_LEN));
+		event.setReferrerDomain(truncate(TrackReferrer.domainOf(text(props, TrackConstants.PROP_REFERRER_DOMAIN),
+			text(props, TrackConstants.PROP_REFERRER)), TrackConstants.DIM_MAX_LEN));
 		event.setUtmSource(truncate(text(props, TrackConstants.PROP_UTM_SOURCE), TrackConstants.DIM_MAX_LEN));
 		event.setUtmMedium(truncate(text(props, TrackConstants.PROP_UTM_MEDIUM), TrackConstants.DIM_MAX_LEN));
 		event.setUtmCampaign(truncate(text(props, TrackConstants.PROP_UTM_CAMPAIGN), TrackConstants.DIM_MAX_LEN));
@@ -355,7 +356,7 @@ public class TrackIngestService {
 		}
 	}
 
-	/** props 截断净化：键 ≤64 / 值 ≤1024 / 嵌套深度 ≤3（超出剪为 null）/ 单事件总量 ≤16KB（超出从尾部逐键摘除） */
+	/** props 截断净化：键 ≤64 / 值 ≤1024（顶层 stack ≤4096）/ 嵌套深度 ≤3（超出剪为 null）/ 单事件总量 ≤16KB（超出从尾部逐键摘除） */
 	private String sanitizeProps(JsonNode props) {
 		if (props == null || !props.isObject()) {
 			return "{}";
@@ -370,7 +371,10 @@ public class TrackIngestService {
 			}
 			// 同键（截断后撞键）保留先出现者
 			if (!out.has(key)) {
-				out.set(key, sanitizeValue(field.getValue(), 1));
+				JsonNode value = field.getValue();
+				out.set(key, TrackConstants.PROP_ERROR_STACK.equals(key) && value != null && value.isTextual()
+					? TextNode.valueOf(truncate(value.asText(), TrackConstants.PROPS_STACK_MAX_LEN))
+					: sanitizeValue(value, 1));
 			}
 		}
 		String json = out.toString();

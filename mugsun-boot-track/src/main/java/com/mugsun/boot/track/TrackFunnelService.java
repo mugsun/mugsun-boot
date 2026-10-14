@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -50,8 +51,11 @@ public class TrackFunnelService {
 
 	private final JdbcTemplate jdbc;
 	private final ObjectProvider<TrackFunnelService> self;
+	private final TrackTimezoneProperties timezones;
 
-	public TrackFunnelService(DataSource dataSource, ObjectProvider<TrackFunnelService> self) {
+	public TrackFunnelService(DataSource dataSource, ObjectProvider<TrackFunnelService> self,
+							  TrackTimezoneProperties timezones) {
+		this.timezones = timezones;
 		this.jdbc = new JdbcTemplate(dataSource);
 		this.self = self;
 	}
@@ -64,16 +68,20 @@ public class TrackFunnelService {
 		long window = assertWindow(windowHours);
 		String tenant = currentTenant();
 		assertAppVisible(appKey, tenant);
-		return self.getObject().cachedFunnel(appKey, String.join(",", stepList), d, window, tenant);
+		return self.getObject().cachedFunnel(appKey, String.join(",", stepList), d, window, tenant,
+			timezones.zoneFor(tenant).getId());
 	}
 
-	@Cached(name = "track:ana:funnel:", key = "#appKey + ':' + #days + ':' + #windowHours + ':' + #steps",
+	@Cached(name = "track:ana:funnel:",
+		key = "#appKey + ':' + #days + ':' + #windowHours + ':' + #steps + ':' + #tenant + ':' + #zoneId",
 		expire = TrackConstants.ANALYSIS_CACHE_SECONDS, cacheType = CacheType.LOCAL)
-	public Map<String, Object> cachedFunnel(String appKey, String steps, int days, long windowHours, String tenant) {
+	public Map<String, Object> cachedFunnel(String appKey, String steps, int days, long windowHours, String tenant,
+											String zoneId) {
 		// 事件名已过 CUSTOM_EVENT_NAME 白名单（不含逗号），CSV 还原保序列表
 		List<String> stepList = List.of(steps.split(","));
 		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-		OffsetDateTime from = now.minusDays(days);
+		// 按租户时区切日：窗口从首日当地 0 点开始（原为滚动 days×24h）
+		OffsetDateTime from = TrackDayWindow.of(ZoneId.of(zoneId), now.toInstant(), days).fromOffset();
 
 		// ev CTE：窗口内 steps 事件全集（app_key + tenantFrag + received_at 窗 + event_name IN + identity LEFT JOIN）；
 		// 排序/转化窗口用 ts（校时后发生时间，下钻口径），received_at 仅作窗口过滤（分区裁剪），见类 javadoc

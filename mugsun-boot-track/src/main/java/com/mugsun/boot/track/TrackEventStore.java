@@ -73,6 +73,11 @@ public class TrackEventStore {
 		+ " THEN EXCLUDED.entry_path ELSE track_session.entry_path END,"
 		+ " exit_path = CASE WHEN EXCLUDED.exit_path IS NOT NULL AND EXCLUDED.end_time > track_session.end_time"
 		+ " THEN EXCLUDED.exit_path ELSE track_session.exit_path END,"
+		// 来源随入口：更早的批带来源则覆盖，否则只回填空值（跨批到达顺序不影响结果）
+		+ " referrer_domain = CASE WHEN EXCLUDED.referrer_domain IS NOT NULL AND EXCLUDED.start_time < track_session.start_time"
+		+ " THEN EXCLUDED.referrer_domain ELSE COALESCE(track_session.referrer_domain, EXCLUDED.referrer_domain) END,"
+		+ " utm_source = CASE WHEN EXCLUDED.utm_source IS NOT NULL AND EXCLUDED.start_time < track_session.start_time"
+		+ " THEN EXCLUDED.utm_source ELSE COALESCE(track_session.utm_source, EXCLUDED.utm_source) END,"
 		+ " pageviews = track_session.pageviews + EXCLUDED.pageviews,"
 		+ " event_count = track_session.event_count + EXCLUDED.event_count,"
 		+ " has_error = GREATEST(track_session.has_error, EXCLUDED.has_error),"

@@ -65,6 +65,8 @@ public interface TrackConstants {
 	int PROPS_KEY_MAX_LEN = 64;
 	/** props 值截断长度 */
 	int PROPS_VALUE_MAX_LEN = 1024;
+	/** 顶层 props.stack（错误堆栈）截断长度：与 SDK error 插件一致，其它字符串仍按 PROPS_VALUE_MAX_LEN */
+	int PROPS_STACK_MAX_LEN = 4096;
 	/** props 单事件总量上限（字节，16KB） */
 	int PROPS_TOTAL_MAX_BYTES = 16384;
 	/** props 嵌套深度上限 */
@@ -189,6 +191,8 @@ public interface TrackConstants {
 	String PROP_PAGE_TITLE = "page_title";
 	/** props 热点键：来源域名 */
 	String PROP_REFERRER_DOMAIN = "referrer_domain";
+	/** props 键：来源完整 URL（Web SDK 上报 document.referrer）；无 referrer_domain 时服务端从中取主机名 */
+	String PROP_REFERRER = "referrer";
 	/** props 热点键：UTM 来源 */
 	String PROP_UTM_SOURCE = "utm_source";
 	/** props 热点键：UTM 媒介 */

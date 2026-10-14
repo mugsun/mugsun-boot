@@ -1,0 +1,8 @@
+# 只读演示模式（--spring.profiles.active=prod,demo）。B1：profile 骨架 + 只读白名单过滤器。
+# 只读账号、Flyway 关闭、日志独立账号、每日 04:00（北京时间）重置等见后续 PR（B2/B4/B5）。
+# 目前仅支持 PostgreSQL 部署演示环境；达梦/人大金仓/openGauss/MySQL 暂不支持 demo。
+mugsun:
+  demo:
+    enabled: true
+    # 埋点采集在演示环境保持开启（/track/collect|replay|api-body），写独立埋点库、独立账号（仅 INSERT/SELECT）
+    track-collect: ${MUGSUN_DEMO_TRACK_COLLECT:true}
