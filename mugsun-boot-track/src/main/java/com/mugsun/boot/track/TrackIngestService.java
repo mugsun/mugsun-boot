@@ -234,7 +234,8 @@ public class TrackIngestService {
 		event.setUrlPath(truncate(text(props, TrackConstants.PROP_URL_PATH), TrackConstants.URL_MAX_LEN));
 		event.setRoutePath(truncate(text(props, TrackConstants.PROP_ROUTE_PATH), TrackConstants.DIM_MAX_LEN));
 		event.setPageTitle(truncate(text(props, TrackConstants.PROP_PAGE_TITLE), TrackConstants.PAGE_TITLE_MAX_LEN));
-		event.setReferrerDomain(truncate(text(props, TrackConstants.PROP_REFERRER_DOMAIN), TrackConstants.DIM_MAX_LEN));
+		event.setReferrerDomain(truncate(TrackReferrer.domainOf(text(props, TrackConstants.PROP_REFERRER_DOMAIN),
+			text(props, TrackConstants.PROP_REFERRER)), TrackConstants.DIM_MAX_LEN));
 		event.setUtmSource(truncate(text(props, TrackConstants.PROP_UTM_SOURCE), TrackConstants.DIM_MAX_LEN));
 		event.setUtmMedium(truncate(text(props, TrackConstants.PROP_UTM_MEDIUM), TrackConstants.DIM_MAX_LEN));
 		event.setUtmCampaign(truncate(text(props, TrackConstants.PROP_UTM_CAMPAIGN), TrackConstants.DIM_MAX_LEN));
