@@ -34,4 +34,4 @@ mugsun.captcha:
   click:      { words-file: "file:/data/captcha/words.txt" }   # WORD_CLICK 私有词库（每行一个 3–4 字词；字须在字体子集内，否则该词被忽略）
   icon-dir:   "file:/data/captcha/icons/"   # 须含 manifest.json（slug / name_zh / confusable）与 <slug>.png
 ```
-默认仅启用 SLIDER，未换私有图库前不建议对外开启 ROTATE / ICON_CLICK。
+默认仅启用 SLIDER。ROTATE / ICON_CLICK 为辅助题型、默认关闭：图标库公开，图标点选只能部分抵御自动求解（模板匹配回归门 ≤20%，见 IconTemplateSolverTest），不应作为唯一防线。

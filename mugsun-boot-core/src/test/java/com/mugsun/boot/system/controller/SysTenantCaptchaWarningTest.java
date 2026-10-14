@@ -18,8 +18,16 @@ class SysTenantCaptchaWarningTest {
 
 	@Test
 	void keyboardWarningUnchanged() {
-		assertThat(SysTenantController.captchaTypesWarning(EnumSet.of(CaptchaType.ICON_CLICK)))
+		assertThat(SysTenantController.captchaTypesWarning(EnumSet.of(CaptchaType.WORD_CLICK)))
 			.isEqualTo(SysTenantController.WARN_NO_KEYBOARD).contains("40015");
+	}
+
+	@Test
+	void iconClickOnlyWarnsAuxiliary() {
+		assertThat(SysTenantController.captchaTypesWarning(EnumSet.of(CaptchaType.ICON_CLICK)))
+			.isEqualTo(SysTenantController.WARN_NO_KEYBOARD + "；" + SysTenantController.WARN_ICON_CLICK_ONLY)
+			.contains("ICON_CLICK", "唯一防线");
+		assertThat(SysTenantController.captchaTypesWarning(EnumSet.of(CaptchaType.ICON_CLICK, CaptchaType.SLIDER))).isNull();
 	}
 
 	@Test

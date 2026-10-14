@@ -35,7 +35,7 @@ public class SysTenantController {
 	 * 租户验证码开关 + 启用题型：仅平台超管可改，写审计日志。
 	 * types 缺省 = 不改；types 为 null 或 [] = 清回平台默认（NULL）；否则只能是 5 个合法值。
 	 * 启用集合不含 SLIDER/ROTATE 时仍保存，但响应 data.warning 提示 keyboard 用户会收到 40015；
-	 * 只启用 ROTATE 时同样保存并提示旋转题只能部分抵御自动求解。
+	 * 只启用 ROTATE 或只启用 ICON_CLICK 时同样保存并提示该题型只能部分抵御自动求解（辅助题型，默认关闭）。
 	 */
 	@RepeatSubmit
 	@PostMapping("/captcha")
@@ -82,6 +82,8 @@ public class SysTenantController {
 	static final String WARN_NO_KEYBOARD = "未启用 SLIDER 或 ROTATE：键盘/读屏用户将无法完成验证（返回 40015「未启用无障碍验证方式」）";
 	static final String WARN_ROTATE_ONLY = "只启用了 ROTATE：旋转题目前只能部分抵御自动求解（按边缘匹配约 60% 可解），不应作为唯一防线，建议同时启用 SLIDER 或其他题型";
 
+	static final String WARN_ICON_CLICK_ONLY = "只启用了 ICON_CLICK：图标库公开，图标点选只能部分抵御自动求解，不应作为唯一防线，建议同时启用 SLIDER 或其他题型";
+
 	/** 保存题型时的提示（仍保存）；多条用「；」连接，无提示返回 null */
 	static String captchaTypesWarning(java.util.Set<com.mugsun.boot.captcha.CaptchaType> parsed) {
 		java.util.List<String> w = new java.util.ArrayList<>();
@@ -90,6 +92,9 @@ public class SysTenantController {
 		}
 		if (parsed.equals(java.util.EnumSet.of(com.mugsun.boot.captcha.CaptchaType.ROTATE))) {
 			w.add(WARN_ROTATE_ONLY);
+		}
+		if (parsed.equals(java.util.EnumSet.of(com.mugsun.boot.captcha.CaptchaType.ICON_CLICK))) {
+			w.add(WARN_ICON_CLICK_ONLY);
 		}
 		return w.isEmpty() ? null : String.join("；", w);
 	}
