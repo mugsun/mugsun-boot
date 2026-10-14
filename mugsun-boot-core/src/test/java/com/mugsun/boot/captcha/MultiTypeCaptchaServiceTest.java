@@ -95,22 +95,22 @@ class MultiTypeCaptchaServiceTest {
 			.isTrue();
 	}
 
-	/** 审计 3：英文界面不出汉字点选，回退到其他启用题型；只启用了 WORD_CLICK 时仍出它 */
+	/** R7-2：Accept-Language 只改提示语言，不改题型；英文下图标提示用 name_en */
 	@Test
-	void englishLocaleSkipsWordClick() {
+	void localeOnlyChangesPromptLanguage() {
 		java.util.Locale en = java.util.Locale.ENGLISH;
-		for (int i = 0; i < 40; i++) {
+		java.util.Set<String> seen = new java.util.HashSet<>();
+		for (int i = 0; i < 60; i++) {
 			ChallengeVO c = svc.challenge("login", "web", "000000", "pointer", IP,
 				EnumSet.of(CaptchaType.WORD_CLICK, CaptchaType.ICON_CLICK), "000000", en);
-			assertThat(c.type()).isEqualTo("ICON_CLICK");
-			assertThat(c.promptNames()).allSatisfy(n -> assertThat(n).matches("[a-z ]+"));
+			seen.add(c.type());
+			if ("ICON_CLICK".equals(c.type())) {
+				assertThat(c.promptNames()).allSatisfy(n -> assertThat(n).matches("[a-z ]+"));
+			}
 		}
-		assertThat(svc.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.WORD_CLICK), "000000", en)
-			.type()).isEqualTo("WORD_CLICK");
+		assertThat(seen).containsExactlyInAnyOrder("WORD_CLICK", "ICON_CLICK");
 		assertThat(svc.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.ICON_CLICK), "000000",
 			java.util.Locale.SIMPLIFIED_CHINESE).promptNames()).allSatisfy(n -> assertThat(n).doesNotMatch("[a-z ]+"));
-		assertThat(SliderCaptchaService.forLocale(EnumSet.of(CaptchaType.SLIDER, CaptchaType.WORD_CLICK), false))
-			.contains(CaptchaType.WORD_CLICK);
 	}
 
 	/** 审计 2：清单每个图标都有 name_en */

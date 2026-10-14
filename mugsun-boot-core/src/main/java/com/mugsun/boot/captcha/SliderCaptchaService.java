@@ -151,16 +151,7 @@ public class SliderCaptchaService {
 		return challenge(scene, clientId, tenantId, inputMode, ip, enabled, statTenant, null);
 	}
 
-	/** 英文界面：不出汉字点选（WORD_CLICK），改从其他启用题型里选；只启用了 WORD_CLICK 时仍出它。英文下图标提示用 name_en */
-	static Set<CaptchaType> forLocale(Set<CaptchaType> enabled, boolean english) {
-		if (!english || enabled == null || !enabled.contains(CaptchaType.WORD_CLICK) || enabled.size() == 1) {
-			return enabled;
-		}
-		EnumSet<CaptchaType> out = EnumSet.copyOf(enabled);
-		out.remove(CaptchaType.WORD_CLICK);
-		return out;
-	}
-
+	/** Accept-Language 只决定提示语言（图标名用 name_en），不影响题型选择（R7-2：请求头由客户端控制） */
 	static boolean isEnglish(java.util.Locale locale) {
 		return locale != null && "en".equalsIgnoreCase(locale.getLanguage());
 	}
@@ -190,9 +181,7 @@ public class SliderCaptchaService {
 			}
 		}
 		Set<CaptchaType> avail = available(enabled);
-		if (avail != null && !avail.isEmpty()) {
-			avail = forLocale(avail, english);
-		}
+
 		if (!kb && enabled != null && !enabled.isEmpty() && avail.isEmpty()) {
 			// R3′：租户只启用了启动校验不可用的题型（如图标清单缺失时的 ICON_CLICK）→ 明确报错 40016，不静默降为 SLIDER
 			String dedup = K_TYPES_UNAVAILABLE_AUDIT + statKeyTenant + ":" + ipKey;

@@ -132,12 +132,12 @@ class RotateSameImageTest {
 		}
 		System.out.printf("ROTATE-ADVERSARIAL hits=%d/%d (%.1f%%)%n", hits, n, 100.0 * hits / n);
 		// Regression guard (≤ 65%, per security review). ROTATE is positioned as an auxiliary method only: off by default,
-		// partly resistant to automated solving (edge-continuity matching solves ~46–62%), never the only line of defence.
+		// partly resistant to automated solving (edge-continuity matching solves ~55–60% over 300-challenge runs), never the only line of defence.
 		assertThat(hits).as("NCC solver within ±10° in %d/%d", hits, n)
 			.isLessThanOrEqualTo((int) Math.floor(n * MAX_ADVERSARIAL_HIT_RATE));
 	}
 
-	/** Regression guard: measured 46–62% over 100-challenge runs, plus margin, capped at 65% */
+	/** Regression guard: measured 55–60% over 300-challenge runs (55.0%, 56.0%, 59.7%), plus margin, capped at 65% */
 	static final double MAX_ADVERSARIAL_HIT_RATE = 0.65;
 
 	/** R5-1: with the hole opaque, hole-only NCC (the review script's method) must show no clear peak; hits near chance */
