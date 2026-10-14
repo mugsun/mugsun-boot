@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # 一条命令起全套用的后端镜像：构建上下文是 mugsun-boot 仓库根目录，mugsun-core 0.1.0 从 Maven Central 解析。
-# 带 -Pkingbase,dameng：镜像内置人大金仓 / 达梦驱动，换库只改 JDBC_URL，不必重建。
+# 带 -Pfull,kingbase,dameng（显式 -P 会关掉默认激活的 full，所以 full 要写上）：镜像内置人大金仓 / 达梦驱动，换库只改 JDBC_URL，不必重建。
 # 基础镜像固定 digest（多架构 index；升级时同步更新 tag 与 digest）
 FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320 AS build
 WORKDIR /build
@@ -11,7 +11,7 @@ COPY mugsun-boot-track/ mugsun-boot-track/
 COPY mugsun-boot-ai/ mugsun-boot-ai/
 COPY mugsun-boot-server/ mugsun-boot-server/
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -q -Pkingbase,dameng -pl mugsun-boot-server -am package -DskipTests
+    mvn -B -q -Pfull,kingbase,dameng -pl mugsun-boot-server -am package -DskipTests
 
 FROM eclipse-temurin:21-jre-jammy@sha256:f04fb34e053148344e83317976114ec3f37e4b830ec8bdab5a2fe3cecd7d010b
 # 固定 uid/gid 10001：init 按它 chown 后端专用的密钥文件（0600）
