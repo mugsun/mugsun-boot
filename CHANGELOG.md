@@ -24,10 +24,12 @@
 - GIS 空间分析 `/gis/analyze` 的 `engine=java` 语义变更（mugsun-boot#48）：不再转交图层查询（tryOffload），整份入参——包括 `layerId` 指向的整层 `data_json`——全部载入 JVM 内存用 JTS 分析。大图层会明显占内存、变慢，只建议用于诊断和对比。不带 `engine` 时行为不变（有 PostGIS 时缓冲 / 包含仍下沉数据库）
 - GIS 米制计算的 Java 回落路径（mugsun-boot#48）：
   - 缓冲 / 距离 / 面积 / 长度改为按要素局部方位等距投影计算，不再在 Web Mercator 上直接按米算（旧版北京 500 m 缓冲实际约 383 m）。升级后同一请求的结果会变化
-  - 图层查询（半径、最近邻、缓冲）遇到极区（|纬度| > 85°）或跨 180° 经线的要素不再让整次查询失败：半径 / 最近邻回落求几何最近点，缓冲跳过。响应新增 `skipped`（Java 分支总带，PostGIS 分支不带），并按「操作 + 图层」每分钟最多记一条 WARN
+  - 图层查询（半径、最近邻、缓冲）遇到算不出的要素不再让整次查询失败：半径 / 最近邻回落求几何最近点，缓冲跳过。（#48 时极区指 |纬度| > 85°；mugsun-boot#57 起极区照常计算，只有「缓冲包住极点」和跨 180° 经线的要素会跳过）响应新增 `skipped`（Java 分支总带，PostGIS 分支不带），并按「操作 + 图层」每分钟最多记一条 WARN
   - 空间分析转交图层查询时同样带回 `skipped`；命中结果里的极区 / 跨 180° 要素不计入面积 / 长度汇总，数量记在 `metrics.metricsSkipped`
-  - 分析单个几何（`/gis/analyze` 入参，或带 `engine=java`）遇极区 / 跨 180° 几何报业务异常；半径 / 最近邻的查询点在极区报错
+  - 分析单个几何（`/gis/analyze` 入参，或带 `engine=java`）遇算不出的几何报业务异常（mugsun-boot#57 起只剩「缓冲包住极点」和跨 180° 经线两种）；半径 / 最近邻的查询点在极区不再报错（#48 时 |纬度| > 85° 报错，mugsun-boot#57 起照常计算）
   - 空几何：距离视为 +∞，缓冲为空，面积 / 长度为 0
+- GIS 回落路径跨 180° 经线按 RFC 7946 §3.1.9 处理：要素逐部件展开成连续经度后计算距离 / 面积 / 长度，在 180° 拆开的多部件要素按一个整体算；缓冲结果越过 180° 时用 JTS 与 [-180,180] 两侧框求交切成 MultiPolygon，不再报错或跳过。只有单个部件展开后仍宽于 180°（走向无法确定）时才报错 / 计入 `skipped`。视野查询 `/gis/spatial/bbox` 支持 minLon > maxLon（RFC 7946 §5.2，跨 180° 的范围，拆成两个框查询）
+- GIS 回落路径的投影与面积（mugsun-boot#57）：缓冲 / 量距改用由 GeographicLib 正反算定义的椭球方位等距投影（|纬度| ≥ 88° 以极点为原点），去掉 85° 极区限制；面积改用 GeographicLib `PolygonArea`，长度逐段测地距离求和，边都按测地线（与 PostGIS `geography` 一致）。高纬长边要素的面积、长度、距离会与旧版（按经纬度直边）明显不同
 - GIS 测地距离改用 GeographicLib-Java 2.1（MIT，Karney 算法，与 PostGIS 2.2+ `geography` 同源），替换自写的 Vincenty 和大圆回落；近对蹠点也收敛。新增第三方依赖 `net.sf.geographiclib:GeographicLib-Java`，见 NOTICE
 - 只读演示模式（`demo` profile）数据库分账号：业务库用只读账号、登录/访问/操作日志用只插入的日志账号、埋点库账号只有 INSERT/SELECT；demo 下关闭 Flyway 与写库启动任务/定时任务，启动时校验迁移版本一致，迁移改由 owner 账号以 `--mugsun.demo.migrate-only=true` 执行（建账号脚本见 `docs/demo/sql/demo-accounts.sql`）。demo 下埋点 upsert 降级为 `ON CONFLICT DO NOTHING`，会话统计只记首批，普通模式不变。demo 下登录按「账号+IP」锁定、登录与埋点按 IP 限流（Bucket4j + Redis）、导出/SSE 并发上限（Resilience4j Bulkhead），关闭两步验证、短信/邮件发送、社交登录与 AI 通道，Redis 用独立 db。新增第三方依赖 Bucket4j、Resilience4j，见 NOTICE
 

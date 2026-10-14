@@ -3,6 +3,7 @@ package com.mugsun.boot.gis;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.gis.entity.GisLayer;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.locationtech.jts.geom.Geometry;
@@ -73,7 +74,10 @@ class GisSpatialQueryServiceBufferTest {
 		// 东西向长线，两端顶点都在 5km 外，中段离查询点约 1.1 km（0.01° 纬度）
 		GisLayer l = layer("{\"type\":\"LineString\",\"coordinates\":[[" + (lon - 0.5) + "," + (lat + 0.01) + "],["
 			+ (lon + 0.5) + "," + (lat + 0.01) + "]]}");
-		double truth = GeodesicTruth.inverse(lon, lat, lon, lat + 0.01);
+		// 边按测地线（与 PostGIS geography 一致），高纬时中段向极点弯，真值沿测地线取点
+		double truth = GeodesicTruth.minDistance(GeodesicTruth.GF.createLineString(new org.locationtech.jts.geom.Coordinate[] {
+			new org.locationtech.jts.geom.Coordinate(lon - 0.5, lat + 0.01),
+			new org.locationtech.jts.geom.Coordinate(lon + 0.5, lat + 0.01) }), lon, lat);
 		Map<String, Object> r = svc.radius(l, lon, lat, 2000d, 10, forceJava);
 		List<Map<String, Object>> feats = (List<Map<String, Object>>) ((Map<String, Object>) r.getOrDefault(
 			"collection", r)).get("features");
@@ -118,30 +122,34 @@ class GisSpatialQueryServiceBufferTest {
 		l.setDataJson("{\"type\":\"FeatureCollection\",\"features\":["
 			+ "{\"type\":\"Feature\",\"id\":\"ok\",\"properties\":{\"k\":\"ok\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[20.0,10.0]}},"
 			+ "{\"type\":\"Feature\",\"id\":\"polar\",\"properties\":{\"k\":\"polar\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[20.0,85.5]}},"
+			+ "{\"type\":\"Feature\",\"id\":\"pole\",\"properties\":{\"k\":\"pole\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,89.995]}},"
 			+ "{\"type\":\"Feature\",\"id\":\"cross\",\"properties\":{\"k\":\"cross\"},\"geometry\":{\"type\":\"LineString\",\"coordinates\":[[179.0,10.0],[-179.0,10.0]]}}]}");
 		return l;
 	}
 
 	@ParameterizedTest(name = "postgis={0} forceJava={1}")
 	@CsvSource({ "false, false", "true, true" })
-	@DisplayName("回落路径：图层里有极区 / 跨 180° 要素时缓冲跳过它们、记 skipped，不让整次查询失败")
+	@DisplayName("回落路径：极区、跨 180° 的要素照常缓冲；包住极点的跳过并记 skipped，不让整次查询失败")
 	@SuppressWarnings("unchecked")
 	void fallbackSkipsPolarAndAntimeridianInBuffer(boolean postgisUp, boolean forceJava) {
 		GisSpatialQueryService svc = service(postgisUp);
 		Map<String, Object> out = svc.buffer(mixedLayer(), 1000d, 10, forceJava);
-		assertThat(out.get("skipped")).isEqualTo(2);
+		assertThat(out.get("skipped")).isEqualTo(1);
 		List<Map<String, Object>> feats = (List<Map<String, Object>>) out.get("features");
-		assertThat(feats).hasSize(1);
+		assertThat(feats).hasSize(3);
+		assertThat(feats).extracting(f -> ((Map<String, Object>) f.get("properties")).get("k"))
+			.containsExactly("ok", "polar", "cross");
+		assertThat(((Map<String, Object>) feats.get(2).get("geometry")).get("type")).isEqualTo("MultiPolygon");
 		assertThat(((Map<String, Object>) feats.get(0).get("properties")).get("k")).isEqualTo("ok");
 	}
 
 	@ParameterizedTest(name = "postgis={0} forceJava={1}")
 	@CsvSource({ "false, false", "true, true" })
-	@DisplayName("回落路径：极区 / 跨 180° 要素在半径 / 最近邻里回落 haversine 到几何最近点，查询照常返回")
+	@DisplayName("回落路径：极区要素按椭球测地距离计算，跨 180° 要素平移经度后求最近点，查询照常返回")
 	@SuppressWarnings("unchecked")
 	void fallbackHaversineForOutOfRangeFeatures(boolean postgisUp, boolean forceJava) {
 		GisSpatialQueryService svc = service(postgisUp);
-		// 查询点 (20, 84)：极区点 (20, 85.5) 正北 1.5°，haversine ≈ 167 km
+		// 查询点 (20, 84)：极区点 (20, 85.5) 正北 1.5°，测地距离 ≈ 167 km
 		Map<String, Object> near = svc.nearest(mixedLayer(), 20.0, 84.0, 3, forceJava);
 		List<Map<String, Object>> nf = (List<Map<String, Object>>) near.get("features");
 		assertThat(nf).hasSize(3);
@@ -157,13 +165,16 @@ class GisSpatialQueryServiceBufferTest {
 
 	@ParameterizedTest(name = "postgis={0} forceJava={1}")
 	@CsvSource({ "false, false", "true, true" })
-	@DisplayName("回落路径：查询点在极区直接报错")
-	void fallbackRejectsPolarQueryPoint(boolean postgisUp, boolean forceJava) {
+	@DisplayName("回落路径：查询点在极区也能查（不再报错）")
+	@SuppressWarnings("unchecked")
+	void fallbackPolarQueryPoint(boolean postgisUp, boolean forceJava) {
 		GisSpatialQueryService svc = service(postgisUp);
-		assertThatThrownBy(() -> svc.radius(mixedLayer(), 0, 85.5, 1000d, 10, forceJava))
-			.isInstanceOf(ServiceException.class).hasMessageContaining("查询点位于极区");
-		assertThatThrownBy(() -> svc.nearest(mixedLayer(), 0, -88, 1, forceJava))
-			.isInstanceOf(ServiceException.class).hasMessageContaining("查询点位于极区");
+		Map<String, Object> r = svc.radius(mixedLayer(), 0, 89.9, 50_000d, 10, forceJava);
+		assertThat((List<Map<String, Object>>) r.get("features"))
+			.extracting(f -> ((Map<String, Object>) f.get("properties")).get("k")).containsExactly("pole");
+		Map<String, Object> n = svc.nearest(mixedLayer(), 0, 90, 1, forceJava);
+		assertThat((List<Map<String, Object>>) n.get("features"))
+			.extracting(f -> ((Map<String, Object>) f.get("properties")).get("k")).containsExactly("pole");
 	}
 
 	@ParameterizedTest(name = "postgis={0} forceJava={1}")
@@ -198,15 +209,15 @@ class GisSpatialQueryServiceBufferTest {
 		app.start();
 		logger.addAppender(app);
 		try {
-			assertThat(svc.buffer(l, 1000d, 10, false).get("skipped")).isEqualTo(2);
-			assertThat(svc.buffer(l, 1000d, 10, false).get("skipped")).isEqualTo(2);
+			assertThat(svc.buffer(l, 1000d, 10, false).get("skipped")).isEqualTo(1);
+			assertThat(svc.buffer(l, 1000d, 10, false).get("skipped")).isEqualTo(1);
 		} finally {
 			logger.detachAppender(app);
 		}
 		List<ch.qos.logback.classic.spi.ILoggingEvent> warns = app.list.stream()
 			.filter(e -> e.getLevel() == ch.qos.logback.classic.Level.WARN).toList();
 		assertThat(warns).hasSize(1);
-		assertThat(warns.get(0).getFormattedMessage()).contains("layerId=99", "数量=2", "polar", "cross");
+		assertThat(warns.get(0).getFormattedMessage()).contains("layerId=99", "数量=1", "pole");
 	}
 
 	@ParameterizedTest(name = "postgis={0} forceJava={1}")
@@ -223,5 +234,24 @@ class GisSpatialQueryServiceBufferTest {
 		double m = ((Number) ((Map<String, Object>) rf.get(0).get("properties")).get("meters")).doubleValue();
 		assertThat(m / GeodesicTruth.inverse(179.95, 0.1, 179.95, 0) - 1).isBetween(-0.01, 0.01);
 		assertThat(r.get("skipped")).isEqualTo(0);
+	}
+
+	@Test
+	@DisplayName("视野查询：west > east（RFC 7946 §5.2）表示跨 180° 的范围，拆成两个框，两侧要素都能查到")
+	@SuppressWarnings("unchecked")
+	void bboxAcrossAntimeridian() {
+		GisSpatialQueryService svc = service(false);
+		GisLayer l = new GisLayer();
+		l.setId(8L);
+		l.setKind("vector");
+		l.setDataJson("{\"type\":\"FeatureCollection\",\"features\":["
+			+ "{\"type\":\"Feature\",\"id\":\"e\",\"properties\":{\"k\":\"e\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[179.5,0.0]}},"
+			+ "{\"type\":\"Feature\",\"id\":\"w\",\"properties\":{\"k\":\"w\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-179.5,0.0]}},"
+			+ "{\"type\":\"Feature\",\"id\":\"o\",\"properties\":{\"k\":\"o\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,0.0]}}]}");
+		Map<String, Object> r = svc.bbox(l, 179d, -1d, -179d, 1d, 10, true);
+		assertThat((List<Map<String, Object>>) r.get("features"))
+			.extracting(f -> ((Map<String, Object>) f.get("properties")).get("k")).containsExactlyInAnyOrder("e", "w");
+		assertThat((List<?>) svc.bbox(l, -1d, -1d, 1d, 1d, 10, true).get("features")).hasSize(1);
+		assertThatThrownBy(() -> svc.bbox(l, 10d, -1d, 10d, 1d, 10, true)).isInstanceOf(ServiceException.class);
 	}
 }

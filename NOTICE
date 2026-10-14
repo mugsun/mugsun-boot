@@ -25,3 +25,11 @@ Resilience4j (io.github.resilience4j:resilience4j-core, resilience4j-bulkhead)
   Licensed under the Apache License, Version 2.0.
   https://github.com/resilience4j/resilience4j
   Used by mugsun-boot-core as the concurrency bulkhead for export/SSE requests in the read-only demo profile.
+
+JTS Topology Suite (org.locationtech.jts:jts-core)
+  Copyright (c) Vivid Solutions, Martin Davis, and others (Eclipse LocationTech).
+  Dual-licensed under the Eclipse Public License 2.0 and the Eclipse
+  Distribution License 1.0 (BSD-3-Clause); used here under EDL-1.0.
+  https://github.com/locationtech/jts
+  Used by mugsun-boot-gis for planar geometry operations (buffer, intersection,
+  antimeridian cutting, WKT/GeoJSON handling).

@@ -207,25 +207,26 @@ class GisAnalyzeServiceTest {
 	}
 
 	@Test
-	@DisplayName("分析单个几何（engine=java 或直接传入）：极区 / 跨 180° 报错")
+	@DisplayName("分析单个几何（engine=java 或直接传入）：缓冲包住极点 / 单个部件宽于 180° 报错")
 	void analyzeInputOutOfRangeThrows() {
 		GisAnalyzeService svc = withLayer(mock(GisSpatialQueryService.class),
-			"{\"type\":\"Point\",\"coordinates\":[0,86]}");
+			"{\"type\":\"Point\",\"coordinates\":[0,89.999]}");
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("op", "buffer");
 		body.put("layerId", 5L);
 		body.put("distance", 500);
 		body.put("engine", "java");
-		assertThatThrownBy(() -> svc.analyze(body)).isInstanceOf(ServiceException.class).hasMessageContaining("极区");
+		assertThatThrownBy(() -> svc.analyze(body)).isInstanceOf(ServiceException.class).hasMessageContaining("极点");
 		Map<String, Object> direct = new LinkedHashMap<>();
 		direct.put("op", "buffer");
 		direct.put("distance", 500);
-		direct.put("payload", collection(Map.of("type", "Point", "coordinates", List.of(179.999, 0))));
+		direct.put("payload", collection(Map.of("type", "LineString", "coordinates",
+			List.of(List.of(-100, 0), List.of(0, 0), List.of(100, 0)))));
 		assertThatThrownBy(() -> service.analyze(direct)).isInstanceOf(ServiceException.class).hasMessageContaining("180°");
 	}
 
 	@Test
-	@DisplayName("转交图层查询时 wrapSpatial 把 skipped 带回，极区命中要素不让汇总抛异常")
+	@DisplayName("转交图层查询时 wrapSpatial 把 skipped 带回，跨 180° 的命中要素不让汇总抛异常")
 	@SuppressWarnings("unchecked")
 	void wrapSpatialCarriesSkipped() {
 		GisSpatialQueryService spatial = mock(GisSpatialQueryService.class);
@@ -234,7 +235,7 @@ class GisAnalyzeServiceTest {
 		polarFeat.put("type", "Feature");
 		polarFeat.put("properties", new LinkedHashMap<>());
 		polarFeat.put("geometry", Map.of("type", "Polygon", "coordinates",
-			List.of(List.of(List.of(0, 86), List.of(1, 86), List.of(1, 87), List.of(0, 86)))));
+			List.of(List.of(List.of(-100, 0), List.of(0, 0), List.of(100, 0), List.of(100, 1), List.of(-100, 0)))));
 		Map<String, Object> resp = new LinkedHashMap<>();
 		resp.put("features", new java.util.ArrayList<>(List.of(polarFeat)));
 		resp.put("engine", "java");

@@ -124,17 +124,15 @@ public final class GisConstants {
 	public static final String MSG_ANALYZE_OP = "不支持的空间运算";
 	public static final String MSG_ANALYZE_DISTANCE = "请填写缓冲距离（米）";
 	/** 米制计算（缓冲 / 距离 / 面积 / 长度）的适用范围：极区阈值（度），与 Web Mercator 显示上限 85.05° 对齐 */
-	public static final double GEODESIC_POLAR_LAT = 85d;
-	public static final String MSG_GEODESIC_POLAR = "要素或缓冲范围进入极区（|纬度| > 85°），暂不支持米制缓冲 / 距离 / 面积计算";
-	public static final String MSG_GEODESIC_POLAR_POINT = "查询点位于极区（|纬度| > 85°），暂不支持米制半径 / 最近邻查询";
-	public static final String MSG_GEODESIC_ANTIMERIDIAN = "要素或缓冲范围跨越 180° 经线，暂不支持米制计算，请先在 180° 处拆分要素";
+	public static final String MSG_GEODESIC_POLE = "缓冲范围包住了极点，暂不支持输出该缓冲结果，请缩小缓冲距离或在极点附近拆分要素";
+	public static final String MSG_GEODESIC_ANTIMERIDIAN = "要素单个部件的经度跨度超过 180°（或缓冲结果绕地球一周），无法确定走向，请先在 180° 经线处拆分要素";
 	public static final String MSG_ANALYZE_OTHER = "该运算需要第二组几何（other）";
 	public static final String MSG_ANALYZE_EMPTY = "没有可运算的几何";
 	public static final String MSG_RASTER_URL = "栅格图层需要 http(s) 服务地址；XYZ 须含 {z}/{x}/{y}，WMS 须含 layers";
 	public static final String MSG_DEMO_MISSING = "没有这个示例";
 	public static final String MSG_TILESET_URL = "三维切片图层需要 tileset.json 地址：内置示例填 hosted:<code>，外部数据填 http(s) 链接";
 	public static final String MSG_TILESET_MISSING = "没有这个内置三维切片";
-	public static final String MSG_SPATIAL_BBOX = "请给出合法的查询范围（minLon/minLat/maxLon/maxLat，且最小值小于最大值）";
+	public static final String MSG_SPATIAL_BBOX = "请给出合法的查询范围（minLon/minLat/maxLon/maxLat，minLat 小于 maxLat；minLon 大于 maxLon 表示跨 180° 经线）";
 	public static final String MSG_SPATIAL_POINT = "请给出合法的中心点经纬度";
 	public static final String MSG_SPATIAL_RADIUS = "半径需在 0～200000 米之间";
 	public static final String MSG_SPATIAL_GEOM = "请给出合法的 GeoJSON 几何（geometry 或 Feature）";
