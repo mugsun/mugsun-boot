@@ -38,6 +38,16 @@ class AccessLogFilterTest {
 	}
 
 	@Test
+	void pathDropsMatrixParamsAndTokenSegments() {
+		assertThat(AccessLogFilter.redactPath("/api/file/download;jsessionid=ABC123")).isEqualTo("/api/file/download");
+		assertThat(AccessLogFilter.redactPath("/file/sig/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08/a.png"))
+			.isEqualTo("/file/sig/:redacted/a.png");
+		assertThat(AccessLogFilter.redactPath("/share/aB3dE5fG7hJ9kL1mN3pQ5rS7tU/view")).isEqualTo("/share/:redacted/view");
+		assertThat(AccessLogFilter.redactPath("/system/user/page")).isEqualTo("/system/user/page");
+		assertThat(AccessLogFilter.redactPath("/system/user/1843920012345678901")).isEqualTo("/system/user/1843920012345678901");
+	}
+
+	@Test
 	void demoRetentionFloor() {
 		assertThat(LogCleanJob.retentionFloor(30, true)).isEqualTo(180);
 		assertThat(LogCleanJob.retentionFloor(365, true)).isEqualTo(365);

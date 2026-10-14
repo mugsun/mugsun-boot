@@ -68,8 +68,16 @@
 				<totalSizeCap>${ACCESS_TOTAL_SIZE_CAP}</totalSizeCap>
 			</rollingPolicy>
 		</appender>
-		<logger name="ACCESS" level="INFO" additivity="false">
+		<!-- 异步写盘，不阻塞请求线程；不丢弃（discardingThreshold=0、neverBlock=false），队列满时退化为同步写，留存优先 -->
+		<appender name="ACCESS_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+			<queueSize>8192</queueSize>
+			<discardingThreshold>0</discardingThreshold>
+			<neverBlock>false</neverBlock>
+			<includeCallerData>false</includeCallerData>
 			<appender-ref ref="ACCESS_FILE"/>
+		</appender>
+		<logger name="ACCESS" level="INFO" additivity="false">
+			<appender-ref ref="ACCESS_ASYNC"/>
 		</logger>
 	</springProfile>
 

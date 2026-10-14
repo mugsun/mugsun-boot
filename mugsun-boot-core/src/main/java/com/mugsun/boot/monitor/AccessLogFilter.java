@@ -64,7 +64,7 @@ public class AccessLogFilter extends OncePerRequestFilter {
 	static String line(HttpServletRequest request, int status, long millis, String userId) {
 		return "ip=" + clean(ClientIpResolver.clientIp(request))
 			+ " method=" + clean(request.getMethod())
-			+ " uri=" + clean(request.getRequestURI())
+			+ " uri=" + clean(redactPath(request.getRequestURI()))
 			+ " status=" + status
 			+ " ms=" + millis
 			+ " user=" + clean(userId)
@@ -78,6 +78,36 @@ public class AccessLogFilter extends OncePerRequestFilter {
 		} catch (RuntimeException e) {
 			return null;
 		}
+	}
+
+	private static final java.util.regex.Pattern TOKEN_LIKE =
+		java.util.regex.Pattern.compile("(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\\-.~=%]{24,}|[0-9a-fA-F]{32,}");
+
+	/**
+	 * 路径脱敏：去掉每段 {@code ;} 之后的 matrix 参数（{@code ;jsessionid=} 等）；看起来像令牌或签名的段
+	 * （≥24 位字母数字混合，或 ≥32 位十六进制）换成 {@code :redacted}，签名下载地址只留前缀。
+	 */
+	static String redactPath(String uri) {
+		if (uri == null || uri.isEmpty()) {
+			return uri;
+		}
+		String[] segs = uri.split("/", -1);
+		StringBuilder sb = new StringBuilder(uri.length());
+		for (int i = 0; i < segs.length; i++) {
+			String seg = segs[i];
+			int semi = seg.indexOf(';');
+			if (semi >= 0) {
+				seg = seg.substring(0, semi);
+			}
+			if (TOKEN_LIKE.matcher(seg).matches()) {
+				seg = ":redacted";
+			}
+			if (i > 0) {
+				sb.append('/');
+			}
+			sb.append(seg);
+		}
+		return sb.toString();
 	}
 
 	/** 去掉空白与控制字符（防日志注入），空值记为 - ，单值截到 512 */
