@@ -189,6 +189,8 @@ public interface TrackConstants {
 	String PROP_PAGE_TITLE = "page_title";
 	/** props 热点键：来源域名 */
 	String PROP_REFERRER_DOMAIN = "referrer_domain";
+	/** props 键：来源完整 URL（Web SDK 上报 document.referrer）；无 referrer_domain 时服务端从中取主机名 */
+	String PROP_REFERRER = "referrer";
 	/** props 热点键：UTM 来源 */
 	String PROP_UTM_SOURCE = "utm_source";
 	/** props 热点键：UTM 媒介 */
