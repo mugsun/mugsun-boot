@@ -25,10 +25,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code engine} 字段会如实标明走了哪条路。
  *
  * <p>米制口径：PostGIS 侧用 {@code geography} 走真实大地距离；Java 侧（半径、最近邻、缓冲）用
- * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，距离再用 WGS84 Vincenty 反算；与 PostGIS
+ * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，距离再用 GeographicLib 在 WGS84 椭球上反算；与 PostGIS
  * geography 的差异在 0.5% 以内。半径 / 最近邻先按经纬度包络预筛（只多收不漏，越过 ±180° 时拆成两个框），再精算。
  *
- * <p>Java 侧逐要素处理：极区（|纬度| > 85°）或跨 180° 经线的要素不让整次查询失败——半径 / 最近邻回落 haversine
+ * <p>Java 侧逐要素处理：极区（|纬度| > 85°）或跨 180° 经线的要素不让整次查询失败——半径 / 最近邻回落为「投影求最近点 + 椭球测地距离」
  * 到几何最近点，仍算不出就跳过；缓冲直接跳过。跳过数写进响应 {@code skipped}，并按「操作 + 图层」限频记 WARN。
  * 查询点本身在极区则直接报错。
  */

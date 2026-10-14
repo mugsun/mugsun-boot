@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.mugsun.core.tool.exception.ServiceException;
 
-/** 回落路径米制缓冲 / 量距精度：北京、赤道、70°N 以上 × 点线面 × 500 m / 20 km / 200 km，对照 WGS84 Vincenty 测地距离。 */
+/** 回落路径米制缓冲 / 量距精度：北京、赤道、70°N 以上 × 点线面 × 500 m / 20 km / 200 km，对照 WGS84 椭球测地距离（GeographicLib）。 */
 class GisGeodesicTest {
 
 	static final double TOL = 0.01d;
@@ -91,7 +91,7 @@ class GisGeodesicTest {
 	void distanceAreaLength() {
 		for (double lat : new double[] { 0.0, 39.9, 72.0 }) {
 			double lon = 20.0;
-			double far = GeodesicTruth.vincenty(lon, lat, lon + 0.05, lat + 0.03);
+			double far = GeodesicTruth.inverse(lon, lat, lon + 0.05, lat + 0.03);
 			assertThat(GisGeodesic.distance(point(lon + 0.05, lat + 0.03), lon, lat) / far - 1).isBetween(-TOL, TOL);
 			assertThat(GisGeodesic.distance(point(lon, lat), point(lon + 0.05, lat + 0.03)) / far - 1)
 				.isBetween(-TOL, TOL);
@@ -102,12 +102,12 @@ class GisGeodesicTest {
 			Geometry seg = GF.createLineString(new Coordinate[] { new Coordinate(lon - 0.1, lat),
 				new Coordinate(lon + 0.1, lat) });
 			double d = GisGeodesic.distance(seg, lon, lat + 0.001);
-			assertThat(d / GeodesicTruth.vincenty(lon, lat, lon, lat + 0.001) - 1).isBetween(-TOL, TOL);
+			assertThat(d / GeodesicTruth.inverse(lon, lat, lon, lat + 0.001) - 1).isBetween(-TOL, TOL);
 			// 长度、面积
 			Geometry square = polygon(lon, lat);
 			Coordinate[] c = square.getCoordinates();
-			double w = GeodesicTruth.vincenty(c[0].x, c[0].y, c[1].x, c[1].y);
-			double h = GeodesicTruth.vincenty(c[1].x, c[1].y, c[2].x, c[2].y);
+			double w = GeodesicTruth.inverse(c[0].x, c[0].y, c[1].x, c[1].y);
+			double h = GeodesicTruth.inverse(c[1].x, c[1].y, c[2].x, c[2].y);
 			assertThat(GisGeodesic.area(square) / (w * h) - 1).isBetween(-TOL, TOL);
 			assertThat(GisGeodesic.length(square.getBoundary()) / (2 * w + 2 * h) - 1).isBetween(-TOL, TOL);
 		}
@@ -154,14 +154,13 @@ class GisGeodesicTest {
 	}
 
 	@Test
-	@DisplayName("Vincenty：与测试侧实现相差 < 1 cm；近对蹠点不收敛时回落大圆，结果有限且量级正确")
-	void vincentyAndFallback() {
-		assertThat(GisGeodesic.vincenty(116.4, 39.9, 121.47, 31.23))
-			.isCloseTo(GeodesicTruth.vincenty(116.4, 39.9, 121.47, 31.23), org.assertj.core.data.Offset.offset(0.01));
-		double nearAnti = GisGeodesic.vincenty(0, 0, 179.7, 0.3);
+	@DisplayName("测地距离用 GeographicLib：赤道上的对蹠点等于半个子午圈长度（WGS84 20003931.4586 m），近对蹠点也收敛")
+	void geographicLibInverse() {
+		// Vincenty 不收敛的近对蹠点（旧实现要回落大圆）：有限且在半个子午圈附近
+		double nearAnti = GisGeodesic.inverse(0, 0, 179.7, 0.3);
 		assertThat(nearAnti).isFinite().isBetween(19_900_000d, 20_100_000d);
-		assertThat(GisGeodesic.greatCircle(0, 0, 179.7, 0.3) / nearAnti - 1).isBetween(-0.01, 0.01);
-		assertThat(GisGeodesic.vincenty(10, 10, 10, 10)).isZero();
+		assertThat(GisGeodesic.inverse(0, 0, 180, 0)).isCloseTo(20_003_931.46, org.assertj.core.data.Offset.offset(0.01));
+		assertThat(GisGeodesic.inverse(10, 10, 10, 10)).isZero();
 	}
 
 	@Test
@@ -213,14 +212,14 @@ class GisGeodesicTest {
 		GisGeodesic.checkPoint(179.99, 84.9);
 		// 极区点：回落 haversine
 		double d = GisGeodesic.distanceLenient(point(20, 86), 20, 80);
-		assertThat(d / GisGeodesic.greatCircle(20, 80, 20, 86) - 1).isBetween(-0.001, 0.001);
+		assertThat(d / GeodesicTruth.inverse(20, 80, 20, 86) - 1).isBetween(-0.001, 0.001);
 		// 正常要素：与严格版完全相同
 		assertThat(GisGeodesic.distanceLenient(point(21, 40), 20, 40))
 			.isEqualTo(GisGeodesic.distance(point(21, 40), 20, 40));
-		// 线段中部最近（非顶点）：Vincenty 算任意最近点对，对照真值 < 0.5%
+		// 线段中部最近（非顶点）：椭球测地距离算任意最近点对，对照真值 < 0.5%
 		Geometry seg = GF.createLineString(new Coordinate[] { new Coordinate(19, 41), new Coordinate(21, 41) });
 		double mid = GisGeodesic.distance(seg, 20, 40);
-		assertThat(mid / GeodesicTruth.vincenty(20, 40, 20, 41) - 1).isBetween(-0.005, 0.005);
+		assertThat(mid / GeodesicTruth.inverse(20, 40, 20, 41) - 1).isBetween(-0.005, 0.005);
 		assertThat(GisGeodesic.distanceLenient(GF.createPolygon(), 0, 0)).isEqualTo(Double.POSITIVE_INFINITY);
 		assertThat(GisGeodesic.tryBuffer(point(0, 86), 100d)).isNull();
 		assertThat(GisGeodesic.tryBuffer(point(179.95, 0), 20_000d)).isNull();
@@ -237,7 +236,7 @@ class GisGeodesicTest {
 		// 最近点是 (±179.9, 0)，大圆约 179.9° × 111.195 km ≈ 20004 km，绝不能是 0
 		assertThat(far).isBetween(19_900_000d, 20_100_000d);
 		double near = GisGeodesic.distanceLenient(cross, 179.95, 0.1);
-		double truth = GeodesicTruth.vincenty(179.95, 0.1, 179.95, 0);
+		double truth = GeodesicTruth.inverse(179.95, 0.1, 179.95, 0);
 		System.out.printf("LENIENT|(179.95,0.1)|%.1f m|truth %.1f m|err %+.3f%%%n", near, truth, (near / truth - 1) * 100);
 		assertThat(near / truth - 1).isBetween(-0.01, 0.01);
 		// 西侧查询点换到同一经度范围
@@ -249,6 +248,6 @@ class GisGeodesicTest {
 		assertThat(GisGeodesic.distanceLenient(box, -179.5, 0)).isZero();
 		assertThat(GisGeodesic.distanceLenient(box, 179.5, 0)).isZero();
 		double out = GisGeodesic.distanceLenient(box, 178, 0);
-		assertThat(out / GeodesicTruth.vincenty(178, 0, 179, 0) - 1).isBetween(-0.01, 0.01);
+		assertThat(out / GeodesicTruth.inverse(178, 0, 179, 0) - 1).isBetween(-0.01, 0.01);
 	}
 }

@@ -3,3 +3,13 @@ mugsun-boot
 Copyright (c) 2026 北京定旭晨信息科技工作室 (mugsun)
 
 Licensed under the Apache License, Version 2.0. See LICENSE.
+
+----------------------------------------------------------------------
+Third-party components
+----------------------------------------------------------------------
+
+GeographicLib-Java (net.sf.geographiclib:GeographicLib-Java)
+  Copyright (c) Charles Karney <charles@karney.com>
+  Licensed under the MIT/X11 License.
+  https://geographiclib.sourceforge.io/  https://github.com/geographiclib/geographiclib-java
+  Used by mugsun-boot-gis for geodesic distance on the WGS84 ellipsoid.
