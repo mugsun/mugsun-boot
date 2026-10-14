@@ -33,6 +33,9 @@
 		<dameng.jdbc.version>8.1.3.62</dameng.jdbc.version>
 		<jts.version>1.20.0</jts.version>
 		<geographiclib.version>2.1</geographiclib.version>
+		<bucket4j.version>8.21.0</bucket4j.version>
+		<!-- 与已导入的 spring-cloud-circuitbreaker BOM 中的 resilience4j 一致 -->
+		<resilience4j.version>2.2.0</resilience4j.version>
 		<spring-ai.version>1.1.2</spring-ai.version>
 	</properties>
 
@@ -85,6 +88,26 @@
 				<version>${jts.version}</version>
 			</dependency>
 			<!-- 测地线正反解（Karney 算法，与 PostGIS 2.2+ geography 同源），MIT -->
+			<dependency>
+				<groupId>com.bucket4j</groupId>
+				<artifactId>bucket4j_jdk17-core</artifactId>
+				<version>${bucket4j.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.bucket4j</groupId>
+				<artifactId>bucket4j_jdk17-lettuce</artifactId>
+				<version>${bucket4j.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>io.github.resilience4j</groupId>
+				<artifactId>resilience4j-core</artifactId>
+				<version>${resilience4j.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>io.github.resilience4j</groupId>
+				<artifactId>resilience4j-bulkhead</artifactId>
+				<version>${resilience4j.version}</version>
+			</dependency>
 			<dependency>
 				<groupId>net.sf.geographiclib</groupId>
 				<artifactId>GeographicLib-Java</artifactId>

@@ -1,5 +1,7 @@
 package com.mugsun.boot.monitor;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.MonitorConstants;
 import com.mugsun.boot.system.service.ParamService;
@@ -19,6 +21,7 @@ import java.time.LocalDateTime;
  * <p>oper_log 是逻辑删除表，此处为保留期物理清除；Db 原生 DELETE 不经租户插件，天然跨租户全量清理。
  */
 @Component
+@ConditionalOnNotDemo
 public class LogCleanJob {
 
 	private static final Logger log = LoggerFactory.getLogger(LogCleanJob.class);

@@ -1,5 +1,7 @@
 package com.mugsun.boot.notify;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.NotifyConstants;
 import com.mugsun.boot.notify.entity.SysNotifyRecord;
@@ -25,6 +27,7 @@ import java.util.List;
  * 扫描过程无 ThreadUtil.sleep 之类的阻塞，扫到即走。
  */
 @Component
+@ConditionalOnNotDemo
 public class NotifyRetryJob {
 
 	private static final Logger log = LoggerFactory.getLogger(NotifyRetryJob.class);

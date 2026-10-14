@@ -21,6 +21,11 @@ import java.util.Map;
 @Service
 public class MailService {
 
+	private static final org.slf4j.Logger DEMO_LOG = org.slf4j.LoggerFactory.getLogger(MailService.class);
+
+	@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}")
+	private boolean demoMode;
+
 	private static final Logger log = LoggerFactory.getLogger(MailService.class);
 
 	private final JavaMailSender mailSender;
@@ -52,6 +57,11 @@ public class MailService {
 
 	/** 按模板发送，返回渲染后内容（便于调试回显） */
 	public String sendByTemplate(String to, String code, Map<String, String> params) {
+		if (demoMode) {
+			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）
+			DEMO_LOG.info("[demo] 跳过对外发送：MailService");
+			return "演示环境不发送邮件";
+		}
 		SysMailTemplate tpl = templateMapper.selectOneByQuery(QueryWrapper.create().eq("code", code));
 		if (tpl == null) {
 			throw new ServiceException("这个邮件模板不存在。请刷新列表核对编码后再发");
@@ -77,6 +87,11 @@ public class MailService {
 
 	/** 发送纯文本邮件；通道未配置/下发异常即明确报错（显式降级，不再静默吞错假成功） */
 	public void send(String to, String subject, String content) {
+		if (demoMode) {
+			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）
+			DEMO_LOG.info("[demo] 跳过对外发送：MailService");
+			return;
+		}
 		if (!isConfigured()) {
 			throw new ServiceException("邮件通道还没配好。请先填写发信服务器、账号和密码，再发送");
 		}

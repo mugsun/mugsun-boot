@@ -7,6 +7,8 @@ public final class DemoConstants {
 
 	/** 演示模式总开关 */
 	public static final String ENABLED_PROPERTY = "mugsun.demo.enabled";
+	/** owner 一次性迁移开关（非 demo profile 使用） */
+	public static final String MIGRATE_ONLY_PROPERTY = "mugsun.demo.migrate-only";
 	/** 前缀 */
 	public static final String PREFIX = "mugsun.demo";
 	/** 拒绝写请求时返回的业务错误码（响应体 errorCode 字段） */
