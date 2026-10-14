@@ -25,6 +25,10 @@
 			<artifactId>GeographicLib-Java</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>org.locationtech.proj4j</groupId>
+			<artifactId>proj4j</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>

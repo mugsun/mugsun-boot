@@ -23,6 +23,8 @@ import com.mugsun.core.tool.exception.ServiceException;
 class GisGeodesicTest {
 
 	static final double TOL = 0.01d;
+	/** 椭球投影后缓冲误差的断言上限：0.1%（自写球面 AEQD 时为 0.5%） */
+	static final double BUF_TOL = 0.001d;
 
 	static Geometry point(double lon, double lat) {
 		return GF.createPoint(new Coordinate(lon, lat));
@@ -44,8 +46,9 @@ class GisGeodesicTest {
 
 	static Stream<Arguments> cases() {
 		List<Arguments> out = new ArrayList<>();
-		double[][] places = { { 116.4, 39.9 }, { 30.0, 0.0 }, { 25.0, 72.0 }, { 15.0, 78.2 } };
-		String[] names = { "北京 39.9°N", "赤道 0°", "高纬 72°N", "高纬 78.2°N" };
+		double[][] places = { { 116.4, 39.9 }, { 30.0, 0.0 }, { 25.0, 72.0 }, { 15.0, 78.2 }, { 0.0, 86.0 },
+			{ 60.0, -88.0 } };
+		String[] names = { "北京 39.9°N", "赤道 0°", "高纬 72°N", "高纬 78.2°N", "极区 86°N", "极区 88°S" };
 		for (int i = 0; i < places.length; i++) {
 			double lon = places[i][0], lat = places[i][1];
 			for (double m : new double[] { 500d, 20_000d, 200_000d }) {
@@ -59,14 +62,14 @@ class GisGeodesicTest {
 
 	@ParameterizedTest(name = "{0} {1} {3}m")
 	@MethodSource("cases")
-	@DisplayName("缓冲边界到原要素的测地距离误差 < 1%")
+	@DisplayName("缓冲边界到原要素的测地距离误差 < 0.1%（含 86°N、88°S 极区）")
 	void bufferWithinOnePercent(String place, String kind, Geometry geom, double meters) {
 		Geometry buf = GisGeodesic.buffer(geom, meters);
 		double step = Math.min(0.0005, meters / 111_000d / 20);
 		double[] err = GeodesicTruth.relErrorRange(geom, buf, meters, step);
 		System.out.printf("GEO|%s|%s|%.0f|%+.3f%%|%+.3f%%%n", place, kind, meters, err[0] * 100, err[1] * 100);
-		assertThat(err[0]).isGreaterThan(-TOL);
-		assertThat(err[1]).isLessThan(TOL);
+		assertThat(err[0]).isGreaterThan(-BUF_TOL);
+		assertThat(err[1]).isLessThan(BUF_TOL);
 	}
 
 	@Test
@@ -127,19 +130,25 @@ class GisGeodesicTest {
 	}
 
 	@Test
-	@DisplayName("极区（|纬度| > 85°，含缓冲外扩）与跨 180° 经线：抛业务异常并给出提示")
-	void polarAndAntimeridianRejected() {
-		assertThatThrownBy(() -> GisGeodesic.buffer(point(0, 85.5), 100d))
-			.isInstanceOf(ServiceException.class).hasMessageContaining("极区");
-		// 84.5° 的点本身合法，但 100 km 缓冲会伸进 85° 以北
-		assertThatThrownBy(() -> GisGeodesic.buffer(point(0, 84.5), 100_000d))
-			.isInstanceOf(ServiceException.class).hasMessageContaining("极区");
-		assertThatThrownBy(() -> GisGeodesic.buffer(point(0, -86), 10d))
-			.isInstanceOf(ServiceException.class).hasMessageContaining("极区");
-		assertThatThrownBy(() -> GisGeodesic.distance(point(10, 10), 0, 89))
-			.isInstanceOf(ServiceException.class).hasMessageContaining("极区");
-		assertThatThrownBy(() -> GisGeodesic.area(polygon(10, 86)))
-			.isInstanceOf(ServiceException.class).hasMessageContaining("极区");
+	@DisplayName("极区可算（85° 以上不再报错）；缓冲包住极点、跨 180° 经线才抛业务异常")
+	void polarComputableExceptPoleAndAntimeridian() {
+		assertThat(GisGeodesic.buffer(point(0, 85.5), 100d).isEmpty()).isFalse();
+		assertThat(GisGeodesic.buffer(point(0, 84.5), 100_000d).isEmpty()).isFalse();
+		assertThat(GisGeodesic.buffer(point(0, -86), 10d).isEmpty()).isFalse();
+		// 查询点在 89°、北极点本身：距离照常
+		double d89 = GisGeodesic.distance(point(10, 88), 0, 89);
+		assertThat(d89 / GeodesicTruth.inverse(0, 89, 10, 88) - 1).isBetween(-BUF_TOL, BUF_TOL);
+		double dPole = GisGeodesic.distance(point(10, 88), 0, 90);
+		assertThat(dPole / GeodesicTruth.inverse(0, 90, 10, 88) - 1).isBetween(-1e-6, 1e-6);
+		// 面积：86° 附近约 2 km 见方，与测地边长乘积相差 < 1%
+		assertThat(GisGeodesic.area(polygon(10, 86))).isBetween(3_000_000d, 4_500_000d);
+		// 缓冲包住极点：(0, 89.995) 离极点约 556 m，1 km 缓冲包住北极；南极同理
+		assertThatThrownBy(() -> GisGeodesic.buffer(point(0, 89.995), 1000d))
+			.isInstanceOf(ServiceException.class).hasMessageContaining("极点");
+		assertThatThrownBy(() -> GisGeodesic.buffer(point(120, -89.999), 500d))
+			.isInstanceOf(ServiceException.class).hasMessageContaining("极点");
+		assertThatThrownBy(() -> GisGeodesic.buffer(point(0, 90), 10d))
+			.isInstanceOf(ServiceException.class).hasMessageContaining("极点");
 		// 179.95° 的点做 20 km 缓冲会越过 180°
 		assertThatThrownBy(() -> GisGeodesic.buffer(point(179.95, 10), 20_000d))
 			.isInstanceOf(ServiceException.class).hasMessageContaining("180°");
@@ -149,8 +158,31 @@ class GisGeodesicTest {
 			.isInstanceOf(ServiceException.class).hasMessageContaining("180°");
 		assertThatThrownBy(() -> GisGeodesic.distance(cross, 0, 0))
 			.isInstanceOf(ServiceException.class).hasMessageContaining("180°");
-		// 84.9° 的点做小缓冲仍可用
-		assertThat(GisGeodesic.buffer(point(0, 84.9), 100d).isEmpty()).isFalse();
+	}
+
+	@Test
+	@DisplayName("投影选择：面积按 PostGIS bestsrid（中心 |纬度| > 70° 且跨度 < 45° 用极点 LAEA），缓冲 / 量距 88° 以上用极点 AEQD")
+	void projectionSelection() {
+		assertThat(GisProjection.polar(new org.locationtech.jts.geom.Envelope(0, 10, 70.5, 75))).isTrue();
+		assertThat(GisProjection.polar(new org.locationtech.jts.geom.Envelope(0, 10, -80, -75))).isTrue();
+		assertThat(GisProjection.polar(new org.locationtech.jts.geom.Envelope(0, 10, 60, 69))).isFalse();
+		assertThat(GisProjection.polar(new org.locationtech.jts.geom.Envelope(0, 10, 30, 89))).isFalse();
+		GisProjection n = GisProjection.forDistance(new org.locationtech.jts.geom.Envelope(0, 1, 88.5, 89));
+		assertThat(n.originLat()).isEqualTo(90d);
+		assertThat(GisProjection.forDistance(new org.locationtech.jts.geom.Envelope(0, 1, 80, 81)).originLat())
+			.isEqualTo(80.5d);
+		GisProjection a = GisProjection.forArea(new org.locationtech.jts.geom.Envelope(0, 1, -80, -79));
+		assertThat(a.originLat()).isEqualTo(-90d);
+		GisProjection c = GisProjection.forDistance(new org.locationtech.jts.geom.Envelope(116, 117, 39, 40));
+		assertThat(c.originLon()).isEqualTo(116.5d);
+		// 椭球 AEQD：原点到任意点的平面距离等于测地距离
+		GisProjection p = GisProjection.aeqd(116.4, 39.9);
+		double[] xy = p.forward(121.47, 31.23);
+		assertThat(Math.hypot(xy[0], xy[1]) / GeodesicTruth.inverse(116.4, 39.9, 121.47, 31.23) - 1)
+			.isBetween(-1e-9, 1e-9);
+		double[] back = p.inverse(xy[0], xy[1]);
+		assertThat(back[0]).isCloseTo(121.47, org.assertj.core.data.Offset.offset(1e-9));
+		assertThat(back[1]).isCloseTo(31.23, org.assertj.core.data.Offset.offset(1e-9));
 	}
 
 	@Test
@@ -206,11 +238,9 @@ class GisGeodesicTest {
 	}
 
 	@Test
-	@DisplayName("图层查询用的宽松距离 / 缓冲：极区与跨 180° 要素不抛异常")
+	@DisplayName("图层查询用的宽松距离 / 缓冲：包住极点、跨 180° 的要素不抛异常")
 	void lenientVariants() {
-		assertThatThrownBy(() -> GisGeodesic.checkPoint(0, 85.1)).isInstanceOf(ServiceException.class);
-		GisGeodesic.checkPoint(179.99, 84.9);
-		// 极区点：回落 haversine
+		// 极区点：直接按严格路径计算
 		double d = GisGeodesic.distanceLenient(point(20, 86), 20, 80);
 		assertThat(d / GeodesicTruth.inverse(20, 80, 20, 86) - 1).isBetween(-0.001, 0.001);
 		// 正常要素：与严格版完全相同
@@ -221,7 +251,8 @@ class GisGeodesicTest {
 		double mid = GisGeodesic.distance(seg, 20, 40);
 		assertThat(mid / GeodesicTruth.inverse(20, 40, 20, 41) - 1).isBetween(-0.005, 0.005);
 		assertThat(GisGeodesic.distanceLenient(GF.createPolygon(), 0, 0)).isEqualTo(Double.POSITIVE_INFINITY);
-		assertThat(GisGeodesic.tryBuffer(point(0, 86), 100d)).isNull();
+		assertThat(GisGeodesic.tryBuffer(point(0, 89.995), 1000d)).isNull();
+		assertThat(GisGeodesic.tryBuffer(point(0, 86), 100d)).isNotNull();
 		assertThat(GisGeodesic.tryBuffer(point(179.95, 0), 20_000d)).isNull();
 		assertThat(GisGeodesic.tryBuffer(point(0, 0), 100d).isEmpty()).isFalse();
 	}

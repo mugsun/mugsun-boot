@@ -9,41 +9,48 @@ import org.locationtech.jts.geom.CoordinateFilter;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.util.LinearComponentExtracter;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.distance.DistanceOp;
 
+import java.util.List;
+
 /**
- * 回落路径（无 PostGIS / forceJava）的米制计算：按要素局部做方位等距投影（AEQD）后在平面上算。
+ * 回落路径（无 PostGIS / forceJava）的米制计算，全部建立在成熟开源库上：
+ * <ul>
+ *   <li>测地距离：GeographicLib-Java（Karney，MIT），与 PostGIS 2.2+ {@code geography} 同一算法；</li>
+ *   <li>局部投影：proj4j（Apache-2.0）椭球 AEQD / LAEA，选法参照 PostGIS {@code geography_bestsrid}，见 {@link GisProjection}；</li>
+ *   <li>平面缓冲 / 最近点对 / 加密：JTS。</li>
+ * </ul>
  *
- * <p>早先统一投到 Web Mercator 再按米缓冲 / 量距 / 量面积。Mercator 的米没有纬度修正，地面实际
- * 半径约为设定值 × cos(纬度)（北京约 77%，70°N 约 34%），面积偏差是 cos² 倍，85° 以上还会被截断。
- *
- * <p>AEQD 以要素包络中心（或查询点）为原点：从原点出发的距离严格等于球面大圆距离，离原点 ρ 处的
- * 横向比例误差约 ρ²/(6R²)（200 km 时约 0.02%）。球半径取原点纬度的高斯曲率半径 √(MN)。缓冲结果与
- * WGS84 椭球测地距离的差异在 0.5% 以内（赤道最大，见 {@code GisGeodesicTest} 实测）。
+ * <p>早先统一投到 Web Mercator 再按米缓冲 / 量距 / 量面积，没有纬度修正（北京 500 m 缓冲实际约 383 m）；
+ * 后来改用自写的球面 AEQD，误差 ≤0.5% 且 85° 以上不支持。现在改为椭球投影：从原点出发的距离就是测地距离，
+ * 极区用以极点为原点的投影，85° 以上也能算。
  * 经纬度直线在投影面上是曲线，所以投影前按 {@link #DENSIFY_DEG} 加密、投回前按 {@link #DENSIFY_M} 加密。
  *
- * <p>距离：先在投影面上求最近点对（任意最近点对：顶点、边上任意点、面内为 0），再把这两点投回经纬度，
- * 用 GeographicLib 在 WGS84 椭球上反算（{@link #inverse}）。
+ * <ul>
+ *   <li>缓冲：包络中心 |纬度| ≥ 88° 用极点 AEQD，否则包络中心 AEQD（椭球 AEQD 在任意纬度都成立）；</li>
+ *   <li>距离：以查询点（或两几何包络）为原点的 AEQD 求任意最近点对，再对这一对点做 {@link #inverse}；</li>
+ *   <li>面积：极点 LAEA 或包络中心 LAEA（等积）；</li>
+ *   <li>长度：加密后逐段 {@link #inverse} 求和。</li>
+ * </ul>
  *
- * <p>适用范围：要素或缓冲范围进入极区（|纬度| > {@link GisConstants#GEODESIC_POLAR_LAT}°）或跨越 180° 经线时
- * 抛业务异常，不静默给出错误结果——这是分析单个几何时的行为。图层查询用 {@link #distanceLenient} /
- * {@link #tryBuffer}，把这类要素单独处理（回落求最近点或跳过），不让一个要素拖垮整次查询。
- * 空几何：距离为 +∞，缓冲为空几何，面积 / 长度为 0。
+ * <p>适用范围（分析单个几何时抛业务异常，图层查询走 {@link #distanceLenient} / {@link #tryBuffer} 单独处理）：
+ * 缓冲结果包住极点；要素跨越 180° 经线或缓冲结果越过 180°。空几何：距离为 +∞，缓冲为空几何，面积 / 长度为 0。
  */
 public final class GisGeodesic {
 
-	/** WGS84 长半轴 */
-	private static final double A = 6_378_137d;
-	/** WGS84 第一偏心率平方 */
-	private static final double E2 = 6.69437999014e-3;
 	/** 投影前经纬度加密步长（度），约 1 km */
 	static final double DENSIFY_DEG = 0.01d;
 	/** 投回前平面加密步长（米） */
 	static final double DENSIFY_M = 1_000d;
-	/** 每 1/4 圆 16 段（JTS 默认 8 段），边界更贴近真实圆 */
-	private static final int QUADRANT_SEGMENTS = 16;
+	/**
+	 * 每 1/4 圆 32 段（JTS 默认 8 段）。折线弦会向内凹 R·(1−cos(π/4/n))：16 段约 0.12%，32 段约 0.03%。
+	 * 椭球投影把其它误差压下去之后，这一项成了主导，所以从 16 提到 32。
+	 */
+	private static final int QUADRANT_SEGMENTS = 32;
 
 	private static final GeometryFactory FACTORY = new GeometryFactory();
 	/** 每度纬度的最短地面距离（赤道处子午线弧长），用作宽松换算的下限 */
@@ -52,37 +59,54 @@ public final class GisGeodesic {
 	private GisGeodesic() {
 	}
 
-	/** 纬度 lat（度）处的高斯曲率半径 √(MN)，单位米 */
-	public static double gaussianRadius(double lat) {
-		double s = Math.sin(Math.toRadians(lat));
-		return A * Math.sqrt(1d - E2) / (1d - E2 * s * s);
-	}
-
-	/** WGS84 几何按地面米缓冲，返回 WGS84 几何；空几何返回空面 */
+	/**
+	 * WGS84 几何按地面米缓冲，返回 WGS84 几何；空几何返回空面。
+	 * 缓冲结果包住极点，或要素 / 结果跨越 180° 经线时抛 {@link ServiceException}。
+	 */
 	public static Geometry buffer(Geometry wgs, double meters) {
 		if (wgs == null || wgs.isEmpty()) {
 			return FACTORY.createPolygon();
 		}
-		checkRange(wgs.getEnvelopeInternal(), meters);
-		Aeqd p = Aeqd.around(wgs);
+		requireNoAntimeridian(wgs);
+		GisProjection p = GisProjection.forDistance(wgs.getEnvelopeInternal());
 		Geometry plane = p.forward(densifyDeg(wgs));
 		Geometry buf = BufferOp.bufferOp(plane, meters, QUADRANT_SEGMENTS, BufferParameters.CAP_ROUND);
 		if (buf == null || buf.isEmpty()) {
 			return FACTORY.createPolygon();
 		}
-		return p.inverse(Densifier.densify(buf, DENSIFY_M));
+		for (double poleLat : new double[] { 90d, -90d }) {
+			double[] pole = p.forward(0d, poleLat);
+			if (Double.isFinite(pole[0]) && Double.isFinite(pole[1])
+				&& buf.covers(FACTORY.createPoint(new Coordinate(pole[0], pole[1])))) {
+				throw new ServiceException(GisConstants.MSG_GEODESIC_POLE);
+			}
+		}
+		Geometry out = p.inverse(Densifier.densify(buf, DENSIFY_M));
+		if (outOfLonRange(out) || crossesAntimeridian(out)) {
+			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
+		}
+		return out;
 	}
 
-	/** 点 (lon, lat) 到几何的地面最近距离（米）；点在面内为 0，空几何为 +∞ */
+	/** 图层查询用的缓冲：结果包住极点或跨 180° 经线时返回 null，调用方跳过；其余同 {@link #buffer} */
+	public static Geometry tryBuffer(Geometry wgs, double meters) {
+		try {
+			return buffer(wgs, meters);
+		} catch (ServiceException outOfRange) {
+			return null;
+		}
+	}
+
+	/** 点 (lon, lat) 到几何的地面最近距离（米）；点在面内为 0，空几何为 +∞；要素跨 180° 经线时抛异常 */
 	public static double distance(Geometry wgs, double lon, double lat) {
 		if (wgs == null || wgs.isEmpty()) {
 			return Double.POSITIVE_INFINITY;
 		}
-		checkRange(new Envelope(lon, lon, lat, lat), 0d);
-		checkRange(wgs.getEnvelopeInternal(), 0d);
-		Aeqd p = new Aeqd(lon, lat);
+		requireNoAntimeridian(wgs);
+		GisProjection p = GisProjection.aeqd(lon, lat);
 		Geometry plane = p.forward(densifyDeg(wgs));
-		Coordinate[] pair = DistanceOp.nearestPoints(plane, FACTORY.createPoint(new Coordinate(0d, 0d)));
+		double[] origin = p.forward(lon, lat);
+		Coordinate[] pair = DistanceOp.nearestPoints(plane, FACTORY.createPoint(new Coordinate(origin[0], origin[1])));
 		if (pair[0].distance(pair[1]) == 0d) {
 			return 0d;
 		}
@@ -91,13 +115,12 @@ public final class GisGeodesic {
 	}
 
 	/**
-	 * 图层查询用的距离：要素在极区或跨 180° 经线时不抛异常，回落为「以查询点为原点投影求几何最近点，再用 {@link #inverse} 算椭球测地距离」。
+	 * 图层查询用的距离：要素跨 180° 经线时不抛异常。
 	 *
 	 * <p>跨 180° 的要素（相邻顶点经度差超过 180°）先把负经度加 360，变成连续的经度范围再加密，避免绕地球走长路；
 	 * 查询点也换到同一范围，取 lon 与 lon ± 360 里离要素包络中心较近的那个表示。
-	 * 最近点先以查询点为原点投影求出，再用逐顶点（加密后）测地距离最小值兜底校验：投影在查询点对蹠附近会退化，
-	 * 结果不可信时改用顶点最小值。仍算不出（平移后仍宽于 180°、非有限值、拓扑异常）返回 {@link Double#NaN}，调用方跳过。
-	 * 查询点本身须先经 {@link #checkPoint} 校验。
+	 * 最近点以查询点为原点投影求出，再用逐顶点（加密后）测地距离最小值兜底校验，投影结果不可信时改用顶点最小值。
+	 * 仍算不出（平移后仍宽于 180°、非有限值、拓扑异常）返回 {@link Double#NaN}，调用方跳过。
 	 */
 	public static double distanceLenient(Geometry wgs, double lon, double lat) {
 		if (wgs == null || wgs.isEmpty()) {
@@ -134,11 +157,12 @@ public final class GisGeodesic {
 			}
 			double proj = Double.NaN;
 			try {
-				Aeqd p = new Aeqd(qLon, lat);
+				GisProjection p = GisProjection.aeqd(qLon, lat);
+				double[] origin = p.forward(qLon, lat);
 				Coordinate[] pair = DistanceOp.nearestPoints(p.forward(dense),
-					FACTORY.createPoint(new Coordinate(0d, 0d)));
+					FACTORY.createPoint(new Coordinate(origin[0], origin[1])));
 				double[] near = p.inverse(pair[0].x, pair[0].y);
-				proj = inverse(lon, lat, near[0], near[1]);
+				proj = inverse(qLon, lat, near[0], near[1]);
 			} catch (RuntimeException degenerate) {
 				// 投影退化，只用顶点最小值
 			}
@@ -151,6 +175,118 @@ public final class GisGeodesic {
 		} catch (RuntimeException e) {
 			return Double.NaN;
 		}
+	}
+
+	/** 两个几何之间的地面最近距离（米）；任一为空返回 +∞ */
+	public static double distance(Geometry a, Geometry b) {
+		if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
+			return Double.POSITIVE_INFINITY;
+		}
+		requireNoAntimeridian(a);
+		requireNoAntimeridian(b);
+		Envelope env = new Envelope(a.getEnvelopeInternal());
+		env.expandToInclude(b.getEnvelopeInternal());
+		if (env.getWidth() > 180d) {
+			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
+		}
+		GisProjection p = GisProjection.forDistance(env);
+		Coordinate[] pair = DistanceOp.nearestPoints(p.forward(densifyDeg(a)), p.forward(densifyDeg(b)));
+		if (pair[0].distance(pair[1]) == 0d) {
+			return 0d;
+		}
+		double[] u = p.inverse(pair[0].x, pair[0].y);
+		double[] v = p.inverse(pair[1].x, pair[1].y);
+		return inverse(u[0], u[1], v[0], v[1]);
+	}
+
+	/** 地面面积（平方米），在等积 LAEA 上量；空几何为 0 */
+	public static double area(Geometry wgs) {
+		if (wgs == null || wgs.isEmpty()) {
+			return 0d;
+		}
+		requireNoAntimeridian(wgs);
+		if (wgs.getDimension() < 2) {
+			return 0d;
+		}
+		return GisProjection.forArea(wgs.getEnvelopeInternal()).forward(densifyDeg(wgs)).getArea();
+	}
+
+	/** 地面长度（米）：加密后逐段测地距离求和（面取周长）；空几何为 0 */
+	public static double length(Geometry wgs) {
+		if (wgs == null || wgs.isEmpty()) {
+			return 0d;
+		}
+		requireNoAntimeridian(wgs);
+		double sum = 0d;
+		@SuppressWarnings("unchecked")
+		List<LineString> lines = LinearComponentExtracter.getLines(densifyDeg(wgs));
+		for (LineString line : lines) {
+			Coordinate[] cs = line.getCoordinates();
+			for (int i = 1; i < cs.length; i++) {
+				sum += inverse(cs[i - 1].x, cs[i - 1].y, cs[i].x, cs[i].y);
+			}
+		}
+		return sum;
+	}
+
+	/**
+	 * WGS84 椭球测地距离（米）：GeographicLib（Karney 2013）反算，与 PostGIS 2.2+ {@code geography} 同一算法。
+	 * 任意点对都收敛（含近对蹠点），精度优于 15 nm。注意 GeographicLib 参数是先纬度后经度。
+	 */
+	public static double inverse(double lon1, double lat1, double lon2, double lat2) {
+		return Geodesic.WGS84.Inverse(lat1, lon1, lat2, lon2, GeodesicMask.DISTANCE).s12;
+	}
+
+	/**
+	 * 宽松地把「离点 (lon, lat) meters 米以内」换算成经纬度包络，用于预筛：只会多收、不会漏。
+	 * 纬度按每度最短 {@link #M_PER_DEG_MIN} 米再放大 5%；经度按包络内最高纬度的 cos 放大，接近极点时退化为全经度。
+	 */
+	public static Envelope looseEnvelope(double lon, double lat, double meters) {
+		double dLat = meters / M_PER_DEG_MIN * 1.05d + 1e-6;
+		double top = Math.min(90d, Math.abs(lat) + dLat);
+		double cos = Math.cos(Math.toRadians(top));
+		double dLon = cos < 1e-3 ? 360d : Math.min(360d, dLat / cos);
+		return new Envelope(lon - dLon, lon + dLon, lat - dLat, lat + dLat);
+	}
+
+	/**
+	 * {@link #looseEnvelope} 按 ±180° 拆开：越过 180° 的部分折回对侧单独成框，保证对侧要素不漏；
+	 * 经度跨度达到 360° 时退化为全经度一个框。纬度截到 [-90, 90]。
+	 */
+	public static java.util.List<Envelope> looseEnvelopes(double lon, double lat, double meters) {
+		Envelope e = looseEnvelope(lon, lat, meters);
+		double minY = Math.max(-90d, e.getMinY());
+		double maxY = Math.min(90d, e.getMaxY());
+		if (e.getWidth() >= 360d) {
+			return java.util.List.of(new Envelope(-180d, 180d, minY, maxY));
+		}
+		if (e.getMinX() < -180d) {
+			return java.util.List.of(new Envelope(-180d, e.getMaxX(), minY, maxY),
+				new Envelope(e.getMinX() + 360d, 180d, minY, maxY));
+		}
+		if (e.getMaxX() > 180d) {
+			return java.util.List.of(new Envelope(e.getMinX(), 180d, minY, maxY),
+				new Envelope(-180d, e.getMaxX() - 360d, minY, maxY));
+		}
+		return java.util.List.of(new Envelope(e.getMinX(), e.getMaxX(), minY, maxY));
+	}
+
+	/** 点到包络的地面距离下限（米）：只看纬度差，乘每度最短子午线弧长，必然 ≤ 真实测地距离 */
+	public static double lowerBound(Envelope env, double lat) {
+		double gap = Math.max(0d, Math.max(env.getMinY() - lat, lat - env.getMaxY()));
+		return gap * M_PER_DEG_MIN * 0.999d;
+	}
+
+	/** 要素本身跨越 180° 经线（相邻顶点经度差超过 180°，或包络宽于 180°）时抛业务异常 */
+	static void requireNoAntimeridian(Geometry wgs) {
+		if (wgs.getEnvelopeInternal().getWidth() > 180d || crossesAntimeridian(wgs)) {
+			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
+		}
+	}
+
+	private static boolean outOfLonRange(Geometry g) {
+		Envelope e = g.getEnvelopeInternal();
+		return e.getMinX() < -180d || e.getMaxX() > 180d;
 	}
 
 	/** 是否跨 180° 经线：任一相邻顶点经度差超过 180° */
@@ -194,201 +330,10 @@ public final class GisGeodesic {
 		return copy;
 	}
 
-	/** 图层查询用的缓冲：要素（含外扩）在极区或跨 180° 经线时返回 null，调用方跳过；其余同 {@link #buffer} */
-	public static Geometry tryBuffer(Geometry wgs, double meters) {
-		try {
-			return buffer(wgs, meters);
-		} catch (ServiceException outOfRange) {
-			return null;
-		}
-	}
-
-	/** 查询点校验：在极区（|纬度| > 85°）抛业务异常；单点不存在跨经线问题 */
-	public static void checkPoint(double lon, double lat) {
-		if (Math.abs(lat) > GisConstants.GEODESIC_POLAR_LAT) {
-			throw new ServiceException(GisConstants.MSG_GEODESIC_POLAR_POINT);
-		}
-		checkRange(new Envelope(lon, lon, lat, lat), 0d);
-	}
-
-	/** 两个几何之间的地面最近距离（米）；任一为空返回 +∞ */
-	public static double distance(Geometry a, Geometry b) {
-		if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
-			return Double.POSITIVE_INFINITY;
-		}
-		Envelope env = new Envelope(a.getEnvelopeInternal());
-		env.expandToInclude(b.getEnvelopeInternal());
-		checkRange(env, 0d);
-		Aeqd p = new Aeqd(env.centre().x, env.centre().y);
-		Coordinate[] pair = DistanceOp.nearestPoints(p.forward(densifyDeg(a)), p.forward(densifyDeg(b)));
-		if (pair[0].distance(pair[1]) == 0d) {
-			return 0d;
-		}
-		double[] u = p.inverse(pair[0].x, pair[0].y);
-		double[] v = p.inverse(pair[1].x, pair[1].y);
-		return inverse(u[0], u[1], v[0], v[1]);
-	}
-
-	/** 地面面积（平方米）；空几何为 0 */
-	public static double area(Geometry wgs) {
-		if (wgs == null || wgs.isEmpty()) {
-			return 0d;
-		}
-		checkRange(wgs.getEnvelopeInternal(), 0d);
-		return Aeqd.around(wgs).forward(densifyDeg(wgs)).getArea();
-	}
-
-	/** 地面长度（米）；空几何为 0 */
-	public static double length(Geometry wgs) {
-		if (wgs == null || wgs.isEmpty()) {
-			return 0d;
-		}
-		checkRange(wgs.getEnvelopeInternal(), 0d);
-		return Aeqd.around(wgs).forward(densifyDeg(wgs)).getLength();
-	}
-
-	/**
-	 * 宽松地把「离点 (lon, lat) meters 米以内」换算成经纬度包络，用于预筛：只会多收、不会漏。
-	 * 纬度按每度最短 {@link #M_PER_DEG_MIN} 米再放大 5%；经度按包络内最高纬度的 cos 放大，接近极点时退化为全经度。
-	 */
-	public static Envelope looseEnvelope(double lon, double lat, double meters) {
-		double dLat = meters / M_PER_DEG_MIN * 1.05d + 1e-6;
-		double top = Math.min(90d, Math.abs(lat) + dLat);
-		double cos = Math.cos(Math.toRadians(top));
-		double dLon = cos < 1e-3 ? 360d : Math.min(360d, dLat / cos);
-		return new Envelope(lon - dLon, lon + dLon, lat - dLat, lat + dLat);
-	}
-
-	/**
-	 * {@link #looseEnvelope} 按 ±180° 拆开：越过 180° 的部分折回对侧单独成框，保证对侧要素不漏；
-	 * 经度跨度达到 360° 时退化为全经度一个框。纬度截到 [-90, 90]。
-	 */
-	public static java.util.List<Envelope> looseEnvelopes(double lon, double lat, double meters) {
-		Envelope e = looseEnvelope(lon, lat, meters);
-		double minY = Math.max(-90d, e.getMinY());
-		double maxY = Math.min(90d, e.getMaxY());
-		if (e.getWidth() >= 360d) {
-			return java.util.List.of(new Envelope(-180d, 180d, minY, maxY));
-		}
-		if (e.getMinX() < -180d) {
-			return java.util.List.of(new Envelope(-180d, e.getMaxX(), minY, maxY),
-				new Envelope(e.getMinX() + 360d, 180d, minY, maxY));
-		}
-		if (e.getMaxX() > 180d) {
-			return java.util.List.of(new Envelope(e.getMinX(), 180d, minY, maxY),
-				new Envelope(-180d, e.getMaxX() - 360d, minY, maxY));
-		}
-		return java.util.List.of(new Envelope(e.getMinX(), e.getMaxX(), minY, maxY));
-	}
-
-	/** 点到包络的地面距离下限（米）：只看纬度差，乘每度最短子午线弧长，必然 ≤ 真实测地距离 */
-	public static double lowerBound(Envelope env, double lat) {
-		double gap = Math.max(0d, Math.max(env.getMinY() - lat, lat - env.getMaxY()));
-		return gap * M_PER_DEG_MIN * 0.999d;
-	}
-
-	/**
-	 * 适用范围检查：包络外扩 reach 米后进入极区或跨越 180° 经线即抛业务异常。
-	 * 跨经线判定：包络本身宽于 180°（典型的 179° 与 -179° 两点被读成整圈），或外扩后越过 ±180°。
-	 */
-	static void checkRange(Envelope env, double reach) {
-		double dLat = reach / M_PER_DEG_MIN * 1.01d;
-		double top = Math.max(Math.abs(env.getMinY()), Math.abs(env.getMaxY())) + dLat;
-		if (top > GisConstants.GEODESIC_POLAR_LAT) {
-			throw new ServiceException(GisConstants.MSG_GEODESIC_POLAR);
-		}
-		double dLon = dLat / Math.cos(Math.toRadians(top));
-		if (env.getWidth() > 180d || env.getMinX() - dLon < -180d || env.getMaxX() + dLon > 180d) {
-			throw new ServiceException(GisConstants.MSG_GEODESIC_ANTIMERIDIAN);
-		}
-	}
-
-	/**
-	 * WGS84 椭球测地距离（米）：GeographicLib（Karney 2013）反算，与 PostGIS 2.2+ {@code geography} 同一算法。
-	 * 任意点对都收敛（含近对蹠点），精度优于 15 nm。注意 GeographicLib 参数是先纬度后经度。
-	 */
-	public static double inverse(double lon1, double lat1, double lon2, double lat2) {
-		return Geodesic.WGS84.Inverse(lat1, lon1, lat2, lon2, GeodesicMask.DISTANCE).s12;
-	}
-
 	private static Geometry densifyDeg(Geometry wgs) {
 		if (wgs.getDimension() == 0) {
 			return wgs;
 		}
 		return Densifier.densify(wgs, DENSIFY_DEG);
-	}
-
-	/** 球面方位等距投影（Snyder 1987, §25），原点 (lon0, lat0)，半径取原点高斯半径 */
-	static final class Aeqd {
-
-		private final double lon0;
-		private final double sinLat0;
-		private final double cosLat0;
-		private final double r;
-
-		Aeqd(double lon0, double lat0) {
-			this.lon0 = Math.toRadians(lon0);
-			double phi0 = Math.toRadians(lat0);
-			this.sinLat0 = Math.sin(phi0);
-			this.cosLat0 = Math.cos(phi0);
-			this.r = gaussianRadius(lat0);
-		}
-
-		static Aeqd around(Geometry wgs) {
-			Coordinate c = wgs.getEnvelopeInternal().centre();
-			return new Aeqd(c.x, c.y);
-		}
-
-		double[] forward(double lon, double lat) {
-			double phi = Math.toRadians(lat);
-			double dl = Math.toRadians(lon) - lon0;
-			double sinPhi = Math.sin(phi);
-			double cosPhi = Math.cos(phi);
-			double cosDl = Math.cos(dl);
-			double cosc = Math.max(-1d, Math.min(1d, sinLat0 * sinPhi + cosLat0 * cosPhi * cosDl));
-			double c = Math.acos(cosc);
-			double k = c < 1e-12 ? 1d : c / Math.sin(c);
-			double x = r * k * cosPhi * Math.sin(dl);
-			double y = r * k * (cosLat0 * sinPhi - sinLat0 * cosPhi * cosDl);
-			return new double[] { x, y };
-		}
-
-		double[] inverse(double x, double y) {
-			double rho = Math.hypot(x, y);
-			if (rho < 1e-9) {
-				return new double[] { Math.toDegrees(lon0), Math.toDegrees(Math.asin(sinLat0)) };
-			}
-			double c = rho / r;
-			double sinC = Math.sin(c);
-			double cosC = Math.cos(c);
-			double phi = Math.asin(Math.max(-1d, Math.min(1d, cosC * sinLat0 + y * sinC * cosLat0 / rho)));
-			double lambda = lon0 + Math.atan2(x * sinC, rho * cosLat0 * cosC - y * sinLat0 * sinC);
-			double lon = Math.toDegrees(lambda);
-			if (lon > 180d) {
-				lon -= 360d;
-			} else if (lon < -180d) {
-				lon += 360d;
-			}
-			return new double[] { lon, Math.toDegrees(phi) };
-		}
-
-		Geometry forward(Geometry wgs) {
-			return apply(wgs, true);
-		}
-
-		Geometry inverse(Geometry plane) {
-			return apply(plane, false);
-		}
-
-		private Geometry apply(Geometry g, boolean fwd) {
-			Geometry copy = g.copy();
-			copy.apply((CoordinateFilter) c -> {
-				double[] v = fwd ? forward(c.x, c.y) : inverse(c.x, c.y);
-				c.setX(v[0]);
-				c.setY(v[1]);
-			});
-			copy.geometryChanged();
-			return copy;
-		}
 	}
 }
