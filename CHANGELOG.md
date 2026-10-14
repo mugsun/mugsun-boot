@@ -29,6 +29,7 @@
   - 分析单个几何（`/gis/analyze` 入参，或带 `engine=java`）遇极区 / 跨 180° 几何报业务异常；半径 / 最近邻的查询点在极区报错
   - 空几何：距离视为 +∞，缓冲为空，面积 / 长度为 0
 - GIS 测地距离改用 GeographicLib-Java 2.1（MIT，Karney 算法，与 PostGIS 2.2+ `geography` 同源），替换自写的 Vincenty 和大圆回落；近对蹠点也收敛。新增第三方依赖 `net.sf.geographiclib:GeographicLib-Java`，见 NOTICE
+- 一键全栈（`docker-compose.full.yml`）：`docker compose -f docker-compose.full.yml run --rm init show` 在 admin 改过口令后只提示「初始密码已失效」，不再打印初始口令。判断方式是用初始口令校验库里 admin 当前的口令哈希；连不上库时照常显示并提示无法确认。secrets 卷里的 `MUGSUN_INIT_PASSWORD` 保留（后端启动守卫与重置口令仍要用）。init 镜像新增 `postgresql16-client`、`py3-bcrypt`
 
 ### 计划
 
