@@ -29,6 +29,12 @@ class PlatformTenantNameApiTest extends AbstractIntegrationTest {
 			labelled |= DataInitializer.PLATFORM_TENANT_NAME.equals(item.path("name").asText());
 		}
 		assertThat(labelled).as("租户分布横轴显示名称：" + overview).isTrue();
+		// 用户状态图：除中文 name 外下发与语言无关的 key，前端按 key 翻译（英文界面不再显示「启用」）
+		JsonNode userStatus = overview.path("data").path("charts").path("userStatus");
+		assertThat(userStatus.size()).isPositive();
+		for (JsonNode item : userStatus) {
+			assertThat(item.path("key").asText()).isIn("enabled", "disabled");
+		}
 
 		try {
 			Db.updateBySql("UPDATE sys_tenant SET tenant_name = '' WHERE tenant_code = ?", PLATFORM_TENANT);

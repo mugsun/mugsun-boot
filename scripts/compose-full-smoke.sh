@@ -68,5 +68,9 @@ docker run --rm --network "${COMPOSE_PROJECT_NAME}_default" \
   -v "$PWD/docker/full/smoke.py:/smoke.py:ro" -v "$PWD/docker/full/smoke-requirements.txt:/req.txt:ro" \
   python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4 \
   sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore --no-deps --only-binary=:all: --require-hashes -r /req.txt && python /smoke.py"
+# smoke.py 最后改了管理员口令：init show 不能再给出初始口令
+after_line=$("${DC[@]}" run --rm -T init show)
+[[ "$after_line" == *"初始密码已失效"* ]] || fail "改密后 init show 仍未提示初始密码已失效：${after_line%%：*}"
+[[ "$after_line" != *"$admin_pw"* ]] || fail "改密后 init show 仍打印了初始口令"
 end=$(date +%s)
 echo ">> PASS 从零到登录并看到第一条埋点：$((end-start)) 秒"

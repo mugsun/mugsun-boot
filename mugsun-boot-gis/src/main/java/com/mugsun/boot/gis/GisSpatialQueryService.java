@@ -28,8 +28,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，距离再用 GeographicLib 在 WGS84 椭球上反算；与 PostGIS
  * geography 对照：缓冲外环顶点距离实测相差 −0.18%～+0.002%（0°–72°、500 m–200 km），88°–89.6° 为 ±0.05%。半径 / 最近邻先按经纬度包络预筛（只多收不漏，越过 ±180° 时拆成两个框），再精算。
  *
- * <p>Java 侧逐要素处理：极区照常计算（极点为原点的投影）。跨 180° 经线的要素不让整次查询失败——半径 / 最近邻
- * 平移经度后求几何最近点，仍算不出就跳过；缓冲结果包住极点或越过 180° 时跳过。跳过数写进响应 {@code skipped}，
+ * <p>Java 侧逐要素处理：极区照常计算（极点为原点的投影）。跨 180° 经线的要素按 RFC 7946 逐部件展开后照常计算，
+ * 缓冲结果越过 180° 时切成 MultiPolygon；缓冲包住极点、或单个部件宽于 180° 算不出时跳过。跳过数写进响应 {@code skipped}，
  * 并按「操作 + 图层」限频记 WARN。
  */
 @Service
@@ -63,10 +63,25 @@ public class GisSpatialQueryService {
 	public Map<String, Object> bbox(GisLayer layer, double minLon, double minLat,
 									double maxLon, double maxLat, int limit, boolean forceJava) {
 		requireIndexable(layer);
-		if (!valid(minLon, minLat) || !valid(maxLon, maxLat) || minLon >= maxLon || minLat >= maxLat) {
+		if (!valid(minLon, minLat) || !valid(maxLon, maxLat) || minLon == maxLon || minLat >= maxLat) {
 			throw new ServiceException(GisConstants.MSG_SPATIAL_BBOX);
 		}
 		int cap = clampLimit(limit);
+		if (minLon > maxLon) {
+			// RFC 7946 §5.2：west > east 表示跨 180° 经线的范围，拆成 [west, 180] 与 [-180, east] 两个框
+			if (ready(layer, forceJava)) {
+				return sql(layer,
+					" AND (geom && ST_MakeEnvelope(?, ?, 180, ?, 4326) OR geom && ST_MakeEnvelope(-180, ?, ?, ?, 4326))"
+						+ " AND (ST_Intersects(geom, ST_MakeEnvelope(?, ?, 180, ?, 4326))"
+						+ " OR ST_Intersects(geom, ST_MakeEnvelope(-180, ?, ?, ?, 4326)))",
+					new Object[] { minLon, minLat, maxLat, minLat, maxLon, maxLat,
+						minLon, minLat, maxLat, minLat, maxLon, maxLat },
+					null, cap);
+			}
+			Geometry east = codec.factory().toGeometry(new org.locationtech.jts.geom.Envelope(minLon, 180d, minLat, maxLat));
+			Geometry west = codec.factory().toGeometry(new org.locationtech.jts.geom.Envelope(-180d, maxLon, minLat, maxLat));
+			return java(layer, cap, (geom, feat) -> geom.intersects(east) || geom.intersects(west) ? 0d : null);
+		}
 		if (ready(layer, forceJava)) {
 			return sql(layer,
 				" AND geom && ST_MakeEnvelope(?, ?, ?, ?, 4326)"
