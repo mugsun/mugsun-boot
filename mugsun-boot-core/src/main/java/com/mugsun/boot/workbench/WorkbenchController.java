@@ -72,18 +72,18 @@ public class WorkbenchController {
 		String userTbl = bizTable("sys_user");
 		if (tenant == null) {
 			charts.put("userStatus", Db.selectListBySql(
-				"SELECT CASE status WHEN 1 THEN '启用' ELSE '停用' END AS \"name\", count(*) AS \"value\" "
+				"SELECT CASE status WHEN 1 THEN '启用' ELSE '停用' END AS \"name\", CASE status WHEN 1 THEN 'enabled' ELSE 'disabled' END AS \"key\", count(*) AS \"value\" "
 					+ "FROM " + userTbl + " WHERE is_deleted = 0 GROUP BY status ORDER BY status"));
 		} else {
 			charts.put("userStatus", Db.selectListBySql(
-				"SELECT CASE status WHEN 1 THEN '启用' ELSE '停用' END AS \"name\", count(*) AS \"value\" "
+				"SELECT CASE status WHEN 1 THEN '启用' ELSE '停用' END AS \"name\", CASE status WHEN 1 THEN 'enabled' ELSE 'disabled' END AS \"key\", count(*) AS \"value\" "
 					+ "FROM " + userTbl + " WHERE is_deleted = 0 AND tenant_id = ? GROUP BY status ORDER BY status", tenant));
 		}
 		// 逐租户分布属平台级敏感运营数据：仅「查看全部」或平台超管可见；普通租户管理员不下发该键，前端隐藏卡片（避免空态误导）
 		if (tenant == null || com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()) {
 			// 横轴显示租户名称（UX-013），没有名称的租户仍显示编号
 			charts.put("tenantUser", com.mugsun.boot.tenant.TenantNames.label(Db.selectListBySql(
-				"SELECT COALESCE(tenant_id, '未分配') AS \"name\", count(*) AS \"value\" "
+				"SELECT COALESCE(tenant_id, '未分配') AS \"name\", CASE WHEN tenant_id IS NULL THEN 'unassigned' ELSE NULL END AS \"key\", count(*) AS \"value\" "
 					+ "FROM " + userTbl + " WHERE is_deleted = 0 GROUP BY tenant_id ORDER BY tenant_id")));
 		}
 		data.put("charts", charts);

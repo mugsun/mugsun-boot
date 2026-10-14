@@ -31,9 +31,9 @@ public class SysReportController {
 	private static String datasetSql(String key) {
 		String u = com.mugsun.boot.config.BizTables.of("sys_user");
 		return switch (key) {
-			case "user_status" -> "SELECT CASE status WHEN 1 THEN '启用' ELSE '停用' END AS \"name\", count(*) AS \"value\" "
+			case "user_status" -> "SELECT CASE status WHEN 1 THEN '启用' ELSE '停用' END AS \"name\", CASE status WHEN 1 THEN 'enabled' ELSE 'disabled' END AS \"key\", count(*) AS \"value\" "
 				+ "FROM " + u + " WHERE is_deleted = 0 GROUP BY status";
-			case "tenant_user" -> "SELECT COALESCE(tenant_id, '未分配') AS \"name\", count(*) AS \"value\" "
+			case "tenant_user" -> "SELECT COALESCE(tenant_id, '未分配') AS \"name\", CASE WHEN tenant_id IS NULL THEN 'unassigned' ELSE NULL END AS \"key\", count(*) AS \"value\" "
 				+ "FROM " + u + " WHERE is_deleted = 0 GROUP BY tenant_id";
 			default -> null;
 		};
