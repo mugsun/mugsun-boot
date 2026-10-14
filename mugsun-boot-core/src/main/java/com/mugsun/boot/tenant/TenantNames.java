@@ -21,14 +21,7 @@ public final class TenantNames {
 		if (rows == null || rows.isEmpty()) {
 			return rows;
 		}
-		Map<String, String> names = new HashMap<>();
-		for (Row t : Db.selectListBySql("SELECT tenant_code, tenant_name FROM " + BizTables.of("sys_tenant") + " WHERE is_deleted = 0")) {
-			Object code = t.get("tenant_code");
-			Object name = t.get("tenant_name");
-			if (code != null && name != null && !name.toString().isBlank()) {
-				names.put(code.toString(), name.toString().trim());
-			}
-		}
+		Map<String, String> names = toNameMap(Db.selectListBySql(nameSql(BizTables.of("sys_tenant"))));
 		for (Row row : rows) {
 			Object code = row.get("name");
 			String name = code == null ? null : names.get(code.toString());
@@ -37,5 +30,22 @@ public final class TenantNames {
 			}
 		}
 		return rows;
+	}
+
+	/** 列名用带引号的小写别名：达梦/金仓等未加引号的列名会返回大写，Row.get 区分大小写会取到 null。 */
+	static String nameSql(String table) {
+		return "SELECT tenant_code AS \"tenant_code\", tenant_name AS \"tenant_name\" FROM " + table + " WHERE is_deleted = 0";
+	}
+
+	static Map<String, String> toNameMap(List<Row> tenants) {
+		Map<String, String> names = new HashMap<>();
+		for (Row t : tenants) {
+			Object code = t.get("tenant_code");
+			Object name = t.get("tenant_name");
+			if (code != null && name != null && !name.toString().isBlank()) {
+				names.put(code.toString(), name.toString().trim());
+			}
+		}
+		return names;
 	}
 }
