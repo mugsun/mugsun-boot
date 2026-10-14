@@ -12,57 +12,60 @@ import org.springframework.util.unit.DataSize;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.stream.Stream;
 
 /**
- * 访问日志容量告警：logback 达到 totalSizeCap 时会删最早的归档，哪怕还不满 180 天（刷量可以触发）。
- * 每小时统计一次 {@code *-access*} 文件总量，超过上限的 {@value #WARN_PERCENT}% 打 WARN，提示扩容或外部留存。
+ * 访问日志磁盘余量告警。访问日志留存 ≥180 天是硬要求（《网络安全法》第二十一条），logback 不设 totalSizeCap，
+ * 只按天数删除；代价是日志会一直占盘。每小时检查一次日志目录所在磁盘的剩余空间，低于
+ * {@code mugsun.demo.access-log.min-free-space}（默认 10GB）打 WARN，提示扩容或接入外部留存。
  */
 @Component
 @ConditionalOnProperty(name = DemoConstants.ENABLED_PROPERTY, havingValue = "true")
 public class AccessLogCapacityMonitor {
 
-	static final int WARN_PERCENT = 80;
 	private static final Logger log = LoggerFactory.getLogger(AccessLogCapacityMonitor.class);
 
 	private final Path dir;
-	private final long cap;
+	private final long minFree;
 
 	public AccessLogCapacityMonitor(
 		@Value("${mugsun.demo.access-log.path:${logging.file.path:./logs}}") String dir,
-		@Value("${mugsun.demo.access-log.total-size-cap:20GB}") String cap) {
+		@Value("${mugsun.demo.access-log.min-free-space:10GB}") String minFree) {
 		this.dir = Path.of(dir);
-		this.cap = DataSize.parse(cap.trim().toUpperCase()).toBytes();
+		this.minFree = parseSize(minFree);
+	}
+
+	/** 容量配置去掉所有空白再解析，"10 GB"、" 10gb " 都按 10GB 处理。 */
+	static long parseSize(String value) {
+		return DataSize.parse(value.replaceAll("\\s+", "").toUpperCase()).toBytes();
 	}
 
 	@Scheduled(initialDelay = 60_000, fixedDelay = 3_600_000)
 	public void check() {
-		long used = usedBytes(dir);
-		if (overThreshold(used, cap)) {
-			log.warn("[demo] 访问日志已用 {} MB，接近总量上限 {} MB（{}%）：达到上限会删除最早的日志，即使不满 180 天。"
-				+ "请调大 MUGSUN_DEMO_ACCESS_LOG_TOTAL_SIZE_CAP、扩容日志卷，或接入外部日志留存",
-				used >> 20, cap >> 20, used * 100 / cap);
+		long free = freeBytes(dir);
+		if (belowThreshold(free, minFree)) {
+			log.warn("[demo] 访问日志所在磁盘剩余 {} MB，低于告警阈值 {} MB：访问日志需留存 ≥180 天，不会自动按容量删除，"
+				+ "磁盘写满后日志与服务都会出错。请扩容日志卷或接入外部日志留存（阈值：MUGSUN_DEMO_ACCESS_LOG_MIN_FREE_SPACE）",
+				free >> 20, minFree >> 20);
 		}
 	}
 
-	static boolean overThreshold(long used, long cap) {
-		return cap > 0 && used * 100 >= cap * WARN_PERCENT;
+	static boolean belowThreshold(long free, long minFree) {
+		return free >= 0 && minFree > 0 && free < minFree;
 	}
 
-	static long usedBytes(Path dir) {
-		if (!Files.isDirectory(dir)) {
-			return 0;
+	/** 目录不存在时向上找最近的已存在父目录；取不到返回 -1（不告警）。 */
+	static long freeBytes(Path dir) {
+		Path p = dir.toAbsolutePath();
+		while (p != null && !Files.exists(p)) {
+			p = p.getParent();
 		}
-		try (Stream<Path> s = Files.list(dir)) {
-			return s.filter(p -> p.getFileName().toString().contains("-access")).mapToLong(p -> {
-				try {
-					return Files.size(p);
-				} catch (IOException e) {
-					return 0;
-				}
-			}).sum();
+		if (p == null) {
+			return -1;
+		}
+		try {
+			return Files.getFileStore(p).getUsableSpace();
 		} catch (IOException e) {
-			return 0;
+			return -1;
 		}
 	}
 }

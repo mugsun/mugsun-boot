@@ -41,7 +41,7 @@
 
 ### 新增
 
-- 只读演示模式访问日志（B4）：`AccessLogFilter` 每个请求一行（IP、方法、路径、状态、耗时、用户、traceId；不记 query 和 body），demo profile 下单独写 `*-access.log`，按天滚动 gzip，默认保留 200 天、总量 20GB（`mugsun.demo.access-log.path/max-history/total-size-cap`），不受 LogCleanJob 影响；demo 下日志库清理保留期不低于 180 天。普通模式不装配、不改变
+- 只读演示模式访问日志（B4）：`AccessLogFilter` 每个请求一行（IP、方法、路径、状态、耗时、用户、traceId；不记 query 和 body），demo profile 下单独写 `*-access.log`，按天滚动 gzip，默认保留 200 天、不设总量上限（`mugsun.demo.access-log.path/max-history`），日志盘剩余空间低于 `mugsun.demo.access-log.min-free-space`（默认 10GB，可写 `10 GB`）时每小时 WARN，不受 LogCleanJob 影响；demo 下日志库清理保留期不低于 180 天。普通模式不装配、不改变
 - 模块化 Spring Boot 后端：`mugsun-boot-core` / `gis` / `track` / `ai` / `server`
 - Docker Compose 仅启动 PostgreSQL、Redis 等依赖；应用由 Maven 启动
 - 与 `mugsun-pc`、`mugsun-track` 联调路径见 README 与文档站
