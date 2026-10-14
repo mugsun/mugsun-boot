@@ -47,7 +47,7 @@ spring:
 jetcache:
   remote:
     default:
-      uri: redis://${MUGSUN_REDIS_HOST:localhost}:${MUGSUN_REDIS_PORT:6379}/${MUGSUN_DEMO_REDIS_DB:4}
+      uri: redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT:6379}/${MUGSUN_DEMO_REDIS_DB:4}
 mybatis-flex:
   datasource:
     # 日志专用数据源：登录/访问/错误/操作/通用日志只 INSERT（LogDataSourceRouter）
