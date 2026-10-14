@@ -52,6 +52,39 @@ class ReportApiTest extends AbstractIntegrationTest {
 		assertThat(badBody.path("success").asBoolean()).isFalse();
 	}
 
+	/** #67：图表行带语言无关的 key，前端按 key 翻译（英文界面不显示「启用」「未分配」） */
+	@Test
+	void chartRowsCarryLocaleNeutralKeys() {
+		JsonNode status = readBody(get("/system/report/preview-dataset?key=user_status", adminToken)).path("data");
+		assertThat(status.size()).isPositive();
+		for (JsonNode row : status) {
+			assertThat(row.path("key").asText()).isIn("enabled", "disabled");
+		}
+		// 把一个测试账号临时改成未分配租户，tenant_user 数据集和工作台 tenantUser 都应给出 key=unassigned
+		String original = com.mybatisflex.core.row.Db.selectObject(
+			"SELECT tenant_id FROM sys_user WHERE username = ?", LOW_USERNAME) instanceof String t ? t : null;
+		com.mybatisflex.core.row.Db.updateBySql("UPDATE sys_user SET tenant_id = NULL WHERE username = ?", LOW_USERNAME);
+		try {
+			JsonNode tenants = readBody(get("/system/report/preview-dataset?key=tenant_user", adminToken)).path("data");
+			assertThat(keysOf(tenants)).contains("unassigned");
+			for (JsonNode row : tenants) {
+				if (!row.path("key").isNull() && !row.path("key").isMissingNode()) {
+					assertThat(row.path("key").asText()).isEqualTo("unassigned");
+				}
+			}
+			JsonNode overview = readBody(get("/system/workbench/overview", adminToken));
+			assertThat(keysOf(overview.path("data").path("charts").path("tenantUser"))).contains("unassigned");
+		} finally {
+			com.mybatisflex.core.row.Db.updateBySql("UPDATE sys_user SET tenant_id = ? WHERE username = ?", original, LOW_USERNAME);
+		}
+	}
+
+	private static List<String> keysOf(JsonNode rows) {
+		List<String> keys = new java.util.ArrayList<>();
+		rows.forEach(r -> keys.add(r.path("key").isTextual() ? r.path("key").asText() : null));
+		return keys;
+	}
+
 	@Test
 	void submitPreviewAndRemove() {
 		Map<String, Object> report = new HashMap<>();
