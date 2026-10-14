@@ -157,11 +157,22 @@ public class GisSpatialQueryService {
 		}
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
-			// <-> 是 GiST 的 KNN 距离算子，索引直接按距离出序，不需要先全表算距离
+			// <-> 是 GiST 的 KNN 算子，但按经纬度平面距离出序，与地面距离不一致（高纬、跨 180°）。
+			// 按 PostGIS 手册 geometry_distance_knn 的做法：先用 <-> 多取候选（手册示例取 10 倍：100 个候选出前 10），
+			// 再按 geography 距离重排。候选另外并上：查询点平移 ±360 后的 KNN（180° 对岸的普通要素），
+			// 以及库里存的跨 180° 要素（平面距离不能代表实际远近，mugsun-boot#64）
+			int candidates = knnCandidates(cap);
 			String point = "ST_SetSRID(ST_MakePoint(" + lon + ", " + lat + "), 4326)";
-			return sql(layer, "", new Object[0],
+			String mirror = "ST_SetSRID(ST_MakePoint(" + (lon > 0 ? lon - 360d : lon + 360d) + ", " + lat + "), 4326)";
+			String scope = "FROM gis_feature WHERE layer_id = ? AND is_deleted = 0";
+			String where = " AND id IN ("
+				+ "SELECT id FROM (SELECT id " + scope + " ORDER BY geom <-> " + point + " LIMIT ?) k1"
+				+ " UNION SELECT id FROM (SELECT id " + scope + " ORDER BY geom <-> " + mirror + " LIMIT ?) k2"
+				+ " UNION SELECT id " + scope + " AND geom && ST_MakeEnvelope(-180, -90, 180, 90, 4326)" + WIDE + ")";
+			return sql(layer, where,
+				new Object[] { layer.getId(), candidates, layer.getId(), candidates, layer.getId() },
 				"ST_Distance(geom::geography, " + point + "::geography)",
-				cap, " ORDER BY geom <-> " + point);
+				cap, " ORDER BY meters");
 		}
 		Skips skips = new Skips();
 		// 包络预筛：已有 cap 个候选时，纬度差下限都比第 cap 近的还远的要素直接跳过，不做精算
@@ -310,6 +321,11 @@ public class GisSpatialQueryService {
 	}
 
 	// ==================== 下沉数据库 ====================
+
+	/** 最近邻 KNN 候选数：结果数的 10 倍（PostGIS 手册 geometry_distance_knn 示例），至少 100、至多 10000 */
+	static int knnCandidates(int cap) {
+		return (int) Math.min(10_000L, Math.max(100L, cap * 10L));
+	}
 
 	/**
 	 * 库里存的跨 180° 要素：平面包络宽于 180°、负经度加 360（{@code ST_ShiftLongitude}）后不再宽于 180°。
