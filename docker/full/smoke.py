@@ -3,7 +3,7 @@
 import json, os, sys, time, uuid, urllib.request, subprocess
 from gmssl import sm2
 
-BASE = os.environ.get("BASE", "http://pc")  # 经 Nginx /api 反代，与浏览器同路径
+BASE = os.environ.get("BASE", "http://pc:8080")  # 经 pc 镜像的非 root Nginx（容器内 8080）/api 反代，与浏览器同路径
 env = {}
 for line in open("/secrets/boot/boot.env"):  # 自检容器以 root 只读挂载后端的 secrets 卷
     if line.startswith("export "):
