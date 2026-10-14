@@ -118,9 +118,9 @@ services:
   pc:
     # 直接用 mugsun-pc 仓库的 Dockerfile + docker/nginx（pc#18 加固 + pc#37 的网关 CIDR 校验和 CSP 域名过滤），
     # 这里不再维护单独的 nginx 配置。源码固定到提交 sha（不跟 main）；pc 镜像里 pnpm 用 --frozen-lockfile。
-    # 当前固定在 pc#37 的 head 04be46f；pc#37 合入后改成 main 上的合入提交 sha。
+    # 固定在 mugsun-pc main 上 pc#37 的合入提交 1dbc009（含 pc#18 + pc#37 加固）。
     build:
-      context: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#04be46fd3a2453d7da686f9da391195dc7fc0095}
+      context: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#1dbc009627e0c2ad1b91ec79a7c6438af392bf22}
       dockerfile: Dockerfile
       additional_contexts:
         track: ${MUGSUN_TRACK_SRC:-https://github.com/mugsun/mugsun-track.git#b66963f740af911db3697f35a33b8bb7065e6d3c}
