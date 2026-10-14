@@ -145,6 +145,39 @@ class TrackCollectApiTest extends AbstractTrackIntegrationTest {
 			+ " WHERE session_id = ? AND referrer_domain = 'www.baidu.com'", sessionId) == 1L);
 	}
 
+	/** ①d 同站 referrer（与页面主机相同）不算来源；referrer_domain 统一小写 */
+	@Test
+	void sameSiteReferrerExcludedAndDomainLowercased() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String same = uuid();
+		String external = uuid();
+		String explicitUpper = uuid();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(same, "$pageview", clientTs, distinctId, sessionId, Map.of(
+			"url_path", "/b", "referrer", "https://shop.example.com/a?x=1")));
+		events.add(event(external, "$pageview", clientTs + 10, distinctId, sessionId, Map.of(
+			"url_path", "/c", "referrer", "https://www.google.com/search?q=a b|c")));
+		events.add(event(explicitUpper, "custom_ev", clientTs + 20, distinctId, sessionId, Map.of(
+			"referrer_domain", "Partner.IO")));
+		org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+		headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+		// HttpURLConnection 不允许设置 Origin，这里用 Referer 头（服务端 Origin 缺省时回退 Referer）
+		headers.set("Referer", "https://Shop.Example.com/b");
+		ResponseEntity<String> resp = rest.exchange("/track/collect", org.springframework.http.HttpMethod.POST,
+			new org.springframework.http.HttpEntity<>(payload(APP_A, events), headers), String.class);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("3 条事件落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 3L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ? AND referrer_domain IS NULL", same))
+			.as("站内跳转不算来源").isEqualTo(1L);
+		assertThat(trackRow("SELECT referrer_domain FROM track_event WHERE event_id = ?", external).getString("referrer_domain"))
+			.as("query 带空格、| 时 URI 解析失败，宽松正则兜底").isEqualTo("www.google.com");
+		assertThat(trackRow("SELECT referrer_domain FROM track_event WHERE event_id = ?", explicitUpper).getString("referrer_domain"))
+			.as("显式 referrer_domain 也归一小写").isEqualTo("partner.io");
+	}
+
 	/** ①c 错误堆栈保留到 4096 字符（与 SDK error 插件一致），其它字符串值仍 ≤1024 */
 	@Test
 	void errorStackKeptUpTo4096() {

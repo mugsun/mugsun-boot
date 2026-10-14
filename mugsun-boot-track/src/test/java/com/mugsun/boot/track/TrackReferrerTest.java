@@ -27,4 +27,28 @@ class TrackReferrerTest {
 		assertThat(TrackReferrer.domainOf(null, "not a url")).isNull();
 		assertThat(TrackReferrer.domainOf(null, "/relative/path")).isNull();
 	}
+
+	@Test
+	void lenientFallbackWhenUriFails() {
+		assertThat(TrackReferrer.domainOf(null, "https://www.Google.com/search?q=a b|c")).isEqualTo("www.google.com");
+		assertThat(TrackReferrer.domainOf(null, "https://user@Bad.Example.com:8443/p?q=[x]")).isEqualTo("bad.example.com");
+		assertThat(TrackReferrer.domainOf(null, "ftp://x.com/ a")).isNull();
+	}
+
+	@Test
+	void explicitDomainLowercased() {
+		assertThat(TrackReferrer.domainOf("  Partner.IO. ", null)).isEqualTo("partner.io");
+	}
+
+	@Test
+	void sameSiteExcluded() {
+		String page = TrackReferrer.hostOf("https://Shop.Example.com");
+		assertThat(page).isEqualTo("shop.example.com");
+		assertThat(TrackReferrer.domainOf(null, "https://shop.example.com/a", page)).isNull();
+		assertThat(TrackReferrer.domainOf("SHOP.example.com", null, page)).isNull();
+		assertThat(TrackReferrer.domainOf(null, "https://m.shop.example.com/a", page))
+			.as("子域不算同站（精确比较）").isEqualTo("m.shop.example.com");
+		assertThat(TrackReferrer.domainOf(null, "https://www.baidu.com/", page)).isEqualTo("www.baidu.com");
+		assertThat(TrackReferrer.hostOf("null")).as("沙箱 iframe 的 Origin: null").isNull();
+	}
 }
