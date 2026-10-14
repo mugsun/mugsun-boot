@@ -19,7 +19,7 @@ import java.util.List;
 @ConfigurationProperties(prefix = "mugsun.oper-log")
 public class OperLogProperties {
 
-	public static final List<String> DEFAULT_EXCLUDE_PATHS = List.of("/track/collect", "/track/replay");
+	public static final List<String> DEFAULT_EXCLUDE_PATHS = List.of("/track/collect", "/track/replay", "/track/api-body");
 
 	private static final AntPathMatcher MATCHER = new AntPathMatcher();
 
