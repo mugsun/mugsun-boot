@@ -40,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 登录（含登录日志）、只读浏览、写请求 403、漏网写库 42501、埋点 upsert 降级、配额与容量闸门、关闭的组件。
  */
 @ActiveProfiles("demo")
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class DemoAccountsApiTest extends AbstractIntegrationTest {
 
 	private static final String RO_PASSWORD = "demo-ro-test-pw";
@@ -301,5 +302,30 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 	void socialAndAiPrefixesBlocked() {
 		assertThat(get("/auth/social/render/gitee", null).getStatusCode().value()).isEqualTo(403);
 		assertThat(get("/system/ai/model/list", null).getStatusCode().value()).isEqualTo(403);
+	}
+
+	@Test
+	void cspReportCollectorAllowedRateLimitedAndNotLoggedRaw(org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+		String report = "{\"csp-report\":{\"document-uri\":\"https://demo.example.com/x?token=CSP-SECRET\","
+			+ "\"blocked-uri\":\"wss://demo.example.com/api/ws/message?token=CSP-SECRET\",\"effective-directive\":\"connect-src\"}}";
+		org.springframework.http.HttpHeaders h = new org.springframework.http.HttpHeaders();
+		h.setContentType(org.springframework.http.MediaType.parseMediaType("application/csp-report"));
+		var entity = new org.springframework.http.HttpEntity<>(report, h);
+		ResponseEntity<String> first = rest.postForEntity("/csp-report", entity, String.class);
+		assertThat(first.getStatusCode().value()).as("白名单放行，不是 403").isEqualTo(204);
+		assertThat(output.getAll()).contains("wss://demo.example.com/api/ws/message").doesNotContain("CSP-SECRET");
+		// 超大 body 413
+		String big = "{\"csp-report\":{\"document-uri\":\"" + "a".repeat(9000) + "\"}}";
+		assertThat(rest.postForEntity("/csp-report", new org.springframework.http.HttpEntity<>(big, h), String.class)
+			.getStatusCode().value()).isEqualTo(413);
+		// 默认 30 次/分钟/IP（上面已用 2 次）
+		int last = 0;
+		for (int i = 0; i < 30; i++) {
+			last = rest.postForEntity("/csp-report", entity, String.class).getStatusCode().value();
+		}
+		assertThat(last).isEqualTo(429);
+		// 原文不进接口日志 / 操作日志
+		Thread.sleep(500);
+		assertThat(count("SELECT COUNT(*) FROM sys_api_log WHERE request_uri LIKE ? OR params LIKE ?", "%csp-report%", "%CSP-SECRET%")).isZero();
 	}
 }

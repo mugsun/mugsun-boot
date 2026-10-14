@@ -34,17 +34,19 @@ public class DemoRateLimiter {
 	private static final String KEY_PREFIX = "mugsun:demo:rl:";
 
 	/** 限流维度 */
-	public enum Scope { LOGIN, TRACK }
+	public enum Scope { LOGIN, TRACK, CSP }
 
 	private final RedisClient client;
 	private final StatefulRedisConnection<String, byte[]> connection;
 	private final ProxyManager<String> proxyManager;
 	private final BucketConfiguration loginConfig;
 	private final BucketConfiguration trackConfig;
+	private final BucketConfiguration cspConfig;
 
 	public DemoRateLimiter(RedisProperties redis,
 						   @Value("${mugsun.demo.rate.login-per-ip-per-minute:20}") int loginPerMinute,
-						   @Value("${mugsun.demo.rate.track-per-ip-per-minute:120}") int trackPerMinute) {
+						   @Value("${mugsun.demo.rate.track-per-ip-per-minute:120}") int trackPerMinute,
+						   @Value("${mugsun.demo.rate.csp-per-ip-per-minute:30}") int cspPerMinute) {
 		RedisURI.Builder uri = RedisURI.builder()
 			.withHost(redis.getHost())
 			.withPort(redis.getPort())
@@ -65,6 +67,7 @@ public class DemoRateLimiter {
 			.build();
 		this.loginConfig = perMinute(loginPerMinute);
 		this.trackConfig = perMinute(trackPerMinute);
+		this.cspConfig = perMinute(cspPerMinute);
 	}
 
 	private static BucketConfiguration perMinute(int n) {
@@ -77,7 +80,11 @@ public class DemoRateLimiter {
 	/** 取一个令牌；false = 该 IP 本分钟已超额 */
 	public boolean tryAcquire(Scope scope, String ip) {
 		String key = KEY_PREFIX + scope.name().toLowerCase() + ":" + (ip == null || ip.isEmpty() ? "-" : ip);
-		BucketConfiguration config = scope == Scope.LOGIN ? loginConfig : trackConfig;
+		BucketConfiguration config = switch (scope) {
+			case LOGIN -> loginConfig;
+			case TRACK -> trackConfig;
+			case CSP -> cspConfig;
+		};
 		try {
 			return proxyManager.builder().build(key, () -> config).tryConsume(1);
 		} catch (RuntimeException e) {

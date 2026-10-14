@@ -39,6 +39,9 @@ public final class DemoReadOnlyPolicy {
 		"/track/replay",
 		"/track/api-body");
 
+	/** CSP 违规报告收集端（浏览器匿名 POST；只写日志不入库，按 IP 限流，见 CspReportController） */
+	public static final Set<String> CSP_REPORT_ALLOWLIST = Set.of("/csp-report");
+
 	/**
 	 * 只读查询型 POST。当前代码库没有以 POST 承载的纯查询接口（已逐个核对 298 个写映射），故为空；
 	 * 以后新增时必须在此逐个列出并在测试里说明理由。
@@ -67,6 +70,7 @@ public final class DemoReadOnlyPolicy {
 	public DemoReadOnlyPolicy(boolean trackCollect) {
 		Set<String> s = new LinkedHashSet<>(AUTH_ALLOWLIST);
 		s.addAll(READ_ONLY_POST_ALLOWLIST);
+		s.addAll(CSP_REPORT_ALLOWLIST);
 		if (trackCollect) {
 			s.addAll(TRACK_COLLECT_ALLOWLIST);
 		}

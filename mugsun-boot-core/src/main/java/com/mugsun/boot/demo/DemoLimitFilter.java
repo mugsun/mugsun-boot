@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <ul>
  *   <li>导出/下载/SSE 等重请求全局并发上限（Resilience4j Bulkhead，{@code mugsun.demo.heavy-concurrency}，默认 2），
  *       超出返回 429 {@code DEMO_BUSY}（安全复审 F4）；</li>
- *   <li>登录与埋点采集按 IP 限流（{@link DemoRateLimiter}，Bucket4j + Redis，多实例共享），超出返回 429
+ *   <li>登录、埋点采集与 CSP 报告按 IP 限流（{@link DemoRateLimiter}，Bucket4j + Redis，多实例共享），超出返回 429
  *       {@code DEMO_RATE_LIMITED}（安全复审 F1 / F3）；</li>
  *   <li>埋点库容量超过硬上限（{@link DemoCapacityGate}）时采集返回 503 {@code DEMO_CAPACITY}（安全复审 F3）。</li>
  * </ul>
@@ -72,6 +72,11 @@ public class DemoLimitFilter extends OncePerRequestFilter {
 		if (path != null && LOGIN_PATHS.contains(path)
 			&& !rateLimiter.tryAcquire(DemoRateLimiter.Scope.LOGIN, ClientIpResolver.clientIp(request))) {
 			write(response, 429, "DEMO_RATE_LIMITED", "演示环境登录过于频繁，请一分钟后再试");
+			return;
+		}
+		if (path != null && DemoReadOnlyPolicy.CSP_REPORT_ALLOWLIST.contains(path)
+			&& !rateLimiter.tryAcquire(DemoRateLimiter.Scope.CSP, ClientIpResolver.clientIp(request))) {
+			write(response, 429, "DEMO_RATE_LIMITED", "CSP 报告过于频繁");
 			return;
 		}
 		if (path != null && DemoReadOnlyPolicy.TRACK_COLLECT_ALLOWLIST.contains(path)) {
