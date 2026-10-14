@@ -13,3 +13,11 @@ GeographicLib-Java (net.sf.geographiclib:GeographicLib-Java)
   Licensed under the MIT/X11 License.
   https://geographiclib.sourceforge.io/  https://github.com/geographiclib/geographiclib-java
   Used by mugsun-boot-gis for geodesic distance on the WGS84 ellipsoid.
+
+JTS Topology Suite (org.locationtech.jts:jts-core)
+  Copyright (c) Vivid Solutions, Martin Davis, and others (Eclipse LocationTech).
+  Dual-licensed under the Eclipse Public License 2.0 and the Eclipse
+  Distribution License 1.0 (BSD-3-Clause); used here under EDL-1.0.
+  https://github.com/locationtech/jts
+  Used by mugsun-boot-gis for planar geometry operations (buffer, intersection,
+  antimeridian cutting, WKT/GeoJSON handling).
