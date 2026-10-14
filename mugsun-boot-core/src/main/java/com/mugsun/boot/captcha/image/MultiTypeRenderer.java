@@ -252,7 +252,7 @@ public class MultiTypeRenderer {
 	static final Color ROTATE_HOLE_FILL = new Color(206, 210, 218);
 	static final Color ROTATE_OUTLINE = new Color(255, 255, 255, 220);
 	/** 孔比 piece 半径多出的不透明边距（像素）：遮住紧贴圆边的原图像素，削弱孔外环与 piece 外缘的连续性匹配 */
-	static final int ROTATE_HOLE_MARGIN_PX = Integer.getInteger("mugsun.captcha.rotate.hole-margin", 6);
+	static final int ROTATE_HOLE_MARGIN_PX = 6;
 	/** piece 边缘羽化宽度（像素） */
 	static final int ROTATE_FEATHER_PX = 5;
 	/** piece 独立噪点幅度（逐像素逐通道） */
