@@ -203,6 +203,26 @@ class TrackCollectApiTest extends AbstractTrackIntegrationTest {
 			.as("帧 URL query 去掉").isEqualTo(1L);
 	}
 
+	/** ①e 错误指纹：服务端计算前先去掉帧 URL query，仅 query 不同的同一错误归为一组 */
+	@Test
+	void errorFingerprintIgnoresStackUrlQuery() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(uuid(), "$error", clientTs, distinctId, sessionId, Map.of(
+			"message", "fp", "stack", "at f (https://x.com/a.js?token=AAA:1:2)\n    at g")));
+		events.add(event(uuid(), "$error", clientTs + 1, distinctId, sessionId, Map.of(
+			"message", "fp", "stack", "at f (https://x.com/a.js?token=BBB#h:1:2)\n    at g")));
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+		assertThat(trackLong("SELECT count(DISTINCT error_fingerprint) AS c FROM track_event"
+			+ " WHERE session_id = ? AND error_fingerprint IS NOT NULL", sessionId))
+			.as("query 不同不拆组").isEqualTo(1L);
+	}
+
 	/** ② 伪 app_key / 停用应用 4xx（不存在的 key 走负缓存，不打库风暴） */
 	@Test
 	void fakeAppKeyRejected() {

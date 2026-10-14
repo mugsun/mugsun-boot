@@ -452,7 +452,11 @@ public class TrackIngestService {
 		if (message == null) {
 			return null;
 		}
+		// 与入库的 stack 同口径：先去掉帧 URL 的 query / hash，否则同一错误因 token 等参数不同被拆成多组
 		String stack = text(props, TrackConstants.PROP_ERROR_STACK);
+		if (stack != null) {
+			stack = TrackPropsText.stripStackUrlQuery(stack);
+		}
 		String firstFrame = stack == null ? "" : stack.split("\\R", 2)[0];
 		try {
 			MessageDigest digest = MessageDigest.getInstance("SHA-256");
