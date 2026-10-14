@@ -6,12 +6,23 @@ import com.mugsun.boot.log.entity.SysOperLog;
 import com.mugsun.boot.log.mapper.SysOperLogMapper;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mybatisflex.core.query.QueryWrapper;
-import org.springframework.scheduling.annotation.Async;
+import com.mugsun.boot.tenant.TenantException;
+import com.mugsun.boot.tenant.TenantTaskDecorator;
+import com.mybatisflex.core.row.Db;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 操作日志异步落库 + 防篡改（哈希链 + SM2 签名，等保三级审计完整性）。
@@ -20,6 +31,10 @@ import java.util.Map;
  * <p>落库串行化（ReentrantLock）以保证链一致；链为全局（忽略租户），验签亦忽略租户。
  * <p>不用 synchronized：@Async 跑在虚拟线程上，JDK 21 下在 synchronized 上等待会钉住载体线程，
  * 持锁者等数据库连接、持连接的虚拟线程又拿不到载体线程，会互相卡死（连接池耗尽）。
+ * <p>多节点：本地锁只管单实例；落库在事务内先 {@code SELECT ... FOR UPDATE} 锁住链头行 {@code sys_oper_log_chain(id=1)}，
+ * 跨实例串行化；{@code chain_prev} 唯一索引兜底，万一分叉直接撞唯一约束并重试一次。
+ * <p>未登录请求的审计（operator 为空）限制同时排队数（{@code mugsun.audit.anonymous-max-pending}），超出即丢弃并告警计数，
+ * 防匿名洪水把审计链串行点和连接池拖垮；已登录请求不受限。
  */
 @Service
 public class OperationLogService {
@@ -28,42 +43,106 @@ public class OperationLogService {
 
 	private final java.util.concurrent.locks.ReentrantLock appendLock = new java.util.concurrent.locks.ReentrantLock();
 
+	private static final Logger LOG = LoggerFactory.getLogger(OperationLogService.class);
+	private static final String LOCK_CHAIN_HEAD = "SELECT id FROM sys_oper_log_chain WHERE id = 1 FOR UPDATE";
+
 	private final SysOperLogMapper operLogMapper;
 	private final com.mugsun.boot.system.service.ParamService paramService;
+	private final TransactionTemplate tx;
+	private final Semaphore anonymousPermits;
+	private final AtomicLong anonymousDropped = new AtomicLong();
+	private final SimpleAsyncTaskExecutor executor;
 
 	public OperationLogService(SysOperLogMapper operLogMapper,
-							   com.mugsun.boot.system.service.ParamService paramService) {
+							   com.mugsun.boot.system.service.ParamService paramService,
+							   PlatformTransactionManager txManager,
+							   @Value("${mugsun.audit.anonymous-max-pending:64}") int anonymousMaxPending) {
 		this.operLogMapper = operLogMapper;
 		this.paramService = paramService;
+		this.tx = new TransactionTemplate(txManager);
+		this.anonymousPermits = new Semaphore(Math.max(1, anonymousMaxPending));
+		this.executor = new SimpleAsyncTaskExecutor("mugsun-oper-log-");
+		this.executor.setVirtualThreads(true);
+		this.executor.setTaskDecorator(new TenantTaskDecorator());
 	}
 
-	@Async
+	/** 异步落库（虚拟线程 + 租户/MDC 透传）；未登录请求受排队上限保护，超出丢弃并计数 */
 	public void saveAsync(SysOperLog log) {
-		append(log);
+		boolean anonymous = log.getOperator() == null || log.getOperator().isBlank();
+		if (anonymous && !anonymousPermits.tryAcquire()) {
+			long n = anonymousDropped.incrementAndGet();
+			if (n == 1 || n % 100 == 0) {
+				LOG.warn("未登录请求审计排队已满，已丢弃 {} 条（uri={}）", n, log.getRequestUri());
+			}
+			return;
+		}
+		executor.execute(() -> {
+			try {
+				append(log);
+			} catch (RuntimeException e) {
+				LOG.warn("操作日志落库失败 uri={}: {}", log.getRequestUri(), e.getMessage());
+			} finally {
+				if (anonymous) {
+					anonymousPermits.release();
+				}
+			}
+		});
+	}
+
+	/** 运维/测试：累计丢弃的未登录审计条数 */
+	public long anonymousDroppedCount() {
+		return anonymousDropped.get();
 	}
 
 	/** 串行化：算链哈希 + 签名 + 落库，保证哈希链一致 */
 	private void append(SysOperLog log) {
 		appendLock.lock();
 		try {
+			try {
+				appendInTx(log);
+			} catch (DuplicateKeyException e) {
+				// 另一节点抢先接上了同一链头（理论上被行锁挡住，此为兜底）：重读链头重试一次
+				appendInTx(log);
+			}
+		} finally {
+			appendLock.unlock();
+		}
+	}
+
+	/** 事务内：锁链头行（跨实例串行）→ 读最后哈希 → 算哈希签名 → 落库 */
+	private void appendInTx(SysOperLog log) {
+		tx.executeWithoutResult(status -> {
+			TenantContext.ignore(() -> Db.selectObjectList(LOCK_CHAIN_HEAD));
 			String prevHash = lastRecordHash();
 			log.setPrevHash(prevHash);
+			log.setChainPrev(prevHash);
 			String recordHash = SmUtil.sm3(canonical(log) + "|" + prevHash);
 			log.setRecordHash(recordHash);
 			log.setSign(Sm2Util.signHex(recordHash));
+			log.setId(null);
 			try {
 				// 有租户上下文（认证写请求，经 TenantTaskDecorator 透传）→ 正常落库并打租户标
 				operLogMapper.insertSelective(log);
-			} catch (Exception e) {
-				// 无租户上下文（如未认证写请求）→ 忽略隔离补插，保证审计不丢（tenant_id 空）
+			} catch (RuntimeException e) {
+				if (!causedByTenant(e)) {
+					throw e;
+				}
+				// 无租户上下文（租户插件在发 SQL 前就拒绝，事务未被污染）（如未认证写请求）→ 忽略隔离补插，保证审计不丢（tenant_id 空）
 				TenantContext.ignore(() -> {
 					operLogMapper.insertSelective(log);
 					return null;
 				});
 			}
-		} finally {
-			appendLock.unlock();
+		});
+	}
+
+	private static boolean causedByTenant(Throwable e) {
+		for (Throwable t = e; t != null; t = t.getCause()) {
+			if (t instanceof TenantException) {
+				return true;
+			}
 		}
+		return false;
 	}
 
 	/** 全局最后一条记录的 record_hash（忽略租户），无则创世 0 */

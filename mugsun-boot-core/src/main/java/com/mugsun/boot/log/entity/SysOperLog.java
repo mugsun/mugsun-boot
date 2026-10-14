@@ -29,6 +29,16 @@ public class SysOperLog extends BaseEntity {
 	private String prevHash;
 	private String recordHash;
 	private String sign;
+	/** 链唯一兜底：新记录 = prev_hash，唯一索引防多节点分叉；历史记录为空（不参与哈希） */
+	private String chainPrev;
+
+	public String getChainPrev() {
+		return chainPrev;
+	}
+
+	public void setChainPrev(String chainPrev) {
+		this.chainPrev = chainPrev;
+	}
 
 	public String getPrevHash() {
 		return prevHash;
