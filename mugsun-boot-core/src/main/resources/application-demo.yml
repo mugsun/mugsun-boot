@@ -15,7 +15,7 @@ mugsun:
     track-collect: ${MUGSUN_DEMO_TRACK_COLLECT:false}
     # WebSocket 允许的来源（安全复审 F7）：demo 下只放管理端 origin，逗号分隔
     ws-allowed-origins: ${MUGSUN_DEMO_WS_ALLOWED_ORIGINS:${mugsun.web.front-url}}
-    # 导出/下载/SSE 全局并发上限（安全复审 F4）
+    # 导出/下载/SSE 并发上限，按实例计（安全复审 F4）
     heavy-concurrency: ${MUGSUN_DEMO_HEAVY_CONCURRENCY:2}
     # 按 IP 限流（Bucket4j + Redis，多实例共享；安全复审 F1 / F3）
     rate:
@@ -25,6 +25,10 @@ mugsun:
     track-capacity:
       warn-mb: ${MUGSUN_DEMO_TRACK_WARN_MB:2048}
       max-mb: ${MUGSUN_DEMO_TRACK_MAX_MB:4096}
+  # 反向代理后面按真实访客 IP 锁定与限流：默认信任回环与私网段（Nginx、pc 容器、内网网关）；
+  # 前面是公网 CDN/网关时改成它的出口网段。设为空会在启动时打 WARN
+  openapi:
+    trusted-proxies: ${MUGSUN_OPENAPI_TRUSTED_PROXIES:127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7}
   track:
     # 埋点库不迁移（埋点账号无 DDL 权限），启动时只读校验迁移版本
     flyway-enabled: false
