@@ -130,7 +130,7 @@ class GisGeodesicTest {
 	}
 
 	@Test
-	@DisplayName("极区可算（85° 以上不再报错）；缓冲包住极点、跨 180° 经线才抛业务异常")
+	@DisplayName("极区可算（不再有 85° 限制）；缓冲包住极点、跨 180° 经线才抛业务异常")
 	void polarComputableExceptPoleAndAntimeridian() {
 		assertThat(GisGeodesic.buffer(point(0, 85.5), 100d).isEmpty()).isFalse();
 		assertThat(GisGeodesic.buffer(point(0, 84.5), 100_000d).isEmpty()).isFalse();

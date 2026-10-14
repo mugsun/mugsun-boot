@@ -21,12 +21,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * 高频空间查询：视野范围（bbox）、半径内、与某几何相交、包含、最近邻、缓冲。
  *
  * <p>有 PostGIS 时全部下沉数据库，靠 {@code idx_gis_feature_geom}（GiST）过滤，只把命中要素回给前端；
- * 没有时回落读整层 {@code data_json} 在 Java 侧算——米制结果与 PostGIS 差异在 0.5% 以内，但要素多了就慢，响应里的
+ * 没有时回落读整层 {@code data_json} 在 Java 侧算——米制结果与 PostGIS 的差异见下文，但要素多了就慢，响应里的
  * {@code engine} 字段会如实标明走了哪条路。
  *
  * <p>米制口径：PostGIS 侧用 {@code geography} 走真实大地距离；Java 侧（半径、最近邻、缓冲）用
  * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，距离再用 GeographicLib 在 WGS84 椭球上反算；与 PostGIS
- * geography 的差异在 0.5% 以内。半径 / 最近邻先按经纬度包络预筛（只多收不漏，越过 ±180° 时拆成两个框），再精算。
+ * geography 对照：缓冲外环顶点距离实测相差 −0.18%～+0.002%（0°–72°、500 m–200 km），88°–89.6° 为 ±0.05%。半径 / 最近邻先按经纬度包络预筛（只多收不漏，越过 ±180° 时拆成两个框），再精算。
  *
  * <p>Java 侧逐要素处理：极区照常计算（极点为原点的投影）。跨 180° 经线的要素不让整次查询失败——半径 / 最近邻
  * 平移经度后求几何最近点，仍算不出就跳过；缓冲结果包住极点或越过 180° 时跳过。跳过数写进响应 {@code skipped}，
@@ -395,7 +395,7 @@ public class GisSpatialQueryService {
 
 	// ==================== 杂项 ====================
 
-	/** forceJava 只给诊断与压测用：PostGIS 在线时也能走一遍回落路径，方便对比耗时、核对两条路的差异（米制 < 0.5%） */
+	/** forceJava 只给诊断与压测用：PostGIS 在线时也能走一遍回落路径，方便对比耗时、核对两条路的差异（米制差异见类注释） */
 	private boolean ready(GisLayer layer, boolean forceJava) {
 		if (forceJava || !support.available()) {
 			return false;

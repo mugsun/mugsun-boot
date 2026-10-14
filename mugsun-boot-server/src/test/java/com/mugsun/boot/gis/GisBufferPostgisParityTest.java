@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Java 回落缓冲对照 PostGIS geography：同一要素、同一米数，
- * ① Java 缓冲外环每个顶点到原要素的 ST_Distance(geography) 与设定米数相差 < 1%（实测 < 0.5%）；
+ * ① Java 缓冲外环每个顶点到原要素的 ST_Distance(geography) 与设定米数相差 < 1%（实测 −0.18%～+0.002%）；
  * ② Java 缓冲与 ST_Buffer(geography) 的 ST_Area(geography) 相差 < 2%（PostGIS 自身也是投影近似）。
  */
 class GisBufferPostgisParityTest {
