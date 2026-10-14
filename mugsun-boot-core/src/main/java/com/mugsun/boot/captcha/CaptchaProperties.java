@@ -59,6 +59,8 @@ public class CaptchaProperties {
 		private int toleranceDeg = 10;
 		private int keyboardStep = 5;
 		private int minAngle = 30;
+		/** pointer 轨迹重放去重窗口（秒），≤0 关闭 */
+		private long trackReplayWindowSeconds = 600;
 
 		public String getDir() { return dir; }
 		public void setDir(String dir) { this.dir = dir; }
@@ -70,6 +72,8 @@ public class CaptchaProperties {
 		public void setKeyboardStep(int v) { this.keyboardStep = v; }
 		public int getMinAngle() { return minAngle; }
 		public void setMinAngle(int v) { this.minAngle = v; }
+		public long getTrackReplayWindowSeconds() { return trackReplayWindowSeconds; }
+		public void setTrackReplayWindowSeconds(long v) { this.trackReplayWindowSeconds = v; }
 	}
 
 	/** 文字/图标点选：目标数、干扰数、命中半径下限、时长范围 */
@@ -79,6 +83,8 @@ public class CaptchaProperties {
 		private int minRadiusPx = 22;
 		private long minDurationMs = 400;
 		private long maxDurationMs = 30000;
+		/** WORD_CLICK 私有词库（classpath: 或 file:，每行一个 3–4 字词，# 注释）；空 = 内置 captcha/words.txt */
+		private String wordsFile;
 
 		public int getCount() { return count; }
 		public void setCount(int v) { this.count = v; }
@@ -90,6 +96,8 @@ public class CaptchaProperties {
 		public void setMinDurationMs(long v) { this.minDurationMs = v; }
 		public long getMaxDurationMs() { return maxDurationMs; }
 		public void setMaxDurationMs(long v) { this.maxDurationMs = v; }
+		public String getWordsFile() { return wordsFile; }
+		public void setWordsFile(String v) { this.wordsFile = v; }
 	}
 
 	/** 拼图还原：行列数（2×2 起） */

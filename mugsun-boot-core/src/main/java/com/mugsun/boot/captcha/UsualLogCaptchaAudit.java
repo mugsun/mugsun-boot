@@ -41,4 +41,14 @@ public class UsualLogCaptchaAudit implements CaptchaAuditSink {
 			// 审计失败不影响主流程
 		}
 	}
+
+	@Override
+	public void typesUnavailable(String ip, String tenantId, String enabled) {
+		try {
+			usualLogService.record("warn", "captcha", "取题被拒 40016（租户启用的题型均不可用：" + enabled
+				+ "，检查 icon-dir/manifest.json）：ip=" + ip, tenantId);
+		} catch (RuntimeException ignored) {
+			// 审计失败不影响主流程
+		}
+	}
 }

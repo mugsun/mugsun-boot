@@ -13,5 +13,9 @@ public interface CaptchaAuditSink {
 	default void keyboardUnavailable(String ip, String tenantId) {
 	}
 
+	/** 40016：租户启用的题型全部不可用（运维配置问题，按 (租户, IP) 10 分钟去重） */
+	default void typesUnavailable(String ip, String tenantId, String enabled) {
+	}
+
 	CaptchaAuditSink NOOP = (ip, mode, tenant, sec) -> { };
 }

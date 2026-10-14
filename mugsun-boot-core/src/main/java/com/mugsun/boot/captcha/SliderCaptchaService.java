@@ -45,6 +45,9 @@ public class SliderCaptchaService {
 	static final String K_KEYBOARD_UNAVAILABLE_AUDIT = PREFIX + "audit:keyboard-unavailable:";
 	/** 40015 审计去重窗口：同一 (租户, IP) 窗口内只写一条 */
 	static final long KEYBOARD_UNAVAILABLE_AUDIT_WINDOW_SECONDS = 600;
+	static final String K_TYPES_UNAVAILABLE_AUDIT = PREFIX + "audit:types-unavailable:";
+	/** ROTATE pointer 轨迹重放去重：同一 track 哈希在窗口内只能用一次 */
+	static final String K_TRACK_SEEN = PREFIX + "track:";
 	static final String K_FAIL = PREFIX + "fail:";
 	static final String K_LOCK = PREFIX + "lock:";
 	static final String K_GLOBAL = PREFIX + "rl:global:";
@@ -166,7 +169,16 @@ public class SliderCaptchaService {
 				throw CaptchaException.rateLimited(store.ttlSeconds(kbKey));
 			}
 		}
-		CaptchaType type = pickType(available(enabled), mode);
+		Set<CaptchaType> avail = available(enabled);
+		if (!kb && enabled != null && !enabled.isEmpty() && avail.isEmpty()) {
+			// R3′：租户只启用了启动校验不可用的题型（如图标清单缺失时的 ICON_CLICK）→ 明确报错 40016，不静默降为 SLIDER
+			String dedup = K_TYPES_UNAVAILABLE_AUDIT + statKeyTenant + ":" + ipKey;
+			if (store.increment(dedup, KEYBOARD_UNAVAILABLE_AUDIT_WINDOW_SECONDS) == 1) {
+				audit.typesUnavailable(ipKey, tenantId, enabled.toString());
+			}
+			throw CaptchaException.typesUnavailable();
+		}
+		CaptchaType type = pickType(avail, mode);
 		if (type == null) {
 			// 40015 审计按 (租户, IP) 在窗口内去重，防止刷请求灌审计表
 			String dedup = K_KEYBOARD_UNAVAILABLE_AUDIT + statKeyTenant + ":" + ipKey;
@@ -533,9 +545,31 @@ public class SliderCaptchaService {
 		if (!timing(req, issuedAt, s.getMinDurationMs(), s.getMaxDurationMs())) {
 			return false;
 		}
-		// 以 answer.angle 判对错（上面已判）。前端允许低速精调（低速时位移按 0.5 倍计），track 末点换算角度
-		// 与 answer.angle 不再要求一致；track 只判是否为人在操作（点数、时间单调、步长、非匀速直线）
-		return trackLooksHuman(req.track(), display, 0, req.endTime() - req.startTime(), s, Double.MAX_VALUE);
+		// 以 answer.angle 判对错（上面已判）。R1′：track 首末 x 位移换算角 a_t = travel / display × 360 须满足
+		// 0.5·a − tol ≤ a_t ≤ a + tol（前端低速精调时逻辑位移按 0.5 倍累加，track 记逻辑位置，故 a_t 不会大于 a，
+		// 最坏全程精调为 0.5·a）；另做 track 哈希短期去重，挡住同一条录制轨迹的直接重放
+		double tol = r.getToleranceDeg();
+		double lo = Math.max(0, 0.5 * angle - tol) / 360.0 * display;
+		double hi = (angle + tol) / 360.0 * display;
+		if (!trackLooksHuman(req.track(), display, (lo + hi) / 2, req.endTime() - req.startTime(), s, (hi - lo) / 2)) {
+			return false;
+		}
+		long window = r.getTrackReplayWindowSeconds();
+		return window <= 0 || store.increment(K_TRACK_SEEN + trackHash(req.track()), window) == 1;
+	}
+
+	/** track 的完整 SHA-256（x/y 保留两位小数、t 原值），用于重放去重 */
+	static String trackHash(List<TrackPoint> track) {
+		StringBuilder sb = new StringBuilder();
+		for (TrackPoint p : track) {
+			sb.append(String.format(java.util.Locale.ROOT, "%.2f,%.2f,%d;", p.x(), p.y(), p.t()));
+		}
+		try {
+			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+				.digest(sb.toString().getBytes(StandardCharsets.UTF_8)));
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	static double circularDiff(double a, double b) {

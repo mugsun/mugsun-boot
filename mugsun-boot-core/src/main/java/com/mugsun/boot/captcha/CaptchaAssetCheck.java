@@ -39,7 +39,7 @@ public class CaptchaAssetCheck {
 		boolean prod = env != null && env.acceptsProfiles(Profiles.of("prod"));
 		if (prod && props.isEnabled() && d.containsValue(true)) {
 			log.warn("验证码仍在使用仓库自带（公开）素材：{}。攻击者可用公开原图做差定位缺口、预建旋转/图标答案表；"
-				+ "生产请把 mugsun.captcha.background.dir / rotate.dir / icon-dir 换成私有图库并定期更换", d);
+				+ "生产请把 mugsun.captcha.background.dir / rotate.dir / icon-dir / click.words-file 换成私有图库并定期更换", d);
 		}
 	}
 
@@ -49,6 +49,8 @@ public class CaptchaAssetCheck {
 		d.put("background", library.usesBuiltin());
 		d.put("rotate", BuiltinAssets.isBuiltin(props.getRotate().getDir(), BuiltinAssets.ROTATE));
 		d.put("icons", BuiltinAssets.isBuiltin(props.getIconDir(), BuiltinAssets.ICONS));
+		String wf = props.getClick().getWordsFile();
+		d.put("words", wf == null || wf.isBlank());
 		details = Map.copyOf(d);
 		return d;
 	}

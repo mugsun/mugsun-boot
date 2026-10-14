@@ -79,7 +79,7 @@ public class MultiTypeRenderer {
 		this.props = props;
 		this.library = library;
 		this.font = loadFont();
-		this.words = loadWords();
+		this.words = loadWords(props.getClick().getWordsFile());
 		StringBuilder pool = new StringBuilder();
 		words.stream().flatMapToInt(String::chars).distinct().sorted().forEach(c -> pool.append((char) c));
 		this.charPool = pool.toString();
@@ -167,17 +167,30 @@ public class MultiTypeRenderer {
 		return java.util.Map.copyOf(out);
 	}
 
-	private static List<String> loadWords() {
+	/** 读词库：wordsFile 非空时读私有词库（classpath: 或 file:），失败/无可用词则 WARN 并回落内置词库 */
+	private List<String> loadWords(String wordsFile) {
+		if (wordsFile != null && !wordsFile.isBlank()) {
+			try (InputStream in = new org.springframework.core.io.DefaultResourceLoader().getResource(wordsFile.strip())
+				.getInputStream()) {
+				List<String> all = parseWords(in);
+				List<String> ok = all.stream().filter(w -> font.canDisplayUpTo(w) == -1).toList();
+				if (ok.size() < all.size()) {
+					log.warn("验证码私有词库 {} 中 {} 条含字体子集外的字，已忽略（需同时提供覆盖这些字的字体，或只用内置子集内的字）",
+						wordsFile, all.size() - ok.size());
+				}
+				if (!ok.isEmpty()) {
+					log.info("WORD_CLICK 使用私有词库 {}（{} 条）", wordsFile, ok.size());
+					return List.copyOf(ok);
+				}
+				log.warn("验证码私有词库 {} 无可用词，回落内置词库", wordsFile);
+			} catch (Exception e) {
+				log.warn("验证码私有词库 {} 读取失败，回落内置词库：{}", wordsFile, e.getMessage());
+			}
+		}
 		List<String> out = new ArrayList<>();
 		try (InputStream in = MultiTypeRenderer.class.getResourceAsStream(WORDS_RESOURCE)) {
 			if (in != null) {
-				for (String line : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).split("\\R")) {
-					String w = line.strip();
-					if (!w.isEmpty() && !w.startsWith("#") && w.codePointCount(0, w.length()) >= 3
-						&& w.codePointCount(0, w.length()) <= 4) {
-						out.add(w);
-					}
-				}
+				out.addAll(parseWords(in));
 			}
 		} catch (Exception e) {
 			log.warn("验证码词库读取失败：{}", e.getMessage());
@@ -186,6 +199,19 @@ public class MultiTypeRenderer {
 			out.add("一帆风顺");
 		}
 		return List.copyOf(out);
+	}
+
+	/** 每行一个 3–4 字词；空行与 # 开头为注释；去重 */
+	static List<String> parseWords(InputStream in) throws java.io.IOException {
+		java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+		for (String line : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).split("\\R")) {
+			String w = line.strip();
+			int n = w.codePointCount(0, w.length());
+			if (!w.isEmpty() && !w.startsWith("#") && n >= 3 && n <= 4) {
+				out.add(w);
+			}
+		}
+		return new ArrayList<>(out);
 	}
 
 	/** 命中半径：max(min-radius-px, 0.75 × 字号/边长) */
@@ -263,7 +289,7 @@ public class MultiTypeRenderer {
 		word.codePoints().forEach(cp -> prompt.add(new String(Character.toChars(cp))));
 		int decoyCount = 1 + rnd.nextInt(2);
 		List<String> decoys = new ArrayList<>();
-		// 优先从题目各字的形近字/同音字里选干扰字（M4），不够再从词库字集随机补
+		// 优先从题目各字的形近字/同音字里选干扰字（M4 部分落地：仅形近/同音干扰字；提示顺序打乱、提示图扰动未做），不够再从词库字集随机补
 		List<String> similar = new ArrayList<>();
 		for (String ch : prompt) {
 			for (String c : confusableOf(ch)) {
@@ -425,7 +451,7 @@ public class MultiTypeRenderer {
 		return new Jigsaw(tiles, tw * cols, th * rows, rows, cols, tw, th, answer);
 	}
 
-	/** 拼图块各自独立的轻微色偏，打散接缝处的颜色连续性（M3） */
+	/** 拼图块各自独立的轻微色偏，打散接缝处的颜色连续性（M3 部分落地：仅块间色偏；接缝扰动、3×3 未做，JIGSAW 仍不宜单独作强题型） */
 	private static void tileTint(BufferedImage img, java.util.Random r) {
 		int dr = r.nextInt(17) - 8;
 		int dg = r.nextInt(17) - 8;

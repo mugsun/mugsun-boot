@@ -45,6 +45,10 @@ public class CaptchaException extends ServiceException {
 		return new CaptchaException(CaptchaCodes.KEYBOARD_UNAVAILABLE, CaptchaCodes.MSG_KEYBOARD_UNAVAILABLE, null);
 	}
 
+	public static CaptchaException typesUnavailable() {
+		return new CaptchaException(CaptchaCodes.TYPES_UNAVAILABLE, CaptchaCodes.MSG_TYPES_UNAVAILABLE, null);
+	}
+
 	public static CaptchaException disabled() {
 		return new CaptchaException(CaptchaCodes.DISABLED, CaptchaCodes.MSG_DISABLED, null);
 	}

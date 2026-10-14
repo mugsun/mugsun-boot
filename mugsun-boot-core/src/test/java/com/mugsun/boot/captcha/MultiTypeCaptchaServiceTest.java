@@ -64,7 +64,8 @@ class MultiTypeCaptchaServiceTest {
 		List<TrackPoint> pts = new ArrayList<>();
 		for (int i = 0; i <= 24; i++) {
 			double k = i / 24.0;
-			pts.add(new TrackPoint(travel * (1 - Math.pow(1 - k, 3)), (double) ((i * 7) % 3 - 1), (long) (dur * k)));
+			double jy = java.util.concurrent.ThreadLocalRandom.current().nextDouble(0, 0.5);
+			pts.add(new TrackPoint(travel * (1 - Math.pow(1 - k, 3)), (i * 7) % 3 - 1 + jy, (long) (dur * k)));
 		}
 		return pts;
 	}
@@ -110,21 +111,47 @@ class MultiTypeCaptchaServiceTest {
 		}
 	}
 
-	/** pointer：以 answer.angle 判对错（±10°）；track 末点与 answer.angle 不必一致（允许 0.5 倍低速精调） */
-	@Test
-	void rotateTrackEndNeedNotMatchAngle() {
-		assertThat(props.getRotate().getToleranceDeg()).isEqualTo(10);
-		for (double trackOff : new double[]{25, -25}) {
-			ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
-			double angle = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
-			assertThat(pass(req(c.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, angle, null, null),
-				track((angle + trackOff) / 360 * 320, 900), null))).isTrue();
-		}
+	private boolean rotateWithTrack(double angleOff, double trackAngle) {
 		ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
-		double angle = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
-		assertThat(pass(req(c.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, angle, null, null),
-			track(angle / 360 * 320, 900), null))).isTrue();
-		// 角度错：轨迹再像人也不过
+		double angle = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]) + angleOff;
+		return pass(req(c.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, angle, null, null),
+			track(trackAngle / 360 * 320, 900), null));
+	}
+
+	/** R1′：pointer 以 answer.angle 判对错（±10°），且 track 末点换算角 a_t ∈ [0.5·a − tol, a + tol] */
+	@Test
+	void rotateTrackEndMustBeConsistentWithAngle() {
+		assertThat(props.getRotate().getToleranceDeg()).isEqualTo(10);
+		for (int i = 0; i < 20; i++) {
+			ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
+			double a = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
+			VerifyRequest.Answer ans = new VerifyRequest.Answer(null, a, null, null);
+			// +25° 不一致：拒绝（上轮这里是通过的）
+			assertThat(pass(req(c.captchaId(), "pointer", 900, ans, track((a + 25) / 360 * 320, 900), null)))
+				.as("a=%s, a_t=a+25", a).isFalse();
+		}
+		for (int i = 0; i < 20; i++) {
+			ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
+			double a = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
+			VerifyRequest.Answer ans = new VerifyRequest.Answer(null, a, null, null);
+			// 远低于 0.5·a − tol（例如轨迹几乎不动）：拒绝
+			assertThat(pass(req(c.captchaId(), "pointer", 900, ans, track(Math.max(0, 0.5 * a - 25) / 360 * 320, 900),
+				null))).as("a=%s, a_t=0.5a-25", a).isFalse();
+		}
+		// 边界：a + tol、0.5·a − tol、全程 0.5 倍精调（a_t = 0.5·a）、完全一致 均通过
+		for (double[] k : new double[][]{{1, 10}, {0.5, -10}, {0.5, 0}, {1, 0}}) {
+			ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
+			double a = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
+			double at = Math.max(0, k[0] * a + k[1]) - Math.signum(k[1]) * 0.01;
+			assertThat(pass(req(c.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, a, null, null),
+				track(at / 360 * 320, 900), null))).as("a=%s, a_t=%s", a, at).isTrue();
+		}
+		// 刚出上界：拒绝
+		ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
+		double a = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
+		assertThat(pass(req(c.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, a, null, null),
+			track((a + 10.5) / 360 * 320, 900), null))).isFalse();
+		// 角度错：轨迹一致也不过
 		ChallengeVO c2 = issue(CaptchaType.ROTATE, "pointer");
 		double wrong = Math.floorMod(Integer.parseInt(svc.peekAnswer(c2.captchaId())[0]) + 11, 360);
 		assertThat(pass(req(c2.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, wrong, null, null),
@@ -134,6 +161,41 @@ class MultiTypeCaptchaServiceTest {
 		double a3 = Integer.parseInt(svc.peekAnswer(c3.captchaId())[0]);
 		assertThat(pass(req(c3.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, a3, null, null),
 			track(a3 / 360 * 320, 900).subList(0, 2), null))).isFalse();
+	}
+
+	/** R1′：同一条 track 在去重窗口内只能用一次（重放录制轨迹失败），窗口过后可再用；窗口 ≤0 关闭 */
+	@Test
+	void rotateTrackReplayIsRejectedWithinWindow() {
+		List<TrackPoint> recorded = null;
+		ChallengeVO c = issue(CaptchaType.ROTATE, "pointer");
+		double a = Integer.parseInt(svc.peekAnswer(c.captchaId())[0]);
+		recorded = track(a / 360 * 320, 900);
+		assertThat(pass(req(c.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, a, null, null), recorded,
+			null))).isTrue();
+		int replays = 0;
+		int tried = 0;
+		while (tried < 3000 && replays < 2) {
+			ChallengeVO r = issue(CaptchaType.ROTATE, "pointer");
+			double ra = Integer.parseInt(svc.peekAnswer(r.captchaId())[0]);
+			tried++;
+			if (ra != a) {
+				continue;
+			}
+			replays++;
+			assertThat(pass(req(r.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, ra, null, null), recorded,
+				null))).as("replay").isFalse();
+		}
+		assertThat(replays).isPositive();
+		assertThat(SliderCaptchaService.trackHash(recorded)).hasSize(64)
+			.isEqualTo(SliderCaptchaService.trackHash(new ArrayList<>(recorded)));
+		// 窗口过后可再用
+		now.addAndGet(props.getRotate().getTrackReplayWindowSeconds() * 1000 + 1000);
+		ChallengeVO later;
+		do {
+			later = issue(CaptchaType.ROTATE, "pointer");
+		} while (Integer.parseInt(svc.peekAnswer(later.captchaId())[0]) != a);
+		assertThat(pass(req(later.captchaId(), "pointer", 900, new VerifyRequest.Answer(null, a, null, null), recorded,
+			null))).isTrue();
 	}
 
 	@Test
@@ -546,8 +608,10 @@ class MultiTypeCaptchaServiceTest {
 					EnumSet.of(CaptchaType.ICON_CLICK, CaptchaType.JIGSAW)).type());
 			}
 			assertThat(seen).containsExactly("JIGSAW");
-			assertThat(s.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.ICON_CLICK)).type())
-				.isEqualTo("SLIDER");
+			// R3′：只启用 ICON_CLICK → 明确 40016，不静默降为 SLIDER
+			assertThatThrownBy(() -> s.challenge("login", "web", "000000", "pointer", IP, EnumSet.of(CaptchaType.ICON_CLICK)))
+				.isInstanceOf(CaptchaException.class)
+				.satisfies(e -> assertThat(((CaptchaException) e).getCode()).isEqualTo(CaptchaCodes.TYPES_UNAVAILABLE));
 		}
 		props.setIconDir("classpath:captcha/icons/");
 		assertThat(new MultiTypeRenderer(props, new BackgroundLibrary(props)).iconClickAvailable()).isTrue();
@@ -644,7 +708,7 @@ class MultiTypeCaptchaServiceTest {
 		CaptchaAssetCheck builtin = new CaptchaAssetCheck(props, new BackgroundLibrary(props), null);
 		assertThat(builtin.builtinAssetsInUse()).isTrue();
 		assertThat(builtin.details()).containsEntry("background", true).containsEntry("rotate", true)
-			.containsEntry("icons", true);
+			.containsEntry("icons", true).containsEntry("words", true);
 		// 拷贝自带文件到 file: 目录 → 按哈希仍判为自带
 		java.nio.file.Path copy = java.nio.file.Files.createTempDirectory("captcha-copied");
 		var first = new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
@@ -665,9 +729,52 @@ class MultiTypeCaptchaServiceTest {
 		props.getBackground().setDir("file:" + own + "/");
 		props.getRotate().setDir("file:" + own + "/");
 		props.setIconDir("file:" + own + "/");
+		props.getClick().setWordsFile("file:" + own + "/words.txt");
 		CaptchaAssetCheck priv = new CaptchaAssetCheck(props, new BackgroundLibrary(props), null);
 		assertThat(priv.details()).containsEntry("background", false).containsEntry("rotate", false)
 			.containsEntry("icons", false);
 		assertThat(priv.builtinAssetsInUse()).isFalse();
+	}
+
+	/** R3′：40016 写审计，且按 (租户, IP) 10 分钟去重 */
+	@Test
+	void onlyUnavailableTypesReturns40016AndAuditsOnce() throws Exception {
+		props.setIconDir("file:" + java.nio.file.Files.createTempDirectory("captcha-none") + "/missing/");
+		List<String> audited = new ArrayList<>();
+		BackgroundLibrary lib = new BackgroundLibrary(props);
+		SliderCaptchaService s = new SliderCaptchaService(new MemoryCaptchaStore(now::get), props,
+			new PuzzleRenderer(props, lib), new MultiTypeRenderer(props, lib), new CaptchaAuditSink() {
+			@Override
+			public void locked(String ip, String mode, String tenantId, long seconds) {
+			}
+
+			@Override
+			public void typesUnavailable(String ip, String tenantId, String enabled) {
+				audited.add(tenantId + ":" + enabled);
+			}
+		}, now::get);
+		for (int i = 0; i < 3; i++) {
+			assertThatThrownBy(() -> s.challenge("login", "web", "000000", "pointer", IP,
+				EnumSet.of(CaptchaType.ICON_CLICK), "000000"))
+				.isInstanceOf(CaptchaException.class)
+				.satisfies(e -> assertThat(((CaptchaException) e).getCode()).isEqualTo(40016));
+		}
+		assertThat(audited).containsExactly("000000:[ICON_CLICK]");
+		// 空集合 / null 仍按平台默认 SLIDER（不受影响）
+		assertThat(s.challenge("login", "web", "000000", "pointer", IP, EnumSet.noneOf(CaptchaType.class)).type())
+			.isEqualTo("SLIDER");
+	}
+
+	/** 私有词库：file: 读入、去掉字体子集外的词；读不到回落内置词库 */
+	@Test
+	void privateWordsFile() throws Exception {
+		java.nio.file.Path f = java.nio.file.Files.createTempFile("words", ".txt");
+		java.nio.file.Files.writeString(f, "# 私有\n一帆风顺\n一帆风顺\n龘龘龘\n两字\n五个字太长\n");
+		props.getClick().setWordsFile("file:" + f);
+		MultiTypeRenderer r = new MultiTypeRenderer(props, new BackgroundLibrary(props));
+		assertThat(r.words()).containsExactly("一帆风顺");
+		assertThat(r.renderWordClick().promptText()).isEqualTo("一帆风顺");
+		props.getClick().setWordsFile("file:" + f + ".missing");
+		assertThat(new MultiTypeRenderer(props, new BackgroundLibrary(props)).words()).hasSizeGreaterThan(400);
 	}
 }
