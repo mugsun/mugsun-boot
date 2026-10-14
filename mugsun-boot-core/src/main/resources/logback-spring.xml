@@ -4,7 +4,10 @@
   - 落盘路径默认 ./logs，可用 logging.file.path / logging.file.name 覆盖；
   - 全量日志按天 + 单文件 100MB 双滚动，保留 30 天、总量 5GB 封顶；
   - error 单独成文件（排障第一现场），保留 90 天；
-  - 容器化采集 stdout 场景可直接忽略文件通道（文件同时写不影响 console 采集）。
+  - 容器化采集 stdout 场景可直接忽略文件通道（文件同时写不影响 console 采集）；
+  - demo profile 额外有 ACCESS 访问日志（AccessLogFilter）：单独文件、按天滚动 gzip，默认保留 200 天、总量 20GB，
+    只进这个文件不进主日志；目录与保留可用 mugsun.demo.access-log.* 覆盖。留存 ≥6 个月（《网络安全法》第二十一条），
+    务必把日志目录挂到持久卷并纳入备份。
 -->
 <configuration>
 	<include resource="org/springframework/boot/logging/logback/defaults.xml"/>
@@ -47,6 +50,28 @@
 			<cleanHistoryOnStart>true</cleanHistoryOnStart>
 		</rollingPolicy>
 	</appender>
+
+	<springProfile name="demo">
+		<springProperty scope="context" name="ACCESS_LOG_PATH" source="mugsun.demo.access-log.path" defaultValue="${LOG_PATH}"/>
+		<springProperty scope="context" name="ACCESS_MAX_HISTORY" source="mugsun.demo.access-log.max-history" defaultValue="200"/>
+		<springProperty scope="context" name="ACCESS_TOTAL_SIZE_CAP" source="mugsun.demo.access-log.total-size-cap" defaultValue="20GB"/>
+		<appender name="ACCESS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+			<file>${ACCESS_LOG_PATH}/${LOG_FILE}-access.log</file>
+			<encoder>
+				<pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %msg%n</pattern>
+				<charset>UTF-8</charset>
+			</encoder>
+			<rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+				<fileNamePattern>${ACCESS_LOG_PATH}/${LOG_FILE}-access.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+				<maxFileSize>200MB</maxFileSize>
+				<maxHistory>${ACCESS_MAX_HISTORY}</maxHistory>
+				<totalSizeCap>${ACCESS_TOTAL_SIZE_CAP}</totalSizeCap>
+			</rollingPolicy>
+		</appender>
+		<logger name="ACCESS" level="INFO" additivity="false">
+			<appender-ref ref="ACCESS_FILE"/>
+		</logger>
+	</springProfile>
 
 	<root level="INFO">
 		<appender-ref ref="CONSOLE"/>
