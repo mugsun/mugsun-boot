@@ -108,7 +108,7 @@ class RotateSameImageTest {
 		CaptchaProperties props = new CaptchaProperties();
 		MultiTypeRenderer r = new MultiTypeRenderer(props, new BackgroundLibrary(props));
 		String out = System.getProperty("rotate.sample.dir");
-		int n = Integer.getInteger("rotate.adversarial.n", 40);
+		int n = Integer.getInteger("rotate.adversarial.n", 100);
 		int hits = 0;
 		for (int i = 0; i < n; i++) {
 			MultiTypeRenderer.Rotate rot = r.renderRotate();
