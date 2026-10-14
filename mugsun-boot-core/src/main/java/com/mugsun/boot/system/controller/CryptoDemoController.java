@@ -1,9 +1,11 @@
 package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.mugsun.boot.demo.DemoConstants;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.web.crypto.ApiDecrypt;
 import com.mugsun.core.web.crypto.ApiEncrypt;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,8 +17,10 @@ import java.util.Map;
 
 /**
  * 接口国密加解密演示：请求体 SM4 解密（@ApiDecrypt）、响应 data SM4 加密（@ApiEncrypt）。
+ * <p>只读演示模式（mugsun.demo.enabled=true）下不装配。
  */
 @RestController
+@ConditionalOnProperty(name = DemoConstants.ENABLED_PROPERTY, havingValue = "false", matchIfMissing = true)
 @RequestMapping("/system/crypto")
 @SaCheckLogin
 public class CryptoDemoController {
