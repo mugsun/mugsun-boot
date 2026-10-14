@@ -5,6 +5,7 @@ import com.mugsun.boot.auth.LoginLockService;
 import com.mugsun.boot.auth.TwoFactorService;
 import com.mugsun.boot.demo.DemoCapacityGate;
 import com.mugsun.boot.demo.DemoConstants;
+import com.mugsun.boot.demo.DemoRateLimiter;
 import com.mugsun.boot.demo.DemoSchemaGuard;
 import com.mugsun.boot.demo.LogDataSourceRouter;
 import com.mugsun.boot.mail.MailService;
@@ -46,17 +47,22 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 	private static final String TRACK_PASSWORD = "demo-track-test-pw";
 	private static boolean prepared;
 
+	static {
+		// 低权限账号覆盖父类的 owner 账号（见 AbstractIntegrationTest.PROPERTY_OVERRIDES；本类在独立 fork 里跑）
+		PROPERTY_OVERRIDES.put("mybatis-flex.datasource.primary.username", () -> "mugsun_demo_ro");
+		PROPERTY_OVERRIDES.put("mybatis-flex.datasource.primary.password", () -> RO_PASSWORD);
+		PROPERTY_OVERRIDES.put("mybatis-flex.datasource.track.username", () -> "mugsun_demo_track");
+		PROPERTY_OVERRIDES.put("mybatis-flex.datasource.track.password", () -> TRACK_PASSWORD);
+		PROPERTY_OVERRIDES.put("mybatis-flex.datasource.log.url", AbstractIntegrationTest::primaryJdbcUrl);
+		PROPERTY_OVERRIDES.put("mybatis-flex.datasource.log.username", () -> "mugsun_demo_log");
+		PROPERTY_OVERRIDES.put("mybatis-flex.datasource.log.password", () -> LOG_PASSWORD);
+		PROPERTY_OVERRIDES.put("mugsun.demo.track-collect", () -> "true");
+	}
+
+	/** 先以 owner 迁移、建账号，再让 Spring 用低权限账号起 demo 上下文 */
 	@DynamicPropertySource
 	static void demoAccounts(DynamicPropertyRegistry registry) {
 		prepare();
-		registry.add("mybatis-flex.datasource.primary.username", () -> "mugsun_demo_ro");
-		registry.add("mybatis-flex.datasource.primary.password", () -> RO_PASSWORD);
-		registry.add("mybatis-flex.datasource.track.username", () -> "mugsun_demo_track");
-		registry.add("mybatis-flex.datasource.track.password", () -> TRACK_PASSWORD);
-		registry.add("mybatis-flex.datasource.log.url", AbstractIntegrationTest::primaryJdbcUrl);
-		registry.add("mybatis-flex.datasource.log.username", () -> "mugsun_demo_log");
-		registry.add("mybatis-flex.datasource.log.password", () -> LOG_PASSWORD);
-		registry.add("mugsun.demo.track-collect", () -> "true");
 	}
 
 	/** owner 一次性迁移 + 建账号（同一 JVM 只做一次） */
@@ -70,12 +76,19 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		java.util.List<String> cmd = new java.util.ArrayList<>(java.util.List.of(
 			java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java").toString(),
 			"-cp", System.getProperty("java.class.path"), "com.mugsun.boot.MugsunApplication"));
-		containerProperties(new DynamicPropertyRegistry() {
-			@Override
-			public void add(String name, java.util.function.Supplier<Object> value) {
-				cmd.add("--" + name + "=" + value.get());
-			}
-		});
+		// owner 进程用父类的默认（owner）账号：临时摘掉低权限覆盖项
+		Map<String, java.util.function.Supplier<Object>> overrides = new java.util.LinkedHashMap<>(PROPERTY_OVERRIDES);
+		PROPERTY_OVERRIDES.clear();
+		try {
+			AbstractIntegrationTest.containerProperties(new DynamicPropertyRegistry() {
+				@Override
+				public void add(String name, java.util.function.Supplier<Object> value) {
+					cmd.add("--" + name + "=" + value.get());
+				}
+			});
+		} finally {
+			PROPERTY_OVERRIDES.putAll(overrides);
+		}
 		cmd.add("--server.port=0");
 		cmd.add("--" + DemoConstants.MIGRATE_ONLY_PROPERTY + "=true");
 		java.io.File log = new java.io.File("target/demo-migrate-only.log");
@@ -157,6 +170,8 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 	@Autowired
 	private LoginLockService loginLockService;
 	@Autowired
+	private DemoRateLimiter rateLimiter;
+	@Autowired
 	private TwoFactorService twoFactorService;
 	@Autowired
 	private MailService mailService;
@@ -188,7 +203,7 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		assertThat(count("SELECT COUNT(*) FROM sys_login_log WHERE username = ? AND status = 1 AND login_time >= ?",
 			ADMIN_USERNAME, before)).as("登录日志经日志账号写入").isGreaterThanOrEqualTo(1);
 
-		ResponseEntity<String> list = get("/system/user/list?current=1&size=5", token);
+		ResponseEntity<String> list = get("/system/user/page?current=1&size=5", token);
 		assertThat(list.getStatusCode().value()).isEqualTo(200);
 		assertThat(readBody(list).path("code").asInt()).as("只读账号可以查询").isEqualTo(200);
 
@@ -231,6 +246,21 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		mailService.send("someone@example.com", "x", "y");
 		assertThat(mailService.sendByTemplate("someone@example.com", "any", Map.of())).contains("演示环境");
 		assertThat(loginLockService.keyForLogin("000000", "admin", "203.0.113.9")).endsWith("@ip:203.0.113.9");
+	}
+
+	@Test
+	void perIpRateLimitIsSharedThroughRedis() throws Exception {
+		String ip = "198.51.100." + (System.nanoTime() % 200);
+		for (int i = 0; i < 120; i++) {
+			assertThat(rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ip)).as("token %d", i).isTrue();
+		}
+		assertThat(rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ip)).isFalse();
+		// 别的 IP、别的维度不受影响
+		assertThat(rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ip + "1")).isTrue();
+		assertThat(rateLimiter.tryAcquire(DemoRateLimiter.Scope.LOGIN, ip)).isTrue();
+		// 桶状态在 Redis（demo 专用 db）里，多实例共享
+		assertThat(context.getBean(org.springframework.data.redis.core.StringRedisTemplate.class)
+			.hasKey("mugsun:demo:rl:track:" + ip)).isTrue();
 	}
 
 	@Test

@@ -17,6 +17,10 @@ mugsun:
     ws-allowed-origins: ${MUGSUN_DEMO_WS_ALLOWED_ORIGINS:${mugsun.web.front-url}}
     # 导出/下载/SSE 全局并发上限（安全复审 F4）
     heavy-concurrency: ${MUGSUN_DEMO_HEAVY_CONCURRENCY:2}
+    # 按 IP 限流（Bucket4j + Redis，多实例共享；安全复审 F1 / F3）
+    rate:
+      login-per-ip-per-minute: ${MUGSUN_DEMO_LOGIN_PER_IP_PER_MINUTE:20}
+      track-per-ip-per-minute: ${MUGSUN_DEMO_TRACK_PER_IP_PER_MINUTE:120}
     # 埋点库容量：超过告警线打 WARN，超过上限暂停采集（503）
     track-capacity:
       warn-mb: ${MUGSUN_DEMO_TRACK_WARN_MB:2048}

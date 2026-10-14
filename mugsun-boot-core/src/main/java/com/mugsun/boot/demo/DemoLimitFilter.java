@@ -1,6 +1,9 @@
 package com.mugsun.boot.demo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.common.web.ClientIpResolver;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadConfig;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
 import jakarta.servlet.FilterChain;
@@ -20,15 +23,18 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.Semaphore;
+import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 只读演示模式的资源闸门（Order -140，在 {@link DemoReadOnlyFilter} 之后，只处理已放行的请求）：
  * <ul>
- *   <li>导出/下载/SSE 等重请求全局并发上限（{@code mugsun.demo.heavy-concurrency}，默认 2），超出返回 429（安全复审 F4）；</li>
- *   <li>埋点库容量超过硬上限（{@link DemoCapacityGate}）时采集返回 503（安全复审 F3）。
- *       按 IP+app_key 的采集配额沿用埋点模块已有的分钟窗限流（TrackIngestService），这里不重复实现。</li>
+ *   <li>导出/下载/SSE 等重请求全局并发上限（Resilience4j Bulkhead，{@code mugsun.demo.heavy-concurrency}，默认 2），
+ *       超出返回 429 {@code DEMO_BUSY}（安全复审 F4）；</li>
+ *   <li>登录与埋点采集按 IP 限流（{@link DemoRateLimiter}，Bucket4j + Redis，多实例共享），超出返回 429
+ *       {@code DEMO_RATE_LIMITED}（安全复审 F1 / F3）；</li>
+ *   <li>埋点库容量超过硬上限（{@link DemoCapacityGate}）时采集返回 503 {@code DEMO_CAPACITY}（安全复审 F3）。</li>
  * </ul>
  */
 @Component
@@ -40,24 +46,41 @@ public class DemoLimitFilter extends OncePerRequestFilter {
 
 	private final ObjectMapper objectMapper;
 	private final DemoCapacityGate capacityGate;
-	private final Semaphore heavy;
+	/** 按 IP 限流的登录入口 */
+	static final Set<String> LOGIN_PATHS = Set.of("/auth/login", "/app/auth/login");
+
+	private final DemoRateLimiter rateLimiter;
+	private final Bulkhead heavy;
 	private final int heavyMax;
 
-	public DemoLimitFilter(ObjectMapper objectMapper, DemoCapacityGate capacityGate,
+	public DemoLimitFilter(ObjectMapper objectMapper, DemoCapacityGate capacityGate, DemoRateLimiter rateLimiter,
 						   @Value("${mugsun.demo.heavy-concurrency:2}") int heavyConcurrency) {
 		this.objectMapper = objectMapper;
 		this.capacityGate = capacityGate;
+		this.rateLimiter = rateLimiter;
 		this.heavyMax = Math.max(1, heavyConcurrency);
-		this.heavy = new Semaphore(heavyMax);
+		this.heavy = Bulkhead.of("demo-heavy", BulkheadConfig.custom()
+			.maxConcurrentCalls(heavyMax)
+			.maxWaitDuration(Duration.ZERO)
+			.build());
 	}
 
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 		throws ServletException, IOException {
 		String path = DemoReadOnlyPolicy.normalize(DemoReadOnlyFilter.pathWithinApp(request));
+		if (path != null && LOGIN_PATHS.contains(path)
+			&& !rateLimiter.tryAcquire(DemoRateLimiter.Scope.LOGIN, ClientIpResolver.clientIp(request))) {
+			write(response, 429, "DEMO_RATE_LIMITED", "演示环境登录过于频繁，请一分钟后再试");
+			return;
+		}
 		if (path != null && DemoReadOnlyPolicy.TRACK_COLLECT_ALLOWLIST.contains(path)) {
+			if (!rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ClientIpResolver.clientIp(request))) {
+				write(response, 429, "DEMO_RATE_LIMITED", "演示环境埋点上报过于频繁，请稍后再试");
+				return;
+			}
 			if (capacityGate.trackFull()) {
-				write(response, 503, "演示环境埋点库已满，暂停采集");
+				write(response, 503, "DEMO_CAPACITY", "演示环境埋点库已满，暂停采集");
 				return;
 			}
 			chain.doFilter(request, response);
@@ -67,14 +90,14 @@ public class DemoLimitFilter extends OncePerRequestFilter {
 			chain.doFilter(request, response);
 			return;
 		}
-		if (!heavy.tryAcquire()) {
-			write(response, 429, "演示环境繁忙：导出类请求同时只能进行 " + heavyLimit() + " 个，请稍后再试");
+		if (!heavy.tryAcquirePermission()) {
+			write(response, 429, "DEMO_BUSY", "演示环境繁忙：导出类请求同时只能进行 " + heavyLimit() + " 个，请稍后再试");
 			return;
 		}
 		AtomicBoolean released = new AtomicBoolean(false);
 		Runnable release = () -> {
 			if (released.compareAndSet(false, true)) {
-				heavy.release();
+				heavy.onComplete();
 			}
 		};
 		try {
@@ -110,13 +133,13 @@ public class DemoLimitFilter extends OncePerRequestFilter {
 	}
 
 
-	private void write(HttpServletResponse response, int status, String msg) throws IOException {
+	private void write(HttpServletResponse response, int status, String errorCode, String msg) throws IOException {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("code", status);
 		body.put("success", false);
 		body.put("msg", msg);
 		body.put("data", null);
-		body.put("errorCode", status == 503 ? "DEMO_CAPACITY" : "DEMO_BUSY");
+		body.put("errorCode", errorCode);
 		response.setStatus(status);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.setCharacterEncoding(StandardCharsets.UTF_8.name());

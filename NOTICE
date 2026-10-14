@@ -13,3 +13,15 @@ GeographicLib-Java (net.sf.geographiclib:GeographicLib-Java)
   Licensed under the MIT/X11 License.
   https://geographiclib.sourceforge.io/  https://github.com/geographiclib/geographiclib-java
   Used by mugsun-boot-gis for geodesic distance on the WGS84 ellipsoid.
+
+Bucket4j (com.bucket4j:bucket4j_jdk17-core, bucket4j_jdk17-redis-common, bucket4j_jdk17-lettuce)
+  Copyright (c) Vladimir Bukhtoyarov and contributors
+  Licensed under the Apache License, Version 2.0.
+  https://github.com/bucket4j/bucket4j
+  Used by mugsun-boot-core for per-IP rate limiting in the read-only demo profile (Redis backend).
+
+Resilience4j (io.github.resilience4j:resilience4j-core, resilience4j-bulkhead)
+  Copyright (c) Resilience4j contributors
+  Licensed under the Apache License, Version 2.0.
+  https://github.com/resilience4j/resilience4j
+  Used by mugsun-boot-core as the concurrency bulkhead for export/SSE requests in the read-only demo profile.
