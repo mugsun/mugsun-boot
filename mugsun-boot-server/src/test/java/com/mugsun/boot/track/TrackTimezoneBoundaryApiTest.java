@@ -114,7 +114,10 @@ class TrackTimezoneBoundaryApiTest extends AbstractTrackIntegrationTest {
 
 	@Test
 	void retentionDaysAreLocalDates() {
-		JsonNode rows = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RET + "&days=2", adminToken)).path("rows");
+		JsonNode data = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RET + "&days=2", adminToken));
+		assertThat(data.path("zone").asText()).as("响应带租户时区").isEqualTo("Asia/Shanghai");
+		assertThat(data.path("today").asText()).as("响应带当地今天").isEqualTo(localToday.toString());
+		JsonNode rows = data.path("rows");
 		assertThat(rows.size()).isEqualTo(1);
 		JsonNode row = rows.get(0);
 		assertThat(row.path("cohortDate").asText()).as("首访日 = 当地昨天").isEqualTo(localToday.minusDays(1).toString());

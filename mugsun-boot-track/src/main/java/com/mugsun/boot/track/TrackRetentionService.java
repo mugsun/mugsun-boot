@@ -25,8 +25,11 @@ import java.util.Map;
  * （与 UV 同口径）；cohort = 窗口内<b>新客</b>（actor 首活跃日落在 cohort 窗口内 <b>且</b> 首活跃日 &gt; 回看窗首日——
  * 回看窗 {@value TrackConstants#RETENTION_LOOKBACK_DAYS} 天，首日截断的 actor 保守排除，宁可漏不可假新客）；
  * 活跃 = 当天有任意事件（不加事件过滤，与「活跃」字面一致）；回访网格 = cohort 日 × D+0..D+(days-1)。
- * <p><b>时间</b>：日切一律 UTC 墙钟（{@code (received_at AT TIME ZONE 'UTC')::date}，与 rollup 时间规约 §17 一致）；
- * cohort 窗口 = [todayLocal-(days-1), todayLocal]，days 硬限 {@value TrackConstants#RETENTION_DAYS_MAX} 天。
+ * <p><b>时间</b>：按租户时区切日（{@code (received_at AT TIME ZONE <zone>)::date}，zone 取 mugsun.track.timezone，
+ * 缺省 Asia/Shanghai；「今天」从当地 0 点开始）。cohort 窗口 = [todayLocal-(days-1), todayLocal]。
+ * 留存始终直查明细 track_event（不走 UTC 日表），扫描跨度 = days + 回看 {@value TrackConstants#RETENTION_LOOKBACK_DAYS} 天，
+ * 故 days <b>钳制</b>到 1..{@value TrackConstants#RETENTION_DAYS_MAX}（超上限按上限查，响应 clamped=true；缺省/&lt;1 为 7）。
+ * 响应带 zone（IANA 时区）与 today（当地今天 yyyy-MM-dd），前端据此标注口径。
  * <p><b>SQL</b>（§20.2 单窗双扫）：单次 SQL 多层 CTE——ev（[回看窗首日, now] actor/day 去重集，identity LEFT JOIN）
  * → first（actor min(day)）→ cohort（首活跃日 ∈ cohort 窗 且 &gt; 回看窗首日）→ retained（cohort JOIN ev ON actor 相同
  * 且 day BETWEEN first_day AND first_day+days-1）→ 按 first_day/day 聚合；仅返回 cohortSize&gt;0 的行。
@@ -53,13 +56,19 @@ public class TrackRetentionService {
 		this.self = self;
 	}
 
-	/** 留存查询：{rows:[{cohortDate:"yyyy-MM-dd", cohortSize, retained:{offset数字字符串: n}}...按 cohortDate 升序], days} */
+	/**
+	 * 留存查询：{rows:[{cohortDate:"yyyy-MM-dd", cohortSize, retained:{offset数字字符串: n}}...按 cohortDate 升序],
+	 * days（生效天数）, zone, today, clamped（请求天数超上限被钳制时 true）}
+	 */
 	public Map<String, Object> retention(String appKey, Integer days) {
 		appKey = assertAppKey(appKey);
 		int d = clampDays(days);
 		String tenant = currentTenant();
 		assertAppVisible(appKey, tenant);
-		return self.getObject().cachedRetention(appKey, d, tenant, timezones.zoneFor(tenant).getId());
+		Map<String, Object> result = new LinkedHashMap<>(
+			self.getObject().cachedRetention(appKey, d, tenant, timezones.zoneFor(tenant).getId()));
+		result.put("clamped", days != null && days > TrackConstants.RETENTION_DAYS_MAX);
+		return result;
 	}
 
 	@Cached(name = "track:ana:retention:", key = "#appKey + ':' + #days + ':' + #tenant + ':' + #zoneId",
@@ -125,6 +134,8 @@ public class TrackRetentionService {
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("rows", rows);
 		result.put("days", days);
+		result.put("zone", zoneId);
+		result.put("today", todayLocal.toString());
 		return result;
 	}
 

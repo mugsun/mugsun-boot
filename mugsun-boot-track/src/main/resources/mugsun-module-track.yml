@@ -11,7 +11,8 @@ mybatis-flex:
 
 mugsun:
   track:
-    # 看板按天切分（趋势图、错误列表）用的时区：「今天」从当地 0 点开始。租户未配置时用 default-zone
+    # 看板按天切分用的时区：概览、趋势、页面、性能、漏斗、留存、错误列表/明细的「今天」从当地 0 点开始。租户未配置时用 default-zone。
+    # 非 UTC 时区时这些看板改为直查明细 track_event（UTC 日表无法改切），天数上限：分析类 90 天、漏斗/留存 30 天
     timezone:
       default-zone: ${MUGSUN_TRACK_TIMEZONE:Asia/Shanghai}
       # 按租户编号覆盖，键加中括号和引号：

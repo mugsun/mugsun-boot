@@ -280,6 +280,9 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 	void retentionDaysClampAndDefaults() {
 		JsonNode clamped = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RETENTION + "&days=100", adminToken));
 		assertThat(clamped.path("days").asInt()).as("钳到 RETENTION_DAYS_MAX").isEqualTo(TrackConstants.RETENTION_DAYS_MAX);
+		assertThat(clamped.path("clamped").asBoolean()).as("超上限明示 clamped").isTrue();
+		assertThat(clamped.path("zone").asText()).isEqualTo(STATS_ZONE.getId());
+		assertThat(clamped.path("today").asText()).isEqualTo(LocalDate.now(STATS_ZONE).toString());
 		JsonNode rows = clamped.path("rows");
 		assertThat(rows.size()).as("钳后 cohort 网格不变").isEqualTo(3);
 		LocalDate today = LocalDate.now(STATS_ZONE);
@@ -289,6 +292,12 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 
 		JsonNode def = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RETENTION, adminToken));
 		assertThat(def.path("days").asInt()).as("缺省 7 天").isEqualTo(7);
+		assertThat(def.path("clamped").asBoolean()).isFalse();
+		JsonNode exact = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RETENTION + "&days="
+			+ TrackConstants.RETENTION_DAYS_MAX, adminToken));
+		assertThat(exact.path("clamped").asBoolean()).as("恰好等于上限不算钳制").isFalse();
+		JsonNode low = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RETENTION + "&days=0", adminToken));
+		assertThat(low.path("days").asInt()).as("<1 回落 7").isEqualTo(7);
 		assertThat(def.path("rows").size()).isEqualTo(3);
 	}
 
