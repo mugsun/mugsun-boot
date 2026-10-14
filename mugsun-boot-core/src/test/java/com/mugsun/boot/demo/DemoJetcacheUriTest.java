@@ -17,6 +17,33 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DemoJetcacheUriTest {
 
+	private static StandardEnvironment prodDemo(Map<String, Object> deploy) throws Exception {
+		StandardEnvironment env = new StandardEnvironment();
+		var sources = env.getPropertySources();
+		sources.addFirst(new MapPropertySource("deploy", deploy));
+		YamlPropertySourceLoader loader = new YamlPropertySourceLoader();
+		for (String file : List.of("application.yml", "application-prod.yml", "application-demo.yml")) {
+			for (PropertySource<?> ps : loader.load(file, new ClassPathResource(file))) {
+				sources.addAfter("deploy", ps);
+			}
+		}
+		return env;
+	}
+
+	@Test
+	void demoTrustsLoopbackAndPrivateProxiesByDefault() throws Exception {
+		String raw = prodDemo(Map.of()).getProperty("mugsun.openapi.trusted-proxies");
+		List<com.mugsun.boot.common.web.IpCidr> cidrs = com.mugsun.boot.common.web.IpCidr.parseList(raw);
+		assertThat(cidrs).hasSize(6);
+		for (String ip : List.of("127.0.0.1", "::1", "10.1.2.3", "172.30.88.10", "192.168.1.1", "fd00::1")) {
+			assertThat(com.mugsun.boot.common.web.IpCidr.anyContains(cidrs, ip)).as(ip).isTrue();
+		}
+		assertThat(com.mugsun.boot.common.web.IpCidr.anyContains(cidrs, "203.0.113.9")).isFalse();
+		// 部署方显式配置时以部署方为准
+		assertThat(prodDemo(Map.of("MUGSUN_OPENAPI_TRUSTED_PROXIES", "172.30.88.10/32"))
+			.getProperty("mugsun.openapi.trusted-proxies")).isEqualTo("172.30.88.10/32");
+	}
+
 	@Test
 	void prodDemoUriKeepsPasswordAndUsesDemoDb() throws Exception {
 		StandardEnvironment env = new StandardEnvironment();
