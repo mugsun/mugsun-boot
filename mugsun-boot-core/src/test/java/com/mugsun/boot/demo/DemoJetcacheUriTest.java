@@ -31,14 +31,20 @@ class DemoJetcacheUriTest {
 	}
 
 	@Test
-	void demoTrustsLoopbackAndPrivateProxiesByDefault() throws Exception {
+	void demoTrustsOnlyLoopbackByDefault() throws Exception {
 		String raw = prodDemo(Map.of()).getProperty("mugsun.openapi.trusted-proxies");
 		List<com.mugsun.boot.common.web.IpCidr> cidrs = com.mugsun.boot.common.web.IpCidr.parseList(raw);
-		assertThat(cidrs).hasSize(6);
-		for (String ip : List.of("127.0.0.1", "::1", "10.1.2.3", "172.30.88.10", "192.168.1.1", "fd00::1")) {
+		assertThat(cidrs).hasSize(2);
+		for (String ip : List.of("127.0.0.1", "::1")) {
 			assertThat(com.mugsun.boot.common.web.IpCidr.anyContains(cidrs, ip)).as(ip).isTrue();
 		}
-		assertThat(com.mugsun.boot.common.web.IpCidr.anyContains(cidrs, "203.0.113.9")).isFalse();
+		for (String ip : List.of("10.1.2.3", "172.30.88.10", "192.168.1.1", "fd00::1", "203.0.113.9")) {
+			assertThat(com.mugsun.boot.common.web.IpCidr.anyContains(cidrs, ip)).as(ip).isFalse();
+		}
+		// 默认值和空值都触发启动 WARN；显式配置不触发
+		assertThat(com.mugsun.boot.common.web.TrustedProxyConfigAccess.unconfigured(raw)).isTrue();
+		assertThat(com.mugsun.boot.common.web.TrustedProxyConfigAccess.unconfigured("")).isTrue();
+		assertThat(com.mugsun.boot.common.web.TrustedProxyConfigAccess.unconfigured("172.30.88.10/32")).isFalse();
 		// 部署方显式配置时以部署方为准
 		assertThat(prodDemo(Map.of("MUGSUN_OPENAPI_TRUSTED_PROXIES", "172.30.88.10/32"))
 			.getProperty("mugsun.openapi.trusted-proxies")).isEqualTo("172.30.88.10/32");
