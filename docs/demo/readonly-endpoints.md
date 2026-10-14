@@ -36,6 +36,7 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/auth/update-avatar` | AuthController#updateAvatar | 拒绝 |
 | POST | `/auth/update-info` | AuthController#updateInfo | 拒绝 |
 | POST | `/auth/update-password` | AuthController#updatePassword | 拒绝 |
+| POST | `/csp-report` | CspReportController#report | 放行 |
 | POST | `/oauth2/authorize/confirm` | OAuthController#authorizeConfirm | 拒绝 |
 | POST | `/oauth2/introspect` | OAuthController#introspect | 拒绝 |
 | POST | `/oauth2/revoke` | OAuthController#revoke | 拒绝 |
