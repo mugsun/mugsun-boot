@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.powerjob;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.mugsun.boot.track.job.TrackStats5mJob;
 import com.mugsun.boot.track.job.TrackStatsDayJob;
 import com.mugsun.boot.track.job.TrackVitalsJob;
@@ -13,6 +15,7 @@ import tech.powerjob.worker.core.processor.sdk.BasicProcessor;
  * 聚合逻辑（游标补扫 + 幂等覆盖 + 采样口径）复用各 Job 的立即执行方法，此处仅作调度入口。
  */
 @Component
+@ConditionalOnNotDemo
 public class TrackStatsProcessor implements BasicProcessor {
 
 	private final TrackStats5mJob stats5mJob;

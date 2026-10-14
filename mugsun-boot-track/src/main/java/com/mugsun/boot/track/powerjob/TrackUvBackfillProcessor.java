@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.powerjob;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.track.job.TrackUvBackfillJob;
@@ -13,6 +15,7 @@ import tech.powerjob.worker.core.processor.sdk.BasicProcessor;
  * 留空按 {@code mugsun.track.uv-backfill.days}（默认 90）回填全部应用。
  */
 @Component
+@ConditionalOnNotDemo
 public class TrackUvBackfillProcessor implements BasicProcessor {
 
 	private final TrackUvBackfillJob job;

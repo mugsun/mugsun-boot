@@ -1,5 +1,7 @@
 package com.mugsun.boot.log;
 
+import com.mugsun.boot.demo.LogDataSourceRouter;
+
 import cn.hutool.crypto.SmUtil;
 import com.mugsun.boot.common.crypto.Sm2Util;
 import com.mugsun.boot.log.entity.SysOperLog;
@@ -31,8 +33,11 @@ public class OperationLogService {
 	private final SysOperLogMapper operLogMapper;
 	private final com.mugsun.boot.system.service.ParamService paramService;
 
+	private final LogDataSourceRouter logRouter;
+
 	public OperationLogService(SysOperLogMapper operLogMapper,
-							   com.mugsun.boot.system.service.ParamService paramService) {
+							   com.mugsun.boot.system.service.ParamService paramService, LogDataSourceRouter logRouter) {
+		this.logRouter = logRouter;
 		this.operLogMapper = operLogMapper;
 		this.paramService = paramService;
 	}
@@ -51,16 +56,19 @@ public class OperationLogService {
 			String recordHash = SmUtil.sm3(canonical(log) + "|" + prevHash);
 			log.setRecordHash(recordHash);
 			log.setSign(Sm2Util.signHex(recordHash));
-			try {
-				// 有租户上下文（认证写请求，经 TenantTaskDecorator 透传）→ 正常落库并打租户标
-				operLogMapper.insertSelective(log);
-			} catch (Exception e) {
-				// 无租户上下文（如未认证写请求）→ 忽略隔离补插，保证审计不丢（tenant_id 空）
-				TenantContext.ignore(() -> {
+			// 链哈希读取走业务数据源（只读即可）；demo 下仅 INSERT 走独立日志账号
+			logRouter.write(() -> {
+				try {
+					// 有租户上下文（认证写请求，经 TenantTaskDecorator 透传）→ 正常落库并打租户标
 					operLogMapper.insertSelective(log);
-					return null;
-				});
-			}
+				} catch (Exception e) {
+					// 无租户上下文（如未认证写请求）→ 忽略隔离补插，保证审计不丢（tenant_id 空）
+					TenantContext.ignore(() -> {
+						operLogMapper.insertSelective(log);
+						return null;
+					});
+				}
+			});
 		} finally {
 			appendLock.unlock();
 		}

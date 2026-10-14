@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackDS;
@@ -30,6 +32,7 @@ import java.util.List;
  */
 @Component
 @TrackDS
+@ConditionalOnNotDemo
 public class TrackVitalsJob extends AbstractTrackRollupJob {
 
 	/** 窗口粒度（分钟）：1440 = UTC 日界（track_stats_vitals.stat_date 为 DATE） */

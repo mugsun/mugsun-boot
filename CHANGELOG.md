@@ -32,6 +32,8 @@
 - GIS 回落路径跨 180° 经线按 RFC 7946 §3.1.9 处理：要素逐部件展开成连续经度后计算距离 / 面积 / 长度，在 180° 拆开的多部件要素按一个整体算；缓冲结果越过 180° 时用 JTS 与 [-180,180] 两侧框求交切成 MultiPolygon，不再报错或跳过。只有单个部件展开后仍宽于 180°（走向无法确定）时才报错 / 计入 `skipped`。视野查询 `/gis/spatial/bbox` 支持 minLon > maxLon（RFC 7946 §5.2，跨 180° 的范围，拆成两个框查询）
 - GIS 回落路径的投影与面积（mugsun-boot#57）：缓冲 / 量距改用由 GeographicLib 正反算定义的椭球方位等距投影（|纬度| ≥ 88° 以极点为原点），去掉 85° 极区限制；面积改用 GeographicLib `PolygonArea`，长度逐段测地距离求和，边都按测地线（与 PostGIS `geography` 一致）。高纬长边要素的面积、长度、距离会与旧版（按经纬度直边）明显不同
 - GIS 测地距离改用 GeographicLib-Java 2.1（MIT，Karney 算法，与 PostGIS 2.2+ `geography` 同源），替换自写的 Vincenty 和大圆回落；近对蹠点也收敛。新增第三方依赖 `net.sf.geographiclib:GeographicLib-Java`，见 NOTICE
+- 只读演示模式（`demo` profile）数据库分账号：业务库用只读账号、登录/访问/操作日志用只插入的日志账号、埋点库账号只有 INSERT/SELECT；demo 下关闭 Flyway 与写库启动任务/定时任务，启动时校验迁移版本一致，迁移改由 owner 账号以 `--mugsun.demo.migrate-only=true` 执行（建账号脚本见 `docs/demo/sql/demo-accounts.sql`）。demo 下埋点 upsert 降级为 `ON CONFLICT DO NOTHING`，会话统计只记首批，普通模式不变。demo 下登录按「账号+IP」锁定、登录与埋点按 IP 限流（Bucket4j + Redis）、导出/SSE 并发上限（Resilience4j Bulkhead），关闭两步验证、短信/邮件发送、社交登录与 AI 通道，Redis 用独立 db。新增第三方依赖 Bucket4j、Resilience4j，见 NOTICE
+- 一键全栈（`docker-compose.full.yml`）：`docker compose -f docker-compose.full.yml run --rm init show` 在 admin 改过口令后只提示「初始密码已失效」，不再打印初始口令。判断方式是用初始口令校验库里 admin 当前的口令哈希；连不上库时照常显示并提示无法确认。secrets 卷里的 `MUGSUN_INIT_PASSWORD` 保留（后端启动守卫与重置口令仍要用）。init 镜像新增 `postgresql16-client`、`py3-bcrypt`
 
 ### 计划
 
