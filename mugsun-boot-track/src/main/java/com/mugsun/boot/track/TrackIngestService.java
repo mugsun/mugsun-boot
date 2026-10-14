@@ -356,7 +356,7 @@ public class TrackIngestService {
 		}
 	}
 
-	/** props 截断净化：键 ≤64 / 值 ≤1024 / 嵌套深度 ≤3（超出剪为 null）/ 单事件总量 ≤16KB（超出从尾部逐键摘除） */
+	/** props 截断净化：键 ≤64 / 值 ≤1024（顶层 stack ≤4096）/ 嵌套深度 ≤3（超出剪为 null）/ 单事件总量 ≤16KB（超出从尾部逐键摘除） */
 	private String sanitizeProps(JsonNode props) {
 		if (props == null || !props.isObject()) {
 			return "{}";
@@ -371,7 +371,10 @@ public class TrackIngestService {
 			}
 			// 同键（截断后撞键）保留先出现者
 			if (!out.has(key)) {
-				out.set(key, sanitizeValue(field.getValue(), 1));
+				JsonNode value = field.getValue();
+				out.set(key, TrackConstants.PROP_ERROR_STACK.equals(key) && value != null && value.isTextual()
+					? TextNode.valueOf(truncate(value.asText(), TrackConstants.PROPS_STACK_MAX_LEN))
+					: sanitizeValue(value, 1));
 			}
 		}
 		String json = out.toString();
