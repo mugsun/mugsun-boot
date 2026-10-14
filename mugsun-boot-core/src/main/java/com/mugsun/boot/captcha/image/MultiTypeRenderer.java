@@ -242,7 +242,8 @@ public class MultiTypeRenderer {
 			: BackgroundLibrary.perturb(pool.get(rnd.nextInt(pool.size())), w, h, rnd);
 		BufferedImage piece = cutPiece(base, d, applied);
 		disguisePiece(piece, rnd);
-		BufferedImage bg = holeBackground(base, d);
+		int[] off = holeOffset(cfg.getHoleOffsetPx(), w, h, d, rnd);
+		BufferedImage bg = holeBackground(base, d, off[0], off[1]);
 		noise(bg, 6);
 		int answer = Math.floorMod(360 - applied, 360);
 		return new Rotate(jpeg(bg), png(piece), w, h, d, answer);
@@ -274,6 +275,30 @@ public class MultiTypeRenderer {
 
 	/** 底图拷贝，中心 d×d 圆孔不透明纯色填充（不留任何原像素）并描细边 */
 	static BufferedImage holeBackground(BufferedImage base, int d) {
+		return holeBackground(base, d, 0, 0);
+	}
+
+	/**
+	 * 孔相对取圆处（底图中心）的随机偏移：幅度在 [ceil(max/2), max]，方向随机，并收在画布内（孔不出界时优先保证幅度，
+	 * 竖向空间不足的部分转到横向）。前端照旧把 piece 画在底图中心，答案与字段不变；偏移打断孔外环与 piece 外缘的连续性。
+	 */
+	static int[] holeOffset(int max, int w, int h, int d, RandomGenerator rnd) {
+		if (max <= 0) {
+			return new int[] {0, 0};
+		}
+		int mag = rnd.nextInt((max + 1) / 2, max + 1);
+		double th = rnd.nextDouble(0, 2 * Math.PI);
+		int r = d / 2 + ROTATE_HOLE_MARGIN_PX;
+		int roomY = Math.max(0, h / 2 - r);
+		int roomX = Math.max(0, w / 2 - r);
+		int dy = (int) Math.round(mag * Math.sin(th));
+		dy = Math.max(-roomY, Math.min(roomY, dy));
+		int dx = (int) Math.round(Math.sqrt(Math.max(0, (double) mag * mag - (double) dy * dy)));
+		dx = Math.min(roomX, dx) * (Math.cos(th) < 0 ? -1 : 1);
+		return new int[] {dx, dy};
+	}
+
+	static BufferedImage holeBackground(BufferedImage base, int d, int dx, int dy) {
 		int w = base.getWidth();
 		int h = base.getHeight();
 		BufferedImage bg = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
@@ -281,7 +306,7 @@ public class MultiTypeRenderer {
 		g.drawImage(base, 0, 0, null);
 		smooth(g);
 		int m = ROTATE_HOLE_MARGIN_PX;
-		Ellipse2D hole = new Ellipse2D.Double((w - d) / 2.0 - m, (h - d) / 2.0 - m, d + 2.0 * m, d + 2.0 * m);
+		Ellipse2D hole = new Ellipse2D.Double((w - d) / 2.0 - m + dx, (h - d) / 2.0 - m + dy, d + 2.0 * m, d + 2.0 * m);
 		g.setColor(ROTATE_HOLE_FILL);
 		g.fill(hole);
 		g.setStroke(new BasicStroke(1.5f));

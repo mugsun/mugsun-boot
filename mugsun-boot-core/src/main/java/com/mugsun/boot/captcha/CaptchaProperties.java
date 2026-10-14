@@ -54,6 +54,7 @@ public class CaptchaProperties {
 
 	/** 旋转题：圆图直径（原始像素）、容差（度）、键盘步长（度）、最小初始偏转角 */
 	public static class Rotate {
+		static final int OFFSET_DEFAULT = 0;
 		private String dir = "classpath:captcha/rotate/";
 		private int pieceSize = 160;
 		private int toleranceDeg = 10;
@@ -61,6 +62,10 @@ public class CaptchaProperties {
 		private int minAngle = 30;
 		/** pointer 轨迹重放去重窗口（秒），≤0 关闭 */
 		private long trackReplayWindowSeconds = 600;
+		/** 孔位置相对取圆处的随机偏移上限（像素）；实际偏移幅度在 [ceil(上限/2), 上限]、方向随机；0 关闭 */
+		private int holeOffsetPx = OFFSET_DEFAULT;
+		public int getHoleOffsetPx() { return holeOffsetPx; }
+		public void setHoleOffsetPx(int holeOffsetPx) { this.holeOffsetPx = holeOffsetPx; }
 
 		public String getDir() { return dir; }
 		public void setDir(String dir) { this.dir = dir; }

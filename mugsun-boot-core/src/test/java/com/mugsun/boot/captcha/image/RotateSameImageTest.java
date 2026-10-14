@@ -108,8 +108,8 @@ class RotateSameImageTest {
 		CaptchaProperties props = new CaptchaProperties();
 		MultiTypeRenderer r = new MultiTypeRenderer(props, new BackgroundLibrary(props));
 		String out = System.getProperty("rotate.sample.dir");
-		int n = Integer.getInteger("rotate.adversarial.n", 40);
-		int hits = 0;
+		int n = Integer.getInteger("rotate.adversarial.n", 100);
+		int hits = 0, hitsCentre = 0;
 		for (int i = 0; i < n; i++) {
 			MultiTypeRenderer.Rotate rot = r.renderRotate();
 			BufferedImage bg = decode(rot.background());
@@ -118,27 +118,63 @@ class RotateSameImageTest {
 			assertThat(bg.getHeight()).isEqualTo(rot.bgHeight());
 			assertThat(piece.getWidth()).isEqualTo(rot.pieceSize());
 			assertThat(rot.answerAngle() % props.getRotate().getKeyboardStep()).isZero();
-			int guess = solve(bg, piece);
-			int err = Math.abs(guess - rot.answerAngle()) % 360;
-			if (Math.min(err, 360 - err) <= 10) {
+			if (hit(solve(bg, piece), rot.answerAngle())) {
 				hits++;
+			}
+			if (hit(solveAtCentre(bg, piece), rot.answerAngle())) {
+				hitsCentre++;
 			}
 			if (out != null && i == 0) {
 				new File(out).mkdirs();
-				ImageIO.write(bg, "png", new File(out, "fixed-background.png"));
-				ImageIO.write(piece, "png", new File(out, "fixed-piece.png"));
-				ImageIO.write(preview(bg, piece, rot.answerAngle()), "png", new File(out, "fixed-solved.png"));
+				ImageIO.write(bg, "png", new File(out, "offset-background.png"));
+				ImageIO.write(piece, "png", new File(out, "offset-piece.png"));
+				ImageIO.write(preview(bg, piece, rot.answerAngle()), "png", new File(out, "offset-solved.png"));
 			}
 		}
-		System.out.printf("ROTATE-ADVERSARIAL hits=%d/%d (%.1f%%)%n", hits, n, 100.0 * hits / n);
-		// KNOWN GAP / TEMPORARY: target is < 20%; currently measured 57–62% (edge-continuity matching, security review R5-3).
-		// This threshold (≤ 65%, per security review) only guards against regression. #35 is not complete until the
-		// hole-position offset PR lands and restores the < 20% target. ROTATE must not be the only defence in production.
-		assertThat(hits).as("NCC solver within ±10° in %d/%d", hits, n)
+		System.out.printf("ROTATE-ADVERSARIAL offset=%d hole-ring=%d/%d centre-ring=%d/%d%n",
+			props.getRotate().getHoleOffsetPx(), hits, n, hitsCentre, n);
+		// 目标 < 20%（两种攻击：按孔定位 / 按 piece 显示位置）；当前为临时阈值，见 MAX_ADVERSARIAL_HIT_RATE
+		assertThat(Math.max(hits, hitsCentre)).as("NCC solver within ±10° (hole %d, centre %d of %d)", hits, hitsCentre, n)
 			.isLessThanOrEqualTo((int) Math.floor(n * MAX_ADVERSARIAL_HIT_RATE));
 	}
 
-	/** TEMPORARY threshold (measured 57–62% + margin, capped at 65%); target < 0.20 */
+	private static boolean hit(int guess, int answer) {
+		int err = Math.abs(guess - answer) % 360;
+		return Math.min(err, 360 - err) <= 10;
+	}
+
+	/** 偏移–命中率曲线（手动：-Drotate.offset.curve=0,4,6,8,10,12,15 -Drotate.adversarial.n=100） */
+	@Test
+	void offsetCurve() throws Exception {
+		String spec = System.getProperty("rotate.offset.curve");
+		org.junit.jupiter.api.Assumptions.assumeTrue(spec != null);
+		int n = Integer.getInteger("rotate.adversarial.n", 100);
+		for (String o : spec.split(",")) {
+			CaptchaProperties props = new CaptchaProperties();
+			props.getRotate().setHoleOffsetPx(Integer.parseInt(o.trim()));
+			MultiTypeRenderer r = new MultiTypeRenderer(props, new BackgroundLibrary(props));
+			int a = 0, b = 0;
+			for (int i = 0; i < n; i++) {
+				MultiTypeRenderer.Rotate rot = r.renderRotate();
+				BufferedImage bg = decode(rot.background()), piece = decode(rot.piece());
+				String out = System.getProperty("rotate.sample.dir");
+				if (out != null && i == 0) {
+					new File(out).mkdirs();
+					ImageIO.write(bg, "png", new File(out, "offset-" + o.trim() + "-background.png"));
+					ImageIO.write(piece, "png", new File(out, "offset-" + o.trim() + "-piece.png"));
+					ImageIO.write(preview(bg, piece, rot.answerAngle()), "png", new File(out, "offset-" + o.trim() + "-solved.png"));
+				}
+				a += hit(solve(bg, piece), rot.answerAngle()) ? 1 : 0;
+				b += hit(solveAtCentre(bg, piece), rot.answerAngle()) ? 1 : 0;
+			}
+			System.out.printf("ROTATE-CURVE offset=%s n=%d hole-ring=%d centre-ring=%d%n", o.trim(), n, a, b);
+		}
+	}
+
+	/**
+	 * KNOWN GAP / TEMPORARY: target is < 20% for both attacks. Measured with hole offsets 0–15px it stays at 38–63%
+	 * (see offsetCurve and the PR), so this keeps #35's temporary regression guard (≤ 65%) until a design reaches the target.
+	 */
 	static final double MAX_ADVERSARIAL_HIT_RATE = 0.65;
 
 	/** R5-1: with the hole opaque, hole-only NCC (the review script's method) must show no clear peak; hits near chance */
@@ -214,18 +250,51 @@ class RotateSameImageTest {
 	 * 移植自安全评审的 NCC 求解器：piece 转一整圈（步长 2°），每个角度对 piece 圆盘与孔内区域求 NCC，
 	 * 再对 piece 外缘环与孔外环的角度剖面求 NCC，取两项之和最大的角度（即预测的顺时针回正角）。
 	 */
+	/** 攻击 A：从底图量出孔（填充色像素的质心），取孔外紧邻 6px 环 */
 	static int solve(BufferedImage bg, BufferedImage piece) {
-		int d = piece.getWidth(), x0 = (bg.getWidth() - d) / 2, y0 = (bg.getHeight() - d) / 2;
+		double[] hc = locateHole(bg);
+		int d = piece.getWidth();
+		return solve(bg, piece, hc[0], hc[1], d / 2.0 + MultiTypeRenderer.ROTATE_HOLE_MARGIN_PX + 2, false);
+	}
+
+	/** 攻击 B：假定 piece 属于底图中心（前端显示位置），取中心外 2–8px 环，跳过被孔填充遮住的像素 */
+	static int solveAtCentre(BufferedImage bg, BufferedImage piece) {
+		int d = piece.getWidth();
+		return solve(bg, piece, bg.getWidth() / 2.0, bg.getHeight() / 2.0, d / 2.0 + 2, true);
+	}
+
+	static boolean isFill(int p) {
+		int f = MultiTypeRenderer.ROTATE_HOLE_FILL.getRGB();
+		return Math.abs(ch(p, 16) - ch(f, 16)) <= 14 && Math.abs(ch(p, 8) - ch(f, 8)) <= 14 && Math.abs(ch(p, 0) - ch(f, 0)) <= 14;
+	}
+
+	static double[] locateHole(BufferedImage bg) {
+		double sx = 0, sy = 0;
+		int n = 0;
+		for (int y = 0; y < bg.getHeight(); y++) {
+			for (int x = 0; x < bg.getWidth(); x++) {
+				if (isFill(bg.getRGB(x, y))) {
+					sx += x + 0.5;
+					sy += y + 0.5;
+					n++;
+				}
+			}
+		}
+		return n == 0 ? new double[] {bg.getWidth() / 2.0, bg.getHeight() / 2.0} : new double[] {sx / n, sy / n};
+	}
+
+	/** 以 (cx, cy) 为 piece 中心：圆盘 NCC + piece 外缘环与 ro..ro+6 环的角度剖面 NCC，取和最大的角度 */
+	static int solve(BufferedImage bg, BufferedImage piece, double cx, double cy, double ro, boolean skipFill) {
+		int d = piece.getWidth();
+		int x0 = (int) Math.round(cx - d / 2.0), y0 = (int) Math.round(cy - d / 2.0);
 		double c = d / 2.0;
-		// 攻击者已知孔的实际半径（可从底图直接量出），取孔外紧邻的 6px 环
-		double ro = c + MultiTypeRenderer.ROTATE_HOLE_MARGIN_PX + 2;
 		int bins = 180;
 		double[] outer = new double[bins];
 		int[] oc = new int[bins];
 		for (int y = Math.max(0, y0 - 30); y < Math.min(bg.getHeight(), y0 + d + 30); y++) {
 			for (int x = Math.max(0, x0 - 30); x < Math.min(bg.getWidth(), x0 + d + 30); x++) {
 				double dx = x - x0 + 0.5 - c, dy = y - y0 + 0.5 - c, rr = Math.hypot(dx, dy);
-				if (rr > ro && rr < ro + 6) {
+				if (rr > ro && rr < ro + 6 && !(skipFill && isFill(bg.getRGB(x, y)))) {
 					int b = bin(dx, dy, bins);
 					outer[b] += gray(bg.getRGB(x, y));
 					oc[b]++;
@@ -254,7 +323,8 @@ class RotateSameImageTest {
 						inner[b] += g1;
 						ic[b]++;
 					}
-					double g2 = gray(bg.getRGB(x0 + x, y0 + y));
+					int bx = Math.max(0, Math.min(bg.getWidth() - 1, x0 + x)), by = Math.max(0, Math.min(bg.getHeight() - 1, y0 + y));
+					double g2 = gray(bg.getRGB(bx, by));
 					sa += g1; sb += g2; saa += g1 * g1; sbb += g2 * g2; sab += g1 * g2;
 					m++;
 				}
