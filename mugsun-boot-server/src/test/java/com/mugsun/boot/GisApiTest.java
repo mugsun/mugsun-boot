@@ -3,6 +3,7 @@ package com.mugsun.boot;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.gis.GisConstants;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,7 +16,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * GIS 模块：默认开启、无 Key 时 status 可用、场景 CRUD、关闭参数后接口拒绝。
+ * GIS 模块：默认开启、无 Key 时 status 可用、场景 CRUD、只关系统参数后接口 404。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class GisApiTest extends AbstractIntegrationTest {
@@ -88,20 +89,24 @@ class GisApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	void disableModuleRejectsWriteThenRestore() {
+	@DisplayName("只关系统参数 gis.module.enabled：GIS 接口一律 404（与 yml 关闭一致），改回后恢复")
+	void disableModuleByParamReturns404ThenRestore() {
 		paramService.setValue("gis.module.enabled", "false");
 		try {
-			JsonNode status = readBody(get("/system/gis/status", adminToken));
-			assertThat(status.path("data").path("enabled").asBoolean()).isFalse();
+			assertThat(get("/system/gis/status", adminToken).getStatusCode().value()).isEqualTo(404);
+			assertThat(get("/system/gis/scene/page?pageNum=1&pageSize=10", adminToken).getStatusCode().value())
+				.isEqualTo(404);
 			Map<String, Object> scene = new HashMap<>();
 			scene.put("name", "should-reject");
-			JsonNode write = readBody(post("/system/gis/scene/submit", scene, adminToken));
-			assertThat(write.path("code").asInt()).isEqualTo(400);
-			assertThat(write.path("msg").asText()).contains("未启用");
+			assertThat(post("/system/gis/scene/submit", scene, adminToken).getStatusCode().value()).isEqualTo(404);
+			// 匿名同样 404：闸门先于登录校验，不暴露接口存在
+			assertThat(get("/system/gis/status", null).getStatusCode().value()).isEqualTo(404);
+			assertThat(readBody(get("/auth/info", adminToken)).path("data").path("gisEnabled").asBoolean()).isFalse();
 		} finally {
 			paramService.setValue("gis.module.enabled", "true");
 		}
 		JsonNode on = readBody(get("/system/gis/status", adminToken));
+		assertThat(on.path("code").asInt()).isEqualTo(200);
 		assertThat(on.path("data").path("enabled").asBoolean()).isTrue();
 	}
 
