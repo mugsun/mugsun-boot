@@ -1,6 +1,7 @@
 package com.mugsun.boot.system;
 
 import com.mugsun.boot.datasource.TenantDataSourceRegistry;
+import com.mugsun.boot.datasource.TenantDatasourceService;
 import com.mugsun.boot.datasource.entity.SysTenantDatasource;
 import com.mugsun.boot.datasource.mapper.SysTenantDatasourceMapper;
 import com.mugsun.boot.system.entity.SysDept;
@@ -45,7 +46,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** 删除租户的级联（Mockito，不启 Spring 容器）：组织数据与关联、租户数据源一起逻辑删除，同一事务。 */
+/**
+ * 删除租户的级联（Mockito，不启 Spring 容器）：组织数据与关联、租户数据源一起逻辑删除，同一事务。
+ * 租户数据源经数据源域的 {@link TenantDatasourceService} 删除（真实实例 + mock Mapper），不跨域直连 Mapper。
+ */
 class TenantServiceRemoveTest {
 
 	private SysTenantMapper tenantMapper;
@@ -76,7 +80,7 @@ class TenantServiceRemoveTest {
 		ObjectProvider<TenantDataSourceRegistry> provider = mock(ObjectProvider.class);
 		when(provider.getIfAvailable()).thenReturn(registry);
 		service = new TenantService(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper,
-			roleMenuMapper, roleDeptMapper, datasourceMapper, provider,
+			roleMenuMapper, roleDeptMapper, new TenantDatasourceService(datasourceMapper, provider),
 			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null);
 	}
 

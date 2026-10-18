@@ -2,8 +2,7 @@ package com.mugsun.boot.system.service;
 
 import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.common.constant.UserConstants;
-import com.mugsun.boot.datasource.TenantDataSourceRegistry;
-import com.mugsun.boot.datasource.mapper.SysTenantDatasourceMapper;
+import com.mugsun.boot.datasource.TenantDatasourceService;
 import com.mugsun.boot.system.entity.SysDept;
 import com.mugsun.boot.system.entity.SysPost;
 import com.mugsun.boot.system.entity.SysRole;
@@ -22,12 +21,9 @@ import com.mugsun.boot.tenant.TenantPackageService;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -48,8 +44,7 @@ public class TenantService {
 	private final SysUserRoleMapper userRoleMapper;
 	private final SysRoleMenuMapper roleMenuMapper;
 	private final SysRoleDeptMapper roleDeptMapper;
-	private final SysTenantDatasourceMapper datasourceMapper;
-	private final ObjectProvider<TenantDataSourceRegistry> datasourceRegistry;
+	private final TenantDatasourceService datasourceService;
 	private final PasswordEncoder passwordEncoder;
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
@@ -59,7 +54,7 @@ public class TenantService {
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
 						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
 						 SysRoleMenuMapper roleMenuMapper, SysRoleDeptMapper roleDeptMapper,
-						 SysTenantDatasourceMapper datasourceMapper, ObjectProvider<TenantDataSourceRegistry> datasourceRegistry,
+						 TenantDatasourceService datasourceService,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
 						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
 						 TenantPackageService packageService) {
@@ -71,8 +66,7 @@ public class TenantService {
 		this.userRoleMapper = userRoleMapper;
 		this.roleMenuMapper = roleMenuMapper;
 		this.roleDeptMapper = roleDeptMapper;
-		this.datasourceMapper = datasourceMapper;
-		this.datasourceRegistry = datasourceRegistry;
+		this.datasourceService = datasourceService;
 		this.passwordEncoder = passwordEncoder;
 		this.tenantValidator = tenantValidator;
 		this.securityPolicyService = securityPolicyService;
@@ -243,32 +237,18 @@ public class TenantService {
 			roleDeptMapper.deleteByQuery(QueryWrapper.create().in("role_id", roleIds));
 		}
 		roleMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
-		datasourceMapper.deleteByQuery(QueryWrapper.create().eq("tenant_code", code));
+		datasourceService.removeByTenantCode(code);
 	}
 
 	/** 已注册的租户独立数据源在事务提交后注销（回滚时保持原样），与「删除数据源」接口的效果一致 */
 	private void unregisterDatasourcesAfterCommit(List<SysTenant> tenants) {
-		TenantDataSourceRegistry registry = datasourceRegistry.getIfAvailable();
-		if (registry == null) {
-			return;
-		}
 		List<String> codes = new ArrayList<>();
 		for (SysTenant tenant : tenants) {
 			if (tenant.getTenantCode() != null && !"000000".equals(tenant.getTenantCode())) {
 				codes.add(tenant.getTenantCode());
 			}
 		}
-		Runnable unregister = () -> codes.forEach(registry::unregister);
-		if (TransactionSynchronizationManager.isSynchronizationActive()) {
-			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-				@Override
-				public void afterCommit() {
-					unregister.run();
-				}
-			});
-		} else {
-			unregister.run();
-		}
+		datasourceService.unregisterAfterCommit(codes);
 	}
 
 	private void initDefaults(String code, String tenantName) {
