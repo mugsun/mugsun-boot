@@ -56,7 +56,20 @@
 						<configuration>
 							<excludes>
 								<exclude>**/DemoAccountsApiTest.java</exclude>
+								<exclude>**/AiDisabledApiTest.java</exclude>
 							</excludes>
+						</configuration>
+					</execution>
+					<!-- B1：mugsun.ai.enabled=false 的独立上下文（属性不同；warm-flow 不允许同 JVM 多上下文） -->
+					<execution>
+						<id>ai-disabled-it</id>
+						<goals>
+							<goal>test</goal>
+						</goals>
+						<configuration>
+							<includes>
+								<include>**/AiDisabledApiTest.java</include>
+							</includes>
 						</configuration>
 					</execution>
 					<execution>

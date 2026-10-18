@@ -4,10 +4,12 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.constant.DataScopeConstants;
 import com.mugsun.boot.common.constant.RoleConstants;
+import com.mugsun.boot.common.module.ModuleMenuFilter;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysRole;
 import com.mugsun.boot.system.entity.SysRoleDept;
 import com.mugsun.boot.system.entity.SysRoleMenu;
+import com.mugsun.boot.system.mapper.SysMenuMapper;
 import com.mugsun.boot.system.mapper.SysRoleDeptMapper;
 import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysRoleMenuMapper;
@@ -42,13 +44,18 @@ public class SysRoleController {
 	private final SysRoleMenuMapper roleMenuMapper;
 	private final SysRoleDeptMapper roleDeptMapper;
 	private final SysUserRoleMapper userRoleMapper;
+	private final SysMenuMapper menuMapper;
+	private final ModuleMenuFilter moduleMenuFilter;
 
 	public SysRoleController(SysRoleMapper roleMapper, SysRoleMenuMapper roleMenuMapper,
-							 SysRoleDeptMapper roleDeptMapper, SysUserRoleMapper userRoleMapper) {
+							 SysRoleDeptMapper roleDeptMapper, SysUserRoleMapper userRoleMapper,
+							 SysMenuMapper menuMapper, ModuleMenuFilter moduleMenuFilter) {
 		this.roleMapper = roleMapper;
 		this.roleMenuMapper = roleMenuMapper;
 		this.roleDeptMapper = roleDeptMapper;
 		this.userRoleMapper = userRoleMapper;
+		this.menuMapper = menuMapper;
+		this.moduleMenuFilter = moduleMenuFilter;
 	}
 
 	@GetMapping("/page")
@@ -282,14 +289,25 @@ public class SysRoleController {
 	@Transactional(rollbackFor = Exception.class)
 	public R<Void> grant(@RequestBody GrantParam param) {
 		assertRoleInScope(param.roleId());
-		roleMenuMapper.deleteByQuery(QueryWrapper.create().eq("role_id", param.roleId()));
+		// 授权树不展示已关闭模块的菜单，提交上来的勾选自然不含它们：保留这部分既有授权，
+		// 否则临时关掉 GIS/埋点/AI 时授权一次，重新开启后角色就丢了这些权限
+		java.util.Set<Long> hidden = moduleMenuFilter.hiddenMenuIds(menuMapper.selectListByQuery(QueryWrapper.create()));
+		java.util.LinkedHashSet<Long> target = new java.util.LinkedHashSet<>();
+		if (!hidden.isEmpty()) {
+			roleMenuMapper.selectListByQuery(QueryWrapper.create().eq("role_id", param.roleId())).stream()
+				.map(SysRoleMenu::getMenuId)
+				.filter(hidden::contains)
+				.forEach(target::add);
+		}
 		if (param.menuIds() != null) {
-			for (Long menuId : param.menuIds()) {
-				SysRoleMenu roleMenu = new SysRoleMenu();
-				roleMenu.setRoleId(param.roleId());
-				roleMenu.setMenuId(menuId);
-				roleMenuMapper.insert(roleMenu);
-			}
+			target.addAll(param.menuIds());
+		}
+		roleMenuMapper.deleteByQuery(QueryWrapper.create().eq("role_id", param.roleId()));
+		for (Long menuId : target) {
+			SysRoleMenu roleMenu = new SysRoleMenu();
+			roleMenu.setRoleId(param.roleId());
+			roleMenu.setMenuId(menuId);
+			roleMenuMapper.insert(roleMenu);
 		}
 		return R.success("授权成功");
 	}
