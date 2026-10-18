@@ -1,5 +1,6 @@
 # AI 模块配置（随 mugsun-boot-ai jar 提供；核心通过 optional:classpath 引入）
 mugsun:
   ai:
-    # AI 模块总开关（默认开）；sys_param ai.module.enabled=false 可运行时关闭
+    # AI 模块总开关：未设置按开；设置后只认 true/false，空值等其它值启动失败（MUGSUN_AI_ENABLED 同理）。
+    # sys_param ai.module.enabled=false 可运行时关闭
     enabled: ${MUGSUN_AI_ENABLED:true}

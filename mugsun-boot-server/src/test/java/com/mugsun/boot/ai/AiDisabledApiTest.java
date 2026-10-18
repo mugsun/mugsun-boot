@@ -172,7 +172,7 @@ class AiDisabledApiTest extends AbstractIntegrationTest {
 	private org.springframework.core.env.Environment environment;
 
 	@Test
-	@DisplayName("B89-0 守卫：内置 MCP Server 已移除；即使打开 MUGSUN_AI_MCP_SERVER / spring.ai.mcp.server.enabled，/sse、/mcp、/mcp/message 仍是 404（匿名与管理员）")
+	@DisplayName("B89-0 守卫：内置 MCP Server 暂时下线（加鉴权后恢复）；即使打开 MUGSUN_AI_MCP_SERVER / spring.ai.mcp.server.enabled，/sse、/mcp、/mcp/message 仍是 404（匿名与管理员）")
 	void mcpEndpointsAlways404WhenAiOff() {
 		assertThat(System.getenv("MUGSUN_AI_MCP_SERVER")).as("前提：本 fork 打开了 MCP Server 开关").isEqualTo("true");
 		assertThat(environment.getProperty("spring.ai.mcp.server.enabled")).isEqualTo("true");

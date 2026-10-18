@@ -10,7 +10,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * <p>最高优先级、先于登录与租户守卫：模块关闭时匿名请求也是 404，不先暴露「需要登录」，与接口未注册时一致。
  * <p>前缀与各模块 Controller 的 {@code @RequestMapping} 一一对应，新增模块根路径要同步加到这里（server 模块的 {@code ModuleGateApiTest} 校验每个模块 Controller 都在闸门覆盖内）。
  * <p>拦截器同样作用于 {@code RouterFunctionMapping}：模块若以 RouterFunction 注册路由，落在前缀内同样受闸门控制（{@code ModuleGateApiTest} 也检查 RouterFunction 路由）。
- * <p>内置 MCP Server（Spring AI）已移除（B89-0），{@code /sse}、{@code /mcp} 没有任何处理器，任何情况下都是 404；
+ * <p>内置 MCP Server（Spring AI）暂时下线（加鉴权后恢复，B89-0），{@code /sse}、{@code /mcp} 没有任何处理器，任何情况下都是 404；
  * 不再读取 {@code spring.ai.mcp.server.*}，Spring AI 与 MCP SDK 由根 pom 的 maven-enforcer 规则禁止重新引入。
  */
 @Configuration

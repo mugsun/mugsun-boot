@@ -82,6 +82,11 @@ jobs:
         working-directory: mugsun-boot
         run: scripts/check-banned-dependencies.sh
 
+      # 信创驱动 profile 平时不进 verify；validate 一次，确保 enforcer 等规则在 full + kingbase + dameng 组合下也成立
+      - name: Validate full + kingbase + dameng profiles
+        working-directory: mugsun-boot
+        run: mvn -B validate -Pfull,kingbase,dameng
+
       - name: Verify mugsun-boot
         working-directory: mugsun-boot
         run: mvn -B verify

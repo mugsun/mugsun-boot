@@ -12,13 +12,38 @@
 
 ### 升级须知
 
-- **破坏性变更：内置 MCP Server 已移除**（mugsun-boot#89、#91）。Spring AI 与 MCP SDK 整体移出依赖，`/sse`、`/mcp`、`/mcp/message` 不再存在（任何配置下都返回 404）。原因：Spring AI 的 MCP Server 自动装配不经过本项目鉴权，打开即是匿名可调的端点。AI 模块调用外部 MCP 工具（「MCP 工具箱」、工作流 MCP 节点）不受影响，连接配置仍在 `ai_mcp_tool` 表。
-  - 不再有任何作用的环境变量（取自移除的 `mugsun-module-ai.yml` 配置）：`MUGSUN_AI_MCP_SERVER`、`MUGSUN_AI_MCP_CLIENT`、`MUGSUN_AI_OPENAI_API_KEY`、`MUGSUN_AI_OPENAI_BASE_URL`；以及整个 `spring.ai.*` 配置：`spring.ai.openai.*`、`spring.ai.vectorstore.pgvector.*`、`spring.ai.mcp.server.*`（含 `enabled`、`name`、`version`、`sse-endpoint`、`sse-message-endpoint`、`streamable-http.mcp-endpoint`）、`spring.ai.mcp.client.*`。模型地址与密钥一直以 `ai_model` 表为准，不受影响
-  - 升级步骤：从部署环境（compose、`.env`、K8s）删掉上述变量；删掉反向代理里转发 `/sse`、`/mcp`、`/mcp/message` 的路由，以及指向这些路径的健康检查 / 探活
+- **破坏性变更：模块开关取值收紧**（mugsun-boot#96）。GIS / 埋点 / AI 三个模块开关共用一个解析器，yml / 环境变量与系统参数两层规则如下：
+  - yml / 环境变量（`MUGSUN_GIS_ENABLED`、`MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED`，即 `mugsun.<模块>.enabled`）：不写按开启；只接受恰好 `true` 或 `false`（不区分大小写，前后不能有空格）；其它值一律启动失败，报错里写出配置项、环境变量名和原值
+  - 系统参数 `gis.module.enabled`、`ai.module.enabled`：判定规则不变（去首尾空格，`true` / `false` 不区分大小写，`1` / `0` 仍有效，空值按开启）。新增保存校验：其它值保存时拒收，`1` / `0` 能保存但提示已弃用。运行时读到升级前留下的非法值按关闭处理，同一键同一值每 10 分钟最多警告一次
+
+  yml / 环境变量升级对照（其它值以前都按关闭处理，现在启动失败）：
+
+  | 以前的写法 | 以前 | 现在 | 请改成 |
+  | --- | --- | --- | --- |
+  | 不设置 | 开启 | 开启 | 不用改 |
+  | `true`、`TRUE` | 开启 | 开启 | 不用改 |
+  | `false`、`FALSE` | 关闭 | 关闭 | 不用改 |
+  | 设置了但为空（`MUGSUN_AI_ENABLED=`、yml 里 `enabled:`） | 关闭 | 启动失败 | 要关闭写 `false`；要开启写 `true` 或删掉这一项 |
+  | `1` | 关闭 | 启动失败 | 要开启写 `true`；要关闭写 `false` |
+  | `0` | 关闭 | 启动失败 | `false` |
+  | 带首尾空格（如 `" true"`、`"false "`） | 关闭 | 启动失败 | 去掉空格 |
+  | `yes`、`on` | 关闭 | 启动失败 | 要开启写 `true`；要关闭写 `false` |
+  | `no`、`off` 及其它值 | 关闭 | 启动失败 | `false` |
+
+  迁移步骤：
+  1. 在 compose 文件、`.env`、systemd / k8s 配置和 yml 里找出 `MUGSUN_GIS_ENABLED`、`MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED`（以及 `mugsun.<模块>.enabled`）
+  2. 值为空、`1`、`0`、带首尾空格，或是 `yes`、`on`、`no`、`off` 的，改成 `true` 或 `false`。以前这些值都按关闭处理，想保持原状就写 `false`
+  3. 或者删掉这个变量，按默认开启
+  4. 启动时若报「配置项 … 不合法」，报错里写有变量名和原值，按第 2、3 步改完再启动
+
+- **破坏性变更：内置 MCP Server 暂时下线，正在加鉴权后恢复**（mugsun-boot#89、#91）。原因：Spring AI 的 MCP Server 自动装配不经过本项目鉴权，打开即是匿名可调的端点。下线期间 Spring AI 与 MCP SDK 暂时移出依赖，`/sse`、`/mcp`、`/mcp/message` 在任何配置下都返回 404。AI 模块调用外部 MCP 工具（「MCP 工具箱」、工作流 MCP 节点）不受影响，连接配置仍在 `ai_mcp_tool` 表。
+  - 下线期间不起作用的 MCP Server 配置：环境变量 `MUGSUN_AI_MCP_SERVER`，以及 `spring.ai.mcp.server.*`（含 `enabled`、`name`、`version`、`sse-endpoint`、`sse-message-endpoint`、`streamable-http.mcp-endpoint`）。恢复后用什么开关、怎么配置凭据，以届时的更新日志为准
+  - 随未使用的 Spring AI 组件一起失效的配置（与 MCP Server 恢复无关）：`MUGSUN_AI_MCP_CLIENT`、`MUGSUN_AI_OPENAI_API_KEY`、`MUGSUN_AI_OPENAI_BASE_URL`，以及 `spring.ai.openai.*`、`spring.ai.vectorstore.pgvector.*`、`spring.ai.mcp.client.*`。模型地址与密钥一直以 `ai_model` 表为准，不受影响
+  - 下线期间的处理：转发 `/sse`、`/mcp`、`/mcp/message` 的反向代理路由会收到 404，健康检查 / 探活不要指向这些路径
   - 旧版本曾设置 `MUGSUN_AI_MCP_SERVER=true`（或 `spring.ai.mcp.server.enabled=true`）运行过的部署：这些端点当时无需登录即可调用，请检查反向代理与应用访问日志里对 `/sse`、`/mcp`、`/mcp/message` 的请求，确认没有异常调用
-  - 防回归：根 pom 的 maven-enforcer `bannedDependencies` 禁止 `org.springframework.ai`、`io.modelcontextprotocol*`（含传递依赖）重新引入，`scripts/check-banned-dependencies.sh` 在 CI 中证明规则会触发；`NoEnforcerSkipGuardTest` 禁止在 pom、`.mvn` 配置、CI 工作流与脚本里跳过 enforcer
+  - 依赖检查：下线期间根 pom 的 maven-enforcer `bannedDependencies` 拦下 `org.springframework.ai`、`io.modelcontextprotocol*`（含传递依赖），恢复时按鉴权方案调整这条规则；`scripts/check-banned-dependencies.sh` 在 CI 中证明规则会触发；`NoEnforcerSkipGuardTest` 禁止在 pom、`.mvn` 配置、CI 工作流与脚本里跳过 enforcer
 - openGauss / 达梦：迁移 `V7__unique_index_delete_flag` 把 6 个唯一索引（`uk_tenant_code`、`uk_user_tenant_username`、`uk_user_role`、`uk_role_menu`、`uk_role_dept`、`uk_tenant_ds_code`）改为只约束未删除的行，逻辑删除后的行不再占着键：删除租户后可以再建同编号租户，撤销菜单后可以再授权，同一个键可以反复删除（#95）。做法是表达式 / 函数唯一索引，每个键列写成 `CASE WHEN is_deleted = 0 THEN 列 END`，与 PG 的部分唯一索引同口径。PostgreSQL / 金仓本来就是部分唯一索引，V7 在 PG 上不改动
-  - **手机号改为同租户唯一（openGauss / 达梦）**：`uk_user_tenant_phone` 原来在这两种库上只是普通索引，V7 改成与 PG 相同的唯一索引（未删除、手机号非空非空串的用户，同一租户内手机号不能重复；手机号为空的用户不受影响）。库里已有同租户重复手机号时 V7 会报「V7 升级中止」并停下，此时还没有改任何索引。查重 SQL 与处理步骤见 [升级说明 · 同租户重复手机号](https://docs.mugsun.com/boot/upgrade)。达梦上失败的 V7 会在 `flyway_schema_history` 留一条 `success = 0` 的记录，处理完重复数据后要先删掉这条记录再启动
+  - **手机号改为同租户唯一（openGauss / 达梦）**：`uk_user_tenant_phone` 原来在这两种库上只是普通索引，V7 改成与 PG 相同的唯一索引（未删除、手机号非空非空串的用户，同一租户内手机号不能重复；手机号为空的用户不受影响）。库里已有同租户重复手机号时 V7 会报「V7 升级中止」并停下，此时还没有改任何索引。查重 SQL 与处理步骤见 [升级指南 · 同租户重复手机号](https://docs.mugsun.com/boot/upgrade)。达梦上失败的 V7 会在 `flyway_schema_history` 留一条 `success = 0` 的记录，处理完重复数据后要先删掉这条记录再启动
   - 版本号用 V7，跳过了其它未合并 PR 占用的 V4–V6。若 V7 先于它们发布，已升到 V7 的库再遇到 V4–V6 需要 Flyway `outOfOrder`，合并顺序请注意
 - 删除租户：除用户、用户-角色、部门、岗位、角色外，现在也会逻辑删除该租户角色的角色-菜单、角色-部门关联和租户独立数据源配置；整个删除在同一个事务里，任何一步失败整体回滚。已注册的独立数据源在事务提交后注销。用户的岗位是 `sys_user.post_id` 列，没有单独的关联表，随用户一起删
 - 埋点错误堆栈：顶层 `props.stack` 的保留长度从 1024 放宽到 4096 字符，与 SDK error 插件一致；其它字符串属性仍是 1024，单事件 props 总量仍是 16KB。需配合 `@mugsun/track-web` 的同名修复，旧版 SDK 在客户端已截到 1024。props 超过 16KB 时先缩短 `stack`（按 UTF-8 字节、不拆字符），再从尾部摘键；堆栈帧 URL 的 query / hash 去掉（防 token 落库）；所有截断不再拆开代理对。错误指纹（服务端计算的 `error_fingerprint`）改为先去掉帧 URL 的 query / hash 再计算：升级后错误指纹会变化，已有的错误分组会断开一次（升级前后的同一错误分属新旧两组），之后不再因 URL 参数不同而拆组

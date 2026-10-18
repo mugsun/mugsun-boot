@@ -21,7 +21,7 @@ import java.util.Properties;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * B89-0 反向守卫：内置 MCP Server 与 Spring AI 已整体移除。
+ * B89-0 反向守卫：内置 MCP Server 暂时下线（加鉴权后恢复），Spring AI 随之移出依赖。
  * <p>Spring AI 的 MCP Server 自动装配不经过本项目鉴权，jar 一回到 classpath、配置一开就是匿名可调的端点。
  * 这里从四个方向确认它们没有回来：类、自动装配候选、配置项、POM 声明（含 BOM）。
  * 依赖层面另有根 pom 的 maven-enforcer bannedDependencies（{@code scripts/check-banned-dependencies.sh} 证明会触发）。
