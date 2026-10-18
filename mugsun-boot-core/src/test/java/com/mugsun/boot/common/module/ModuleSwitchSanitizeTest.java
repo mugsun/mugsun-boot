@@ -19,7 +19,6 @@ import org.springframework.core.io.support.SpringFactoriesLoader;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,17 +114,18 @@ class ModuleSwitchSanitizeTest {
 	}
 
 	@Test
+	@SuppressWarnings("deprecation")
 	@DisplayName("FailureAnalyzer 已在 spring.factories 注册，并把非法开关值整理成 Description / Action")
 	void failureAnalyzerRegisteredAndClean() {
-		List<FailureAnalyzer> analyzers = SpringFactoriesLoader.forDefaultResourceLocation(getClass().getClassLoader())
-			.load(FailureAnalyzer.class);
-		assertThat(analyzers).as("spring.factories 里注册了 ModuleSwitchFailureAnalyzer")
-			.anyMatch(ModuleSwitchFailureAnalyzer.class::isInstance);
+		// Boot 自带的部分分析器需要构造参数，不能直接全部实例化；这里只核对登记名单，再实例化本项目的分析器
+		List<String> names = SpringFactoriesLoader.loadFactoryNames(FailureAnalyzer.class, getClass().getClassLoader());
+		assertThat(names).as("spring.factories 里注册了 ModuleSwitchFailureAnalyzer")
+			.contains(ModuleSwitchFailureAnalyzer.class.getName());
 
 		Throwable failure = startupFailure("1\r\nERROR forged line");
 		assertThat(failure).as("非法值应启动失败").isNotNull();
-		FailureAnalysis analysis = analyzers.stream().filter(ModuleSwitchFailureAnalyzer.class::isInstance)
-			.map(a -> a.analyze(failure)).filter(Objects::nonNull).findFirst().orElseThrow();
+		FailureAnalysis analysis = new ModuleSwitchFailureAnalyzer().analyze(failure);
+		assertThat(analysis).as("分析器接管模块开关失败").isNotNull();
 
 		assertThat(analysis.getDescription())
 			.contains(PROP, "MUGSUN_DEMO2_ENABLED", "'1\\u000D\\u000AERROR forged line'", "只认 true 或 false");
