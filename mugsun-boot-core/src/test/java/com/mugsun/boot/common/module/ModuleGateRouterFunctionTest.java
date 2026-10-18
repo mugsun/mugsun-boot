@@ -23,12 +23,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * B87-2：Spring AI MCP Server 的端点是 RouterFunction，不走 {@code @RequestMapping}。
- * 这里用真实的 Spring MVC 装配（{@code @EnableWebMvc} → RouterFunctionMapping）验证 AI 闸门同样拦得住，
- * 路径取自 {@code spring.ai.mcp.server.*}（本例自定义了 SSE 端点，另两个用缺省值）。
+ * 模块若以 RouterFunction 注册路由（不走 {@code @RequestMapping}），落在闸门前缀内同样受控。
+ * 这里用真实的 Spring MVC 装配（{@code @EnableWebMvc} → RouterFunctionMapping）验证。
+ * <p>B89-0：内置 MCP Server 已移除，{@code spring.ai.mcp.server.*} 不再影响闸门（本例故意设置了该配置，作反向守卫）。
  */
 @SpringJUnitWebConfig(ModuleGateRouterFunctionTest.WebConfig.class)
-@TestPropertySource(properties = "spring.ai.mcp.server.sse-endpoint=/custom-sse")
+@TestPropertySource(properties = {"spring.ai.mcp.server.enabled=true", "spring.ai.mcp.server.sse-endpoint=/custom-sse"})
 class ModuleGateRouterFunctionTest {
 
 	static final AtomicBoolean AI = new AtomicBoolean(true);
@@ -66,13 +66,13 @@ class ModuleGateRouterFunctionTest {
 			};
 		}
 
-		/** 模拟 MCP Server 以 RouterFunction 注册的三个端点，外加一个不属于 AI 的路由作对照 */
+		/** AI 前缀内的函数式路由（含嵌套），外加一个不属于 AI 的路由作对照 */
 		@Bean
-		RouterFunction<ServerResponse> mcpRoutes() {
+		RouterFunction<ServerResponse> moduleRoutes() {
 			return RouterFunctions.route()
-				.GET("/custom-sse", req -> ServerResponse.ok().body("sse"))
-				.POST("/mcp/message", req -> ServerResponse.ok().body("message"))
-				.POST("/mcp", req -> ServerResponse.ok().body("stream"))
+				.GET("/system/ai/fn/ping", req -> ServerResponse.ok().body("ai"))
+				.nest(org.springframework.web.servlet.function.RequestPredicates.path("/v1"), b -> b
+					.POST("/fn/chat", req -> ServerResponse.ok().body("v1")))
 				.GET("/core/ping", req -> ServerResponse.ok().body("pong"))
 				.build();
 		}
@@ -90,20 +90,30 @@ class ModuleGateRouterFunctionTest {
 	}
 
 	@Test
-	@DisplayName("AI 开启：RouterFunction 端点正常响应")
+	@DisplayName("AI 开启：AI 前缀内的 RouterFunction 路由正常响应")
 	void enabledPassesThrough() throws Exception {
-		mvc.perform(get("/custom-sse")).andExpect(status().isOk());
-		mvc.perform(post("/mcp/message")).andExpect(status().isOk());
-		mvc.perform(post("/mcp")).andExpect(status().isOk());
+		mvc.perform(get("/system/ai/fn/ping")).andExpect(status().isOk());
+		mvc.perform(post("/v1/fn/chat")).andExpect(status().isOk());
 	}
 
 	@Test
-	@DisplayName("AI 关闭：RouterFunction 注册的 MCP 端点一律 404，其他路由不受影响")
+	@DisplayName("AI 关闭：AI 前缀内的 RouterFunction 路由（含嵌套）一律 404，其他路由不受影响")
 	void disabledReturns404() throws Exception {
 		AI.set(false);
-		mvc.perform(get("/custom-sse")).andExpect(status().isNotFound());
-		mvc.perform(post("/mcp/message")).andExpect(status().isNotFound());
-		mvc.perform(post("/mcp")).andExpect(status().isNotFound());
+		mvc.perform(get("/system/ai/fn/ping")).andExpect(status().isNotFound());
+		mvc.perform(post("/v1/fn/chat")).andExpect(status().isNotFound());
 		mvc.perform(get("/core/ping")).andExpect(status().isOk());
+	}
+
+	@Test
+	@DisplayName("B89-0 反向守卫：即使配置了 spring.ai.mcp.server.*，也没有任何 MCP 端点（AI 开、关都是 404）")
+	void noMcpEndpoints() throws Exception {
+		for (boolean on : new boolean[] {true, false}) {
+			AI.set(on);
+			mvc.perform(get("/custom-sse")).andExpect(status().isNotFound());
+			mvc.perform(get("/sse")).andExpect(status().isNotFound());
+			mvc.perform(post("/mcp/message")).andExpect(status().isNotFound());
+			mvc.perform(post("/mcp")).andExpect(status().isNotFound());
+		}
 	}
 }

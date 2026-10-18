@@ -167,4 +167,23 @@ class AiDisabledApiTest extends AbstractIntegrationTest {
 		}
 		return out;
 	}
+
+	@Autowired
+	private org.springframework.core.env.Environment environment;
+
+	@Test
+	@DisplayName("B89-0 守卫：内置 MCP Server 已移除；即使打开 MUGSUN_AI_MCP_SERVER / spring.ai.mcp.server.enabled，/sse、/mcp、/mcp/message 仍是 404（匿名与管理员）")
+	void mcpEndpointsAlways404WhenAiOff() {
+		assertThat(System.getenv("MUGSUN_AI_MCP_SERVER")).as("前提：本 fork 打开了 MCP Server 开关").isEqualTo("true");
+		assertThat(environment.getProperty("spring.ai.mcp.server.enabled")).isEqualTo("true");
+		assertThat(environment.getProperty("mugsun.ai.enabled")).isEqualTo("false");
+		String token = token();
+		for (String t : new String[] {null, token}) {
+			String who = t == null ? "匿名" : "管理员";
+			assertThat(get("/sse", t).getStatusCode().value()).as(who + " GET /sse").isEqualTo(404);
+			assertThat(get("/mcp", t).getStatusCode().value()).as(who + " GET /mcp").isEqualTo(404);
+			assertThat(post("/mcp", java.util.Map.of(), t).getStatusCode().value()).as(who + " POST /mcp").isEqualTo(404);
+			assertThat(post("/mcp/message", java.util.Map.of(), t).getStatusCode().value()).as(who + " POST /mcp/message").isEqualTo(404);
+		}
+	}
 }

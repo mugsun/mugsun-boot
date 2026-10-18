@@ -25,7 +25,7 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 | License | [MIT](./LICENSE) |
 | Docs | [docs.mugsun.com/en/boot](https://docs.mugsun.com/en/boot/) |
 
-Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway, Spring AI 1.1.2 (AI module).
+Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway. The AI module does not depend on Spring AI: model calls, vector retrieval and MCP tool calls are implemented with the module's own HTTP client and pgvector queries.
 
 ## Deployment
 
@@ -81,7 +81,7 @@ mugsun-boot/
   mugsun-boot-core/     # auth, system, workflow, tenant, open platform, …
   mugsun-boot-gis/      # optional: layers, spatial queries, vector tiles
   mugsun-boot-track/    # optional: ingest, aggregation, replay-related APIs
-  mugsun-boot-ai/       # optional: models, chat, knowledge base, MCP (Spring AI)
+  mugsun-boot-ai/       # optional: models, chat, knowledge base, calling external MCP tools
   mugsun-boot-server/   # assembly shell; default profile = full
 ```
 
@@ -100,6 +100,8 @@ Runtime flags (classes may still be on the classpath):
 - `MUGSUN_TRACK_ENABLED=false`
 - `MUGSUN_AI_ENABLED=false`
 
+The built-in MCP Server has been removed, and its related variables (such as `MUGSUN_AI_MCP_SERVER`) no longer have any effect; `/sse` and `/mcp` always return 404. A maven-enforcer rule in the root POM bans Spring AI (`org.springframework.ai:*`) and the MCP SDK (`io.modelcontextprotocol*`), including transitive dependencies.
+
 Module assembly notes: [docs/可选模块装配.md](docs/可选模块装配.md) (Chinese).
 
 ## Scope
@@ -116,7 +118,7 @@ Module assembly notes: [docs/可选模块装配.md](docs/可选模块装配.md) 
 
 - `mugsun-boot-track`: `/track/collect`, config delivery, and analytics APIs; forms a vertical slice with the browser SDK and admin console
 - `mugsun-boot-gis`: spatial data and vector tiles (requires PostGIS)
-- `mugsun-boot-ai`: models, chat, knowledge base, and MCP (Spring AI)
+- `mugsun-boot-ai`: models, chat, knowledge base, and calling external MCP tools from flows (no MCP Server)
 
 **Runtime conventions**
 

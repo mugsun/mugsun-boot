@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.server.PathContainer;
 import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.function.RouterFunction;
+import org.springframework.web.servlet.function.support.RouterFunctionMapping;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.util.pattern.PathPattern;
@@ -24,7 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 可选模块请求闸门（{@link ModuleGateConfig}）集成测试，默认 full 装配上下文。
  * <ul>
- *   <li>覆盖面：ai/gis/track 包里每个 Controller 的映射都落在对应闸门前缀内，新增模块根路径漏配会在这里失败；</li>
+ *   <li>覆盖面：ai/gis/track 包里每个 Controller 的映射，以及这些包里以 RouterFunction 注册的函数式路由，都落在对应闸门前缀内，
+ *   新增模块根路径漏配会在这里失败；Spring AI / MCP SDK 的路由、{@code /sse}、{@code /mcp} 一律不允许出现（B89-0）；</li>
  *   <li>只关系统参数 {@code ai.module.enabled}（yml 仍开、Controller 仍注册）时，AI 接口与「未注册」一样返回 404。</li>
  * </ul>
  * GIS 的同类用例在 {@link GisApiTest#disableModuleByParamReturns404ThenRestore()}。
@@ -68,6 +71,20 @@ class ModuleGateApiTest extends AbstractIntegrationTest {
 		}
 		assertThat(checked).as("full 装配下应扫到模块接口").isPositive();
 		assertThat(uncovered).as("这些模块接口不在 ModuleGateConfig 前缀内，模块关闭时不会 404").isEmpty();
+	}
+
+	@Test
+	@DisplayName("函数式路由（RouterFunction）同样检查：模块包内的路由都被闸门覆盖，且没有 Spring AI / MCP 路由")
+	void everyModuleRouterFunctionRouteIsGated() {
+		List<ModuleRouteGuard.FnRoute> routes = new ArrayList<>();
+		context.getBeansOfType(RouterFunctionMapping.class).forEach((name, mapping) -> {
+			if (mapping.getRouterFunction() != null) {
+				routes.addAll(ModuleRouteGuard.flatten(mapping.getRouterFunction()));
+			}
+		});
+		// 未被 mapping 收录的 RouterFunction Bean 也查一遍
+		context.getBeansOfType(RouterFunction.class).values().forEach(fn -> routes.addAll(ModuleRouteGuard.flatten(fn)));
+		assertThat(ModuleRouteGuard.violations(routes)).as("这些函数式路由不在模块闸门内，或属于已移除的 Spring AI / MCP").isEmpty();
 	}
 
 	@Test
