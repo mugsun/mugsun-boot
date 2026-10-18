@@ -60,7 +60,7 @@ POM
 dep() { printf '\n\t\t<dependency><groupId>%s</groupId><artifactId>%s</artifactId><version>%s</version>%s</dependency>' "$1" "$2" "$3" "${4:-}"; }
 
 # B89-2：纯传递依赖。target/enforcer-probe/transitive/ 是一个小 reactor：
-#   wrapper（packaging=pom，自己设 enforcer.skip=true，依赖 mcp-json）→ 自身通过；
+#   wrapper（packaging=pom，用 pom 属性关掉自己的 enforcer，依赖 mcp-json）→ 自身通过；
 #   user（只依赖 wrapper，不直接声明任何禁用依赖）→ 必须因传递进来的 mcp-json 失败。
 probe_transitive() {
 	local dir="$PROBE_ROOT/transitive"
@@ -80,6 +80,8 @@ probe_transitive() {
 	</modules>
 </project>
 POM
+	# 包装模块 pom 里的 <enforcer.skip> 那一行是探针要模拟的「包装模块绕过」，只写进 target/ 下的临时工程；
+	# NoEnforcerSkipGuardTest 对本文件只豁免这一行（整行精确匹配、恰好一次），别处再出现仍会失败。
 	cat > "$dir/wrapper/pom.xml" <<POM
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
