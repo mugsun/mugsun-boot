@@ -8,7 +8,8 @@ import org.springframework.core.type.AnnotatedTypeMetadata;
 import java.util.Map;
 
 /**
- * {@link ConditionalOnModuleSwitch} 的实现，按 {@link ModuleSwitch#parseStrict} 严格解析。非法值抛 {@link IllegalStateException}，Spring 会把它包成启动失败。
+ * {@link ConditionalOnModuleSwitch} 的实现，按 {@link ModuleSwitch#parseStrict} 严格解析。非法值抛 {@link InvalidModuleSwitchException}，
+ * Spring 会把它包成启动失败，{@link ModuleSwitchFailureAnalyzer} 给出改法。
  */
 public class ModuleSwitchCondition extends SpringBootCondition {
 
@@ -19,7 +20,7 @@ public class ModuleSwitchCondition extends SpringBootCondition {
 		String raw = context.getEnvironment().getProperty(name);
 		ModuleSwitch.State state = ModuleSwitch.parseStrict(raw);
 		if (!state.legal()) {
-			throw new IllegalStateException(ModuleSwitch.strictError(name, raw));
+			throw new InvalidModuleSwitchException(name, raw);
 		}
 		String msg = name + "=" + ModuleSwitch.quote(raw) + " -> " + state;
 		return state.enabled() ? ConditionOutcome.match(msg) : ConditionOutcome.noMatch(msg);

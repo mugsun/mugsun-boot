@@ -124,13 +124,43 @@ public final class ModuleSwitch {
 		return parse(value);
 	}
 
-	/** 日志里展示原值：截断并去掉换行，防日志注入 */
-	static String quote(String raw) {
+	/** 原值最多展示多少个字符（码点），超出截断并加省略号 */
+	static final int QUOTE_MAX = 64;
+
+	/**
+	 * 报错与日志里展示原值：先按码点截断，再把所有控制字符转义成「反斜杠 + u + 四位十六进制」，防日志注入 / 伪造日志行。
+	 * <p>转义范围：C0（U+0000–U+001F，含 CR、LF、TAB）、DEL（U+007F）、C1（U+0080–U+009F），
+	 * 以及会改变显示的格式字符（如 U+200B 零宽空格、U+202E 从右到左覆盖、U+2028 / U+2029 行段分隔符）。
+	 * 反斜杠本身也写成两个反斜杠，原值里手写的「反斜杠 u000A」与真实换行在日志里不会混淆。
+	 */
+	public static String quote(String raw) {
 		if (raw == null) {
 			return "null";
 		}
-		String s = raw.length() > 64 ? raw.substring(0, 64) + "…" : raw;
-		return "'" + s.replaceAll("[\\r\\n\\t]", "?") + "'";
+		boolean cut = raw.codePointCount(0, raw.length()) > QUOTE_MAX;
+		String s = cut ? raw.substring(0, raw.offsetByCodePoints(0, QUOTE_MAX)) : raw;
+		StringBuilder sb = new StringBuilder(s.length() + 8).append('\'');
+		s.codePoints().forEach(cp -> {
+			if (cp == '\\') {
+				sb.append("\\\\");
+			} else if (isUnsafe(cp)) {
+				sb.append(String.format(Locale.ROOT, "\\u%04X", cp));
+			} else {
+				sb.appendCodePoint(cp);
+			}
+		});
+		if (cut) {
+			sb.append('…');
+		}
+		return sb.append('\'').toString();
+	}
+
+	private static boolean isUnsafe(int cp) {
+		if (Character.isISOControl(cp)) {
+			return true;
+		}
+		int type = Character.getType(cp);
+		return type == Character.FORMAT || type == Character.LINE_SEPARATOR || type == Character.PARAGRAPH_SEPARATOR;
 	}
 
 	private ModuleSwitch() {
