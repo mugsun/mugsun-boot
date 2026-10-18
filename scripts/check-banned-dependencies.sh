@@ -80,7 +80,7 @@ probe_transitive() {
 	</modules>
 </project>
 POM
-	# 包装模块 pom 里的 <enforcer.skip> 那一行是探针要模拟的「包装模块绕过」，只写进 target/ 下的临时工程；
+	# 包装模块 pom 里关掉 enforcer 的那个属性行是探针要模拟的「包装模块绕过」，只写进 target/ 下的临时工程；
 	# NoEnforcerSkipGuardTest 对本文件只豁免这一行（整行精确匹配、恰好一次），别处再出现仍会失败。
 	cat > "$dir/wrapper/pom.xml" <<POM
 <?xml version="1.0" encoding="UTF-8"?>
