@@ -12,6 +12,7 @@
 
 ### 升级须知
 
+- **AI「MCP 工具箱」下线「对外暴露」页**（mugsun-boot#92）：内置 MCP Server 移除后，这一页（MCP Server 列表与启用开关）只改 `ai_mcp_tool` 的状态、不对外提供任何服务，现已移除。`GET /system/ai/mcp/server/list`、`POST /system/ai/mcp/server/toggle` 不再注册（返回 404），权限码 `ai:mcp:server` 不再使用。新迁移 `V4__hide_ai_mcp_server.sql`（PG / openGauss / 达梦）逻辑删除「对外暴露」按钮及角色上的该授权，菜单管理与角色授权树里不再出现；`ai_mcp_tool` 表与已登记的工具保留，工具启用状态仍可在编辑表单里修改。管理台需同步去掉该标签页
 - 埋点错误堆栈：顶层 `props.stack` 的保留长度从 1024 放宽到 4096 字符，与 SDK error 插件一致；其它字符串属性仍是 1024，单事件 props 总量仍是 16KB。需配合 `@mugsun/track-web` 的同名修复，旧版 SDK 在客户端已截到 1024。props 超过 16KB 时先缩短 `stack`（按 UTF-8 字节、不拆字符），再从尾部摘键；堆栈帧 URL 的 query / hash 去掉（防 token 落库）；所有截断不再拆开代理对。错误指纹（服务端计算的 `error_fingerprint`）改为先去掉帧 URL 的 query / hash 再计算：升级后错误指纹会变化，已有的错误分组会断开一次（升级前后的同一错误分属新旧两组），之后不再因 URL 参数不同而拆组
 - 埋点来源域名：Web SDK 只上报完整 `referrer` URL，此前服务端只读 `referrer_domain`，导致来源维度恒为空。现在没有 `referrer_domain` 时从 `referrer` 取主机名（小写，不剥 `www.`）；会话的来源域名和 `utm_source` 跟随最早的事件，同一会话的事件分批到达时也能回填，只对升级后接收的新事件生效，历史数据不回填
 
