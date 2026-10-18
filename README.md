@@ -100,7 +100,7 @@ Maven Profile：
 - `MUGSUN_TRACK_ENABLED=false`
 - `MUGSUN_AI_ENABLED=false`
 
-内置 MCP Server 已移除，与它相关的变量（如 `MUGSUN_AI_MCP_SERVER`）不再有任何作用；`/sse`、`/mcp` 任何情况下都返回 404。根 POM 的 maven-enforcer 规则禁止引入 Spring AI（`org.springframework.ai:*`）与 MCP SDK（`io.modelcontextprotocol*`），包括传递依赖。
+内置 MCP Server 暂时下线，正在加鉴权后恢复。下线期间 `/sse`、`/mcp` 返回 404，`MUGSUN_AI_MCP_SERVER` 不起作用；根 POM 的 maven-enforcer 规则暂时拦下 Spring AI（`org.springframework.ai:*`）与 MCP SDK（`io.modelcontextprotocol*`），包括传递依赖。
 
 模块装配说明见 [docs/可选模块装配.md](docs/可选模块装配.md)。
 
@@ -118,7 +118,7 @@ Maven Profile：
 
 - `mugsun-boot-track`：`/track/collect`、配置下发与分析相关 API，与浏览器 SDK、管理端看板构成完整链路
 - `mugsun-boot-gis`：空间数据与矢量瓦片（依赖 PostGIS）
-- `mugsun-boot-ai`：模型、对话、知识库，以及在编排中调用外部 MCP 工具（不提供 MCP Server）
+- `mugsun-boot-ai`：模型、对话、知识库，以及在编排中调用外部 MCP 工具（内置 MCP Server 暂时下线，正在加鉴权后恢复）
 
 **运行约定**
 

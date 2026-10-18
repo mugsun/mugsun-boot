@@ -84,7 +84,7 @@ class ModuleGateApiTest extends AbstractIntegrationTest {
 		});
 		// 未被 mapping 收录的 RouterFunction Bean 也查一遍
 		context.getBeansOfType(RouterFunction.class).values().forEach(fn -> routes.addAll(ModuleRouteGuard.flatten(fn)));
-		assertThat(ModuleRouteGuard.violations(routes)).as("这些函数式路由不在模块闸门内，或属于已移除的 Spring AI / MCP").isEmpty();
+		assertThat(ModuleRouteGuard.violations(routes)).as("这些函数式路由不在模块闸门内，或属于暂时下线（加鉴权后恢复）的 Spring AI / MCP").isEmpty();
 	}
 
 	@Test

@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 模块若以 RouterFunction 注册路由（不走 {@code @RequestMapping}），落在闸门前缀内同样受控。
  * 这里用真实的 Spring MVC 装配（{@code @EnableWebMvc} → RouterFunctionMapping）验证。
- * <p>B89-0：内置 MCP Server 已移除，{@code spring.ai.mcp.server.*} 不再影响闸门（本例故意设置了该配置，作反向守卫）。
+ * <p>B89-0：内置 MCP Server 暂时下线（加鉴权后恢复），{@code spring.ai.mcp.server.*} 不再影响闸门（本例故意设置了该配置，作反向守卫）。
  */
 @SpringJUnitWebConfig(ModuleGateRouterFunctionTest.WebConfig.class)
 @TestPropertySource(properties = {"spring.ai.mcp.server.enabled=true", "spring.ai.mcp.server.sse-endpoint=/custom-sse"})

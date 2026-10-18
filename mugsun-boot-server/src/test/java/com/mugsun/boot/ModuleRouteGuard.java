@@ -52,7 +52,7 @@ public final class ModuleRouteGuard {
 			if (owner.startsWith("org.springframework.ai") || owner.startsWith("io.modelcontextprotocol")
 				|| (path != null && (path.equals("/sse") || path.startsWith("/sse/")
 					|| path.equals("/mcp") || path.startsWith("/mcp/")))) {
-				out.add("已移除的 MCP / Spring AI 路由：" + owner + " " + path);
+				out.add("暂时下线（加鉴权后恢复）的 MCP / Spring AI 路由：" + owner + " " + path);
 				continue;
 			}
 			for (Map.Entry<String, String[]> gate : GATES.entrySet()) {
