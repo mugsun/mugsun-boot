@@ -4,15 +4,21 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 可选模块开关的唯一取值解析器。yml / 环境变量（{@code mugsun.<f>.enabled}）、系统参数（{@code <f>.module.enabled}）
- * 保存校验与运行时判定都走这里，规则只写一遍：
+ * 可选模块开关的唯一取值解析器，两层规则都在这里：
+ * <p><b>yml / 环境变量</b>（{@code mugsun.<f>.enabled}，{@link #parseStrict}）——严格：
  * <ul>
- *   <li>先去掉首尾空格；</li>
- *   <li>{@code true} / {@code false}（不区分大小写）：开 / 关；</li>
- *   <li>{@code 1} / {@code 0}：仍按开 / 关处理，但已弃用，会打警告；</li>
- *   <li>未设置或空值：视为没配，按默认（开）；</li>
- *   <li>其它值：非法。启动期（yml / 环境变量）直接启动失败；保存系统参数时拒收；运行时按关闭处理并限频打警告。</li>
+ *   <li>属性不存在：按默认开启；</li>
+ *   <li>只认恰好 {@code true} / {@code false}（不区分大小写，不能带首尾空格）；</li>
+ *   <li>其它一律非法，包括设置了但为空、{@code 1}/{@code 0}、带空格的值、{@code yes}/{@code on} 等，启动失败。绝不悄悄开启或关闭模块。</li>
  * </ul>
+ * <p><b>系统参数</b>（{@code <f>.module.enabled}，{@link #parse}）——宽松：
+ * <ul>
+ *   <li>先去掉首尾空格；{@code true} / {@code false} 不区分大小写；</li>
+ *   <li>{@code 1} / {@code 0}：仍按开 / 关处理，但已弃用，会打警告；</li>
+ *   <li>空值：按默认开启；</li>
+ *   <li>其它值：保存时拒收；运行时按关闭处理并限频打警告。</li>
+ * </ul>
+ * 两层都接受的值，开关结论必然相同。
  */
 public final class ModuleSwitch {
 
@@ -63,6 +69,36 @@ public final class ModuleSwitch {
 	public static final String MSG_INVALID = "模块开关只能填 true 或 false（不区分大小写），留空表示按默认开启";
 	public static final String MSG_DEPRECATED = "模块开关写 1/0 已弃用，请改成 true/false";
 
+	/**
+	 * yml / 环境变量层的严格解析：{@code null}（属性不存在）为 {@link State#UNSET}；恰好 true/false（不区分大小写）为开 / 关；
+	 * 其它（含空串、1/0、带空格）一律 {@link State#INVALID}。
+	 */
+	public static State parseStrict(String raw) {
+		if (raw == null) {
+			return State.UNSET;
+		}
+		if ("true".equalsIgnoreCase(raw)) {
+			return State.ON;
+		}
+		if ("false".equalsIgnoreCase(raw)) {
+			return State.OFF;
+		}
+		return State.INVALID;
+	}
+
+	/** 属性名对应的环境变量名，如 {@code mugsun.ai.enabled} → {@code MUGSUN_AI_ENABLED} */
+	public static String envName(String property) {
+		return property.replace('.', '_').replace('-', '_').toUpperCase(Locale.ROOT);
+	}
+
+	/** yml / 环境变量层非法值的启动报错文案 */
+	public static String strictError(String property, String raw) {
+		return "配置项 " + property + "（环境变量 " + envName(property) + "）的值 " + quote(raw) + " 不合法："
+			+ "请写 true 或 false（不区分大小写，前后不能有空格）；不写这一项表示开启。"
+			+ "空值、1/0、yes/on/no/off 都不再接受";
+	}
+
+	/** 系统参数层的宽松解析（见类注释） */
 	public static State parse(String raw) {
 		if (raw == null) {
 			return State.UNSET;

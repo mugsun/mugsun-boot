@@ -9,7 +9,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * 按 {@link ModuleSwitch} 规则读取 yml / 环境变量开关决定是否装配。取值非法时启动失败，而不是悄悄关闭模块。
+ * 按 {@link ModuleSwitch#parseStrict} 读取 yml / 环境变量开关决定是否装配：属性不存在按开启，只认 true/false（不区分大小写、不带空格），
+ * 其它值（含空值、1/0）启动失败，而不是悄悄开启或关闭模块。
  * <p>例：{@code @ConditionalOnModuleSwitch("mugsun.ai.enabled")}。
  */
 @Target({ElementType.TYPE, ElementType.METHOD})

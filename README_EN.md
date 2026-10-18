@@ -94,7 +94,7 @@ Maven profiles:
 | `gis-only` / `track-only` / `ai-only` | Core + one optional module; disable full |
 | `kingbase` / `dameng` | Domestic database drivers |
 
-Runtime flags (classes may still be on the classpath). Only `true` / `false` are accepted (case-insensitive, surrounding spaces ignored); unset or empty means on, and any other value fails startup:
+Runtime flags (classes may still be on the classpath). Unset means on. When set, only `true` or `false` is accepted (case-insensitive, no surrounding spaces); an empty value, `1` / `0`, `yes` / `no` or anything else stops startup:
 
 - `MUGSUN_GIS_ENABLED=false`
 - `MUGSUN_TRACK_ENABLED=false`
