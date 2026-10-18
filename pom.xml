@@ -148,6 +148,8 @@
 						<configuration>
 							<rules>
 								<bannedDependencies>
+									<!-- B89-2：显式按传递依赖检查（默认值也是 true，写明防止被改掉）；探针见 scripts/check-banned-dependencies.sh 的 transitive-via-wrapper -->
+									<searchTransitive>true</searchTransitive>
 									<excludes>
 										<exclude>org.springframework.ai</exclude>
 										<exclude>io.modelcontextprotocol*</exclude>

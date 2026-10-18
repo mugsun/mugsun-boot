@@ -12,6 +12,7 @@
 
 ### 升级须知
 
+- **破坏性变更：内置 MCP Server 已移除**（mugsun-boot#89）。Spring AI 与 MCP SDK 整体移出依赖，`/sse`、`/mcp`、`/mcp/message` 不再存在（任何配置下都返回 404），`MUGSUN_AI_MCP_SERVER` 等相关变量与 `spring.ai.mcp.server.*` 配置不再有任何作用。原因：Spring AI 的 MCP Server 自动装配不经过本项目鉴权，打开即是匿名可调的端点。AI 模块调用外部 MCP 工具（「MCP 工具箱」、工作流 MCP 节点）不受影响。根 pom 的 maven-enforcer `bannedDependencies` 禁止 `org.springframework.ai`、`io.modelcontextprotocol*`（含传递依赖）重新引入，`scripts/check-banned-dependencies.sh` 在 CI 中证明规则会触发；任何 pom 都不允许写 `enforcer.skip`（`NoEnforcerSkipGuardTest`）。曾通过内置 MCP Server 对外提供工具的部署，需要改为自建 MCP 服务
 - 埋点错误堆栈：顶层 `props.stack` 的保留长度从 1024 放宽到 4096 字符，与 SDK error 插件一致；其它字符串属性仍是 1024，单事件 props 总量仍是 16KB。需配合 `@mugsun/track-web` 的同名修复，旧版 SDK 在客户端已截到 1024。props 超过 16KB 时先缩短 `stack`（按 UTF-8 字节、不拆字符），再从尾部摘键；堆栈帧 URL 的 query / hash 去掉（防 token 落库）；所有截断不再拆开代理对。错误指纹（服务端计算的 `error_fingerprint`）改为先去掉帧 URL 的 query / hash 再计算：升级后错误指纹会变化，已有的错误分组会断开一次（升级前后的同一错误分属新旧两组），之后不再因 URL 参数不同而拆组
 - 埋点来源域名：Web SDK 只上报完整 `referrer` URL，此前服务端只读 `referrer_domain`，导致来源维度恒为空。现在没有 `referrer_domain` 时从 `referrer` 取主机名（小写，不剥 `www.`）；会话的来源域名和 `utm_source` 跟随最早的事件，同一会话的事件分批到达时也能回填，只对升级后接收的新事件生效，历史数据不回填
 
