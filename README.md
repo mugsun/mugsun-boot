@@ -94,7 +94,7 @@ Maven Profile：
 | `gis-only` / `track-only` / `ai-only` | 核心 + 单一可选模块；须关闭 full |
 | `kingbase` / `dameng` | 信创数据库驱动 |
 
-运行时可通过环境变量关闭能力（JAR 仍可能包含对应类路径）：
+运行时可通过环境变量关闭能力（JAR 仍可能包含对应类路径）。不设置按开启；设置时只接受 `true` 或 `false`（不区分大小写，前后不能有空格），空值、`1` / `0`、`yes` / `no` 等其它值都会启动失败：
 
 - `MUGSUN_GIS_ENABLED=false`
 - `MUGSUN_TRACK_ENABLED=false`
