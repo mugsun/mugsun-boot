@@ -89,18 +89,27 @@ class GisApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("只关系统参数 gis.module.enabled：GIS 接口一律 404（与 yml 关闭一致），改回后恢复")
+	@DisplayName("只关系统参数 gis.module.enabled：GIS 接口一律 404（与 yml 关闭一致），/system/gis/status 例外仍报 enabled:false，改回后恢复")
 	void disableModuleByParamReturns404ThenRestore() {
 		paramService.setValue("gis.module.enabled", "false");
 		try {
-			assertThat(get("/system/gis/status", adminToken).getStatusCode().value()).isEqualTo(404);
+			// 状态接口不过闸门：管理台各 GIS 页面据此展示空态（B87-6）
+			ResponseEntity<String> statusResp = get("/system/gis/status", adminToken);
+			assertThat(statusResp.getStatusCode().value()).isEqualTo(200);
+			JsonNode off = readBody(statusResp);
+			assertThat(off.path("code").asInt()).isEqualTo(200);
+			assertThat(off.path("data").path("enabled").asBoolean(true)).isFalse();
+			assertThat(off.path("data").path("providers").size()).isZero();
+			// 状态接口仍要登录
+			assertThat(get("/system/gis/status", null).getStatusCode().value()).isEqualTo(401);
+			assertThat(get("/system/gis/spatial/status", adminToken).getStatusCode().value()).isEqualTo(404);
 			assertThat(get("/system/gis/scene/page?pageNum=1&pageSize=10", adminToken).getStatusCode().value())
 				.isEqualTo(404);
 			Map<String, Object> scene = new HashMap<>();
 			scene.put("name", "should-reject");
 			assertThat(post("/system/gis/scene/submit", scene, adminToken).getStatusCode().value()).isEqualTo(404);
 			// 匿名同样 404：闸门先于登录校验，不暴露接口存在
-			assertThat(get("/system/gis/status", null).getStatusCode().value()).isEqualTo(404);
+			assertThat(get("/system/gis/scene/page?pageNum=1&pageSize=10", null).getStatusCode().value()).isEqualTo(404);
 			assertThat(readBody(get("/auth/info", adminToken)).path("data").path("gisEnabled").asBoolean()).isFalse();
 		} finally {
 			paramService.setValue("gis.module.enabled", "true");
