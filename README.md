@@ -11,7 +11,7 @@
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![JDK](https://img.shields.io/badge/JDK-21-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
-![License](https://img.shields.io/badge/License-Apache%202.0-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 ## 概述
 
@@ -22,7 +22,7 @@
 | 框架 | Spring Boot 3.5.13 |
 | 数据层 | PostgreSQL 16（PostGIS + pgvector）；Redis 7（默认库号 `3`） |
 | 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0`（已发布至 [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)） |
-| 许可 | [Apache-2.0](./LICENSE) |
+| 许可 | [MIT](./LICENSE) |
 | 文档 | [docs.mugsun.com/boot](https://docs.mugsun.com/boot/) |
 
 技术组件（以当前 POM 为准）：MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway、Spring AI 1.1.2（AI 模块）。
@@ -143,4 +143,4 @@ Maven Profile：
 
 ## 许可
 
-[Apache-2.0](./LICENSE) · 版权见 [NOTICE](./NOTICE) · © 2026 北京定旭晨 / mugsun
+[MIT](./LICENSE) · 版权见 [NOTICE](./NOTICE) · © 2026 北京定旭晨 / mugsun

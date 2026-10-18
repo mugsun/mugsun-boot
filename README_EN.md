@@ -11,7 +11,7 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![JDK](https://img.shields.io/badge/JDK-21-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
-![License](https://img.shields.io/badge/License-Apache%202.0-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 ## Overview
 
@@ -22,7 +22,7 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 | Framework | Spring Boot 3.5.13 |
 | Data stores | PostgreSQL 16 (PostGIS + pgvector); Redis 7 (default database index `3`) |
 | Dependency | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0` (published to [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)) |
-| License | [Apache-2.0](./LICENSE) |
+| License | [MIT](./LICENSE) |
 | Docs | [docs.mugsun.com/en/boot](https://docs.mugsun.com/en/boot/) |
 
 Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway, Spring AI 1.1.2 (AI module).
@@ -143,4 +143,4 @@ Open-source line: `boot` · `core` · `pc` · `track` · [mugsun-docs](https://g
 
 ## License
 
-[Apache-2.0](./LICENSE)
+[MIT](./LICENSE)
