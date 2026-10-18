@@ -1,6 +1,8 @@
 package com.mugsun.boot.ai;
 
 import com.mugsun.boot.common.module.AiModuleStatus;
+import com.mugsun.boot.common.module.ModuleSwitch;
+import com.mugsun.boot.common.module.ModuleSwitchRuntime;
 import com.mugsun.boot.system.service.ParamService;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,8 +16,9 @@ public class AiModuleService implements AiModuleStatus {
 
 	private final ParamService paramService;
 
-	@Value("${mugsun.ai.enabled:true}")
-	private boolean yamlEnabled;
+	/** 按字符串读，交给 {@link ModuleSwitch} 解析；不用 boolean 注入（空值会转换失败、yes/on 会被 Spring 当成真） */
+	@Value("${mugsun.ai.enabled:}")
+	private String yamlRaw;
 
 	public AiModuleService(ParamService paramService) {
 		this.paramService = paramService;
@@ -32,14 +35,11 @@ public class AiModuleService implements AiModuleStatus {
 	}
 
 	public boolean isEnabled() {
-		if (!yamlEnabled) {
+		if (!ModuleSwitch.parse(yamlRaw).enabled()) {
 			return false;
 		}
-		String v = paramService.getValue(AiConstants.PARAM_MODULE_ENABLED);
-		if (v == null || v.isBlank()) {
-			return true;
-		}
-		return "true".equalsIgnoreCase(v.trim()) || "1".equals(v.trim());
+		return ModuleSwitchRuntime.shared().enabled(AiConstants.PARAM_MODULE_ENABLED,
+			paramService.getValue(AiConstants.PARAM_MODULE_ENABLED));
 	}
 
 	public void requireEnabled() {

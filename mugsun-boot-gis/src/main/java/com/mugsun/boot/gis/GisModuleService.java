@@ -1,6 +1,8 @@
 package com.mugsun.boot.gis;
 
 import com.mugsun.boot.common.module.GisModuleStatus;
+import com.mugsun.boot.common.module.ModuleSwitch;
+import com.mugsun.boot.common.module.ModuleSwitchRuntime;
 import com.mugsun.boot.system.service.ParamService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -14,8 +16,9 @@ public class GisModuleService implements GisModuleStatus {
 
 	private final ParamService paramService;
 
-	@Value("${mugsun.gis.enabled:true}")
-	private boolean yamlEnabled;
+	/** 按字符串读，交给 {@link ModuleSwitch} 解析；不用 boolean 注入（空值会转换失败、yes/on 会被 Spring 当成真） */
+	@Value("${mugsun.gis.enabled:}")
+	private String yamlRaw;
 
 	public GisModuleService(ParamService paramService) {
 		this.paramService = paramService;
@@ -32,14 +35,11 @@ public class GisModuleService implements GisModuleStatus {
 	}
 
 	public boolean isEnabled() {
-		if (!yamlEnabled) {
+		if (!ModuleSwitch.parse(yamlRaw).enabled()) {
 			return false;
 		}
-		String v = paramService.getValue(GisConstants.PARAM_MODULE_ENABLED);
-		if (v == null || v.isBlank()) {
-			return true;
-		}
-		return "true".equalsIgnoreCase(v.trim()) || "1".equals(v.trim());
+		return ModuleSwitchRuntime.shared().enabled(GisConstants.PARAM_MODULE_ENABLED,
+			paramService.getValue(GisConstants.PARAM_MODULE_ENABLED));
 	}
 
 	/**

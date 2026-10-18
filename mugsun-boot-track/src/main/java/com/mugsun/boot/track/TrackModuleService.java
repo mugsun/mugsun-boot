@@ -1,5 +1,6 @@
 package com.mugsun.boot.track;
 
+import com.mugsun.boot.common.module.ModuleSwitch;
 import com.mugsun.boot.common.module.TrackModuleStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -11,8 +12,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class TrackModuleService implements TrackModuleStatus {
 
-	@Value("${mugsun.track.enabled:true}")
-	private boolean yamlEnabled;
+	@Value("${mugsun.track.enabled:}")
+	private String yamlRaw;
 
 	@Override
 	public boolean present() {
@@ -21,6 +22,6 @@ public class TrackModuleService implements TrackModuleStatus {
 
 	@Override
 	public boolean enabled() {
-		return yamlEnabled;
+		return ModuleSwitch.parse(yamlRaw).enabled();
 	}
 }
