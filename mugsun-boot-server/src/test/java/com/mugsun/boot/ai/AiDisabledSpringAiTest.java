@@ -43,14 +43,27 @@ class AiDisabledSpringAiTest extends AbstractIntegrationTest {
 	void noSpringAiBeans() {
 		List<String> found = new ArrayList<>();
 		for (String name : context.getBeanDefinitionNames()) {
-			Class<?> type = context.getBeanFactory().getType(name, false);
-			String typeName = type == null ? "" : type.getName();
-			if (typeName.startsWith("org.springframework.ai.") || typeName.startsWith("io.modelcontextprotocol.")
-				|| name.startsWith("org.springframework.ai.")) {
-				found.add(name + " : " + typeName);
+			// 上下文已完全启动，允许 FactoryBean 初始化以拿到真实类型；仍解析不出类型的一律计入（fail closed，B88-2）
+			Class<?> type = context.getBeanFactory().getType(name);
+			String className = context.getBeanFactory().getBeanDefinition(name).getBeanClassName();
+			if (type == null) {
+				found.add(name + " : <unresolved>");
+			} else if (isSpringAi(type.getName()) || isSpringAi(name) || (className != null && isSpringAi(className))) {
+				found.add(name + " : " + type.getName());
 			}
 		}
 		assertThat(found).isEmpty();
+	}
+
+	@Test
+	@DisplayName("前提：Spring AI 的自动装配类确实在 classpath 上（否则「没有 Bean」不说明过滤器生效）")
+	void springAiAutoConfigurationsPresent() throws ClassNotFoundException {
+		Class.forName("org.springframework.ai.mcp.server.common.autoconfigure.McpServerAutoConfiguration");
+		Class.forName("org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration");
+	}
+
+	private static boolean isSpringAi(String name) {
+		return name.startsWith("org.springframework.ai.") || name.startsWith("io.modelcontextprotocol.");
 	}
 
 	@Test
