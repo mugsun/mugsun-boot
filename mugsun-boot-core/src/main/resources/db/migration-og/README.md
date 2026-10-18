@@ -17,6 +17,7 @@ CREATE DATABASE mugsun DBCOMPATIBILITY 'PG';
 - `ON CONFLICT DO NOTHING` → `ON DUPLICATE KEY UPDATE NOTHING`
 - 去掉 `ADD COLUMN IF NOT EXISTS`（列已在 `CREATE TABLE` 里的整句删掉）
 - 去掉部分索引的 `WHERE`（带 `IS NOT NULL` 的唯一索引降成普通索引）
+- V7 起：PG 里 `WHERE is_deleted = 0` 的部分唯一索引，在这里写成表达式唯一索引，每个键列包 `CASE WHEN is_deleted = 0 THEN 列 END`（已删除的行整组键为 NULL，不参与唯一）。不要写成 `(列, is_deleted)`：同一个键删两次就会撞键。注：2026-10-18 实测 openGauss-lite 5.1 也支持部分唯一索引，为与达梦同一写法仍用表达式索引
 - lite 没有 PostGIS / pgvector：不建 `gis_feature`，向量表没有 embedding 列
 
 镜像：`enmotech/opengauss-lite:5.1.0`，`--privileged`，宿主机端口 15432。不要用企业版 `enmotech/opengauss:5.0.0`。
