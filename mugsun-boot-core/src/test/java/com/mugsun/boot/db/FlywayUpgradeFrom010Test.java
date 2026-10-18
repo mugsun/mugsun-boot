@@ -78,11 +78,18 @@ class FlywayUpgradeFrom010Test {
 				assertThat(count(st, "SELECT count(*) FROM sys_changelog WHERE version IN ('v1.2.0','v1.1.0','v1.0.0')")).isEqualTo(3);
 				// 模拟升级前已有管理员角色，验证 V2 会补授权
 				st.execute("INSERT INTO sys_role (id, role_name, role_code, is_deleted) VALUES (9100000000000000001, '管理员', 'admin', 0)");
+				// 0.1.0 里「对外暴露」按钮（ai:mcp:server）仍在，且有角色授过它；V4 要把两者都逻辑删除
+				assertThat(count(st, "SELECT count(*) FROM sys_menu WHERE permission = 'ai:mcp:server' AND is_deleted = 0")).isEqualTo(1);
+				st.execute("INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted) "
+					+ "SELECT 9100000000000000226, 9100000000000000001, id, now(), 0 FROM sys_menu WHERE permission = 'ai:mcp:server'");
 			}
 			Flyway current = current(url);
 			current.migrate();
 			current.validate();
 			assertUpgraded(url, true);
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				assertThat(count(st, "SELECT count(*) FROM sys_role_menu WHERE id = 9100000000000000226 AND is_deleted = 1")).isEqualTo(1);
+			}
 		});
 	}
 
@@ -144,7 +151,13 @@ class FlywayUpgradeFrom010Test {
 				assertThat(count(st, "SELECT count(DISTINCT rm.menu_id) FROM sys_role_menu rm JOIN sys_role r ON r.id = rm.role_id "
 					+ "WHERE r.role_code='admin' AND rm.menu_id IN (1077000000000000001,1077000000000000002,1077000000000000003)")).isEqualTo(3);
 			}
-			assertThat(count(st, "SELECT max(version::int) FROM flyway_schema_history WHERE success AND version ~ '^[0-9]+$'")).isGreaterThanOrEqualTo(3);
+			// V4：下线 AI「对外暴露」（MCP Server 列表与开关）；页面「MCP 工具箱」与其它按钮、ai_mcp_tool 表都保留
+			assertThat(count(st, "SELECT count(*) FROM sys_menu WHERE permission = 'ai:mcp:server' AND is_deleted = 0")).isZero();
+			assertThat(count(st, "SELECT count(*) FROM sys_role_menu rm JOIN sys_menu m ON m.id = rm.menu_id "
+				+ "WHERE m.permission = 'ai:mcp:server' AND rm.is_deleted = 0")).isZero();
+			assertThat(count(st, "SELECT count(*) FROM sys_menu WHERE permission IN ('ai:mcp:list','ai:mcp:save','ai:mcp:debug') AND is_deleted = 0")).isEqualTo(3);
+			assertThat(count(st, "SELECT count(*) FROM information_schema.tables WHERE table_name = 'ai_mcp_tool'")).isEqualTo(1);
+			assertThat(count(st, "SELECT max(version::int) FROM flyway_schema_history WHERE success AND version ~ '^[0-9]+$'")).isGreaterThanOrEqualTo(4);
 		}
 	}
 

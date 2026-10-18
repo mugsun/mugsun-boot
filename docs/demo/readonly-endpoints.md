@@ -92,7 +92,6 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/system/ai/mcp/lock` | AiMcpController#lock | 拒绝 |
 | POST | `/system/ai/mcp/parse` | AiMcpController#parse | 拒绝 |
 | POST | `/system/ai/mcp/remove` | AiMcpController#remove | 拒绝 |
-| POST | `/system/ai/mcp/server/toggle` | AiMcpController#toggle | 拒绝 |
 | POST | `/system/ai/mcp/submit` | AiMcpController#submit | 拒绝 |
 | POST | `/system/ai/model/default` | AiModelController#setDefault | 拒绝 |
 | POST | `/system/ai/model/remove` | AiModelController#remove | 拒绝 |

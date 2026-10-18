@@ -15,6 +15,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * AI「MCP 工具箱」：登记与调试外部 MCP 工具（工作流 MCP 节点调用它们）。
+ * <p>原「对外暴露」页（{@code /system/ai/mcp/server/list}、{@code /server/toggle}，权限 {@code ai:mcp:server}）已下线：
+ * 内置 MCP Server 在 mugsun-boot#89 移除后，它只改 ai_mcp_tool 的状态、不对外提供任何服务。菜单按钮由 V4 迁移逻辑删除，接口不再注册（404）。
+ */
 @RestController
 @RequestMapping("/system/ai/mcp")
 @SaCheckLogin
@@ -114,29 +119,6 @@ public class AiMcpController {
 			: "已解锁「" + tool.getName() + "」。可以继续编辑和删除");
 	}
 
-	@GetMapping("/server/list")
-	@SaCheckPermission(AiConstants.PERM_MCP_SERVER)
-	public R<List<AiMcpTool>> servers() {
-		return R.data(service.exposed());
-	}
-
-	@RepeatSubmit
-	@PostMapping("/server/toggle")
-	@SaCheckPermission(AiConstants.PERM_MCP_SERVER)
-	public R<Void> toggle(@RequestBody(required = false) Map<String, Object> body) {
-		if (body == null || body.get("id") == null || String.valueOf(body.get("id")).isBlank()) {
-			throw new ServiceException("请先在列表里选择要改状态的 MCP");
-		}
-		if (body.get("status") == null || String.valueOf(body.get("status")).isBlank()) {
-			throw new ServiceException("状态请选择启用或停用");
-		}
-		int status = parseFlag(body.get("status"));
-		AiMcpTool tool = service.setStatus(parseId(body.get("id")), status);
-		return R.success(status == 1
-			? "已启用「" + tool.getName() + "」。对外暴露列表里还能看到"
-			: "已停用「" + tool.getName() + "」。对外暴露列表里不会再出现");
-	}
-
 	private static Long requireId(String id, Map<String, Object> body, String emptyHint) {
 		Object raw = id;
 		if ((raw == null || String.valueOf(raw).isBlank()) && body != null) {
@@ -176,13 +158,5 @@ public class AiMcpController {
 			throw new ServiceException("MCP 编号请填写数字，可以从列表里复制");
 		}
 		return Long.valueOf(text);
-	}
-
-	private static int parseFlag(Object raw) {
-		String text = String.valueOf(raw).trim();
-		if (!text.matches("[01]")) {
-			throw new ServiceException("状态请选择启用或停用");
-		}
-		return Integer.parseInt(text);
 	}
 }

@@ -342,31 +342,6 @@ public class AiMcpBizService {
 		return tool;
 	}
 
-	public AiMcpTool setStatus(Long id, Integer status) {
-		moduleService.requireEnabled();
-		if (status == null || (status != 0 && status != 1)) {
-			throw new ServiceException("状态请选择启用或停用");
-		}
-		AiMcpTool tool = require(id);
-		tool.setStatus(status);
-		if (status == 0) {
-			tool.setDefaultFlag(AiConstants.FLAG_NO);
-		}
-		tool.sanitizeForUpdate();
-		mapper.update(tool);
-		return tool;
-	}
-
-	/** 对外暴露页：已启用、且不是纯本地 echo 的工具。 */
-	public List<AiMcpTool> exposed() {
-		moduleService.requireEnabled();
-		List<AiMcpTool> list = mapper.selectListByQuery(
-			QueryWrapper.create().eq("status", AiConstants.STATUS_ENABLE).orderBy("id", false));
-		list.removeIf(tool -> !isRemote(resolveTransport(tool)));
-		list.forEach(this::mask);
-		return list;
-	}
-
 	private static boolean isRemote(String transport) {
 		if (transport == null) {
 			return false;

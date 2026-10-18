@@ -120,7 +120,6 @@ public final class AiConstants {
 	public static final String PERM_MCP_DEBUG = "ai:mcp:debug";
 	public static final String PERM_MCP_LOCK = "ai:mcp:lock";
 	public static final String PERM_MCP_DEFAULT = "ai:mcp:default";
-	public static final String PERM_MCP_SERVER = "ai:mcp:server";
 
 	public static final String PERM_VECTOR_LIST = "ai:vector:list";
 	public static final String PERM_VECTOR_SAVE = "ai:vector:save";

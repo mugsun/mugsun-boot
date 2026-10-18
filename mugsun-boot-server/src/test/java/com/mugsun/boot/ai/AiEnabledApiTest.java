@@ -56,4 +56,44 @@ class AiEnabledApiTest extends AbstractIntegrationTest {
 			assertThat(post("/mcp/message", java.util.Map.of(), t).getStatusCode().value()).as(who + " POST /mcp/message").isEqualTo(404);
 		}
 	}
+
+	@Test
+	@DisplayName("MCP Server 管理页下线：/system/ai/mcp/server/list、/server/toggle 未注册（管理员 404），MCP 工具箱其它接口照常；ai:mcp:server 按钮与授权已逻辑删除")
+	void mcpServerAdminPagesOffline() throws Exception {
+		RequestMappingHandlerMapping mapping =
+			context.getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
+		List<String> patterns = new ArrayList<>();
+		mapping.getHandlerMethods().keySet().forEach(info -> patterns.addAll(info.getPatternValues()));
+		assertThat(patterns).contains("/system/ai/mcp/page")
+			.noneMatch(p -> p.startsWith("/system/ai/mcp/server"));
+
+		String token = loginAdmin();
+		assertThat(get("/system/ai/mcp/server/list", token).getStatusCode().value()).as("GET /server/list").isEqualTo(404);
+		assertThat(post("/system/ai/mcp/server/toggle", java.util.Map.of("id", "1", "status", 1), token).getStatusCode().value())
+			.as("POST /server/toggle").isEqualTo(404);
+		ResponseEntity<String> page = get("/system/ai/mcp/page", token);
+		assertThat(page.getStatusCode().value()).as("MCP 工具箱列表照常：" + page.getBody()).isEqualTo(200);
+		assertThat(readBody(page).path("code").asInt()).isEqualTo(200);
+
+		try (java.sql.Connection c = java.sql.DriverManager.getConnection(primaryJdbcUrl(), primaryJdbcUsername(), primaryJdbcPassword());
+			 java.sql.Statement st = c.createStatement()) {
+			assertThat(count(st, "SELECT count(*) FROM sys_menu WHERE permission = 'ai:mcp:server' AND is_deleted = 0"))
+				.as("V4：对外暴露按钮已逻辑删除").isZero();
+			assertThat(count(st, "SELECT count(*) FROM sys_role_menu rm JOIN sys_menu m ON m.id = rm.menu_id "
+				+ "WHERE m.permission = 'ai:mcp:server' AND rm.is_deleted = 0")).as("V4：角色上的该授权已撤销").isZero();
+			assertThat(count(st, "SELECT count(*) FROM sys_menu WHERE permission IN ('ai:mcp:list','ai:mcp:save') AND is_deleted = 0"))
+				.as("MCP 工具箱页面与其它按钮保留").isEqualTo(2);
+			assertThat(count(st, "SELECT count(*) FROM information_schema.tables WHERE table_name = 'ai_mcp_tool'"))
+				.as("ai_mcp_tool 表保留").isEqualTo(1);
+		}
+		JsonNode tree = readBody(get("/system/menu/tree", token)).path("data");
+		assertThat(tree.toString()).as("菜单管理树不含 ai:mcp:server").doesNotContain("ai:mcp:server");
+	}
+
+	private static long count(java.sql.Statement st, String sql) throws java.sql.SQLException {
+		try (java.sql.ResultSet rs = st.executeQuery(sql)) {
+			rs.next();
+			return rs.getLong(1);
+		}
+	}
 }

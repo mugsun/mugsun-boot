@@ -3,6 +3,7 @@
 - `V1__baseline_0_1.sql`：0.1.0 发布基线（已发布，不可修改）。
 - `V2__file_perm.sql`：附件归属列 `sys_attach.create_user` 与 `sys:file:manage/public/remove` 权限。
 - `V3__clean_fake_changelog.sql`：清掉演示更新日志，写入真实 0.1.0。
+- `V4__hide_ai_mcp_server.sql`：下线 AI「MCP 工具箱」的「对外暴露」按钮权限 `ai:mcp:server`（逻辑删除菜单与角色授权，不动 `ai_mcp_tool`）。
 
 ## 迁移规则（0.1.0 已发布）
 
