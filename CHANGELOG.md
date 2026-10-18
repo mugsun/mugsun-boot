@@ -6,6 +6,7 @@
 
 ### 说明
 
+- 许可证由 Apache-2.0 改为 MIT（见 `LICENSE`）
 - 当前仓库版本号为 `0.1.0`（见根 `pom.xml`），尚未打 GitHub Release tag
 - 依赖 `com.mugsun` 已可从 Maven Central 拉取（`0.1.0`）
 
