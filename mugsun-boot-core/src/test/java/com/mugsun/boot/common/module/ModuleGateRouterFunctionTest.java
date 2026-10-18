@@ -5,7 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit.jupiter.web.SpringJUnitWebConfig;
@@ -34,7 +33,11 @@ class ModuleGateRouterFunctionTest {
 
 	static final AtomicBoolean AI = new AtomicBoolean(true);
 
-	@Configuration
+	/**
+	 * 故意不加 {@code @Configuration}：MugsunApplication 的 {@code @ComponentScan} 覆盖了 com.mugsun.boot 且没有 TypeExcludeFilter，
+	 * 加了就会被集成测试上下文扫进去，{@code @EnableWebMvc} 会关掉 Boot 的 MVC 自动装配（静态资源 404 变成 500）。
+	 * 只经 {@code @SpringJUnitWebConfig} 显式注册。
+	 */
 	@EnableWebMvc
 	@Import(ModuleGateConfig.class)
 	static class WebConfig {
