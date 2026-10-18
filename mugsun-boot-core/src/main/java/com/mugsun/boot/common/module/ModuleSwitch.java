@@ -93,9 +93,9 @@ public final class ModuleSwitch {
 
 	/** yml / 环境变量层非法值的启动报错文案 */
 	public static String strictError(String property, String raw) {
-		return "配置项 " + property + "（环境变量 " + envName(property) + "）的值 " + quote(raw) + " 不合法："
-			+ "请写 true 或 false（不区分大小写，前后不能有空格）；不写这一项表示开启。"
-			+ "空值、1/0、yes/on/no/off 都不再接受";
+		return "配置项 " + property + "（环境变量 " + envName(property) + "）的值 " + quote(raw) + " 不合法。"
+			+ "请改成 true 或 false（不区分大小写，前后不能有空格），或者删掉这个变量，按默认开启。"
+			+ "空值、1、0、带首尾空格的值以及 yes/on/no/off 都必须改成 true 或 false";
 	}
 
 	/** 系统参数层的宽松解析（见类注释） */

@@ -99,7 +99,8 @@ class ModuleSwitchLayersTest {
 						.hasMessageContaining(PROP)
 						.hasMessageContaining(ModuleSwitch.envName(PROP))
 						.hasMessageContaining(ModuleSwitch.quote(raw))
-						.hasMessageContaining("请写 true 或 false");
+						.hasMessageContaining("请改成 true 或 false")
+						.hasMessageContaining("删掉这个变量，按默认开启");
 					out[0] = Yml.FAIL;
 				} else {
 					out[0] = ctx.containsBean("demoMarker") ? Yml.ON : Yml.OFF;
@@ -216,7 +217,8 @@ class ModuleSwitchLayersTest {
 	void strictErrorMessage() {
 		assertThat(ModuleSwitch.envName("mugsun.ai.enabled")).isEqualTo("MUGSUN_AI_ENABLED");
 		assertThat(ModuleSwitch.strictError("mugsun.ai.enabled", ""))
-			.contains("mugsun.ai.enabled", "MUGSUN_AI_ENABLED", "''", "请写 true 或 false");
+			.contains("mugsun.ai.enabled", "MUGSUN_AI_ENABLED", "''", "请改成 true 或 false", "删掉这个变量，按默认开启");
+		assertThat(ModuleSwitch.strictError("mugsun.gis.enabled", " true")).contains("' true'", "MUGSUN_GIS_ENABLED");
 	}
 
 	@Test

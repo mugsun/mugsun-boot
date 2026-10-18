@@ -30,7 +30,11 @@
   | `yes`、`on` | 关闭 | 启动失败 | 要开启写 `true`；要关闭写 `false` |
   | `no`、`off` 及其它值 | 关闭 | 启动失败 | `false` |
 
-  升级前请检查 compose 文件、`.env`、systemd / k8s 配置里这三个变量的取值
+  迁移步骤：
+  1. 在 compose 文件、`.env`、systemd / k8s 配置和 yml 里找出 `MUGSUN_GIS_ENABLED`、`MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED`（以及 `mugsun.<模块>.enabled`）
+  2. 值为空、`1`、`0`、带首尾空格，或是 `yes`、`on`、`no`、`off` 的，改成 `true` 或 `false`。以前这些值都按关闭处理，想保持原状就写 `false`
+  3. 或者删掉这个变量，按默认开启
+  4. 启动时若报「配置项 … 不合法」，报错里写有变量名和原值，按第 2、3 步改完再启动
 
 - 埋点错误堆栈：顶层 `props.stack` 的保留长度从 1024 放宽到 4096 字符，与 SDK error 插件一致；其它字符串属性仍是 1024，单事件 props 总量仍是 16KB。需配合 `@mugsun/track-web` 的同名修复，旧版 SDK 在客户端已截到 1024。props 超过 16KB 时先缩短 `stack`（按 UTF-8 字节、不拆字符），再从尾部摘键；堆栈帧 URL 的 query / hash 去掉（防 token 落库）；所有截断不再拆开代理对。错误指纹（服务端计算的 `error_fingerprint`）改为先去掉帧 URL 的 query / hash 再计算：升级后错误指纹会变化，已有的错误分组会断开一次（升级前后的同一错误分属新旧两组），之后不再因 URL 参数不同而拆组
 - 埋点来源域名：Web SDK 只上报完整 `referrer` URL，此前服务端只读 `referrer_domain`，导致来源维度恒为空。现在没有 `referrer_domain` 时从 `referrer` 取主机名（小写，不剥 `www.`）；会话的来源域名和 `utm_source` 跟随最早的事件，同一会话的事件分批到达时也能回填，只对升级后接收的新事件生效，历史数据不回填
