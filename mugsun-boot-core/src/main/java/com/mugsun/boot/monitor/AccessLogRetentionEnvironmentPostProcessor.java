@@ -48,23 +48,25 @@ public class AccessLogRetentionEnvironmentPostProcessor implements EnvironmentPo
 	}
 
 	/**
-	 * 整数且 ≥180：原样使用，返回 null。小数或超过 int 范围且 ≥180：向下取整（超大值取 Integer.MAX_VALUE），不告警。
-	 * 低于 180（含 0、负数）或无法解析：改用 180 并告警。
+	 * 整数且 ≥180：原样使用，返回 null。小数（含 1.8e2 这类指数写法）且 ≥180：向下取整，不告警。
+	 * 超过 Integer.MAX_VALUE（含 1E+999999999）：取 Integer.MAX_VALUE，不告警；先比较再取整，不会对巨大指数做 setScale。
+	 * 低于 180（含 0、负数、负小数）、空白或无法解析，以及解析/取整中任何 ArithmeticException：改用 180 并告警。
 	 */
 	static Fix evaluate(String raw) {
-		BigDecimal v;
+		String s = raw.trim();
 		try {
-			v = new BigDecimal(raw.trim());
-		} catch (NumberFormatException e) {
+			BigDecimal v = new BigDecimal(s);
+			if (v.compareTo(BigDecimal.valueOf(MIN_DAYS)) < 0) {
+				return new Fix(MIN_DAYS, true);
+			}
+			if (v.compareTo(BigDecimal.valueOf(Integer.MAX_VALUE)) >= 0) {
+				return new Fix(Integer.MAX_VALUE, false);
+			}
+			int days = v.setScale(0, RoundingMode.FLOOR).intValueExact();
+			return s.matches("\\d+") ? null : new Fix(days, false);
+		} catch (NumberFormatException | ArithmeticException e) {
 			return new Fix(MIN_DAYS, true);
 		}
-		if (v.compareTo(BigDecimal.valueOf(MIN_DAYS)) < 0) {
-			return new Fix(MIN_DAYS, true);
-		}
-		BigDecimal floor = v.setScale(0, RoundingMode.FLOOR);
-		int days = floor.compareTo(BigDecimal.valueOf(Integer.MAX_VALUE)) > 0 ? Integer.MAX_VALUE : floor.intValueExact();
-		boolean plainInt = raw.trim().matches("\\d+") && days == floor.longValue();
-		return plainInt ? null : new Fix(days, false);
 	}
 
 }

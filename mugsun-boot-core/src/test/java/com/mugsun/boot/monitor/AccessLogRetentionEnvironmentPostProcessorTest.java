@@ -20,7 +20,7 @@ class AccessLogRetentionEnvironmentPostProcessorTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"0", "-5", "90", "179", "179.9", "abc", "", "200days"})
+	@ValueSource(strings = {"0", "-5", "90", "179", "179.9", "abc", "", "   ", "200days", "-200.5", "-1E+999999999", "1E-999999999"})
 	void belowMinimumOrInvalidBecomes180WithWarn(String raw) {
 		assertThat(apply(raw)).isEqualTo("180");
 		assertThat(AccessLogRetentionEnvironmentPostProcessor.evaluate(raw).warn()).isTrue();
@@ -34,7 +34,7 @@ class AccessLogRetentionEnvironmentPostProcessorTest {
 	}
 
 	@ParameterizedTest
-	@CsvSource({"200.5,200", "180.0,180", "180.99,180", "365.7,365", "99999999999,2147483647"})
+	@CsvSource({"200.5,200", "180.0,180", "180.99,180", "365.7,365", "99999999999,2147483647", "1.8e2,180", "2.005E2,200", "1E+999999999,2147483647", "2147483647.5,2147483647"})
 	void decimalOrHugeAtOrAboveMinimumRoundsDownWithoutWarn(String raw, String expected) {
 		assertThat(apply(raw)).isEqualTo(expected);
 		assertThat(AccessLogRetentionEnvironmentPostProcessor.evaluate(raw).warn()).isFalse();
