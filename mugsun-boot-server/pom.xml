@@ -57,6 +57,7 @@
 							<excludes>
 								<exclude>**/DemoAccountsApiTest.java</exclude>
 								<exclude>**/AiDisabledApiTest.java</exclude>
+								<exclude>**/AiDisabledSpringAiTest.java</exclude>
 							</excludes>
 						</configuration>
 					</execution>
@@ -69,7 +70,12 @@
 						<configuration>
 							<includes>
 								<include>**/AiDisabledApiTest.java</include>
+								<include>**/AiDisabledSpringAiTest.java</include>
 							</includes>
+							<!-- B85-1：AI 关闭时即使打开 MCP Server 开关，也不能注册 MCP 端点 -->
+							<environmentVariables>
+								<MUGSUN_AI_MCP_SERVER>true</MUGSUN_AI_MCP_SERVER>
+							</environmentVariables>
 						</configuration>
 					</execution>
 					<execution>
