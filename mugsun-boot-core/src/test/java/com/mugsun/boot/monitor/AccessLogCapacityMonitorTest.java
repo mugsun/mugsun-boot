@@ -169,8 +169,13 @@ class AccessLogCapacityMonitorTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"-0.5G", "0.5B", "0.3"})
 	void nonPositiveAfterRoundingDisablesAlert(String value, @TempDir Path dir) {
-		AccessLogCapacityMonitor m = new AccessLogCapacityMonitor(dir.toString(), value, p -> 0L);
+		// 阈值 ≤0 时 check() 必须直接返回、不探测磁盘：探测函数一旦被调用就让用例失败。
+		// 原先用 p -> 0L，0 字节 < 阈值不成立也会得到 OK，测不出「没有短路」。
+		AccessLogCapacityMonitor m = new AccessLogCapacityMonitor(dir.toString(), value, p -> {
+			throw new AssertionError("阈值 ≤0 时不应探测磁盘剩余空间");
+		});
 		m.check();
+		assertThat(m.state()).isNotEqualTo(AccessLogCapacityMonitor.State.UNKNOWN);
 		assertThat(m.state()).isEqualTo(AccessLogCapacityMonitor.State.OK);
 	}
 

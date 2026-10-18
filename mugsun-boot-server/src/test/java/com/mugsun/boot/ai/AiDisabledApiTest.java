@@ -7,10 +7,21 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.io.Resource;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.function.HandlerFunction;
+import org.springframework.web.servlet.function.RequestPredicate;
+import org.springframework.web.servlet.function.RouterFunction;
+import org.springframework.web.servlet.function.RouterFunctions;
+import org.springframework.web.servlet.function.ServerRequest;
+import org.springframework.web.servlet.function.support.RouterFunctionMapping;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,6 +56,80 @@ class AiDisabledApiTest extends AbstractIntegrationTest {
 		List<String> patterns = new ArrayList<>();
 		mapping.getHandlerMethods().keySet().forEach(info -> patterns.addAll(info.getPatternValues()));
 		assertThat(patterns).noneMatch(p -> p.startsWith("/system/ai"));
+	}
+
+	@Test
+	@DisplayName("所有 HandlerMapping 里没有任何一个 handler 的 beanType 属于 ai 包")
+	void noHandlerBeanTypeInAiPackage() {
+		List<String> aiHandlers = new ArrayList<>();
+		context.getBeansOfType(RequestMappingHandlerMapping.class).forEach((name, mapping) -> {
+			for (HandlerMethod hm : mapping.getHandlerMethods().values()) {
+				String pkg = hm.getBeanType().getPackageName();
+				if (pkg.equals("com.mugsun.boot.ai") || pkg.startsWith("com.mugsun.boot.ai.")) {
+					aiHandlers.add(name + " -> " + hm.getBeanType().getName() + "#" + hm.getMethod().getName());
+				}
+			}
+		});
+		assertThat(aiHandlers).isEmpty();
+	}
+
+	@Test
+	@DisplayName("函数式路由（RouterFunction，如 Spring AI MCP Server 的 SSE 端点）里也没有 AI 路由")
+	void noAiRouterFunctionRoutes() {
+		List<String> routes = new ArrayList<>();
+		context.getBeansOfType(RouterFunctionMapping.class).forEach((name, mapping) -> {
+			RouterFunction<?> fn = mapping.getRouterFunction();
+			if (fn != null) {
+				fn.accept(new RouteCollector(name, routes));
+			}
+		});
+		// RouterFunction Bean 本身（即便未被 mapping 收录）也不应来自 AI
+		context.getBeansOfType(RouterFunction.class).forEach((name, fn) -> fn.accept(new RouteCollector(name, routes)));
+		assertThat(routes).noneMatch(AiDisabledApiTest::isAiRoute);
+	}
+
+	private static boolean isAiRoute(String route) {
+		return route.contains("com.mugsun.boot.ai.") || route.contains("org.springframework.ai.")
+			|| route.contains("/system/ai") || route.contains("/v1/") || route.contains("/mcp") || route.contains("/sse");
+	}
+
+	/** 把 RouterFunction 树拍平成「谓词 → handler 类型」字符串 */
+	private record RouteCollector(String source, List<String> out) implements RouterFunctions.Visitor {
+		@Override
+		public void startNested(RequestPredicate predicate) {
+			out.add(source + " nested " + predicate);
+		}
+
+		@Override
+		public void endNested(RequestPredicate predicate) {
+		}
+
+		@Override
+		public void route(RequestPredicate predicate, HandlerFunction<?> handlerFunction) {
+			out.add(source + " " + predicate + " -> " + handlerFunction.getClass().getName());
+		}
+
+		@Override
+		public void resources(Function<ServerRequest, Optional<Resource>> lookupFunction) {
+			out.add(source + " resources " + lookupFunction.getClass().getName());
+		}
+
+		@Override
+		public void attributes(Map<String, Object> attributes) {
+		}
+
+		@Override
+		public void unknown(RouterFunction<?> routerFunction) {
+			out.add(source + " unknown " + routerFunction.getClass().getName() + " " + routerFunction);
+		}
+	}
+
+	@Test
+	@DisplayName("OpenAI 兼容开放接口 /v1/models 返回 404（匿名与管理员）")
+	void openApiModelsReturn404() {
+		assertThat(get("/v1/models", null).getStatusCode().value()).isEqualTo(404);
+		assertThat(get("/v1/models", token()).getStatusCode().value()).isEqualTo(404);
+		assertThat(post("/v1/chat/completions", java.util.Map.of(), null).getStatusCode().value()).isEqualTo(404);
 	}
 
 	@Test
