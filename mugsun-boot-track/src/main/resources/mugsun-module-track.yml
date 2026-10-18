@@ -19,6 +19,7 @@ mugsun:
       #   tenants:
       #     "[000000]": Asia/Shanghai
       tenants: {}
+    # 埋点模块总开关：未设置按开；设置后只认 true/false，空值等其它值启动失败（MUGSUN_TRACK_ENABLED 同理）
     enabled: ${MUGSUN_TRACK_ENABLED:true}
     flyway-enabled: ${MUGSUN_TRACK_FLYWAY_ENABLED:true}
     # 时间线 (ts,id) 索引：T4 启动期只处理空分区，存量非空分区由后台任务低峰期补建（升级说明见文档 upgrade/track-timeline-index）

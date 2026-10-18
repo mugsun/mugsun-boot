@@ -12,6 +12,30 @@
 
 ### 升级须知
 
+- **破坏性变更：模块开关取值收紧**（mugsun-boot#96）。GIS / 埋点 / AI 三个模块开关共用一个解析器，yml / 环境变量与系统参数两层规则如下：
+  - yml / 环境变量（`MUGSUN_GIS_ENABLED`、`MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED`，即 `mugsun.<模块>.enabled`）：不写按开启；只接受恰好 `true` 或 `false`（不区分大小写，前后不能有空格）；其它值一律启动失败，报错里写出配置项、环境变量名和原值
+  - 系统参数 `gis.module.enabled`、`ai.module.enabled`：判定规则不变（去首尾空格，`true` / `false` 不区分大小写，`1` / `0` 仍有效，空值按开启）。新增保存校验：其它值保存时拒收，`1` / `0` 能保存但提示已弃用。运行时读到升级前留下的非法值按关闭处理，同一键同一值每 10 分钟最多警告一次
+
+  yml / 环境变量升级对照（以前这些值都悄悄按关闭处理，现在启动失败）：
+
+  | 以前的写法 | 以前 | 现在 | 请改成 |
+  | --- | --- | --- | --- |
+  | 不设置 | 开启 | 开启 | 不用改 |
+  | `true`、`TRUE` | 开启 | 开启 | 不用改 |
+  | `false`、`FALSE` | 关闭 | 关闭 | 不用改 |
+  | 设置了但为空（`MUGSUN_AI_ENABLED=`、yml 里 `enabled:`） | 关闭 | 启动失败 | 要关闭写 `false`；要开启写 `true` 或删掉这一项 |
+  | `1` | 关闭 | 启动失败 | 要开启写 `true`；要关闭写 `false` |
+  | `0` | 关闭 | 启动失败 | `false` |
+  | 带首尾空格（如 `" true"`、`"false "`） | 关闭 | 启动失败 | 去掉空格 |
+  | `yes`、`on` | 关闭 | 启动失败 | 要开启写 `true`；要关闭写 `false` |
+  | `no`、`off` 及其它值 | 关闭 | 启动失败 | `false` |
+
+  迁移步骤：
+  1. 在 compose 文件、`.env`、systemd / k8s 配置和 yml 里找出 `MUGSUN_GIS_ENABLED`、`MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED`（以及 `mugsun.<模块>.enabled`）
+  2. 值为空、`1`、`0`、带首尾空格，或是 `yes`、`on`、`no`、`off` 的，改成 `true` 或 `false`。以前这些值都按关闭处理，想保持原状就写 `false`
+  3. 或者删掉这个变量，按默认开启
+  4. 启动时若报「配置项 … 不合法」，报错里写有变量名和原值，按第 2、3 步改完再启动
+
 - **破坏性变更：内置 MCP Server 已移除**（mugsun-boot#89、#91）。Spring AI 与 MCP SDK 整体移出依赖，`/sse`、`/mcp`、`/mcp/message` 不再存在（任何配置下都返回 404）。原因：Spring AI 的 MCP Server 自动装配不经过本项目鉴权，打开即是匿名可调的端点。AI 模块调用外部 MCP 工具（「MCP 工具箱」、工作流 MCP 节点）不受影响，连接配置仍在 `ai_mcp_tool` 表。
   - 不再有任何作用的环境变量（取自移除的 `mugsun-module-ai.yml` 配置）：`MUGSUN_AI_MCP_SERVER`、`MUGSUN_AI_MCP_CLIENT`、`MUGSUN_AI_OPENAI_API_KEY`、`MUGSUN_AI_OPENAI_BASE_URL`；以及整个 `spring.ai.*` 配置：`spring.ai.openai.*`、`spring.ai.vectorstore.pgvector.*`、`spring.ai.mcp.server.*`（含 `enabled`、`name`、`version`、`sse-endpoint`、`sse-message-endpoint`、`streamable-http.mcp-endpoint`）、`spring.ai.mcp.client.*`。模型地址与密钥一直以 `ai_model` 表为准，不受影响
   - 升级步骤：从部署环境（compose、`.env`、K8s）删掉上述变量；删掉反向代理里转发 `/sse`、`/mcp`、`/mcp/message` 的路由，以及指向这些路径的健康检查 / 探活

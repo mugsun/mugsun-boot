@@ -38,6 +38,11 @@ public class ParamService {
 
 	/** 写参数值（存在即更新，不存在插入；供运行期状态落参，如日志链截断锚点） */
 	public void setValue(String paramKey, String paramValue) {
+		com.mugsun.boot.common.module.ModuleSwitch.State st =
+			com.mugsun.boot.common.module.ModuleSwitch.checkParam(paramKey, paramValue);
+		if (st != null && !st.legal()) {
+			throw new IllegalArgumentException(paramKey + ": " + com.mugsun.boot.common.module.ModuleSwitch.MSG_INVALID);
+		}
 		SysParam param = paramMapper.selectOneByQuery(QueryWrapper.create().eq("param_key", paramKey));
 		if (param == null) {
 			param = new SysParam();
