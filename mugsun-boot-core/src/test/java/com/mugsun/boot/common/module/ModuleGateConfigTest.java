@@ -113,7 +113,7 @@ class ModuleGateConfigTest {
 	}
 
 	@Test
-	@DisplayName("B89-0 反向守卫：内置 MCP Server 已移除，AI 闸门只管管理端与 /v1，不再按 spring.ai.mcp.server.* 挂 MCP 端点")
+	@DisplayName("B89-0 反向守卫：内置 MCP Server 暂时下线（加鉴权后恢复），AI 闸门只管管理端与 /v1，不再按 spring.ai.mcp.server.* 挂 MCP 端点")
 	void noMcpEndpointsInAiGate() throws NoSuchMethodException {
 		List<MappedInterceptor> list = interceptors();
 		MappedInterceptor aiGate = list.stream()
