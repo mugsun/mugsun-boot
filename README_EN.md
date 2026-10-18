@@ -100,7 +100,7 @@ Runtime flags (classes may still be on the classpath):
 - `MUGSUN_TRACK_ENABLED=false`
 - `MUGSUN_AI_ENABLED=false`
 
-The built-in MCP Server has been removed, and its related variables (such as `MUGSUN_AI_MCP_SERVER`) no longer have any effect; `/sse` and `/mcp` always return 404. A maven-enforcer rule in the root POM bans Spring AI (`org.springframework.ai:*`) and the MCP SDK (`io.modelcontextprotocol*`), including transitive dependencies.
+The built-in MCP Server is temporarily offline and will return with authentication. While it is offline, `/sse` and `/mcp` return 404 and `MUGSUN_AI_MCP_SERVER` has no effect; a maven-enforcer rule in the root POM temporarily blocks Spring AI (`org.springframework.ai:*`) and the MCP SDK (`io.modelcontextprotocol*`), including transitive dependencies.
 
 Module assembly notes: [docs/可选模块装配.md](docs/可选模块装配.md) (Chinese).
 
@@ -118,7 +118,7 @@ Module assembly notes: [docs/可选模块装配.md](docs/可选模块装配.md) 
 
 - `mugsun-boot-track`: `/track/collect`, config delivery, and analytics APIs; forms a vertical slice with the browser SDK and admin console
 - `mugsun-boot-gis`: spatial data and vector tiles (requires PostGIS)
-- `mugsun-boot-ai`: models, chat, knowledge base, and calling external MCP tools from flows (no MCP Server)
+- `mugsun-boot-ai`: models, chat, knowledge base, and calling external MCP tools from flows (the built-in MCP Server is temporarily offline and will return with authentication)
 
 **Runtime conventions**
 

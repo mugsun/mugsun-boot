@@ -12,11 +12,12 @@
 
 ### 升级须知
 
-- **破坏性变更：内置 MCP Server 已移除**（mugsun-boot#89、#91）。Spring AI 与 MCP SDK 整体移出依赖，`/sse`、`/mcp`、`/mcp/message` 不再存在（任何配置下都返回 404）。原因：Spring AI 的 MCP Server 自动装配不经过本项目鉴权，打开即是匿名可调的端点。AI 模块调用外部 MCP 工具（「MCP 工具箱」、工作流 MCP 节点）不受影响，连接配置仍在 `ai_mcp_tool` 表。
-  - 不再有任何作用的环境变量（取自移除的 `mugsun-module-ai.yml` 配置）：`MUGSUN_AI_MCP_SERVER`、`MUGSUN_AI_MCP_CLIENT`、`MUGSUN_AI_OPENAI_API_KEY`、`MUGSUN_AI_OPENAI_BASE_URL`；以及整个 `spring.ai.*` 配置：`spring.ai.openai.*`、`spring.ai.vectorstore.pgvector.*`、`spring.ai.mcp.server.*`（含 `enabled`、`name`、`version`、`sse-endpoint`、`sse-message-endpoint`、`streamable-http.mcp-endpoint`）、`spring.ai.mcp.client.*`。模型地址与密钥一直以 `ai_model` 表为准，不受影响
-  - 升级步骤：从部署环境（compose、`.env`、K8s）删掉上述变量；删掉反向代理里转发 `/sse`、`/mcp`、`/mcp/message` 的路由，以及指向这些路径的健康检查 / 探活
+- **内置 MCP Server 暂时下线，正在加鉴权后恢复**（mugsun-boot#89、#91）。原因：Spring AI 的 MCP Server 自动装配不经过本项目鉴权，打开即是匿名可调的端点。下线期间 Spring AI 与 MCP SDK 暂时移出依赖，`/sse`、`/mcp`、`/mcp/message` 在任何配置下都返回 404。AI 模块调用外部 MCP 工具（「MCP 工具箱」、工作流 MCP 节点）不受影响，连接配置仍在 `ai_mcp_tool` 表。
+  - 下线期间不起作用的 MCP Server 配置：环境变量 `MUGSUN_AI_MCP_SERVER`，以及 `spring.ai.mcp.server.*`（含 `enabled`、`name`、`version`、`sse-endpoint`、`sse-message-endpoint`、`streamable-http.mcp-endpoint`）。恢复后用什么开关、怎么配置凭据，以届时的更新日志为准
+  - 随未使用的 Spring AI 组件一起失效的配置（与 MCP Server 恢复无关）：`MUGSUN_AI_MCP_CLIENT`、`MUGSUN_AI_OPENAI_API_KEY`、`MUGSUN_AI_OPENAI_BASE_URL`，以及 `spring.ai.openai.*`、`spring.ai.vectorstore.pgvector.*`、`spring.ai.mcp.client.*`。模型地址与密钥一直以 `ai_model` 表为准，不受影响
+  - 下线期间的处理：转发 `/sse`、`/mcp`、`/mcp/message` 的反向代理路由会收到 404，健康检查 / 探活不要指向这些路径
   - 旧版本曾设置 `MUGSUN_AI_MCP_SERVER=true`（或 `spring.ai.mcp.server.enabled=true`）运行过的部署：这些端点当时无需登录即可调用，请检查反向代理与应用访问日志里对 `/sse`、`/mcp`、`/mcp/message` 的请求，确认没有异常调用
-  - 防回归：根 pom 的 maven-enforcer `bannedDependencies` 禁止 `org.springframework.ai`、`io.modelcontextprotocol*`（含传递依赖）重新引入，`scripts/check-banned-dependencies.sh` 在 CI 中证明规则会触发；`NoEnforcerSkipGuardTest` 禁止在 pom、`.mvn` 配置、CI 工作流与脚本里跳过 enforcer
+  - 依赖检查：下线期间根 pom 的 maven-enforcer `bannedDependencies` 拦下 `org.springframework.ai`、`io.modelcontextprotocol*`（含传递依赖），恢复时按鉴权方案调整这条规则；`scripts/check-banned-dependencies.sh` 在 CI 中证明规则会触发；`NoEnforcerSkipGuardTest` 禁止在 pom、`.mvn` 配置、CI 工作流与脚本里跳过 enforcer
 - 埋点错误堆栈：顶层 `props.stack` 的保留长度从 1024 放宽到 4096 字符，与 SDK error 插件一致；其它字符串属性仍是 1024，单事件 props 总量仍是 16KB。需配合 `@mugsun/track-web` 的同名修复，旧版 SDK 在客户端已截到 1024。props 超过 16KB 时先缩短 `stack`（按 UTF-8 字节、不拆字符），再从尾部摘键；堆栈帧 URL 的 query / hash 去掉（防 token 落库）；所有截断不再拆开代理对。错误指纹（服务端计算的 `error_fingerprint`）改为先去掉帧 URL 的 query / hash 再计算：升级后错误指纹会变化，已有的错误分组会断开一次（升级前后的同一错误分属新旧两组），之后不再因 URL 参数不同而拆组
 - 埋点来源域名：Web SDK 只上报完整 `referrer` URL，此前服务端只读 `referrer_domain`，导致来源维度恒为空。现在没有 `referrer_domain` 时从 `referrer` 取主机名（小写，不剥 `www.`）；会话的来源域名和 `utm_source` 跟随最早的事件，同一会话的事件分批到达时也能回填，只对升级后接收的新事件生效，历史数据不回填
 
