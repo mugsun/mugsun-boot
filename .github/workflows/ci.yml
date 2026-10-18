@@ -77,6 +77,11 @@ jobs:
         working-directory: mugsun-core
         run: mvn -B install -DskipTests
 
+      # B89-0：根 pom 的 bannedDependencies 规则必须真的会拦下 Spring AI 与 MCP SDK（探针工程逐个验证）
+      - name: Prove banned-dependency rule trips
+        working-directory: mugsun-boot
+        run: scripts/check-banned-dependencies.sh
+
       - name: Verify mugsun-boot
         working-directory: mugsun-boot
         run: mvn -B verify

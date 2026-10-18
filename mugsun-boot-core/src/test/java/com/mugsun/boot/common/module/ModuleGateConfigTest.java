@@ -2,7 +2,6 @@ package com.mugsun.boot.common.module;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -30,10 +29,6 @@ class ModuleGateConfigTest {
 	private final AtomicBoolean track = new AtomicBoolean(true);
 
 	private List<MappedInterceptor> interceptors() {
-		return interceptors(new MockEnvironment());
-	}
-
-	private List<MappedInterceptor> interceptors(MockEnvironment environment) {
 		AiModuleStatus aiStatus = new AiModuleStatus() {
 			public boolean present() { return true; }
 			public boolean enabled() { return ai.get(); }
@@ -47,7 +42,7 @@ class ModuleGateConfigTest {
 			public boolean enabled() { return track.get(); }
 		};
 		Registry registry = new Registry();
-		new ModuleGateConfig(aiStatus, gisStatus, trackStatus, environment).addInterceptors(registry);
+		new ModuleGateConfig(aiStatus, gisStatus, trackStatus).addInterceptors(registry);
 		return registry.mapped();
 	}
 
@@ -85,10 +80,6 @@ class ModuleGateConfigTest {
 		assertThat(gateFor(list, "/v1/chat/completions")).isEqualTo("ai");
 		assertThat(gateFor(list, "/system/gis/status")).as("状态接口不过闸门").isNull();
 		assertThat(gateFor(list, "/system/gis/spatial/status")).isEqualTo("gis");
-		// MCP Server 缺省端点
-		assertThat(gateFor(list, "/sse")).isEqualTo("ai");
-		assertThat(gateFor(list, "/mcp/message")).isEqualTo("ai");
-		assertThat(gateFor(list, "/mcp")).isEqualTo("ai");
 		assertThat(gateFor(list, "/system/gis/scene/submit")).isEqualTo("gis");
 		assertThat(gateFor(list, "/track/collect")).isEqualTo("track");
 		assertThat(gateFor(list, "/system/track/app/page")).isEqualTo("track");
@@ -108,9 +99,6 @@ class ModuleGateConfigTest {
 			.hasMessageContaining("/v1/models");
 		assertThatThrownBy(() -> pass(list, "POST", "/system/ai/model/submit"))
 			.isInstanceOf(NoResourceFoundException.class);
-		assertThatThrownBy(() -> pass(list, "GET", "/sse")).isInstanceOf(NoResourceFoundException.class);
-		assertThatThrownBy(() -> pass(list, "POST", "/mcp/message")).isInstanceOf(NoResourceFoundException.class);
-		assertThatThrownBy(() -> pass(list, "POST", "/mcp")).isInstanceOf(NoResourceFoundException.class);
 		// 其他模块与核心接口不受影响
 		assertThat(pass(list, "GET", "/system/gis/scene/page")).isTrue();
 		assertThat(pass(list, "GET", "/system/user/page")).isTrue();
@@ -125,26 +113,21 @@ class ModuleGateConfigTest {
 	}
 
 	@Test
-	@DisplayName("MCP 端点按 spring.ai.mcp.server.* 实际配置取路径，自定义后旧缺省路径不再挂闸门")
-	void mcpPathsFollowConfiguration() throws Exception {
-		MockEnvironment env = new MockEnvironment()
-			.withProperty("spring.ai.mcp.server.sse-endpoint", "/ai-sse/")
-			.withProperty("spring.ai.mcp.server.sse-message-endpoint", "ai-mcp/msg")
-			.withProperty("spring.ai.mcp.server.streamable-http.mcp-endpoint", "/ai-mcp-stream");
-		List<MappedInterceptor> list = interceptors(env);
-		assertThat(gateFor(list, "/ai-sse")).isEqualTo("ai");
-		assertThat(gateFor(list, "/ai-mcp/msg")).isEqualTo("ai");
-		assertThat(gateFor(list, "/ai-mcp-stream")).isEqualTo("ai");
-		assertThat(gateFor(list, "/sse")).isNull();
-		ai.set(false);
-		assertThatThrownBy(() -> pass(list, "POST", "/ai-mcp/msg")).isInstanceOf(NoResourceFoundException.class);
-	}
-
-	@Test
-	@DisplayName("MCP 端点配置为空白时退回缺省值")
-	void blankMcpPathsFallBackToDefaults() {
-		MockEnvironment env = new MockEnvironment().withProperty("spring.ai.mcp.server.sse-endpoint", " ");
-		assertThat(ModuleGateConfig.mcpPaths(env)).contains("/sse", "/sse/**", "/mcp/message", "/mcp");
+	@DisplayName("B89-0 反向守卫：内置 MCP Server 已移除，AI 闸门只管管理端与 /v1，不再按 spring.ai.mcp.server.* 挂 MCP 端点")
+	void noMcpEndpointsInAiGate() throws NoSuchMethodException {
+		List<MappedInterceptor> list = interceptors();
+		MappedInterceptor aiGate = list.stream()
+			.filter(mi -> "ai".equals(((ModuleGateInterceptor) mi.getInterceptor()).module()))
+			.findFirst().orElseThrow();
+		assertThat(aiGate.getPathPatterns()).containsExactlyInAnyOrder("/system/ai/**", "/v1/**");
+		for (String mcp : new String[] {"/sse", "/sse/x", "/mcp", "/mcp/message", "/custom-sse"}) {
+			assertThat(gateFor(list, mcp)).as(mcp + " 不归任何模块闸门（没有处理器，本身就是 404）").isNull();
+		}
+		// 构造参数里不再有 Environment：闸门不读任何 spring.ai.* 配置
+		assertThat(ModuleGateConfig.class.getConstructors()).singleElement()
+			.satisfies(c -> assertThat(c.getParameterTypes()).doesNotContain(org.springframework.core.env.Environment.class));
+		assertThat(java.util.Arrays.stream(ModuleGateConfig.class.getDeclaredFields()).map(java.lang.reflect.Field::getName))
+			.noneMatch(n -> n.toUpperCase().contains("MCP"));
 	}
 
 	@Test
