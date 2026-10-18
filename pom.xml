@@ -142,6 +142,7 @@
 				<executions>
 					<execution>
 						<id>b89-banned-dependencies</id>
+						<phase>validate</phase>
 						<goals>
 							<goal>enforce</goal>
 						</goals>

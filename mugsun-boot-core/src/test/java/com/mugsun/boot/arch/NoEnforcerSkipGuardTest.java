@@ -28,7 +28,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <li>pom：{@code enforcer.skip}（属性或引用）；enforcer 插件 / execution 上的 {@code <skip>}、{@code <fail>false</fail>}、
  * {@code <phase>none</phase>}（execution 不绑定生命周期）、{@code <inherited>false</inherited>}（子模块不继承）；</li>
  * <li>{@code .mvn/*.config}：{@code enforcer.skip}；</li>
- * <li>{@code .github/workflows/**}、{@code scripts/**}：{@code -Denforcer.skip}、{@code enforcer.skip=}、{@code <enforcer.skip>}。</li>
+ * <li>{@code .github/workflows/**}、{@code scripts/**}、Dockerfile（{@code Dockerfile}、{@code *.Dockerfile}、{@code docker/**}）：
+ * {@code -Denforcer.skip}、{@code enforcer.skip=}、{@code <enforcer.skip>}；</li>
+ * <li>仓库里的 Maven settings 文件（文件名以 {@code settings.xml} 结尾）：{@code enforcer.skip}（注释除外）。</li>
  * </ul>
  * <p>递归扫描整个仓库，跳过构建产物与工具目录（{@code target}、{@code node_modules}、{@code .git}、{@code .m2repo} 等）。
  * 唯一豁免见 {@link #ALLOWED_SCRIPT_LINES}：{@code scripts/check-banned-dependencies.sh} 的传递依赖探针必须生成一个
@@ -61,9 +63,10 @@ class NoEnforcerSkipGuardTest {
 		assertThat(root.resolve("pom.xml")).as("从 mugsun-boot-core 往上一级应是仓库根").exists();
 		List<Path> scanned = new ArrayList<>();
 		List<String> hits = scan(root, scanned);
-		assertThat(scanned).as("至少扫到根 pom、模块 pom、CI 工作流与探针脚本")
+		assertThat(scanned).as("至少扫到根 pom、模块 pom、CI 工作流、探针脚本与 Dockerfile")
 			.contains(root.resolve("pom.xml"), root.resolve("mugsun-boot-core/pom.xml"), root.resolve("mugsun-boot-server/pom.xml"),
-				root.resolve(".github/workflows/ci.yml"), root.resolve("scripts/check-banned-dependencies.sh"));
+				root.resolve(".github/workflows/ci.yml"), root.resolve("scripts/check-banned-dependencies.sh"),
+				root.resolve("Dockerfile"), root.resolve("docker/full/boot.Dockerfile"));
 		assertThat(hits).as("跳过 enforcer 会让 bannedDependencies（B89-0）失效").isEmpty();
 	}
 
@@ -144,6 +147,42 @@ class NoEnforcerSkipGuardTest {
 		assertThat(scan(root, new ArrayList<>())).as("同样的行在别的文件里").containsExactly("scripts/other.sh : " + SCRIPT_HIT);
 	}
 
+	@ParameterizedTest(name = "{0}")
+	@ValueSource(strings = {
+		"Dockerfile|RUN mvn -B -q -Pfull package -DskipTests -Denforcer.skip=true",
+		"docker/full/boot.Dockerfile|RUN mvn -B package -Denforcer.skip",
+		"build/app.Dockerfile|ENV MAVEN_OPTS=\"-Denforcer.skip=true\"",
+		"docker/postgres/Dockerfile|RUN mvn -D enforcer.skip validate",
+		"docker/full/entry.sh|exec mvn -Denforcer.skip package"})
+	@DisplayName("Dockerfile、*.Dockerfile 与 docker/** 里的 -Denforcer.skip 都查得出")
+	void dockerFilesAreScanned(String spec, @TempDir Path root) throws IOException {
+		String[] parts = spec.split("\\|", 2);
+		write(root.resolve(parts[0]), "FROM x\n" + parts[1] + "\n");
+		assertThat(scan(root, new ArrayList<>())).containsExactly(parts[0] + " : " + SCRIPT_HIT);
+	}
+
+	@Test
+	@DisplayName("Dockerfile 里正常的 mvn package -DskipTests（如根 Dockerfile:30、docker/full/boot.Dockerfile:14）不算")
+	void dockerBuildWithoutSkipPasses(@TempDir Path root) throws IOException {
+		write(root.resolve("Dockerfile"), "RUN --mount=type=cache,target=/root/.m2 \\\n"
+			+ "    mvn -B -q -Pfull,kingbase,dameng -f mugsun-boot/pom.xml -pl mugsun-boot-server -am package -DskipTests\n");
+		write(root.resolve("docker/full/boot.Dockerfile"), "RUN --mount=type=cache,target=/root/.m2 \\\n"
+			+ "    mvn -B -q -Pfull,kingbase,dameng -pl mugsun-boot-server -am package -DskipTests\n");
+		write(root.resolve("Dockerfile.dockerignore"), "target\n");
+		List<Path> scanned = new ArrayList<>();
+		assertThat(scan(root, scanned)).isEmpty();
+		assertThat(scanned).contains(root.resolve("Dockerfile"), root.resolve("docker/full/boot.Dockerfile"));
+	}
+
+	@Test
+	@DisplayName("仓库里的 settings.xml 设 enforcer.skip 查得出；注释里的不算")
+	void settingsFilesAreScanned(@TempDir Path root) throws IOException {
+		write(root.resolve(".mvn/settings.xml"), "<settings><profiles><profile><properties>"
+			+ "<enforcer.skip>true</enforcer.skip></properties></profile></profiles></settings>");
+		write(root.resolve("ci/maven-settings.xml"), "<settings><!-- 不要写 enforcer.skip --></settings>");
+		assertThat(scan(root, new ArrayList<>())).containsExactly(".mvn/settings.xml : enforcer.skip");
+	}
+
 	static final String PLUGIN_HIT = "maven-enforcer-plugin <skip>/<fail>false</fail>/<phase>none</phase>/<inherited>false</inherited>";
 
 	static final String SCRIPT_HIT = "-Denforcer.skip / enforcer.skip= / <enforcer.skip>";
@@ -165,8 +204,9 @@ class NoEnforcerSkipGuardTest {
 				String name = file.getFileName().toString();
 				boolean pom = name.equals("pom.xml");
 				boolean mvnConfig = rel.startsWith(".mvn/") && rel.indexOf('/', 5) < 0 && name.endsWith(".config");
-				boolean ciOrScript = rel.startsWith(".github/workflows/") || rel.startsWith("scripts/");
-				if (!pom && !mvnConfig && !ciOrScript) {
+				boolean settings = name.endsWith("settings.xml");
+				boolean ciOrScript = rel.startsWith(".github/workflows/") || rel.startsWith("scripts/") || isDockerFile(rel, name);
+				if (!pom && !mvnConfig && !settings && !ciOrScript) {
 					return FileVisitResult.CONTINUE;
 				}
 				scanned.add(file);
@@ -184,7 +224,10 @@ class NoEnforcerSkipGuardTest {
 							break;
 						}
 					}
-				} else if (mvnConfig) {
+				} else if (mvnConfig || settings) {
+					if (settings) {
+						text = text.replaceAll("(?s)<!--.*?-->", "");
+					}
 					if (text.contains("enforcer.skip")) {
 						hits.add(rel + " : enforcer.skip");
 					}
@@ -195,6 +238,11 @@ class NoEnforcerSkipGuardTest {
 			}
 		});
 		return hits;
+	}
+
+	/** Dockerfile：根目录或任意目录下名为 {@code Dockerfile} / {@code *.Dockerfile} 的文件，以及 {@code docker/} 下的所有文件 */
+	static boolean isDockerFile(String rel, String name) {
+		return name.equals("Dockerfile") || name.endsWith(".Dockerfile") || rel.startsWith("docker/");
 	}
 
 	/** 只对登记的文件、整行精确匹配、恰好出现一次时去掉那一行；否则原样返回（照常检查） */

@@ -82,6 +82,11 @@ jobs:
         working-directory: mugsun-boot
         run: scripts/check-banned-dependencies.sh
 
+      # 白名单守卫的生效配置一侧：server 模块 help:effective-pom 里 b89-banned-dependencies 仍绑定 validate 且内容完整
+      - name: Check effective pom keeps the enforcer execution
+        working-directory: mugsun-boot
+        run: scripts/check-effective-enforcer.sh
+
       - name: Verify mugsun-boot
         working-directory: mugsun-boot
         run: mvn -B verify
