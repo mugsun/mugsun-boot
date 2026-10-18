@@ -16,7 +16,7 @@
   - yml / 环境变量（`MUGSUN_GIS_ENABLED`、`MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED`，即 `mugsun.<模块>.enabled`）：不写按开启；只接受恰好 `true` 或 `false`（不区分大小写，前后不能有空格）；其它值一律启动失败，报错里写出配置项、环境变量名和原值
   - 系统参数 `gis.module.enabled`、`ai.module.enabled`：判定规则不变（去首尾空格，`true` / `false` 不区分大小写，`1` / `0` 仍有效，空值按开启）。新增保存校验：其它值保存时拒收，`1` / `0` 能保存但提示已弃用。运行时读到升级前留下的非法值按关闭处理，同一键同一值每 10 分钟最多警告一次
 
-  yml / 环境变量升级对照（以前这些值都悄悄按关闭处理，现在启动失败）：
+  yml / 环境变量升级对照（其它值以前都按关闭处理，现在启动失败）：
 
   | 以前的写法 | 以前 | 现在 | 请改成 |
   | --- | --- | --- | --- |
@@ -36,7 +36,7 @@
   3. 或者删掉这个变量，按默认开启
   4. 启动时若报「配置项 … 不合法」，报错里写有变量名和原值，按第 2、3 步改完再启动
 
-- **内置 MCP Server 暂时下线，正在加鉴权后恢复**（mugsun-boot#89、#91）。原因：Spring AI 的 MCP Server 自动装配不经过本项目鉴权，打开即是匿名可调的端点。下线期间 Spring AI 与 MCP SDK 暂时移出依赖，`/sse`、`/mcp`、`/mcp/message` 在任何配置下都返回 404。AI 模块调用外部 MCP 工具（「MCP 工具箱」、工作流 MCP 节点）不受影响，连接配置仍在 `ai_mcp_tool` 表。
+- **破坏性变更：内置 MCP Server 暂时下线，正在加鉴权后恢复**（mugsun-boot#89、#91）。原因：Spring AI 的 MCP Server 自动装配不经过本项目鉴权，打开即是匿名可调的端点。下线期间 Spring AI 与 MCP SDK 暂时移出依赖，`/sse`、`/mcp`、`/mcp/message` 在任何配置下都返回 404。AI 模块调用外部 MCP 工具（「MCP 工具箱」、工作流 MCP 节点）不受影响，连接配置仍在 `ai_mcp_tool` 表。
   - 下线期间不起作用的 MCP Server 配置：环境变量 `MUGSUN_AI_MCP_SERVER`，以及 `spring.ai.mcp.server.*`（含 `enabled`、`name`、`version`、`sse-endpoint`、`sse-message-endpoint`、`streamable-http.mcp-endpoint`）。恢复后用什么开关、怎么配置凭据，以届时的更新日志为准
   - 随未使用的 Spring AI 组件一起失效的配置（与 MCP Server 恢复无关）：`MUGSUN_AI_MCP_CLIENT`、`MUGSUN_AI_OPENAI_API_KEY`、`MUGSUN_AI_OPENAI_BASE_URL`，以及 `spring.ai.openai.*`、`spring.ai.vectorstore.pgvector.*`、`spring.ai.mcp.client.*`。模型地址与密钥一直以 `ai_model` 表为准，不受影响
   - 下线期间的处理：转发 `/sse`、`/mcp`、`/mcp/message` 的反向代理路由会收到 404，健康检查 / 探活不要指向这些路径
