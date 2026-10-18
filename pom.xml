@@ -17,6 +17,15 @@
 	<packaging>pom</packaging>
 	<name>mugsun-boot</name>
 	<description>Mugsun 单体版父工程（core + 可选 gis/track/ai + 装配壳）</description>
+	<url>https://github.com/mugsun/mugsun-boot</url>
+
+	<licenses>
+		<license>
+			<name>MIT License</name>
+			<url>https://opensource.org/license/mit</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
 
 	<modules>
 		<module>mugsun-boot-core</module>
