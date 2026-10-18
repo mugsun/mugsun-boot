@@ -11,6 +11,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.ToLongFunction;
@@ -19,7 +23,7 @@ import java.util.function.ToLongFunction;
  * 访问日志磁盘余量告警。访问日志留存 ≥180 天是硬要求（《网络安全法》第二十一条），logback 不设 totalSizeCap，
  * 只按天数删除；代价是日志会一直占盘。每小时检查一次日志目录所在磁盘的剩余空间，只在状态变化时打日志：
  * 余量充足→不足打 WARN，不足→恢复打 INFO，取不到余量时打一次 WARN。阈值是 {@code mugsun.demo.access-log.min-free-space}
- * （默认 10GB；写法 10GB / 10 GB / 10G / 512M 都可以），解析失败回落到默认值，阈值 ≤0 时关闭告警并打一次 WARN。
+ * （默认 10GB；单位写 GB 或 G 均可，可带小数，如 10GB / 10 G / 1.5GB / 512M），解析失败回落到默认值，阈值 ≤0 时关闭告警并打一次 WARN。
  */
 @Component
 @ConditionalOnProperty(name = DemoConstants.ENABLED_PROPERTY, havingValue = "true")
@@ -62,13 +66,24 @@ public class AccessLogCapacityMonitor {
 		}
 	}
 
-	/** 去掉所有空白、不区分大小写；接受 10GB、10 GB、10G、512M、1T、-1 等写法。 */
+	private static final Pattern SIZE = Pattern.compile("([+-]?\\d+(?:\\.\\d+)?)([KMGT]?)B?");
+
+	/** 去掉所有空白、不区分大小写；单位 B/K(B)/M(B)/G(B)/T(B)，可带小数：10GB、10 GB、10G、1.5GB、512M、-1。按 1024 进位，向下取整到字节。 */
 	static long parseSize(String value) {
 		String s = value.replaceAll("\\s+", "").toUpperCase();
-		if (s.matches("[+-]?\\d+[KMGT]")) {
-			s = s + "B";
+		Matcher m = SIZE.matcher(s);
+		if (!m.matches()) {
+			throw new IllegalArgumentException("无法解析的容量：" + value);
 		}
-		return DataSize.parse(s).toBytes();
+		int shift = switch (m.group(2)) {
+			case "K" -> 10;
+			case "M" -> 20;
+			case "G" -> 30;
+			case "T" -> 40;
+			default -> 0;
+		};
+		return new BigDecimal(m.group(1)).multiply(BigDecimal.valueOf(1L << shift))
+			.setScale(0, RoundingMode.FLOOR).longValueExact();
 	}
 
 	@Scheduled(initialDelay = 60_000, fixedDelay = 3_600_000)
@@ -76,7 +91,12 @@ public class AccessLogCapacityMonitor {
 		if (minFree <= 0) {
 			return;
 		}
-		long free = freeSpace.applyAsLong(dir);
+		long free;
+		try {
+			free = freeSpace.applyAsLong(dir);
+		} catch (RuntimeException e) {
+			free = -1;
+		}
 		State next = free < 0 ? State.UNKNOWN : free < minFree ? State.LOW : State.OK;
 		if (next == state) {
 			return;
@@ -95,18 +115,18 @@ public class AccessLogCapacityMonitor {
 		return state;
 	}
 
-	/** 目录不存在时向上找最近的已存在父目录；取不到返回 -1。 */
+	/** 目录不存在时向上找最近的已存在父目录；取不到（含 IOException、SecurityException 等运行时异常）返回 -1。 */
 	static long freeBytes(Path dir) {
-		Path p = dir.toAbsolutePath();
-		while (p != null && !Files.exists(p)) {
-			p = p.getParent();
-		}
-		if (p == null) {
-			return -1;
-		}
 		try {
+			Path p = dir.toAbsolutePath();
+			while (p != null && !Files.exists(p)) {
+				p = p.getParent();
+			}
+			if (p == null) {
+				return -1;
+			}
 			return Files.getFileStore(p).getUsableSpace();
-		} catch (IOException e) {
+		} catch (IOException | RuntimeException e) {
 			return -1;
 		}
 	}
