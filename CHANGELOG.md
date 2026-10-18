@@ -44,7 +44,7 @@
 
 ### 新增
 
-- 只读演示模式访问日志（B4）：`AccessLogFilter` 每个请求一行（IP、方法、路径、状态、耗时、用户、traceId；不记 query 和 body），demo profile 下单独写 `*-access.log`，按天滚动 gzip，默认保留 200 天、不设总量上限（`mugsun.demo.access-log.path/max-history`），日志盘剩余空间低于 `mugsun.demo.access-log.min-free-space`（默认 10GB，可写 `10GB`/`10 GB`/`10G`/`512M`，解析失败回落 10GB 并 WARN，≤0 关闭告警并 WARN）时 WARN，每小时检查、只在状态变化时记录；`max-history` 低于 180 或无法解析时启动改用 180 并 WARN，不受 LogCleanJob 影响；demo 下日志库清理保留期不低于 180 天。普通模式不装配、不改变
+- 只读演示模式访问日志（B4）：`AccessLogFilter` 每个请求一行（IP、方法、路径、状态、耗时、用户、traceId；不记 query 和 body），demo profile 下单独写 `*-access.log`，按天滚动 gzip，默认保留 200 天、不设总量上限（`mugsun.demo.access-log.path/max-history`），日志盘剩余空间低于 `mugsun.demo.access-log.min-free-space`（默认 10GB，单位写 `GB` 或 `G`（也认 `GiB`、`K/KB`、无单位即字节，1024 进位），可带小数并向下取整到整字节，如 `10GB`/`10 G`/`1.5GB`/`512M`；只去首尾空白，`1 0GB` 无效；超出 long 视为无法解析，解析失败回落 10GB 并 WARN，≤0 关闭告警并 WARN）时 WARN，每小时检查、只在状态变化时记录；`max-history` 低于 180 或无法解析时启动改用 180 并 WARN，≥180 的小数（如 `200.5`）向下取整、不会改为 180，超过 int 上限（含 `1E+999999999`）取 Integer.MAX_VALUE，解析或取整出错回落 180 并 WARN；读磁盘余量抛运行时异常（如 SecurityException）时同样进入「读不到」状态、只 WARN 一次（WARN 带上异常信息），不受 LogCleanJob 影响；demo 下日志库清理保留期不低于 180 天。普通模式不装配、不改变
 - 模块化 Spring Boot 后端：`mugsun-boot-core` / `gis` / `track` / `ai` / `server`
 - Docker Compose 仅启动 PostgreSQL、Redis 等依赖；应用由 Maven 启动
 - 与 `mugsun-pc`、`mugsun-track` 联调路径见 README 与文档站
