@@ -1,5 +1,7 @@
 package com.mugsun.boot.monitor;
 
+import com.mugsun.boot.demo.LogDataSourceRouter;
+
 import com.mugsun.boot.monitor.entity.SysErrorLog;
 import com.mugsun.boot.monitor.mapper.SysErrorLogMapper;
 import com.mugsun.boot.tenant.TenantContext;
@@ -17,13 +19,19 @@ public class ErrorLogService {
 	private static final Logger log = LoggerFactory.getLogger(ErrorLogService.class);
 
 	private final SysErrorLogMapper errorLogMapper;
+	private final LogDataSourceRouter logRouter;
 
-	public ErrorLogService(SysErrorLogMapper errorLogMapper) {
+	public ErrorLogService(SysErrorLogMapper errorLogMapper, LogDataSourceRouter logRouter) {
 		this.errorLogMapper = errorLogMapper;
+		this.logRouter = logRouter;
 	}
 
 	@Async
 	public void saveAsync(SysErrorLog record) {
+		logRouter.write(() -> doSave(record));
+	}
+
+	private void doSave(SysErrorLog record) {
 		try {
 			errorLogMapper.insertSelective(record);
 		} catch (Exception e) {

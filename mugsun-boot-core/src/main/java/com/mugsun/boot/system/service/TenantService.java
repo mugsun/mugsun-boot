@@ -2,6 +2,7 @@ package com.mugsun.boot.system.service;
 
 import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.common.constant.UserConstants;
+import com.mugsun.boot.datasource.TenantDatasourceService;
 import com.mugsun.boot.system.entity.SysDept;
 import com.mugsun.boot.system.entity.SysPost;
 import com.mugsun.boot.system.entity.SysRole;
@@ -10,7 +11,9 @@ import com.mugsun.boot.system.entity.SysUser;
 import com.mugsun.boot.system.entity.SysUserRole;
 import com.mugsun.boot.system.mapper.SysDeptMapper;
 import com.mugsun.boot.system.mapper.SysPostMapper;
+import com.mugsun.boot.system.mapper.SysRoleDeptMapper;
 import com.mugsun.boot.system.mapper.SysRoleMapper;
+import com.mugsun.boot.system.mapper.SysRoleMenuMapper;
 import com.mugsun.boot.system.mapper.SysTenantMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
@@ -39,6 +42,9 @@ public class TenantService {
 	private final SysRoleMapper roleMapper;
 	private final SysUserMapper userMapper;
 	private final SysUserRoleMapper userRoleMapper;
+	private final SysRoleMenuMapper roleMenuMapper;
+	private final SysRoleDeptMapper roleDeptMapper;
+	private final TenantDatasourceService datasourceService;
 	private final PasswordEncoder passwordEncoder;
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
@@ -47,6 +53,8 @@ public class TenantService {
 
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
 						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
+						 SysRoleMenuMapper roleMenuMapper, SysRoleDeptMapper roleDeptMapper,
+						 TenantDatasourceService datasourceService,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
 						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
 						 TenantPackageService packageService) {
@@ -56,6 +64,9 @@ public class TenantService {
 		this.roleMapper = roleMapper;
 		this.userMapper = userMapper;
 		this.userRoleMapper = userRoleMapper;
+		this.roleMenuMapper = roleMenuMapper;
+		this.roleDeptMapper = roleDeptMapper;
+		this.datasourceService = datasourceService;
 		this.passwordEncoder = passwordEncoder;
 		this.tenantValidator = tenantValidator;
 		this.securityPolicyService = securityPolicyService;
@@ -130,7 +141,11 @@ public class TenantService {
 		return tenantMapper.selectListByQuery(QueryWrapper.create().in("package_id", packageIds));
 	}
 
-	/** 逻辑删除租户并清缓存，避免被删租户在 TTL 内仍缓存有效。返回实际删除条数。 */
+	/**
+	 * 逻辑删除租户并清缓存，避免被删租户在 TTL 内仍缓存有效。返回实际删除条数。
+	 * 租户和它的组织数据（见 {@link #purgeTenantData(String)}）在同一个事务里逻辑删除，任何一步失败整体回滚。
+	 */
+	@Transactional(rollbackFor = Exception.class)
 	public int remove(List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {
 			throw new ServiceException("请先选择要删除的租户");
@@ -159,6 +174,7 @@ public class TenantService {
 			tenantValidator.evict(tenant.getTenantCode());
 			purgeTenantData(tenant.getTenantCode());
 		}
+		unregisterDatasourcesAfterCommit(tenants);
 		return tenants.size();
 	}
 
@@ -198,7 +214,12 @@ public class TenantService {
 		}
 	}
 
-	/** 删掉建租户时初始化的部门、岗位、角色、用户。平台租户不在这里清。跨租户清理必须忽略当前会话的租户条件。 */
+	/**
+	 * 逻辑删除租户的组织数据：用户及其用户-角色关联、部门、岗位、角色及其角色-菜单 / 角色-部门关联、租户独立数据源配置。
+	 * 用户的岗位是 sys_user.post_id 列，没有单独的用户-岗位关联表，随用户一起删。
+	 * 这些表的实体都继承 BaseEntity（is_deleted 逻辑删除），Mapper 的 delete 会生成 UPDATE ... SET is_deleted = 1。
+	 * 平台租户不在这里清。跨租户清理必须忽略当前会话的租户条件。
+	 */
 	private void purgeTenantData(String code) {
 		if (code == null || code.isBlank() || "000000".equals(code)) {
 			return;
@@ -220,7 +241,29 @@ public class TenantService {
 		userMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
 		deptMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
 		postMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
+		java.util.List<Long> roleIds = new java.util.ArrayList<>();
+		for (SysRole role : roleMapper.selectListByQuery(QueryWrapper.create().eq("tenant_id", code))) {
+			if (role.getId() != null) {
+				roleIds.add(role.getId());
+			}
+		}
+		if (!roleIds.isEmpty()) {
+			roleMenuMapper.deleteByQuery(QueryWrapper.create().in("role_id", roleIds));
+			roleDeptMapper.deleteByQuery(QueryWrapper.create().in("role_id", roleIds));
+		}
 		roleMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
+		datasourceService.removeByTenantCode(code);
+	}
+
+	/** 已注册的租户独立数据源在事务提交后注销（回滚时保持原样），与「删除数据源」接口的效果一致 */
+	private void unregisterDatasourcesAfterCommit(List<SysTenant> tenants) {
+		List<String> codes = new ArrayList<>();
+		for (SysTenant tenant : tenants) {
+			if (tenant.getTenantCode() != null && !"000000".equals(tenant.getTenantCode())) {
+				codes.add(tenant.getTenantCode());
+			}
+		}
+		datasourceService.unregisterAfterCommit(codes);
 	}
 
 	private void initDefaults(String code, String tenantName) {

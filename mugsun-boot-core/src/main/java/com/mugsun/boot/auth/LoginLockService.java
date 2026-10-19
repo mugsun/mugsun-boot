@@ -20,6 +20,9 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class LoginLockService {
 
+	@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}")
+	private boolean demoMode;
+
 	private static final String FAIL_KEY = "mugsun:login:fail:";
 	private static final String LOCK_KEY = "mugsun:login:lock:";
 	private static final String META_KEY = "mugsun:login:lock-meta:";
@@ -58,6 +61,15 @@ public class LoginLockService {
 	/** 组装锁键：租户维度 + 账号——多租户同名账号（如各租户 admin）独立计数，防跨租户连锁锁定与针对性锁死 */
 	public String keyOf(String tenantId, String username) {
 		return tenantId + ":" + username;
+	}
+
+	/**
+	 * 密码登录用的锁键。只读演示模式下演示账号密码公开，按「租户+账号+来源 IP」锁定：
+	 * 一个 IP 输错只锁住它自己，不能把公开账号锁死给所有访客（安全复审 F1）。非 demo 同 {@link #keyOf}。
+	 */
+	public String keyForLogin(String tenantId, String username, String clientIp) {
+		String key = keyOf(tenantId, username);
+		return demoMode ? key + "@ip:" + (clientIp == null ? "-" : clientIp) : key;
 	}
 
 	/** 记录一次失败，达阈值则锁定；计数窗口 = 锁定时长，滑动刷新 */

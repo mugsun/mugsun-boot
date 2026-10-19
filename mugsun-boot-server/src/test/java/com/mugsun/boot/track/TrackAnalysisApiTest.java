@@ -3,6 +3,7 @@ package com.mugsun.boot.track;
 import cn.hutool.core.util.IdUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.common.constant.TrackConstants;
+import com.mugsun.boot.track.job.TrackSessionSettleJob;
 import com.mugsun.boot.track.job.TrackStats5mJob;
 import com.mugsun.boot.track.job.TrackStatsDayJob;
 import com.mugsun.boot.track.job.TrackVitalsJob;
@@ -15,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -36,6 +38,11 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 
 	private static final String APP_A = "it-ana-a";
 	private static final String APP_B = "it-ana-b";
+	private static final String APP_ORDER = "it-ana-order";
+	private static final String APP_TZ = "it-ana-tz";
+	/** 未配置租户时区时的默认统计时区 */
+	private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
+	private static final String APP_SETTLE = "it-ana-settle";
 	private static final String LOW_USERNAME = "it_track_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
 	private static final String ROLE_CODE = "it-track-noperm";
@@ -54,6 +61,8 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 	private TrackStatsDayJob statsDayJob;
 	@Autowired
 	private TrackVitalsJob vitalsJob;
+	@Autowired
+	private TrackSessionSettleJob settleJob;
 
 	private String adminToken;
 	private String tenantBCode;
@@ -130,9 +139,12 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		JsonNode cards = data.path("cards");
 		assertThat(cards.path("pv").asLong()).as("pv=今日3+昨日2").isEqualTo(5L);
 		assertThat(cards.path("uv").asLong()).as("uv=今日2（d1,d2）+昨日2").isEqualTo(4L);
-		assertThat(cards.path("sessionCount").asLong()).as("今日活跃会话 s1/s2（昨日未造会话）").isEqualTo(2L);
+		assertThat(cards.path("sessionCount").asLong())
+			.as("各当地日活跃会话之和：今日 s1/s2 + 昨日直灌的 2 条 PV 各自的会话（默认上海时区走明细直算）").isEqualTo(4L);
 		assertThat(cards.path("eventCount").asLong()).as("今日9+昨日2").isEqualTo(11L);
 		assertThat(cards.has("avgSessionDurationMs")).isTrue();
+		assertThat(cards.has("settledSessionCount")).as("下发已结算会话数").isTrue();
+		assertThat(cards.path("settledSessionCount").asLong()).isGreaterThanOrEqualTo(0L);
 		assertThat(cards.has("bounceRate")).isTrue();
 
 		JsonNode referrer = data.path("referrerDist");
@@ -140,6 +152,37 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(referrer.toString()).contains("google.com");
 		assertThat(data.path("deviceDist").toString()).contains("desktop");
 		assertThat(data.path("browserTop").isArray()).isTrue();
+	}
+
+	/** overview settledSessionCount：会话未结算时=0（时长/跳出率未定稿，前端显示「—」）；静默超时结算后 >0。
+	 *  独立应用隔离计数；前后两次查询用不同 days 避开 overview 本地缓存（键含 days）。 */
+	@Test
+	void settledSessionCountBeforeAndAfterSettle() {
+		seedApp(APP_SETTLE, PLATFORM_TENANT);
+		String sid = UUID.randomUUID().toString();
+		post("/track/collect", payload(APP_SETTLE, List.of(event("$pageview", UUID.randomUUID().toString(), sid,
+			Map.of("url_path", "/settle", "route_path", "/settle", "device", "desktop")))), null);
+		awaitUntil("会话行落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_session WHERE session_id = ?", sid) == 1L);
+
+		JsonNode before = readBody(get("/system/track/overview?appKey=" + APP_SETTLE + "&days=7", adminToken))
+			.path("data").path("cards");
+		assertThat(before.path("sessionCount").asLong()).as("活跃会话已计入").isEqualTo(1L);
+		assertThat(before.path("settledSessionCount").asLong()).as("未结算时=0").isEqualTo(0L);
+
+		// 把会话整体前移 40 分钟（> 30 分钟静默阈值），再手动触发结算任务
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.updateBySql(
+			"UPDATE track_session SET start_time = start_time - INTERVAL '40 minutes',"
+				+ " end_time = end_time - INTERVAL '40 minutes' WHERE session_id = ?", sid));
+		settleJob.settleNow();
+		assertThat(trackLong("SELECT settled AS c FROM track_session WHERE session_id = ?", sid))
+			.as("会话已结算").isEqualTo(1L);
+
+		JsonNode after = readBody(get("/system/track/overview?appKey=" + APP_SETTLE + "&days=6", adminToken))
+			.path("data").path("cards");
+		assertThat(after.path("settledSessionCount").asLong()).as("结算后>0").isGreaterThan(0L);
+		assertThat(after.path("settledSessionCount").asLong()).isEqualTo(1L);
+		assertThat(after.path("bounceRate").asDouble()).as("单 PV 会话定稿为跳出").isEqualTo(1.0);
 	}
 
 	/** trend：days=1 走 5m 粒度（pv 合计=今日 3）；days=7 走 day 粒度（昨日行 pv=2/uv=2） */
@@ -171,7 +214,7 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 	/** trend 日粒度含当日行：stats_day 只落闭合日，演示数据全在今日时趋势也不能为空（回归：访问趋势暂无数据） */
 	@Test
 	void trendDailyIncludesTodayLiveRow() {
-		String today = LocalDate.now(ZoneOffset.UTC).toString();
+		String today = LocalDate.now(SHANGHAI).toString();
 		JsonNode day = readBody(get("/system/track/trend?appKey=" + APP_A + "&days=7&dimType=overview", adminToken)).path("data");
 		JsonNode todayRow = null;
 		int todayCount = 0;
@@ -188,6 +231,66 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(todayRow.path("uv").asLong()).as("今日 d1/d2").isEqualTo(2L);
 		assertThat(todayRow.path("sessionCount").asLong()).isEqualTo(2L);
 		assertThat(todayRow.has("bounceCount")).isTrue();
+	}
+
+	/** trend 日粒度补零（UX-011）：days=7 恒返回 7 行、日期连续升序，无数据日各指标为 0 */
+	@Test
+	void trendDailyFillsMissingDaysWithZero() {
+		LocalDate today = LocalDate.now(SHANGHAI);
+		JsonNode day = readBody(get("/system/track/trend?appKey=" + APP_A + "&days=7&dimType=overview", adminToken)).path("data");
+		assertThat(day.size()).as("近 7 天应有 7 个点").isEqualTo(7);
+		for (int i = 0; i < 7; i++) {
+			assertThat(day.get(i).path("date").asText()).isEqualTo(today.minusDays(6L - i).toString());
+		}
+		JsonNode empty = day.get(0);
+		assertThat(empty.path("pv").asLong()).as("6 天前无数据补 0").isZero();
+		assertThat(empty.path("uv").asLong()).isZero();
+		assertThat(empty.path("eventCount").asLong()).isZero();
+		assertThat(empty.has("sessionCount")).isTrue();
+		assertThat(empty.has("bounceCount")).isTrue();
+	}
+
+	/**
+	 * 按租户时区切日（默认 Asia/Shanghai）：当地 0 点前 1 秒的事件归昨天，0 点后 1 秒的归今天；
+	 * 错误列表 days=1 只含 0 点之后的错误。
+	 */
+	@Test
+	void daysAreCutAtShanghaiMidnight() {
+		seedApp(APP_TZ, PLATFORM_TENANT);
+		LocalDate localToday = LocalDate.now(SHANGHAI);
+		long midnight = localToday.atStartOfDay(SHANGHAI).toInstant().toEpochMilli();
+		long before = midnight - 1000L;
+		long after = midnight + 1000L;
+		store.insertEvents(List.of(
+			storeEvent(APP_TZ, "$pageview", before, UUID.randomUUID().toString(), UUID.randomUUID().toString(), "/a"),
+			storeEvent(APP_TZ, "$pageview", after, UUID.randomUUID().toString(), UUID.randomUUID().toString(), "/a"),
+			errorEvent(APP_TZ, before, "fp-tz-before"),
+			errorEvent(APP_TZ, after, "fp-tz-after")));
+
+		JsonNode trend = readBody(get("/system/track/trend?appKey=" + APP_TZ + "&days=7&dimType=overview", adminToken)).path("data");
+		assertThat(trend.size()).isEqualTo(7);
+		Map<String, JsonNode> byDate = new HashMap<>();
+		trend.forEach(r -> byDate.put(r.path("date").asText(), r));
+		assertThat(trend.get(6).path("date").asText()).as("最后一个点是当地今天").isEqualTo(localToday.toString());
+		assertThat(byDate.get(localToday.toString()).path("eventCount").asLong()).as("0 点后 1 秒归今天").isEqualTo(2L);
+		assertThat(byDate.get(localToday.toString()).path("pv").asLong()).isEqualTo(1L);
+		JsonNode y = byDate.get(localToday.minusDays(1).toString());
+		assertThat(y.path("eventCount").asLong()).as("0 点前 1 秒归昨天").isEqualTo(2L);
+		assertThat(y.path("pv").asLong()).isEqualTo(1L);
+		assertThat(byDate.get(localToday.minusDays(2).toString()).path("eventCount").asLong()).as("空日补 0").isZero();
+
+		JsonNode today = readBody(get("/system/track/errors/page?appKey=" + APP_TZ + "&days=1", adminToken)).path("data");
+		List<String> fps = new ArrayList<>();
+		today.path("records").forEach(r -> fps.add(r.path("fingerprint").asText()));
+		assertThat(fps).as("「今天」从当地 0 点开始").containsExactly("fp-tz-after");
+		JsonNode twoDays = readBody(get("/system/track/errors/page?appKey=" + APP_TZ + "&days=2", adminToken)).path("data");
+		assertThat(twoDays.path("totalRow").asLong()).isEqualTo(2L);
+		JsonNode detail = readBody(get("/system/track/errors/detail?appKey=" + APP_TZ + "&fingerprint=fp-tz-before&days=1",
+			adminToken)).path("data");
+		assertThat(detail.path("totalRow").asLong()).as("明细同口径：昨天的错误不在今天").isZero();
+		JsonNode detail2 = readBody(get("/system/track/errors/detail?appKey=" + APP_TZ + "&fingerprint=fp-tz-before&days=2",
+			adminToken)).path("data");
+		assertThat(detail2.path("totalRow").asLong()).isEqualTo(1L);
 	}
 
 	/** pages：Top 页面（PV/UV/平均停留）；/home pv=3（今日2+昨日1），uv=3 */
@@ -264,6 +367,59 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		assertThat(row.path("release").asText()).isEqualTo("1.0.0");
 		assertThat(row.path("props").asText()).as("props 含面包屑").contains("breadcrumbs");
 		assertThat(row.path("sessionId").asText()).isEqualTo(S1);
+	}
+
+	/** errors/detail：按显示的发生时间 ts 倒序（非接收顺序），同 ts 用 id 定序；pageSize=1 逐页翻仍单调不重；
+	 *  errors/page 分组代表消息同口径按 ts 取最晚 */
+	@Test
+	void errorDetailOrderedByTs() {
+		String fp = "fp-order-" + UUID.randomUUID().toString().substring(0, 8);
+		String sid = UUID.randomUUID().toString();
+		long base = System.currentTimeMillis() - 60000;
+		// 独立应用：不影响本类其它用例对 APP_A 的计数断言
+		seedApp(APP_ORDER, PLATFORM_TENANT);
+		Map<String, Object> late = event("$error", D1, sid, Map.of("message", "late", "error_fingerprint", fp));
+		late.put("ts", base + 2000);
+		post("/track/collect", payload(APP_ORDER, List.of(late)), null);
+		awaitUntil("第一批错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE error_fingerprint = ?", fp) == 1L);
+		Map<String, Object> same1 = event("$error", D1, sid, Map.of("message", "same-1", "error_fingerprint", fp));
+		same1.put("ts", base + 1000);
+		Map<String, Object> same2 = event("$error", D1, sid, Map.of("message", "same-2", "error_fingerprint", fp));
+		same2.put("ts", base + 1000);
+		Map<String, Object> earliest = event("$error", D1, sid, Map.of("message", "earliest", "error_fingerprint", fp));
+		earliest.put("ts", base);
+		post("/track/collect", payload(APP_ORDER, List.of(earliest, same1, same2)), null);
+		awaitUntil("第二批错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE error_fingerprint = ?", fp) == 4L);
+
+		List<Long> times = new ArrayList<>();
+		List<String> messages = new ArrayList<>();
+		for (int pageNum = 1; pageNum <= 4; pageNum++) {
+			JsonNode detail = readBody(get("/system/track/errors/detail?appKey=" + APP_ORDER + "&fingerprint=" + fp
+				+ "&pageNum=" + pageNum + "&pageSize=1", adminToken)).path("data");
+			assertThat(detail.path("totalRow").asLong()).isEqualTo(4L);
+			JsonNode row = detail.path("records").get(0);
+			times.add(row.path("time").asLong());
+			messages.add(row.path("message").asText());
+		}
+		assertThat(messages).as("逐页不重不漏").doesNotHaveDuplicates()
+			.containsExactlyInAnyOrder("late", "same-1", "same-2", "earliest");
+		assertThat(times).as("按显示时间严格非增").isSortedAccordingTo(java.util.Comparator.reverseOrder());
+		assertThat(messages.get(0)).as("先收到且 ts 最晚的在首位").isEqualTo("late");
+		assertThat(messages.get(3)).isEqualTo("earliest");
+
+		// 分组代表消息同口径：取 ts 最晚的 "late"（它最先被接收；按接收时间会错取后到的旧事件）
+		JsonNode groups = readBody(get("/system/track/errors/page?appKey=" + APP_ORDER + "&days=7", adminToken)).path("data");
+		JsonNode group = null;
+		for (JsonNode g : groups.path("records")) {
+			if (fp.equals(g.path("fingerprint").asText())) {
+				group = g;
+			}
+		}
+		assertThat(group).as("应有该指纹分组").isNotNull();
+		assertThat(group.path("eventCount").asLong()).isEqualTo(4L);
+		assertThat(group.path("message").asText()).as("代表消息按 ts 取最晚").isEqualTo("late");
 	}
 
 	/** events/page：按事件名分组计数；eventName 过滤；realtime：Redis Stream 尾部含新事件（不等落库） */
@@ -678,6 +834,14 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		e.setRoutePath(routePath);
 		e.setDevice("desktop");
 		e.setPropsJson("{}");
+		return e;
+	}
+
+	private TrackIngestEvent errorEvent(String appKey, long ms, String fingerprint) {
+		TrackIngestEvent e = storeEvent(appKey, TrackConstants.EVENT_ERROR, ms, UUID.randomUUID().toString(),
+			UUID.randomUUID().toString(), "/a");
+		e.setErrorFingerprint(fingerprint);
+		e.setPropsJson("{\"message\":\"" + fingerprint + "\"}");
 		return e;
 	}
 }

@@ -20,6 +20,9 @@ import java.util.Map;
 @Service
 public class TwoFactorService {
 
+	@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}")
+	private boolean demoMode;
+
 	private static final Logger log = LoggerFactory.getLogger(TwoFactorService.class);
 	private static final String KEY = "mugsun:2fa:";
 	private static final long EXPIRE_MIN = 5;
@@ -43,6 +46,10 @@ public class TwoFactorService {
 	}
 
 	public boolean isEnabled() {
+		// 只读演示模式：双因子关闭，避免每次登录向公开演示账号的手机/邮箱发码（安全复审 F2）
+		if (demoMode) {
+			return false;
+		}
 		return policy.isTwoFactorEnabled();
 	}
 

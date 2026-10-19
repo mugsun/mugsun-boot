@@ -2,6 +2,7 @@ package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.mugsun.boot.common.module.ModuleMenuFilter;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysMenu;
 import com.mugsun.boot.system.mapper.SysMenuMapper;
@@ -28,10 +29,13 @@ public class SysMenuController {
 
 	private final SysMenuMapper menuMapper;
 	private final SysRoleMenuMapper roleMenuMapper;
+	private final ModuleMenuFilter moduleMenuFilter;
 
-	public SysMenuController(SysMenuMapper menuMapper, SysRoleMenuMapper roleMenuMapper) {
+	public SysMenuController(SysMenuMapper menuMapper, SysRoleMenuMapper roleMenuMapper,
+							 ModuleMenuFilter moduleMenuFilter) {
 		this.menuMapper = menuMapper;
 		this.roleMenuMapper = roleMenuMapper;
+		this.moduleMenuFilter = moduleMenuFilter;
 	}
 
 	@GetMapping("/tree")
@@ -46,6 +50,14 @@ public class SysMenuController {
 			query.eq("is_hide", isHide);
 		}
 		List<SysMenu> all = menuMapper.selectListByQuery(query);
+		// 菜单管理与角色授权弹窗共用本接口：未装配/已关闭模块的菜单（含按钮）不展示，防授权到不存在的页面。
+		// 名称/隐藏条件会滤掉父链，带条件时须在全量菜单上算父链闭包
+		boolean filtered = (menuName != null && !menuName.isBlank()) || isHide != null;
+		java.util.Set<Long> hidden = moduleMenuFilter.hiddenMenuIds(
+			filtered ? menuMapper.selectListByQuery(QueryWrapper.create()) : all);
+		if (!hidden.isEmpty()) {
+			all = all.stream().filter(m -> !hidden.contains(m.getId())).toList();
+		}
 		List<SysMenu> tree = new java.util.ArrayList<>(TreeUtil.build(all, 0L));
 		// 条件过滤时父链可能被滤掉：父级不在结果集的节点提升为根，避免「查得出却看不见」
 		if ((menuName != null && !menuName.isBlank()) || isHide != null) {

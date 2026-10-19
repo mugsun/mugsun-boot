@@ -9,6 +9,8 @@ import com.mugsun.boot.track.TrackApiBodyService;
 import com.mugsun.boot.track.TrackAppService;
 import com.mugsun.boot.track.TrackCollectException;
 import com.mugsun.boot.track.TrackIngestService;
+import com.mugsun.boot.track.TrackIntegrationHealth;
+import com.mugsun.boot.track.TrackRejectReason;
 import com.mugsun.boot.track.TrackReplayService;
 import com.mugsun.boot.track.TrackVisualRuleService;
 import com.mugsun.boot.track.TrackVisualService;
@@ -56,11 +58,13 @@ public class TrackCollectController {
 	private final TrackVisualService visualService;
 	private final TrackVisualRuleService visualRuleService;
 	private final ParamService paramService;
+	private final TrackIntegrationHealth health;
 
 	public TrackCollectController(TrackIngestService ingestService, TrackAppService appService,
 								  TrackReplayService replayService, TrackApiBodyService apiBodyService,
 								  TrackVisualService visualService, TrackVisualRuleService visualRuleService,
-								  ParamService paramService) {
+								  ParamService paramService, TrackIntegrationHealth health) {
+		this.health = health;
 		this.ingestService = ingestService;
 		this.appService = appService;
 		this.replayService = replayService;
@@ -76,30 +80,37 @@ public class TrackCollectController {
 	 */
 	@PostMapping("/collect")
 	public ResponseEntity<R<?>> collect(HttpServletRequest request) throws IOException {
+		// 接入自检归属：解析前用 query 参数 app_key（SDK 新版带上），解析后用请求体 app_key
+		String appKeyHint = request.getParameter("app_key");
 		try {
 			byte[] body = request.getInputStream().readAllBytes();
 			if (isGzip(request)) {
 				body = gunzip(body);
 			}
 			if (body.length == 0) {
-				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发");
+				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发", TrackRejectReason.BAD_PAYLOAD);
 			}
 			if (body.length > TrackConstants.COLLECT_PAYLOAD_MAX_BYTES) {
-				throw new TrackCollectException(413, "请求体太大。请缩小后再发");
+				throw new TrackCollectException(413, "请求体太大。请缩小后再发", TrackRejectReason.PAYLOAD_TOO_LARGE);
 			}
 			JsonNode root;
 			try {
 				root = PLAIN_MAPPER.readTree(body);
 			} catch (JsonProcessingException e) {
 				// 畸形 JSON 属客户端错误，转 400（不落入全局 500 兜底刷错误日志）
-				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发");
+				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发", TrackRejectReason.BAD_PAYLOAD);
 			}
 			if (root == null || !root.isObject()) {
-				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发");
+				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发", TrackRejectReason.BAD_PAYLOAD);
 			}
-			int accepted = ingestService.ingest(root, request.getRemoteAddr(), request.getHeader("User-Agent"));
+			if (root.path(TrackConstants.FIELD_APP_KEY).isTextual()) {
+				appKeyHint = root.path(TrackConstants.FIELD_APP_KEY).asText();
+			}
+			int accepted = ingestService.ingest(root, request.getRemoteAddr(), request.getHeader("User-Agent"),
+				request.getHeader("Origin") != null ? request.getHeader("Origin") : request.getHeader("Referer"));
 			return ResponseEntity.ok(R.data(Map.of("received", accepted)));
 		} catch (TrackCollectException e) {
+			recordRejection(appKeyHint, e, TrackRejectReason.PAYLOAD_TOO_LARGE);
 			R<Object> body = R.fail(e.getMessage());
 			body.setCode(e.getStatus());
 			return ResponseEntity.status(e.getStatus()).body(body);
@@ -115,26 +126,32 @@ public class TrackCollectController {
 	 */
 	@PostMapping("/replay")
 	public ResponseEntity<R<?>> replay(HttpServletRequest request) throws IOException {
+		// 接入自检归属：解析前用 query 参数 app_key（SDK 新版带上），解析后用请求体 app_key
+		String appKeyHint = request.getParameter("app_key");
 		try {
 			byte[] body = request.getInputStream().readAllBytes();
 			if (body.length == 0) {
-				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发");
+				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发", TrackRejectReason.BAD_PAYLOAD);
 			}
 			if (body.length > TrackConstants.REPLAY_ENVELOPE_MAX_BYTES) {
-				throw new TrackCollectException(413, "请求体太大。请缩小后再发");
+				throw new TrackCollectException(413, "请求体太大。请缩小后再发", TrackRejectReason.REPLAY_TOO_LARGE);
 			}
 			JsonNode root;
 			try {
 				root = PLAIN_MAPPER.readTree(body);
 			} catch (JsonProcessingException e) {
 				// 畸形 JSON 属客户端错误，转 400（不落入全局 500 兜底刷错误日志）
-				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发");
+				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发", TrackRejectReason.BAD_PAYLOAD);
 			}
 			if (root == null || !root.isObject()) {
-				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发");
+				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发", TrackRejectReason.BAD_PAYLOAD);
+			}
+			if (root.path(TrackConstants.FIELD_APP_KEY).isTextual()) {
+				appKeyHint = root.path(TrackConstants.FIELD_APP_KEY).asText();
 			}
 			return ResponseEntity.ok(R.data(replayService.ingest(root, request.getRemoteAddr())));
 		} catch (TrackCollectException e) {
+			recordRejection(appKeyHint, e, TrackRejectReason.REPLAY_TOO_LARGE);
 			R<Object> body = R.fail(e.getMessage());
 			body.setCode(e.getStatus());
 			return ResponseEntity.status(e.getStatus()).body(body);
@@ -151,26 +168,32 @@ public class TrackCollectController {
 	 */
 	@PostMapping("/api-body")
 	public ResponseEntity<R<?>> apiBody(HttpServletRequest request) throws IOException {
+		// 接入自检归属：解析前用 query 参数 app_key（SDK 新版带上），解析后用请求体 app_key
+		String appKeyHint = request.getParameter("app_key");
 		try {
 			byte[] body = request.getInputStream().readAllBytes();
 			if (body.length == 0) {
-				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发");
+				throw new TrackCollectException(400, "请求体是空的。请带上 JSON 对象再发", TrackRejectReason.BAD_PAYLOAD);
 			}
 			if (body.length > TrackConstants.API_BODY_ENVELOPE_MAX_BYTES) {
-				throw new TrackCollectException(413, "请求体太大。请缩小后再发");
+				throw new TrackCollectException(413, "请求体太大。请缩小后再发", TrackRejectReason.API_BODY_TOO_LARGE);
 			}
 			JsonNode root;
 			try {
 				root = PLAIN_MAPPER.readTree(body);
 			} catch (JsonProcessingException e) {
 				// 畸形 JSON 属客户端错误，转 400（不落入全局 500 兜底刷错误日志）
-				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发");
+				throw new TrackCollectException(400, "这段内容不是合法的 JSON。请改成 JSON 后再发", TrackRejectReason.BAD_PAYLOAD);
 			}
 			if (root == null || !root.isObject()) {
-				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发");
+				throw new TrackCollectException(400, "请求体须是一个 JSON 对象。数组或一段文字不行，请改完再发", TrackRejectReason.BAD_PAYLOAD);
+			}
+			if (root.path(TrackConstants.FIELD_APP_KEY).isTextual()) {
+				appKeyHint = root.path(TrackConstants.FIELD_APP_KEY).asText();
 			}
 			return ResponseEntity.ok(R.data(apiBodyService.ingest(root, request.getRemoteAddr())));
 		} catch (TrackCollectException e) {
+			recordRejection(appKeyHint, e, TrackRejectReason.API_BODY_TOO_LARGE);
 			R<Object> body = R.fail(e.getMessage());
 			body.setCode(e.getStatus());
 			return ResponseEntity.status(e.getStatus()).body(body);
@@ -249,6 +272,15 @@ public class TrackCollectController {
 		}
 	}
 
+	/** 接入自检：记录拒收原因（只记已存在的应用；未显式指定按状态码兜底，413 按通道区分） */
+	private void recordRejection(String appKeyHint, TrackCollectException e, TrackRejectReason tooLarge) {
+		TrackRejectReason reason = e.getReason();
+		if (reason == null) {
+			reason = e.getStatus() == 413 ? tooLarge : TrackRejectReason.byStatus(e.getStatus());
+		}
+		health.rejected(appKeyHint, reason, e.getMessage());
+	}
+
 	private boolean isGzip(HttpServletRequest request) {
 		String encoding = request.getHeader("Content-Encoding");
 		return encoding != null && encoding.toLowerCase().contains("gzip");
@@ -289,7 +321,7 @@ public class TrackCollectController {
 		} catch (TrackCollectException e) {
 			throw e;
 		} catch (IOException e) {
-			throw new TrackCollectException(400, "这段事件上报的压缩内容损坏。请按约定压缩后再上传");
+			throw new TrackCollectException(400, "这段事件上报的压缩内容损坏。请按约定压缩后再上传", TrackRejectReason.BAD_PAYLOAD);
 		}
 	}
 }

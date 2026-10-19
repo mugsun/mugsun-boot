@@ -68,8 +68,15 @@ public class TrackReplayStore {
 	private final JdbcTemplate jdbc;
 
 	/** 注入全局路由数据源（连接获取时按 {@code @TrackDS} 压栈的 DataSourceKey 路由埋点库） */
-	public TrackReplayStore(DataSource dataSource) {
+	private final String replayUpsertSql;
+	private final String sessionMarkReplaySql;
+
+	/** demo 下埋点账号只有 INSERT/SELECT，upsert 降级为 DO NOTHING（见 TrackInsertOnlySql） */
+	public TrackReplayStore(DataSource dataSource,
+			@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}") boolean demo) {
 		this.jdbc = new JdbcTemplate(dataSource);
+		this.replayUpsertSql = TrackInsertOnlySql.pick(REPLAY_UPSERT, demo);
+		this.sessionMarkReplaySql = TrackInsertOnlySql.pick(SESSION_MARK_REPLAY, demo);
 	}
 
 	/** 会话快照（distinctId/userId/tenantId/entryPath/hasError；会话行不存在返回 null 由各调用方兜底） */
@@ -101,10 +108,10 @@ public class TrackReplayStore {
 		String tenantId = snapshot != null && snapshot.tenantId() != null && !snapshot.tenantId().isBlank()
 			? snapshot.tenantId() : block.getTenantId();
 
-		jdbc.update(SESSION_MARK_REPLAY, IdUtil.getSnowflakeNextId(), block.getSessionId(), block.getAppKey(),
+		jdbc.update(sessionMarkReplaySql, IdUtil.getSnowflakeNextId(), block.getSessionId(), block.getAppKey(),
 			tenantId, distinctId, receivedAt, receivedAt);
 
-		jdbc.update(REPLAY_UPSERT, ps -> {
+		jdbc.update(replayUpsertSql, ps -> {
 			ps.setLong(1, IdUtil.getSnowflakeNextId());
 			ps.setString(2, block.getSessionId());
 			ps.setString(3, block.getAppKey());

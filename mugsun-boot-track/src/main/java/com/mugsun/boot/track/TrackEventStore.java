@@ -73,6 +73,14 @@ public class TrackEventStore {
 		+ " THEN EXCLUDED.entry_path ELSE track_session.entry_path END,"
 		+ " exit_path = CASE WHEN EXCLUDED.exit_path IS NOT NULL AND EXCLUDED.end_time > track_session.end_time"
 		+ " THEN EXCLUDED.exit_path ELSE track_session.exit_path END,"
+		// 会话来源规则（referrer_domain / utm_source）：跟随会话最早的事件，与 entry_path 同口径。
+		// - 本批起点更早（入口事件晚到，如离线补发、多标签并发、重试）且带来源 → 覆盖为本批的来源；
+		// - 否则只在库里为空时回填（首批恰好没来源，后到的批有）；已有来源不被更晚的事件改写。
+		// 例外：入口事件晚到但自身没来源（直接访问）时，保留已有来源，不会清空——来源宁可多记、不丢。
+		+ " referrer_domain = CASE WHEN EXCLUDED.referrer_domain IS NOT NULL AND EXCLUDED.start_time < track_session.start_time"
+		+ " THEN EXCLUDED.referrer_domain ELSE COALESCE(track_session.referrer_domain, EXCLUDED.referrer_domain) END,"
+		+ " utm_source = CASE WHEN EXCLUDED.utm_source IS NOT NULL AND EXCLUDED.start_time < track_session.start_time"
+		+ " THEN EXCLUDED.utm_source ELSE COALESCE(track_session.utm_source, EXCLUDED.utm_source) END,"
 		+ " pageviews = track_session.pageviews + EXCLUDED.pageviews,"
 		+ " event_count = track_session.event_count + EXCLUDED.event_count,"
 		+ " has_error = GREATEST(track_session.has_error, EXCLUDED.has_error),"
@@ -97,8 +105,17 @@ public class TrackEventStore {
 	private final JdbcTemplate jdbc;
 
 	/** 注入全局路由数据源（FlexDataSource）：连接获取时按 {@code @TrackDS} 压栈的 DataSourceKey 路由埋点库 */
-	public TrackEventStore(DataSource dataSource) {
+	private final String sessionUpsertSql;
+	private final String identityUpsertSql;
+	private final String eventDefUpsertSql;
+
+	/** demo 下埋点账号只有 INSERT/SELECT，upsert 降级为 DO NOTHING（见 TrackInsertOnlySql） */
+	public TrackEventStore(DataSource dataSource,
+			@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}") boolean demo) {
 		this.jdbc = new JdbcTemplate(dataSource);
+		this.sessionUpsertSql = TrackInsertOnlySql.pick(SESSION_UPSERT, demo);
+		this.identityUpsertSql = TrackInsertOnlySql.pick(IDENTITY_UPSERT, demo);
+		this.eventDefUpsertSql = TrackInsertOnlySql.pick(EVENT_DEF_UPSERT, demo);
 	}
 
 	/** 批量 INSERT 事件流水（ON CONFLICT (event_id, received_at) DO NOTHING 同接收窗幂等兜底） */
@@ -164,7 +181,7 @@ public class TrackEventStore {
 
 	/** 会话增量 upsert（批内已按 session 聚合；SQL 写死乱序安全语义） */
 	public void upsertSessions(List<SessionAggregate> sessions) {
-		jdbc.batchUpdate(SESSION_UPSERT, new BatchPreparedStatementSetter() {
+		jdbc.batchUpdate(sessionUpsertSql, new BatchPreparedStatementSetter() {
 			@Override
 			public void setValues(PreparedStatement ps, int i) throws SQLException {
 				SessionAggregate s = sessions.get(i);
@@ -204,7 +221,7 @@ public class TrackEventStore {
 
 	/** $identify 绑定 upsert（首绑不覆盖：冲突只刷 last_seen_time） */
 	public void upsertIdentities(List<IdentityBinding> bindings) {
-		jdbc.batchUpdate(IDENTITY_UPSERT, new BatchPreparedStatementSetter() {
+		jdbc.batchUpdate(identityUpsertSql, new BatchPreparedStatementSetter() {
 			@Override
 			public void setValues(PreparedStatement ps, int i) throws SQLException {
 				IdentityBinding b = bindings.get(i);
@@ -224,7 +241,7 @@ public class TrackEventStore {
 
 	/** 未见事件名自动注册（冲突只刷 last_seen_time；status 停用语义由采集端后续波次接） */
 	public void upsertEventDefs(List<EventDefSeen> defs) {
-		jdbc.batchUpdate(EVENT_DEF_UPSERT, new BatchPreparedStatementSetter() {
+		jdbc.batchUpdate(eventDefUpsertSql, new BatchPreparedStatementSetter() {
 			@Override
 			public void setValues(PreparedStatement ps, int i) throws SQLException {
 				EventDefSeen d = defs.get(i);

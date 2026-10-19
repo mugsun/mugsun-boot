@@ -2,4 +2,70 @@ mugsun-boot
 
 Copyright (c) 2026 北京定旭晨信息科技工作室 (mugsun)
 
-Licensed under the Apache License, Version 2.0. See LICENSE.
+Licensed under the MIT License. See LICENSE.
+
+----------------------------------------------------------------------
+Third-party components
+----------------------------------------------------------------------
+
+GeographicLib-Java (net.sf.geographiclib:GeographicLib-Java)
+  Copyright (c) Charles Karney <charles@karney.com>
+  Licensed under the MIT/X11 License.
+  https://geographiclib.sourceforge.io/  https://github.com/geographiclib/geographiclib-java
+  Used by mugsun-boot-gis for geodesic distance on the WGS84 ellipsoid.
+
+Bucket4j (com.bucket4j:bucket4j_jdk17-core, bucket4j_jdk17-redis-common, bucket4j_jdk17-lettuce)
+  Copyright (c) Vladimir Bukhtoyarov and contributors
+  Licensed under the Apache License, Version 2.0.
+  https://github.com/bucket4j/bucket4j
+  Used by mugsun-boot-core for per-IP rate limiting in the read-only demo profile (Redis backend).
+
+Resilience4j (io.github.resilience4j:resilience4j-core, resilience4j-bulkhead)
+  Copyright (c) Resilience4j contributors
+  Licensed under the Apache License, Version 2.0.
+  https://github.com/resilience4j/resilience4j
+  Used by mugsun-boot-core as the concurrency bulkhead for export/SSE requests in the read-only demo profile.
+
+JTS Topology Suite (org.locationtech.jts:jts-core)
+  Copyright (c) Vivid Solutions, Martin Davis, and others (Eclipse LocationTech).
+  Dual-licensed under the Eclipse Public License 2.0 and the Eclipse
+  Distribution License 1.0 (BSD-3-Clause); used here under EDL-1.0.
+  https://github.com/locationtech/jts
+  Used by mugsun-boot-gis for planar geometry operations (buffer, intersection,
+  antimeridian cutting, WKT/GeoJSON handling).
+
+KingbaseES JDBC driver (cn.com.kingbase:kingbase8)
+  Copyright (c) Beijing Kingbase Information Technologies Co., Ltd.
+  Declared as Apache License 2.0 in its Maven Central POM.
+  https://central.sonatype.com/artifact/cn.com.kingbase/kingbase8
+  Only in the optional `kingbase` Maven profile (runtime scope); bundled in
+  images built with -Pkingbase. The driver licence does not cover the
+  KingbaseES database server, which is commercially licensed.
+  The driver is derived from the PostgreSQL JDBC Driver (pgjdbc), whose
+  copyright notice the vendor jar does not carry. As required by pgjdbc's
+  BSD-2-Clause licence, its notice is reproduced here:
+
+  PostgreSQL JDBC Driver (pgjdbc) - https://github.com/pgjdbc/pgjdbc
+  Copyright (c) 1997, PostgreSQL Global Development Group
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice,
+     this list of conditions and the following disclaimer.
+  2. Redistributions in binary form must reproduce the above copyright notice,
+     this list of conditions and the following disclaimer in the documentation
+     and/or other materials provided with the distribution.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.

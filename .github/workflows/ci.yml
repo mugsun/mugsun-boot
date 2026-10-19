@@ -78,6 +78,29 @@ jobs:
         working-directory: mugsun-core
         run: mvn -B install -DskipTests
 
+      # B89-0：根 pom 的 bannedDependencies 规则必须真的会拦下 Spring AI 与 MCP SDK（探针工程逐个验证）
+      - name: Prove banned-dependency rule trips
+        working-directory: mugsun-boot
+        run: scripts/check-banned-dependencies.sh
+
+      # 信创驱动 profile 平时不进 verify；validate 一次，确保 enforcer 等规则在 full + kingbase + dameng 组合下也成立
+      - name: Validate full + kingbase + dameng profiles
+        working-directory: mugsun-boot
+        run: mvn -B validate -Pfull,kingbase,dameng
+
       - name: Verify mugsun-boot
         working-directory: mugsun-boot
         run: mvn -B verify
+
+      # 模块开关回归用例在 surefire 控制台只打印类名与条数；这里把用例名从报告 XML 列到日志里，便于核对 CI 实际跑了哪些
+      - name: List module-switch ApiTest cases
+        if: always()
+        working-directory: mugsun-boot/mugsun-boot-server/target/surefire-reports
+        run: |
+          for c in AiDisabledApiTest AiEnabledApiTest ModuleGateApiTest GisApiTest; do
+            for f in TEST-*."$c".xml; do
+              [ -f "$f" ] || { echo "MISSING $c"; continue; }
+              grep -o '<testcase name="[^"]*" classname="[^"]*"' "$f" | sed -E 's/<testcase name="([^"]*)" classname="([^"]*)"/CASE \2#\1/'
+              grep -o '<testsuite [^>]*' "$f" | grep -oE '(tests|failures|errors|skipped)="[0-9]+"' | tr '\n' ' '; echo " <- $c"
+            done
+          done

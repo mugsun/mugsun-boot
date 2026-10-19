@@ -1,5 +1,7 @@
 package com.mugsun.boot.config;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.common.constant.UserConstants;
@@ -27,6 +29,7 @@ import org.springframework.stereotype.Component;
  * 幂等播种内置普通用户角色（自助注册默认归属）。
  */
 @Component
+@ConditionalOnNotDemo
 public class DataInitializer implements CommandLineRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
@@ -38,6 +41,7 @@ public class DataInitializer implements CommandLineRunner {
 	private final SysRoleMenuMapper roleMenuMapper;
 	private final PasswordEncoder passwordEncoder;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
+	private final com.mugsun.boot.system.mapper.SysTenantMapper tenantMapper;
 
 	/** 开发/联调：幂等播种低权账号 fronttest（sec 探针与 e2e 约定密码 123456） */
 	@Value("${mugsun.lab.seed-fronttest:false}")
@@ -46,7 +50,8 @@ public class DataInitializer implements CommandLineRunner {
 	public DataInitializer(SysUserMapper userMapper, SysRoleMapper roleMapper, SysMenuMapper menuMapper,
 						   SysUserRoleMapper userRoleMapper, SysRoleMenuMapper roleMenuMapper,
 						   PasswordEncoder passwordEncoder,
-						   com.mugsun.boot.security.SecurityPolicyService securityPolicyService) {
+						   com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
+						   com.mugsun.boot.system.mapper.SysTenantMapper tenantMapper) {
 		this.userMapper = userMapper;
 		this.roleMapper = roleMapper;
 		this.menuMapper = menuMapper;
@@ -54,12 +59,14 @@ public class DataInitializer implements CommandLineRunner {
 		this.roleMenuMapper = roleMenuMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.securityPolicyService = securityPolicyService;
+		this.tenantMapper = tenantMapper;
 	}
 
 	@Override
 	public void run(String... args) {
 		// 启动初始化写平台租户表，无会话上下文——经中心忽略入口显式声明，规避 fail-closed
 		TenantContext.ignore(() -> {
+			seedPlatformTenantName();
 			seed();
 			seedCommonRole();
 			seedFronttestUser();
@@ -78,6 +85,38 @@ public class DataInitializer implements CommandLineRunner {
 			seedNotifyPages();
 			return null;
 		});
+	}
+
+	/** 平台租户的默认名称（UX-013） */
+	static final String PLATFORM_TENANT_NAME = "平台租户";
+
+	/**
+	 * 平台租户（000000）补名称，幂等：没有这一行就补一行，有但名称为空就补名称，已有名称一律不动。
+	 * 不加 Flyway 迁移（V4–V6 已被在审 PR 预留、且不允许乱序），三种方言共用同一段 mapper 写法。
+	 * 多实例同时启动时靠 sys_tenant.tenant_code 唯一索引兜底，插入冲突只记日志。
+	 */
+	void seedPlatformTenantName() {
+		try {
+			com.mugsun.boot.system.entity.SysTenant exist = tenantMapper.selectOneByQuery(
+				QueryWrapper.create().eq("tenant_code", TenantConstants.DEFAULT_TENANT_ID));
+			if (exist == null) {
+				com.mugsun.boot.system.entity.SysTenant t = new com.mugsun.boot.system.entity.SysTenant();
+				t.setTenantCode(TenantConstants.DEFAULT_TENANT_ID);
+				t.setTenantName(PLATFORM_TENANT_NAME);
+				t.setStatus(1);
+				t.setAccountCount(-1);
+				tenantMapper.insertSelective(t);
+				log.info("已补平台租户 {}「{}」", TenantConstants.DEFAULT_TENANT_ID, PLATFORM_TENANT_NAME);
+			} else if (exist.getTenantName() == null || exist.getTenantName().isBlank()) {
+				com.mugsun.boot.system.entity.SysTenant upd =
+					com.mybatisflex.core.util.UpdateEntity.of(com.mugsun.boot.system.entity.SysTenant.class, exist.getId());
+				upd.setTenantName(PLATFORM_TENANT_NAME);
+				tenantMapper.update(upd);
+				log.info("已补平台租户 {} 的名称「{}」", TenantConstants.DEFAULT_TENANT_ID, PLATFORM_TENANT_NAME);
+			}
+		} catch (Exception e) {
+			log.warn("补平台租户名称跳过：{}", e.getMessage());
+		}
 	}
 
 	/**

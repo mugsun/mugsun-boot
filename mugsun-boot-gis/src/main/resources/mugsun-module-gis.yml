@@ -1,5 +1,26 @@
 # 地理信息模块配置（随 mugsun-boot-gis jar 提供；核心通过 optional:classpath 引入）
 mugsun:
   gis:
-    # 地理信息模块总开关（默认开）；sys_param gis.module.enabled=false 可运行时关闭
+    # 地理信息模块总开关：未设置按开；设置后只认 true/false，空值等其它值启动失败（MUGSUN_GIS_ENABLED 同理）。
+    # sys_param gis.module.enabled=false 可运行时关闭
     enabled: ${MUGSUN_GIS_ENABLED:true}
+    # 自定义 XYZ 底图（免密钥瓦片）。allowed-hosts 是防 SSRF 白名单：只允许 https + 这里列出的域名（含其子域），
+    # IP 字面量与解析到内网 / 回环 / 链路本地地址的域名一律拒绝。置空即禁用 xyz 底图。
+    xyz:
+      allowed-hosts: ${MUGSUN_GIS_XYZ_ALLOWED_HOSTS:tile.openstreetmap.org}
+      # 租户未配置时的默认预设：目前内置 osm；留空则必须先在「底图配置」里保存
+      default-preset: ${MUGSUN_GIS_XYZ_DEFAULT_PRESET:osm}
+      # OSM 瓦片政策要求可识别 UA；生产请改为自己的应用名与联系方式
+      user-agent: ${MUGSUN_GIS_XYZ_USER_AGENT:mugsun-boot-gis/0.1 (+https://github.com/mugsun/mugsun-boot)}
+      # 是否放行解析到 198.18.0.0/15 的地址（默认拦截）。仅在服务端出网经 Clash / Surge 等 fake-ip 代理时开启
+      allow-benchmark-net: ${MUGSUN_GIS_XYZ_ALLOW_BENCHMARK_NET:false}
+      # NAT64（64:ff9b::/96）/ 6to4（2002::/16）默认拦截；放行后内嵌 IPv4 仍按内网规则校验
+      allow-nat64: ${MUGSUN_GIS_XYZ_ALLOW_NAT64:false}
+      allow-6to4: ${MUGSUN_GIS_XYZ_ALLOW_6TO4:false}
+      max-tile-bytes: 2097152
+      cache-max-bytes: 67108864
+      cache-ttl-seconds: 86400
+    # 瓦片代理限流（所有底图共用，进程内固定分钟窗；多实例部署时为单实例阈值）。0 表示不限
+    tile:
+      rate-limit-per-user: ${MUGSUN_GIS_TILE_RATE_PER_USER:1200}
+      rate-limit-per-ip: ${MUGSUN_GIS_TILE_RATE_PER_IP:2400}

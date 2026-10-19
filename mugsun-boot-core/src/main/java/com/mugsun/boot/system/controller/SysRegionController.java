@@ -149,18 +149,12 @@ public class SysRegionController {
 	@PostMapping("/import")
 	@RepeatSubmit(message = "请勿重复导入。请先看列表里是否已经出现这些区划")
 	public R<Integer> importData(@RequestParam(value = "file", required = false) MultipartFile file) {
-		if (file == null || file.isEmpty()) {
+		if (file == null) {
 			throw new ServiceException("请先选择填好的表格。可以点下载模板，按表头填写后再导入");
 		}
-		List<RegionExcel> rows;
-		try {
-			rows = ExcelUtil.read(file, RegionExcel.class);
-		} catch (RuntimeException ex) {
-			throw new ServiceException("这份表格读不出来。请下载模板，按表头填写后再导入");
-		}
-		if (rows == null || rows.isEmpty()) {
-			throw new ServiceException("这份表格里没有区划。请先下载模板，填好编码、父级编码、名称和层级后再导入");
-		}
+		List<RegionExcel> rows = com.mugsun.boot.common.excel.ImportFiles.requireRows(
+			com.mugsun.boot.common.excel.ImportFiles.readExcel(file, RegionExcel.class),
+			"这份表格里没有区划。请先下载模板，填好编码、父级编码、名称和层级后再导入");
 		List<PreparedRegion> prepared = prepareImport(rows);
 		int count = 0;
 		for (PreparedRegion row : prepared) {

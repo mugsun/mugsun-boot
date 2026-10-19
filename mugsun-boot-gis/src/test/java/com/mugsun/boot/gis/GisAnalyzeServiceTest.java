@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.mock;
 
 /**
- * 空间分析内核：缓冲/相交/距离/面积走 JTS（米制 3857），出入 WGS84。
+ * 空间分析内核：缓冲/相交/距离/面积走 JTS，米制走 GisGeodesic，出入 WGS84。
  * 不启 Spring 容器，真实 codec + format，mapper 用 mock（本用例不碰图层落库）。
  */
 class GisAnalyzeServiceTest {
@@ -133,12 +133,16 @@ class GisAnalyzeServiceTest {
 	}
 
 	@Test
-	@DisplayName("两点距离（米制）在合理量级：约 1° 经度 ≈ 111km")
+	@DisplayName("两点距离按地面米：赤道 1° 经度与 70°N 1° 经度都对上 WGS84 测地距离（误差 < 0.5%）")
 	void distanceNearEquator() {
-		Map<String, Object> req = body("distance", collection(point(0, 0)));
-		req.put("other", collection(point(1, 0)));
-		double meters = ((Number) ((Map<?, ?>) service.analyze(req).get("metrics")).get("distanceMeters")).doubleValue();
-		assertThat(meters).isCloseTo(111319d, within(50d));
+		for (double lat : new double[] { 0d, 70d }) {
+			Map<String, Object> req = body("distance", collection(point(0, lat)));
+			req.put("other", collection(point(1, lat)));
+			double meters = ((Number) ((Map<?, ?>) service.analyze(req).get("metrics")).get("distanceMeters"))
+				.doubleValue();
+			double truth = GeodesicTruth.inverse(0, lat, 1, lat);
+			assertThat(meters / truth - 1).isBetween(-0.005, 0.005);
+		}
 	}
 
 	@Test
@@ -163,5 +167,88 @@ class GisAnalyzeServiceTest {
 	void binaryRequiresOther() {
 		assertThatThrownBy(() -> service.analyze(body("intersects", collection(point(1, 1)))))
 			.isInstanceOf(ServiceException.class);
+	}
+
+	private GisAnalyzeService withLayer(GisSpatialQueryService spatial, String geometryJson) {
+		GisGeometryCodec codec = new GisGeometryCodec();
+		GisFormatService format = new GisFormatService(new ObjectMapper(), new GisTextIngest(codec),
+			new GisTopologyGuard(codec));
+		GisLayerMapper mapper = mock(GisLayerMapper.class);
+		com.mugsun.boot.gis.entity.GisLayer l = new com.mugsun.boot.gis.entity.GisLayer();
+		l.setId(5L);
+		l.setKind("vector");
+		l.setDataJson("{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"f\","
+			+ "\"properties\":{},\"geometry\":" + geometryJson + "}]}");
+		org.mockito.Mockito.when(mapper.selectOneById(5L)).thenReturn(l);
+		return new GisAnalyzeService(format, codec, mapper, spatial);
+	}
+
+	@Test
+	@DisplayName("engine=java：不转交图层查询（不走 tryOffload），整份入参在内存里分析")
+	void engineJavaSkipsOffload() {
+		GisSpatialQueryService spatial = mock(GisSpatialQueryService.class);
+		GisAnalyzeService svc = withLayer(spatial, "{\"type\":\"Point\",\"coordinates\":[116.4,39.9]}");
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("op", "buffer");
+		body.put("layerId", 5L);
+		body.put("distance", 500);
+		body.put("engine", "java");
+		Map<String, Object> out = svc.analyze(body);
+		assertThat(out.get("engine")).isEqualTo("java");
+		org.mockito.Mockito.verifyNoInteractions(spatial);
+		// 不带 engine 时照旧转交
+		body.remove("engine");
+		org.mockito.Mockito.when(spatial.buffer(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyDouble(),
+			org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyBoolean()))
+			.thenReturn(new LinkedHashMap<>(Map.of("features", List.of(), "engine", "java")));
+		svc.analyze(body);
+		org.mockito.Mockito.verify(spatial).buffer(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(500d),
+			org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(false));
+	}
+
+	@Test
+	@DisplayName("分析单个几何（engine=java 或直接传入）：缓冲包住极点 / 单个部件宽于 180° 报错")
+	void analyzeInputOutOfRangeThrows() {
+		GisAnalyzeService svc = withLayer(mock(GisSpatialQueryService.class),
+			"{\"type\":\"Point\",\"coordinates\":[0,89.999]}");
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("op", "buffer");
+		body.put("layerId", 5L);
+		body.put("distance", 500);
+		body.put("engine", "java");
+		assertThatThrownBy(() -> svc.analyze(body)).isInstanceOf(ServiceException.class).hasMessageContaining("极点");
+		Map<String, Object> direct = new LinkedHashMap<>();
+		direct.put("op", "buffer");
+		direct.put("distance", 500);
+		direct.put("payload", collection(Map.of("type", "LineString", "coordinates",
+			List.of(List.of(-100, 0), List.of(0, 0), List.of(100, 0)))));
+		assertThatThrownBy(() -> service.analyze(direct)).isInstanceOf(ServiceException.class).hasMessageContaining("180°");
+	}
+
+	@Test
+	@DisplayName("转交图层查询时 wrapSpatial 把 skipped 带回，跨 180° 的命中要素不让汇总抛异常")
+	@SuppressWarnings("unchecked")
+	void wrapSpatialCarriesSkipped() {
+		GisSpatialQueryService spatial = mock(GisSpatialQueryService.class);
+		GisAnalyzeService svc = withLayer(spatial, "{\"type\":\"Point\",\"coordinates\":[116.4,39.9]}");
+		Map<String, Object> polarFeat = new LinkedHashMap<>();
+		polarFeat.put("type", "Feature");
+		polarFeat.put("properties", new LinkedHashMap<>());
+		polarFeat.put("geometry", Map.of("type", "Polygon", "coordinates",
+			List.of(List.of(List.of(-100, 0), List.of(0, 0), List.of(100, 0), List.of(100, 1), List.of(-100, 0)))));
+		Map<String, Object> resp = new LinkedHashMap<>();
+		resp.put("features", new java.util.ArrayList<>(List.of(polarFeat)));
+		resp.put("engine", "java");
+		resp.put("count", 1);
+		resp.put("skipped", 3);
+		org.mockito.Mockito.when(spatial.contains(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(resp);
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("op", "contains");
+		body.put("layerId", 5L);
+		body.put("other", Map.of("type", "Point", "coordinates", List.of(0.5, 86.5)));
+		Map<String, Object> out = svc.analyze(body);
+		assertThat(out.get("skipped")).isEqualTo(3);
+		assertThat(((Map<String, Object>) out.get("metrics")).get("metricsSkipped")).isEqualTo(1);
 	}
 }

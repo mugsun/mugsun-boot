@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackDS;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -31,6 +33,7 @@ import java.util.regex.Pattern;
  */
 @Component
 @TrackDS
+@ConditionalOnNotDemo
 public class TrackPartitionJob {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackPartitionJob.class);
@@ -45,23 +48,27 @@ public class TrackPartitionJob {
 	private final JdbcTemplate jdbc;
 	private final TrackJobGuard guard;
 	private final MeterRegistry metrics;
+	private final TrackTimelineIndexBackfillJob timelineIndexBackfill;
 	/** 上次维护日期（UTC；内存节流每日一轮，多节点各自节流 + 分布式锁兜底） */
 	private volatile LocalDate lastMaintainDay;
 
-	public TrackPartitionJob(DataSource dataSource, TrackJobGuard guard, MeterRegistry metrics) {
+	public TrackPartitionJob(DataSource dataSource, TrackJobGuard guard, MeterRegistry metrics,
+							 TrackTimelineIndexBackfillJob timelineIndexBackfill) {
 		this.jdbc = new JdbcTemplate(dataSource);
 		this.guard = guard;
 		this.metrics = metrics;
+		this.timelineIndexBackfill = timelineIndexBackfill;
 	}
 
 	/** 每小时 tick：每日一轮维护（预建幂等，清理按到期线） */
 	@Scheduled(fixedDelay = TrackConstants.PARTITION_TICK_MS)
 	public void tick() {
 		LocalDate today = LocalDate.now(ZoneOffset.UTC);
-		if (lastMaintainDay != null && !today.isAfter(lastMaintainDay)) {
-			return;
+		if (lastMaintainDay == null || today.isAfter(lastMaintainDay)) {
+			maintainNow();
 		}
-		maintainNow();
+		// 时间线索引存量分区补建：复用本 tick，开关/低峰判断与执行都在补建任务内（异步，不占调度线程）
+		timelineIndexBackfill.runIfDue();
 	}
 
 	/** 供 PowerJob 处理器/集成测试手动触发：立即执行一轮（不经节流；带分布式锁），返回执行摘要 */
@@ -92,6 +99,24 @@ public class TrackPartitionJob {
 			+ " FOR VALUES FROM ('" + monthStart + "') TO ('" + monthEnd + "') WITH (fillfactor = 100)");
 		jdbc.execute("CREATE TABLE IF NOT EXISTS \"track_event_data_" + suffix + "\" PARTITION OF track_event_data"
 			+ " FOR VALUES FROM ('" + monthStart + "') TO ('" + monthEnd + "')");
+		// 时间线 (ts,id) 索引：PARTITION OF 时 PG 自动克隆父表索引并挂接（含 T3 的 ON ONLY 索引）；
+		// 此处按 pg_inherits 校验，缺失则 CONCURRENTLY 补建并 ATTACH（新分区为空，代价可忽略；连接为自动提交）
+		String eventPart = "track_event_" + suffix;
+		jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+			// 与 T4/后台补建共用 advisory 锁；取不到（补建进行中）就跳过校验——PG 已自动克隆，补建任务会再校验
+			if (!TrackTimelineIndexes.tryLock(conn)) {
+				log.info("时间线索引锁被占用，跳过新分区 {} 的索引校验（由后台补建任务兜底）", eventPart);
+				return null;
+			}
+			try {
+				TrackTimelineIndexes.ensurePartition(conn, eventPart, TrackTimelineIndexes.TIMELINE, true);
+			} catch (java.sql.SQLException e) {
+				log.warn("新分区 {} 时间线索引校验失败（由后台补建任务兜底）：{}", eventPart, e.getMessage());
+			} finally {
+				TrackTimelineIndexes.unlock(conn);
+			}
+			return null;
+		});
 	}
 
 	/** 清理到期分区：月分区上界整体早于到期线（max retention_days）→ DETACH → DROP；返回清理个数 */

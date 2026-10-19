@@ -422,6 +422,83 @@ class TrackReplayApiTest extends AbstractTrackIntegrationTest {
 			.as("明文非合法 JSON 应 400").isEqualTo(400);
 	}
 
+	/** ⑪ SPA 页面数：rrweb 只有 1 个全量快照，但会话内 3 次路由切换各上报 $pageview → 列表/详情 pageCount=3 */
+	@Test
+	void spaRouteChangesCountedInPageCount() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		collectPageview(APP_R, sessionId, distinctId, "/spa-home");
+		collectPageview(APP_R, sessionId, distinctId, "/spa-list");
+		collectPageview(APP_R, sessionId, distinctId, "/spa-detail");
+		awaitUntil("三次 $pageview 计入会话", () -> {
+			Row s = trackRow("SELECT pageviews FROM track_session WHERE session_id = ?", sessionId);
+			return s != null && s.getInt("pageviews") == 3;
+		});
+		Block block = block(sessionId, 0, List.of(rrweb(2, 1000), rrweb(3, 2000), rrweb(3, 3000)));
+		assertThat(postReplay(APP_R, block).getStatusCode().value()).isEqualTo(200);
+		awaitUntil("回放元数据落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_replay WHERE session_id = ? AND is_deleted = 0", sessionId) == 1L);
+		assertThat(trackRow("SELECT page_count FROM track_replay WHERE session_id = ?", sessionId).getInt("page_count"))
+			.as("存储列仍是全量快照数").isEqualTo(1);
+
+		JsonNode page = readBody(get("/system/track/replay/page?appKey=" + APP_R + "&pageSize=50", adminToken)).path("data");
+		JsonNode found = null;
+		for (JsonNode row : page.path("records")) {
+			if (sessionId.equals(row.path("sessionId").asText())) {
+				found = row;
+			}
+		}
+		assertThat(found).as("分页应含 SPA 会话").isNotNull();
+		assertThat(found.path("pageCount").asInt()).as("SPA 路由切换计入页面数").isEqualTo(3);
+		JsonNode detail = readBody(get("/system/track/replay/detail?sessionId=" + sessionId, adminToken)).path("data");
+		assertThat(detail.path("replay").path("pageCount").asInt()).isEqualTo(3);
+	}
+
+	/** ⑫ 页面数只认本租户、未逻辑删除的会话行：已删除的同 session 行与他租户同 session 行均不参与 */
+	@Test
+	void pageCountIgnoresDeletedAndCrossTenantSessions() {
+		// 已逻辑删除的同 session 行（pageviews=9）不应抬高页面数
+		String sessionId = uuid();
+		String distinctId = uuid();
+		collectPageview(APP_R, sessionId, distinctId, "/del-a");
+		collectPageview(APP_R, sessionId, distinctId, "/del-b");
+		awaitUntil("两次 $pageview 计入会话", () -> {
+			Row s = trackRow("SELECT pageviews FROM track_session WHERE session_id = ? AND is_deleted = 0", sessionId);
+			return s != null && s.getInt("pageviews") == 2;
+		});
+		insertSessionRow(sessionId, APP_R, PLATFORM_TENANT, 9, 1);
+		assertThat(postReplay(APP_R, block(sessionId, 0, List.of(rrweb(2, 1000)))).getStatusCode().value()).isEqualTo(200);
+		awaitUntil("回放元数据落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_replay WHERE session_id = ? AND is_deleted = 0", sessionId) == 1L);
+		JsonNode detail = readBody(get("/system/track/replay/detail?sessionId=" + sessionId, adminToken)).path("data");
+		assertThat(detail.path("replay").path("pageCount").asInt()).as("已删除会话行不参与").isEqualTo(2);
+
+		// B 租户回放，但同 session_id 的会话行归属平台租户（pageviews=7）：B 视角只认快照数 1。
+		// 回放落储从会话行回填 tenant_id，故先落回放（占位会话行随之建为 B 租户），再把会话行改挂平台租户模拟跨租户行
+		String sessionB = uuid();
+		assertThat(postReplay(APP_R_B, block(sessionB, 0, List.of(rrweb(2, 1000)))).getStatusCode().value()).isEqualTo(200);
+		awaitUntil("B 回放元数据落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_replay WHERE session_id = ? AND is_deleted = 0", sessionB) == 1L);
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.updateBySql(
+			"UPDATE track_session SET tenant_id = ?, pageviews = 7 WHERE session_id = ?", PLATFORM_TENANT, sessionB));
+		JsonNode page = readBody(get("/system/track/replay/page?appKey=" + APP_R_B + "&pageSize=50", tenantBToken)).path("data");
+		JsonNode found = null;
+		for (JsonNode row : page.path("records")) {
+			if (sessionB.equals(row.path("sessionId").asText())) {
+				found = row;
+			}
+		}
+		assertThat(found).as("B 租户分页应含自己的回放").isNotNull();
+		assertThat(found.path("pageCount").asInt()).as("他租户会话行不参与").isEqualTo(1);
+	}
+
+	private void insertSessionRow(String sessionId, String appKey, String tenantId, int pageviews, int isDeleted) {
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.updateBySql(
+			"INSERT INTO track_session (id, session_id, app_key, tenant_id, distinct_id, start_time, end_time, pageviews,"
+				+ " create_time, update_time, is_deleted) VALUES (?, ?, ?, ?, ?, now(), now(), ?, now(), now(), ?)",
+			IdUtil.getSnowflakeNextId(), sessionId, appKey, tenantId, uuid(), pageviews, isDeleted));
+	}
+
 	// ---------- 测试工具 ----------
 
 	/** ⑪ 回放会话事件打点（G105）：按 ts 升序返回精确三字段；空会话/不存在会话空数组；跨租户空数组；

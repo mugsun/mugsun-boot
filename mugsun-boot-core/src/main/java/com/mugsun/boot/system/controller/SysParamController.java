@@ -3,6 +3,7 @@ package com.mugsun.boot.system.controller;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
+import com.mugsun.boot.common.module.ModuleSwitch;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysParam;
 import com.mugsun.boot.system.mapper.SysParamMapper;
@@ -100,6 +101,7 @@ public class SysParamController {
 		if (param.getRemark() != null && param.getRemark().length() > 255) {
 			throw new ServiceException("备注请控制在 255 字以内");
 		}
+		ModuleSwitch.State switchState = checkModuleSwitch(param);
 		if (param.getId() == null) {
 			requireValue(param.getParamValue());
 			param.setParamValue(param.getParamValue().trim());
@@ -127,6 +129,9 @@ public class SysParamController {
 			paramMapper.update(param);
 		}
 		paramService.evict(param.getParamKey());
+		if (switchState != null && switchState.deprecated()) {
+			return R.success("已保存。" + ModuleSwitch.MSG_DEPRECATED);
+		}
 		return R.success("已保存。可以在列表里查看这条参数");
 	}
 
@@ -168,6 +173,19 @@ public class SysParamController {
 			query.like("param_value", paramValue.trim());
 		}
 		return query;
+	}
+
+	/** 模块开关键（gis/ai.module.enabled）只收 true/false（1/0 仍可保存但会提示已弃用），非法值拒收；值为空交给后面的必填校验 */
+	private ModuleSwitch.State checkModuleSwitch(SysParam param) {
+		String v = param.getParamValue();
+		if (v == null || v.isBlank()) {
+			return null;
+		}
+		ModuleSwitch.State state = ModuleSwitch.checkParam(param.getParamKey(), v);
+		if (state != null && !state.legal()) {
+			throw new ServiceException(ModuleSwitch.MSG_INVALID);
+		}
+		return state;
 	}
 
 	private void assertKeyFree(String paramKey, Long id) {
