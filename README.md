@@ -11,7 +11,7 @@
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![JDK](https://img.shields.io/badge/JDK-21-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
-![License](https://img.shields.io/badge/License-Apache%202.0-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 ## 概述
 
@@ -22,10 +22,10 @@
 | 框架 | Spring Boot 3.5.13 |
 | 数据层 | PostgreSQL 16（PostGIS + pgvector）；Redis 7（默认库号 `3`） |
 | 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0`（已发布至 [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)） |
-| 许可 | [Apache-2.0](./LICENSE) |
+| 许可 | [MIT](./LICENSE) |
 | 文档 | [docs.mugsun.com/boot](https://docs.mugsun.com/boot/) |
 
-技术组件（以当前 POM 为准）：MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway、Spring AI 1.1.2（AI 模块）。
+技术组件（以当前 POM 为准）：MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway。AI 模块不依赖 Spring AI：模型、向量检索与 MCP 工具调用均由模块内的 HTTP 客户端和 pgvector 查询实现。
 
 ## 部署
 
@@ -81,7 +81,7 @@ mugsun-boot/
   mugsun-boot-core/     # 认证、系统、流程、租户、开放平台等
   mugsun-boot-gis/      # 可选：图层、空间查询、矢量瓦片
   mugsun-boot-track/    # 可选：采集摄入、聚合、回放相关 API
-  mugsun-boot-ai/       # 可选：模型、对话、知识库、MCP（Spring AI）
+  mugsun-boot-ai/       # 可选：模型、对话、知识库、调用外部 MCP 工具
   mugsun-boot-server/   # 装配壳；默认 profile = full
 ```
 
@@ -94,11 +94,13 @@ Maven Profile：
 | `gis-only` / `track-only` / `ai-only` | 核心 + 单一可选模块；须关闭 full |
 | `kingbase` / `dameng` | 信创数据库驱动 |
 
-运行时可通过环境变量关闭能力（JAR 仍可能包含对应类路径）：
+运行时可通过环境变量关闭能力（JAR 仍可能包含对应类路径）。不设置按开启；设置时只接受 `true` 或 `false`（不区分大小写，前后不能有空格），空值、`1` / `0`、`yes` / `no` 等其它值都会启动失败：
 
 - `MUGSUN_GIS_ENABLED=false`
 - `MUGSUN_TRACK_ENABLED=false`
 - `MUGSUN_AI_ENABLED=false`
+
+内置 MCP Server 暂时下线，正在加鉴权后恢复。下线期间 `/sse`、`/mcp` 返回 404，`MUGSUN_AI_MCP_SERVER` 不起作用；根 POM 的 maven-enforcer 规则暂时拦下 Spring AI（`org.springframework.ai:*`）与 MCP SDK（`io.modelcontextprotocol*`），包括传递依赖。
 
 模块装配说明见 [docs/可选模块装配.md](docs/可选模块装配.md)。
 
@@ -116,7 +118,7 @@ Maven Profile：
 
 - `mugsun-boot-track`：`/track/collect`、配置下发与分析相关 API，与浏览器 SDK、管理端看板构成完整链路
 - `mugsun-boot-gis`：空间数据与矢量瓦片（依赖 PostGIS）
-- `mugsun-boot-ai`：模型、对话、知识库与 MCP（Spring AI）
+- `mugsun-boot-ai`：模型、对话、知识库，以及在编排中调用外部 MCP 工具（内置 MCP Server 暂时下线，正在加鉴权后恢复）
 
 **运行约定**
 
@@ -143,4 +145,4 @@ Maven Profile：
 
 ## 许可
 
-[Apache-2.0](./LICENSE) · 版权见 [NOTICE](./NOTICE) · © 2026 北京定旭晨 / mugsun
+[MIT](./LICENSE) · 版权见 [NOTICE](./NOTICE) · © 2026 北京定旭晨 / mugsun

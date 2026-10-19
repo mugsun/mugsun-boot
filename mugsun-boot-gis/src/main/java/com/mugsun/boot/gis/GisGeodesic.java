@@ -119,10 +119,28 @@ public final class GisGeodesic {
 		double[] origin = p.forward(lon, lat);
 		Coordinate[] pair = DistanceOp.nearestPoints(plane, FACTORY.createPoint(new Coordinate(origin[0], origin[1])));
 		if (pair[0].distance(pair[1]) == 0d) {
-			return 0d;
+			// 投影判「点在面内」只在要素离查询点不远时可信：要素靠近对跖点时方位等距投影把它翻成包住原点的环
+			//（mugsun-boot#64：从 (0, 0) 查 180° 附近的面得到 0 米）。面要素在经纬度上复核一次，不在面内就按顶点最小值算
+			if (g.getDimension() < 2) {
+				return 0d;
+			}
+			double qLon = alignLon(lon, g.getEnvelopeInternal().centre().x);
+			if (g.covers(FACTORY.createPoint(new Coordinate(qLon, lat)))) {
+				return 0d;
+			}
+			double min = Double.POSITIVE_INFINITY;
+			for (Coordinate c : densify(g).getCoordinates()) {
+				min = Math.min(min, inverse(qLon, lat, c.x, c.y));
+			}
+			return min;
 		}
 		double[] near = p.inverse(pair[0].x, pair[0].y);
 		return inverse(lon, lat, near[0], near[1]);
+	}
+
+	/** lon、lon ± 360 里离 ref 最近的那个 */
+	private static double alignLon(double lon, double ref) {
+		return lon + Math.rint((ref - lon) / 360d) * 360d;
 	}
 
 	/**

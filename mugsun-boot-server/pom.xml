@@ -56,7 +56,30 @@
 						<configuration>
 							<excludes>
 								<exclude>**/DemoAccountsApiTest.java</exclude>
+								<exclude>**/AiDisabledApiTest.java</exclude>
 							</excludes>
+							<!-- B89-0 守卫：模拟运维打开了暂时下线（加鉴权后恢复）的 MCP Server 开关，AiEnabledApiTest / AiDisabledApiTest 断言 /sse、/mcp 仍是 404 -->
+							<environmentVariables>
+								<MUGSUN_AI_MCP_SERVER>true</MUGSUN_AI_MCP_SERVER>
+								<SPRING_AI_MCP_SERVER_ENABLED>true</SPRING_AI_MCP_SERVER_ENABLED>
+							</environmentVariables>
+						</configuration>
+					</execution>
+					<!-- B1：mugsun.ai.enabled=false 的独立上下文（属性不同；warm-flow 不允许同 JVM 多上下文） -->
+					<execution>
+						<id>ai-disabled-it</id>
+						<goals>
+							<goal>test</goal>
+						</goals>
+						<configuration>
+							<includes>
+								<include>**/AiDisabledApiTest.java</include>
+							</includes>
+							<!-- B89-0 守卫：模拟运维打开了暂时下线（加鉴权后恢复）的 MCP Server 开关，AiEnabledApiTest / AiDisabledApiTest 断言 /sse、/mcp 仍是 404 -->
+							<environmentVariables>
+								<MUGSUN_AI_MCP_SERVER>true</MUGSUN_AI_MCP_SERVER>
+								<SPRING_AI_MCP_SERVER_ENABLED>true</SPRING_AI_MCP_SERVER_ENABLED>
+							</environmentVariables>
 						</configuration>
 					</execution>
 					<execution>

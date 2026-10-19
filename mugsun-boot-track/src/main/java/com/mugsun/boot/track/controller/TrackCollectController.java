@@ -106,7 +106,8 @@ public class TrackCollectController {
 			if (root.path(TrackConstants.FIELD_APP_KEY).isTextual()) {
 				appKeyHint = root.path(TrackConstants.FIELD_APP_KEY).asText();
 			}
-			int accepted = ingestService.ingest(root, request.getRemoteAddr(), request.getHeader("User-Agent"));
+			int accepted = ingestService.ingest(root, request.getRemoteAddr(), request.getHeader("User-Agent"),
+				request.getHeader("Origin") != null ? request.getHeader("Origin") : request.getHeader("Referer"));
 			return ResponseEntity.ok(R.data(Map.of("received", accepted)));
 		} catch (TrackCollectException e) {
 			recordRejection(appKeyHint, e, TrackRejectReason.PAYLOAD_TOO_LARGE);

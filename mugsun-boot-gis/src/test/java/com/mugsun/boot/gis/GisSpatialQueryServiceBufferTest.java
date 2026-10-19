@@ -254,4 +254,23 @@ class GisSpatialQueryServiceBufferTest {
 		assertThat((List<?>) svc.bbox(l, -1d, -1d, 1d, 1d, 10, true).get("features")).hasSize(1);
 		assertThatThrownBy(() -> svc.bbox(l, 10d, -1d, 10d, 1d, 10, true)).isInstanceOf(ServiceException.class);
 	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	@DisplayName("mugsun-boot#64：Java 路径对存量跨 180° 要素的 bbox / 半径")
+	void storedAntimeridianJava() {
+		GisSpatialQueryService svc = service(false);
+		GisLayer l = new GisLayer();
+		l.setId(9L);
+		l.setKind("vector");
+		l.setDataJson("{\"type\":\"FeatureCollection\",\"features\":["
+			+ "{\"type\":\"Feature\",\"id\":\"l\",\"properties\":{\"k\":\"l\"},\"geometry\":{\"type\":\"LineString\",\"coordinates\":[[179.9,0],[-179.9,0]]}},"
+			+ "{\"type\":\"Feature\",\"id\":\"p\",\"properties\":{\"k\":\"p\"},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[179,-1],[-179,-1],[-179,1],[179,1],[179,-1]]]}}]}");
+		java.util.function.Function<Map<String, Object>, List<Object>> keys = r -> ((List<Map<String, Object>>) r.get("features"))
+			.stream().map(f -> ((Map<String, Object>) f.get("properties")).get("k")).toList();
+		assertThat(keys.apply(svc.bbox(l, 0d, -0.5d, 10d, 0.5d, 10, true))).isEmpty();
+		assertThat(keys.apply(svc.bbox(l, 179.95d, -0.5d, -179.95d, 0.5d, 10, true))).containsExactlyInAnyOrder("l", "p");
+		assertThat(keys.apply(svc.radius(l, 0d, 0d, 100_000d, 10, true))).isEmpty();
+		assertThat(keys.apply(svc.radius(l, 179.95d, 0.1d, 20_000d, 10, true))).containsExactlyInAnyOrder("l", "p");
+	}
 }

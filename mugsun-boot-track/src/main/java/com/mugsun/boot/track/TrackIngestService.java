@@ -76,6 +76,14 @@ public class TrackIngestService {
 	 * @throws TrackCollectException 400 协议/应用非法；429 限流
 	 */
 	public int ingest(JsonNode root, String ip, String userAgent) {
+		return ingest(root, ip, userAgent, null);
+	}
+
+	/**
+	 * @param pageOrigin 上报请求的 Origin（缺省 Referer）头：页面主机，用于把同站 referrer 排除出来源维度；可为 null
+	 */
+	public int ingest(JsonNode root, String ip, String userAgent, String pageOrigin) {
+		String pageHost = TrackReferrer.hostOf(pageOrigin);
 		// 1) appKey 校验：存在且 enabled=1（本地缓存 30s，多副本生效延迟见 TrackAppService javadoc）
 		String appKey = text(root, TrackConstants.FIELD_APP_KEY);
 		if (appKey == null || appKey.isBlank() || appKey.length() > TrackConstants.APP_KEY_MAX_LEN) {
@@ -114,7 +122,7 @@ public class TrackIngestService {
 		String platform = text(root.path(TrackConstants.FIELD_SDK), TrackConstants.FIELD_PLATFORM);
 		for (int i = 0; i < acceptedTarget; i++) {
 			TrackIngestEvent event = processEvent(events.get(i), app, platform, tenantId, tokenUserId,
-				receivedAtMs, ip, userAgent, issues);
+				receivedAtMs, ip, userAgent, pageHost, issues);
 			if (event == null) {
 				continue;
 			}
@@ -161,7 +169,7 @@ public class TrackIngestService {
 	/** 事件级处理：校验 → 校时 → 身份/租户裁定 → 幂等；任一环不过返回 null（已计数） */
 	private TrackIngestEvent processEvent(JsonNode node, TrackApp app, String platform, String tenantId,
 										  Long tokenUserId, long receivedAtMs, String ip, String userAgent,
-										  Map<TrackRejectReason, Long> issues) {
+										  String pageHost, Map<TrackRejectReason, Long> issues) {
 		if (node == null || !node.isObject()) {
 			drop(issues, "invalid_event");
 			return null;
@@ -235,7 +243,7 @@ public class TrackIngestService {
 		event.setRoutePath(truncate(text(props, TrackConstants.PROP_ROUTE_PATH), TrackConstants.DIM_MAX_LEN));
 		event.setPageTitle(truncate(text(props, TrackConstants.PROP_PAGE_TITLE), TrackConstants.PAGE_TITLE_MAX_LEN));
 		event.setReferrerDomain(truncate(TrackReferrer.domainOf(text(props, TrackConstants.PROP_REFERRER_DOMAIN),
-			text(props, TrackConstants.PROP_REFERRER)), TrackConstants.DIM_MAX_LEN));
+			text(props, TrackConstants.PROP_REFERRER), pageHost), TrackConstants.DIM_MAX_LEN));
 		event.setUtmSource(truncate(text(props, TrackConstants.PROP_UTM_SOURCE), TrackConstants.DIM_MAX_LEN));
 		event.setUtmMedium(truncate(text(props, TrackConstants.PROP_UTM_MEDIUM), TrackConstants.DIM_MAX_LEN));
 		event.setUtmCampaign(truncate(text(props, TrackConstants.PROP_UTM_CAMPAIGN), TrackConstants.DIM_MAX_LEN));

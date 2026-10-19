@@ -17,6 +17,15 @@
 	<packaging>pom</packaging>
 	<name>mugsun-boot</name>
 	<description>Mugsun 单体版父工程（core + 可选 gis/track/ai + 装配壳）</description>
+	<url>https://github.com/mugsun/mugsun-boot</url>
+
+	<licenses>
+		<license>
+			<name>MIT License</name>
+			<url>https://opensource.org/license/mit</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
 
 	<modules>
 		<module>mugsun-boot-core</module>
@@ -36,7 +45,6 @@
 		<bucket4j.version>8.21.0</bucket4j.version>
 		<!-- 与已导入的 spring-cloud-circuitbreaker BOM 中的 resilience4j 一致 -->
 		<resilience4j.version>2.2.0</resilience4j.version>
-		<spring-ai.version>1.1.2</spring-ai.version>
 	</properties>
 
 	<dependencyManagement>
@@ -74,13 +82,6 @@
 				<groupId>com.mugsun</groupId>
 				<artifactId>mugsun-boot-ai</artifactId>
 				<version>${project.version}</version>
-			</dependency>
-			<dependency>
-				<groupId>org.springframework.ai</groupId>
-				<artifactId>spring-ai-bom</artifactId>
-				<version>${spring-ai.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
 			</dependency>
 			<dependency>
 				<groupId>org.locationtech.jts</groupId>
@@ -129,6 +130,37 @@
 				<configuration>
 					<skip>true</skip>
 				</configuration>
+			</plugin>
+			<!--
+				B89-0：内置 MCP Server 暂时下线（加鉴权后恢复），Spring AI 随之移出依赖。Spring AI 的 MCP Server 自动装配不走本项目的鉴权，
+				只要 jar 回到 classpath、配置一开就是匿名可调的端点；这里在 validate 阶段禁止它们（含传递依赖）重新进来。
+				触发验证见 scripts/check-banned-dependencies.sh（CI 每次都跑）。
+			-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-enforcer-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>b89-banned-dependencies</id>
+						<goals>
+							<goal>enforce</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<bannedDependencies>
+									<!-- B89-2：显式按传递依赖检查（默认值也是 true，写明防止被改掉）；探针见 scripts/check-banned-dependencies.sh 的 transitive-via-wrapper -->
+									<searchTransitive>true</searchTransitive>
+									<excludes>
+										<exclude>org.springframework.ai</exclude>
+										<exclude>io.modelcontextprotocol*</exclude>
+									</excludes>
+									<message>B89-0：禁止引入 Spring AI（org.springframework.ai:*）与 MCP SDK（io.modelcontextprotocol*）。内置 MCP Server 暂时下线、正在加鉴权后恢复；恢复前不得引入，恢复时须连同鉴权方案一起过安全评审。</message>
+								</bannedDependencies>
+							</rules>
+							<fail>true</fail>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 		</plugins>
 	</build>

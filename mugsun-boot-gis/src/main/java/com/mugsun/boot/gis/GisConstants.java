@@ -9,7 +9,7 @@ import java.util.Set;
 public final class GisConstants {
 
 	/** sys_param：模块总开关，默认 true；false 时菜单隐藏、业务接口拒绝 */
-	public static final String PARAM_MODULE_ENABLED = "gis.module.enabled";
+	public static final String PARAM_MODULE_ENABLED = com.mugsun.boot.common.module.ModuleSwitch.PARAM_GIS;
 	/** sys_param：quantized-mesh 地形服务地址，留空则三维只有平地形，前端地形开关置灰 */
 	public static final String PARAM_TERRAIN_URL = "gis.terrain.url";
 

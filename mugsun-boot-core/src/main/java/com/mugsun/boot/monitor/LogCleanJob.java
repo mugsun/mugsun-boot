@@ -32,9 +32,16 @@ public class LogCleanJob {
 	/** 上次清理时间戳（本节点内存节流；集群多节点各自节流 + 分布式锁兜底） */
 	private volatile long lastCleanAt;
 
-	public LogCleanJob(ParamService paramService, StringRedisTemplate redis) {
+	/** 只读演示模式：日志库保留期下限 180 天（访问日志留存 ≥6 个月） */
+	static final int DEMO_MIN_RETENTION_DAYS = 180;
+
+	private final boolean demo;
+
+	public LogCleanJob(ParamService paramService, StringRedisTemplate redis,
+					   @org.springframework.beans.factory.annotation.Value("${" + com.mugsun.boot.demo.DemoConstants.ENABLED_PROPERTY + ":false}") boolean demo) {
 		this.paramService = paramService;
 		this.redis = redis;
+		this.demo = demo;
 	}
 
 	/** 固定 tick：到节流间隔才清理（保留期走 sys_param 热生效） */
@@ -108,6 +115,12 @@ public class LogCleanJob {
 		} catch (NumberFormatException e) {
 			return def;
 		}
-		return days < 1 || days > 3650 ? def : days;
+		int v = days < 1 || days > 3650 ? def : days;
+		return retentionFloor(v, demo);
+	}
+
+	/** demo 下保留期不低于 {@value #DEMO_MIN_RETENTION_DAYS} 天；普通模式原样 */
+	static int retentionFloor(int days, boolean demo) {
+		return demo ? Math.max(days, DEMO_MIN_RETENTION_DAYS) : days;
 	}
 }

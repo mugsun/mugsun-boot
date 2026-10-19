@@ -73,7 +73,10 @@ public class TrackEventStore {
 		+ " THEN EXCLUDED.entry_path ELSE track_session.entry_path END,"
 		+ " exit_path = CASE WHEN EXCLUDED.exit_path IS NOT NULL AND EXCLUDED.end_time > track_session.end_time"
 		+ " THEN EXCLUDED.exit_path ELSE track_session.exit_path END,"
-		// 来源随入口：更早的批带来源则覆盖，否则只回填空值（跨批到达顺序不影响结果）
+		// 会话来源规则（referrer_domain / utm_source）：跟随会话最早的事件，与 entry_path 同口径。
+		// - 本批起点更早（入口事件晚到，如离线补发、多标签并发、重试）且带来源 → 覆盖为本批的来源；
+		// - 否则只在库里为空时回填（首批恰好没来源，后到的批有）；已有来源不被更晚的事件改写。
+		// 例外：入口事件晚到但自身没来源（直接访问）时，保留已有来源，不会清空——来源宁可多记、不丢。
 		+ " referrer_domain = CASE WHEN EXCLUDED.referrer_domain IS NOT NULL AND EXCLUDED.start_time < track_session.start_time"
 		+ " THEN EXCLUDED.referrer_domain ELSE COALESCE(track_session.referrer_domain, EXCLUDED.referrer_domain) END,"
 		+ " utm_source = CASE WHEN EXCLUDED.utm_source IS NOT NULL AND EXCLUDED.start_time < track_session.start_time"
