@@ -5,6 +5,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.system.service.ParamService;
 import com.mugsun.boot.track.job.TrackApiBodyCleanJob;
+import com.mugsun.boot.track.job.TrackPartitionJob;
+import com.mugsun.boot.track.job.TrackTimelineIndexBackfillJob;
+import com.mugsun.boot.track.job.TrackTimelineIndexProperties;
+import com.mugsun.boot.track.job.TrackTimelineIndexes;
+import com.mugsun.boot.track.job.TrackTimelineIndexes.IndexSpec;
+import db.track.migration.T4__track_event_timeline_index_partitions;
+import org.springframework.core.env.Environment;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
+import java.time.Clock;
 import com.mybatisflex.core.datasource.DataSourceKey;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
@@ -22,6 +33,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Instant;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -65,6 +77,14 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 	private ParamService paramService;
 	@Autowired
 	private TrackApiBodyCleanJob cleanJob;
+	@Autowired
+	private TrackPartitionJob partitionJob;
+	@Autowired
+	private TrackTimelineIndexBackfillJob backfillJob;
+	@Autowired
+	private TrackTimelineIndexProperties indexProps;
+	@Autowired
+	private Environment env;
 	@Autowired
 	private StringRedisTemplate redis;
 
@@ -161,6 +181,8 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 
 		JsonNode data = readBodyAssertOk(timelineByUser(adminId, null));
 		assertThat(data.path("nextCursor").isNull()).as("单页查全（5 < 默认 20）").isTrue();
+		assertThat(data.path("devicesTruncated").asBoolean()).as("设备数未超上限").isFalse();
+		assertThat(data.path("deviceCount").asInt()).as("admin 映射了 d1 一个匿名设备").isGreaterThanOrEqualTo(1);
 		JsonNode records = data.path("records");
 		assertThat(records.size()).as("identity 归并后 5 条").isEqualTo(5);
 		Set<String> paths = new HashSet<>();
@@ -176,7 +198,7 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		assertThat(names).contains("$pageview", "$click", "$identify");
 	}
 
-	/** ② 游标分页稳定性：5 事件两页半，三页不重复不漏（received_at+id 游标，防 offset 跳变） */
+	/** ② 游标分页稳定性：5 事件两页半，三页不重复不漏（ts+id 游标，防 offset 跳变） */
 	@Test
 	void cursorPaginationStable() {
 		String distinct = uuid();
@@ -188,7 +210,7 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 			events.add(e);
 			sentIds.add((String) e.get("event_id"));
 		}
-		// 同批摄入（received_at 同毫秒）：游标 (received_at, id) 仍唯一，分页不乱
+		// 同批摄入（ts 可能同毫秒）：游标 (ts, id) 仍唯一，分页不乱
 		collect(APP_T, events, null);
 		awaitUntil("游标用例 5 事件落库", () -> trackLong(
 			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND distinct_id = ?", APP_T, distinct) == 5L);
@@ -212,6 +234,57 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		} while (cursor != null && pages <= 5);
 		assertThat(pages).as("5 条 pageSize=2 应 3 页").isEqualTo(3);
 		assertThat(seen).as("三页不漏（全量事件 id 覆盖）").isEqualTo(sentIds);
+	}
+
+	/** ②b 按显示的发生时间 ts 倒序：先收到的事件 ts 更晚、后收到的 ts 更早，同 ts 两条按 id 定序；翻页仍单调 */
+	@Test
+	void timelineOrderedByTsNotReceivedAt() {
+		String distinct = uuid();
+		String session = uuid();
+		long base = System.currentTimeMillis() - 60000;
+		// 第一批（先收到）：ts 最晚的两条
+		Map<String, Object> late1 = event("$click", distinct, session, Map.of("url_path", "/late-1"));
+		late1.put("ts", base + 3000);
+		Map<String, Object> late2 = event("$click", distinct, session, Map.of("url_path", "/late-2"));
+		late2.put("ts", base + 2000);
+		collect(APP_T, List.of(late1, late2), null);
+		awaitUntil("第一批落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND distinct_id = ?", APP_T, distinct) == 2L);
+		// 第二批（后收到）：ts 更早，其中两条同 ts
+		Map<String, Object> early1 = event("$pageview", distinct, session, Map.of("url_path", "/early-1"));
+		early1.put("ts", base + 1000);
+		Map<String, Object> early2 = event("$pageview", distinct, session, Map.of("url_path", "/early-2"));
+		early2.put("ts", base + 1000);
+		Map<String, Object> earliest = event("$pageview", distinct, session, Map.of("url_path", "/earliest"));
+		earliest.put("ts", base);
+		collect(APP_T, List.of(early1, early2, earliest), null);
+		awaitUntil("第二批落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND distinct_id = ?", APP_T, distinct) == 5L);
+
+		List<Long> tsSeq = new ArrayList<>();
+		List<String> pathSeq = new ArrayList<>();
+		String cursor = null;
+		int pages = 0;
+		long rangeStart = System.currentTimeMillis() - 3600000;
+		long rangeEnd = System.currentTimeMillis() + 60000;
+		do {
+			String url = "/system/track/user/timeline?appKey=" + APP_T + "&distinctId=" + distinct
+				+ "&startTs=" + rangeStart + "&endTs=" + rangeEnd + "&pageSize=2"
+				+ (cursor == null ? "" : "&cursor=" + cursor);
+			JsonNode data = readBodyAssertOk(get(url, adminToken));
+			pages++;
+			for (JsonNode row : data.path("records")) {
+				tsSeq.add(row.path("ts").asLong());
+				pathSeq.add(row.path("urlPath").asText());
+			}
+			cursor = data.path("nextCursor").isNull() ? null : data.path("nextCursor").asText();
+		} while (cursor != null && pages <= 5);
+
+		assertThat(pathSeq).as("5 条全出且不重复").hasSize(5).doesNotHaveDuplicates();
+		assertThat(tsSeq).as("跨页按显示时间 ts 严格非增").isSortedAccordingTo(java.util.Comparator.reverseOrder());
+		assertThat(pathSeq.subList(0, 2)).as("先收到但 ts 晚的排前面").containsExactly("/late-1", "/late-2");
+		assertThat(pathSeq.subList(2, 4)).as("同 ts 两条相邻").containsExactlyInAnyOrder("/early-1", "/early-2");
+		assertThat(pathSeq.get(4)).isEqualTo("/earliest");
 	}
 
 	/** ③ distinct_id 直查：只出该匿名 ID 的行为（不带 identity 归并他 ID） */
@@ -411,6 +484,298 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		JsonNode read = readBody(get("/system/track/user/api-body?eventId=" + expiredEvent, adminToken));
 		assertThat(read.path("code").asInt()).as("body 已清理应 400").isEqualTo(400);
 		assertThat(read.path("msg").asText()).contains("没有采到，或已经清理");
+	}
+
+	/** T2 迁移：时间线两条 (app_key, 身份, ts, id) 复合索引已建在分区父表，且列序与游标排序一致 */
+	@Test
+	void timelineIndexesMigrated() {
+		Row user = trackRow("SELECT indexdef FROM pg_indexes WHERE tablename = 'track_event' AND indexname = ?",
+			"idx_event_user_ts_timeline");
+		assertThat(user).as("idx_event_user_ts_timeline 应由 T3 建出").isNotNull();
+		assertThat(user.getString("indexdef")).contains("ON ONLY").contains("(app_key, user_id, ts, id)");
+		Row distinct = trackRow("SELECT indexdef FROM pg_indexes WHERE tablename = 'track_event' AND indexname = ?",
+			"idx_event_distinct_ts_timeline");
+		assertThat(distinct).as("idx_event_distinct_ts_timeline 应由 T3 建出").isNotNull();
+		assertThat(distinct.getString("indexdef")).contains("ON ONLY").contains("(app_key, distinct_id, ts, id)");
+		assertThat(trackLong("SELECT count(*) AS c FROM flyway_schema_history WHERE version IN ('3', '4') AND success"))
+			.as("T3 + T4 迁移成功").isEqualTo(2L);
+		assertTimelineIndexesValid();
+	}
+
+	/** ⑩b 新分区（TrackPartitionJob 预建）自动带上时间线索引并已挂接、valid */
+	@Test
+	void newPartitionGetsTimelineIndexes() {
+		YearMonth far = YearMonth.now(ZoneOffset.UTC).plusMonths(7);
+		String part = String.format("track_event_%04d_%02d", far.getYear(), far.getMonthValue());
+		String dataPart = String.format("track_event_data_%04d_%02d", far.getYear(), far.getMonthValue());
+		partitionJob.ensureMonthPartitions(far);
+		try {
+			for (String idx : List.of("idx_event_user_ts_timeline", "idx_event_distinct_ts_timeline")) {
+				assertThat(trackLong("SELECT count(*) AS c FROM pg_inherits i JOIN pg_index x ON x.indexrelid = i.inhrelid"
+					+ " JOIN pg_class t ON t.oid = x.indrelid WHERE i.inhparent = ?::regclass AND t.relname = ? AND x.indisvalid",
+					idx, part)).as(part + " 应带 " + idx).isEqualTo(1L);
+			}
+			assertTimelineIndexesValid();
+		} finally {
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP TABLE IF EXISTS \"" + part + "\"");
+				Db.updateBySql("DROP TABLE IF EXISTS \"" + dataPart + "\"");
+			});
+		}
+	}
+
+	/** ⑩c userId 路径 UNION ALL 改写与原跨表 OR 口径逐行一致（小页翻全量，顺序/去重均比对） */
+	@Test
+	void userTimelineUnionMatchesOrSemantics() {
+		long now = System.currentTimeMillis();
+		long start = now - 3600000;
+		long end = now + 60000;
+		List<String> expected = new ArrayList<>();
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+			for (Row r : Db.selectListBySql("SELECT e.event_id FROM track_event e LEFT JOIN track_identity m"
+					+ " ON m.app_key = e.app_key AND m.distinct_id = e.distinct_id AND m.is_deleted = 0"
+					+ " WHERE e.app_key = ? AND (e.user_id = ? OR m.user_id = ?)"
+					+ " AND e.received_at >= to_timestamp(? / 1000.0) AND e.received_at <= to_timestamp(? / 1000.0)"
+					+ " ORDER BY e.ts DESC, e.id DESC",
+				APP_T, adminId, adminId, start, end)) {
+				expected.add(r.getString("event_id"));
+			}
+		});
+		assertThat(expected).as("夹具含登录段与匿名归并段").hasSizeGreaterThanOrEqualTo(5);
+		List<String> actual = new ArrayList<>();
+		String cursor = null;
+		for (int guard = 0; guard < 50; guard++) {
+			JsonNode data = readBodyAssertOk(get("/system/track/user/timeline?appKey=" + APP_T + "&userId=" + adminId
+				+ "&startTs=" + start + "&endTs=" + end + "&pageSize=2"
+				+ (cursor == null ? "" : "&cursor=" + cursor), adminToken));
+			for (JsonNode row : data.path("records")) {
+				actual.add(row.path("eventId").asText());
+			}
+			if (data.path("nextCursor").isNull()) {
+				break;
+			}
+			cursor = data.path("nextCursor").asText();
+		}
+		assertThat(actual).as("UNION ALL 分页结果与 OR 口径逐行一致（无重复无遗漏、同序）").containsExactlyElementsOf(expected);
+	}
+
+	/** ⑩d P1：T4 只处理空分区、非空分区留给后台任务且不抛异常；后台补建按分区记进度、校验 valid；锁/开关/时段 */
+	@Test
+	void t4SkipsNonEmptyAndBackfillCompletes() throws Exception {
+		List<IndexSpec> specs = List.of(new IndexSpec("idx_event_tltest_tl", "app_key, session_id, ts, id"));
+		YearMonth cur = YearMonth.now(ZoneOffset.UTC);
+		String curPart = String.format("track_event_%04d_%02d", cur.getYear(), cur.getMonthValue());
+		YearMonth next = cur.plusMonths(1);
+		String nextPart = String.format("track_event_%04d_%02d", next.getYear(), next.getMonthValue());
+		assertThat(trackLong("SELECT count(*) AS c FROM " + curPart)).as("当月分区有夹具数据").isPositive();
+		boolean enabled = indexProps.isBackfillEnabled();
+		boolean window = indexProps.isWindowEnabled();
+		try (Connection conn = trackConnection(); Connection other = trackConnection()) {
+			exec(conn, "CREATE INDEX idx_event_tltest_tl ON ONLY track_event (app_key, session_id, ts, id)");
+			boolean nextEmpty = TrackTimelineIndexes.isEmpty(conn, nextPart);
+
+			// T4：非空分区跳过（不同步建），空分区建好挂上；不抛异常
+			List<String> pending = T4__track_event_timeline_index_partitions.run(conn, specs);
+			assertThat(pending).contains(curPart);
+			assertThat(TrackTimelineIndexes.partitionReady(conn, curPart, specs)).isFalse();
+			if (nextEmpty) {
+				assertThat(pending).doesNotContain(nextPart);
+				assertThat(TrackTimelineIndexes.partitionReady(conn, nextPart, specs)).isTrue();
+			}
+			assertThat(TrackTimelineIndexes.indexValid(conn, "idx_event_tltest_tl")).as("未挂齐父索引仍 invalid").isFalse();
+
+			// 别的会话持锁：T4 跳过不抛、后台任务 LOCK_BUSY
+			exec(other, "SELECT pg_advisory_lock(hashtext('track_timeline_index'))");
+			assertThat(T4__track_event_timeline_index_partitions.run(conn, specs)).isEmpty();
+			indexProps.setBackfillEnabled(true);
+			indexProps.setWindowEnabled(false);
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.LOCK_BUSY);
+			exec(other, "SELECT pg_advisory_unlock(hashtext('track_timeline_index'))");
+
+			// 开关关闭 / 时段外
+			indexProps.setBackfillEnabled(false);
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.DISABLED);
+			indexProps.setBackfillEnabled(true);
+			indexProps.setWindowEnabled(true);
+			backfillJob.setClock(Clock.fixed(Instant.parse("2026-01-01T04:00:00Z"), ZoneOffset.UTC)); // 北京 12:00
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.OUTSIDE_WINDOW);
+			backfillJob.setClock(Clock.fixed(Instant.parse("2026-01-01T19:30:00Z"), ZoneOffset.UTC)); // 北京 03:30
+
+			// 后台补建：补齐非空分区、父索引转 valid、按分区记进度
+			TrackTimelineIndexBackfillJob.Result r = backfillJob.runNow(specs);
+			assertThat(r.status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.DONE);
+			assertThat(r.built()).contains(curPart);
+			assertThat(TrackTimelineIndexes.allValid(conn, specs)).isTrue();
+			assertThat(trackLong("SELECT count(*) AS c FROM track_rollup_cursor WHERE job_key = 'timeline_index' AND app_key = ?",
+				curPart)).as("分区进度已记录").isEqualTo(1L);
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.NOTHING_TO_DO);
+		} finally {
+			indexProps.setBackfillEnabled(enabled);
+			indexProps.setWindowEnabled(window);
+			backfillJob.setClock(Clock.systemUTC());
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP INDEX IF EXISTS idx_event_tltest_tl");
+				Db.updateBySql("DELETE FROM track_rollup_cursor WHERE job_key = 'timeline_index'");
+			});
+		}
+	}
+
+	/** ⑩d2 R-1：关停 = 停止标志 + 中断停顿 + 不再开始下一个分区；恢复后下次运行补齐（含中断留下的 invalid 索引） */
+	@Test
+	void backfillStopsOnShutdownAndResumes() throws Exception {
+		List<IndexSpec> specs = List.of(new IndexSpec("idx_event_tlstop_tl", "app_key, session_id, ts, id"));
+		boolean enabled = indexProps.isBackfillEnabled();
+		boolean window = indexProps.isWindowEnabled();
+		long pause = indexProps.getPauseMillis();
+		try (Connection conn = trackConnection()) {
+			exec(conn, "CREATE INDEX idx_event_tlstop_tl ON ONLY track_event (app_key, session_id, ts, id)");
+			int parts = TrackTimelineIndexes.partitions(conn).size();
+			assertThat(parts).as("至少两个分区才能验证『不开始下一个』").isGreaterThanOrEqualTo(2);
+			indexProps.setBackfillEnabled(true);
+			indexProps.setWindowEnabled(false);
+			indexProps.setPauseMillis(60_000);
+			java.util.concurrent.atomic.AtomicReference<TrackTimelineIndexBackfillJob.Result> result =
+				new java.util.concurrent.atomic.AtomicReference<>();
+			Thread worker = new Thread(() -> result.set(backfillJob.runNow(specs)));
+			worker.start();
+			// 第一个分区建完进入 60s 停顿后关停
+			awaitUntil("第一个分区补完", () -> trackLong(
+				"SELECT count(*) AS c FROM track_rollup_cursor WHERE job_key = 'timeline_index'") >= 1L);
+			Thread.sleep(300);
+			backfillJob.shutdown();
+			worker.interrupt(); // 测试线程代替执行器线程：shutdownNow 中断的是执行器线程
+			worker.join(10_000);
+			assertThat(worker.isAlive()).as("关停后应立即退出，不等 60s 停顿").isFalse();
+			assertThat(result.get().status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.STOPPED);
+			assertThat(result.get().built()).hasSize(1);
+			assertThat(TrackTimelineIndexes.allValid(conn, specs)).as("未开始后续分区").isFalse();
+			assertThat(backfillJob.runNow(specs).status()).as("停止期间不再运行").isEqualTo(TrackTimelineIndexBackfillJob.Status.STOPPED);
+
+			// 恢复：下次运行补齐剩余分区
+			backfillJob.resetForTest();
+			indexProps.setPauseMillis(0);
+			assertThat(backfillJob.runNow(specs).status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.DONE);
+			assertThat(TrackTimelineIndexes.allValid(conn, specs)).isTrue();
+		} finally {
+			backfillJob.resetForTest();
+			indexProps.setBackfillEnabled(enabled);
+			indexProps.setWindowEnabled(window);
+			indexProps.setPauseMillis(pause);
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP INDEX IF EXISTS idx_event_tlstop_tl");
+				Db.updateBySql("DELETE FROM track_rollup_cursor WHERE job_key = 'timeline_index'");
+			});
+		}
+	}
+
+	/** ⑩d3 后台补建会话 statement_timeout=0：连接默认 200ms 超时下照样跑完（结束后 RESET） */
+	@Test
+	void backfillIgnoresSessionStatementTimeout() throws Exception {
+		List<IndexSpec> specs = List.of(new IndexSpec("idx_event_tlto_tl", "app_key, session_id, ts, id"));
+		boolean enabled = indexProps.isBackfillEnabled();
+		boolean window = indexProps.isWindowEnabled();
+		String db = env.getProperty("mybatis-flex.datasource.track.url").replaceAll("^.*/([^/?]+)(\\?.*)?$", "$1");
+		try (Connection conn = trackConnection()) {
+			exec(conn, "CREATE INDEX idx_event_tlto_tl ON ONLY track_event (app_key, session_id, ts, id)");
+			// 库级默认超时 200ms：只影响之后新建的连接，所以给任务一个新连接来跑（直接用 runNow 走连接池可能复用老连接，
+			// 这里改用独立连接 + 同一实现路径验证 SET 生效）
+			exec(conn, "ALTER DATABASE \"" + db + "\" SET statement_timeout = '200ms'");
+			try (Connection slow = trackConnection()) {
+				indexProps.setBackfillEnabled(true);
+				indexProps.setWindowEnabled(false);
+				TrackTimelineIndexBackfillJob.Result r = backfillJob.runOn(slow, specs);
+				assertThat(r.status()).isEqualTo(TrackTimelineIndexBackfillJob.Status.DONE);
+				try (Statement st = slow.createStatement(); var rs = st.executeQuery("SHOW statement_timeout")) {
+					rs.next();
+					assertThat(rs.getString(1)).as("结束后 RESET 回连接默认值").isEqualTo("200ms");
+				}
+			} finally {
+				exec(conn, "ALTER DATABASE \"" + db + "\" RESET statement_timeout");
+			}
+		} finally {
+			indexProps.setBackfillEnabled(enabled);
+			indexProps.setWindowEnabled(window);
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP INDEX IF EXISTS idx_event_tlto_tl");
+				Db.updateBySql("DELETE FROM track_rollup_cursor WHERE job_key = 'timeline_index'");
+			});
+		}
+	}
+
+	/** ⑩e ATTACH 前校验 indisvalid：中断留下的 invalid 子索引先 DROP 再重建，挂上后 valid */
+	@Test
+	void invalidChildRebuiltBeforeAttach() throws Exception {
+		YearMonth far = YearMonth.of(2099, 1);
+		String part = "track_event_2099_01";
+		List<IndexSpec> specs = List.of(new IndexSpec("idx_event_tlinv_tl", "app_key, session_id, ts, id"));
+		partitionJob.ensureMonthPartitions(far);
+		try (Connection conn = trackConnection()) {
+			exec(conn, "CREATE INDEX idx_event_tlinv_tl ON ONLY track_event (app_key, session_id, ts, id)");
+			String child = part + "_tlinv_tl";
+			exec(conn, "CREATE INDEX " + child + " ON " + part + " (app_key, session_id, ts, id)");
+			exec(conn, "UPDATE pg_index SET indisvalid = false WHERE indexrelid = '" + child + "'::regclass");
+			assertThat(TrackTimelineIndexes.indexValid(conn, child)).isFalse();
+			TrackTimelineIndexes.ensurePartition(conn, part, specs, false);
+			assertThat(TrackTimelineIndexes.partitionReady(conn, part, specs)).as("重建后 valid 并已挂接").isTrue();
+		} finally {
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DROP INDEX IF EXISTS idx_event_tlinv_tl");
+				Db.updateBySql("DROP TABLE IF EXISTS track_event_2099_01");
+				Db.updateBySql("DROP TABLE IF EXISTS track_event_data_2099_01");
+			});
+		}
+	}
+
+	/** ⑩f userId 匿名段设备数封顶 1000（按 last_seen_time 新→旧）：最近设备的事件可见，第 1001 个最旧设备不参与 */
+	@Test
+	void mappedDevicesCappedAt1000() {
+		long uid = 880_000_001L;
+		String prefix = "cap-" + uuid().substring(0, 8) + "-";
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+			Db.updateBySql("INSERT INTO track_identity (id, app_key, distinct_id, user_id, tenant_id, first_bind_time, last_seen_time)"
+				+ " SELECT 9100000000 + g, ?, ? || g, ?, ?, now(), now() - g * interval '1 second' FROM generate_series(0, 1000) g",
+				APP_T, prefix, uid, PLATFORM_TENANT);
+			Db.updateBySql("INSERT INTO track_event (id, event_id, app_key, event_name, client_ts, ts, received_at, distinct_id,"
+				+ " session_id, tenant_id, url_path) SELECT 9200000000 + g, gen_random_uuid()::text, ?, '$pageview', now(), now(), now(),"
+				+ " ? || g, ?, ?, '/cap-' || g FROM unnest(ARRAY[0, 1000]) g", APP_T, prefix, uuid(), PLATFORM_TENANT);
+		});
+		try {
+			JsonNode data = readBodyAssertOk(timelineByUser(uid, null));
+			Set<String> paths = new HashSet<>();
+			data.path("records").forEach(r -> paths.add(r.path("urlPath").asText()));
+			assertThat(paths).contains("/cap-0").doesNotContain("/cap-1000");
+			assertThat(data.path("devicesTruncated").asBoolean()).as("超 1000 设备须显式标记截断").isTrue();
+			assertThat(data.path("deviceCount").asInt()).isEqualTo(1000);
+		} finally {
+			DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+				Db.updateBySql("DELETE FROM track_event WHERE app_key = ? AND distinct_id LIKE ?", APP_T, prefix + "%");
+				Db.updateBySql("DELETE FROM track_identity WHERE app_key = ? AND distinct_id LIKE ?", APP_T, prefix + "%");
+			});
+		}
+	}
+
+	private Connection trackConnection() throws Exception {
+		Connection c = DriverManager.getConnection(env.getProperty("mybatis-flex.datasource.track.url"),
+			env.getProperty("mybatis-flex.datasource.track.username"), env.getProperty("mybatis-flex.datasource.track.password"));
+		c.setAutoCommit(true);
+		return c;
+	}
+
+	private static void exec(Connection c, String sql) throws Exception {
+		try (Statement st = c.createStatement()) {
+			st.execute(sql);
+		}
+	}
+
+	private void assertTimelineIndexesValid() {
+		long parts = trackLong("SELECT count(*) AS c FROM pg_inherits WHERE inhparent = 'track_event'::regclass");
+		for (String idx : List.of("idx_event_user_ts_timeline", "idx_event_distinct_ts_timeline")) {
+			assertThat(trackLong("SELECT count(*) AS c FROM pg_index WHERE indexrelid = ?::regclass AND indisvalid", idx))
+				.as(idx + " 父索引 indisvalid").isEqualTo(1L);
+			assertThat(trackLong("SELECT count(*) AS c FROM pg_inherits i JOIN pg_index x ON x.indexrelid = i.inhrelid"
+				+ " WHERE i.inhparent = ?::regclass AND x.indisvalid", idx))
+				.as(idx + " 每个分区一条 valid 子索引").isEqualTo(parts);
+		}
 	}
 
 	/** ⑪ body 读取审计留痕：sys_oper_log 写「查看接口响应体」（标题/URI/操作人/参数含事件） */

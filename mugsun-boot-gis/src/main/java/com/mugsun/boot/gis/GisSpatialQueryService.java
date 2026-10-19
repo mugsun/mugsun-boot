@@ -3,8 +3,10 @@ package com.mugsun.boot.gis;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.gis.entity.GisLayer;
 import com.mugsun.core.tool.exception.ServiceException;
-import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -12,22 +14,36 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 高频空间查询：视野范围（bbox）、半径内、与某几何相交、包含、最近邻、缓冲。
  *
  * <p>有 PostGIS 时全部下沉数据库，靠 {@code idx_gis_feature_geom}（GiST）过滤，只把命中要素回给前端；
- * 没有时回落读整层 {@code data_json} 在 Java 侧算——口径一致，但要素多了就慢，响应里的
+ * 没有时回落读整层 {@code data_json} 在 Java 侧算——米制结果与 PostGIS 的差异见下文，但要素多了就慢，响应里的
  * {@code engine} 字段会如实标明走了哪条路。
  *
- * <p>米制口径：PostGIS 侧用 {@code geography} 走真实大地距离；Java 侧用以查询点纬度为基准的
- * 局部等距近似（经度按 cos(lat) 收缩），小范围内误差可忽略，跨洲距离不要指望这条回落路径。
+ * <p>米制口径：PostGIS 侧用 {@code geography} 走真实大地距离；Java 侧（半径、最近邻、缓冲）用
+ * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，距离再用 GeographicLib 在 WGS84 椭球上反算；与 PostGIS
+ * geography 对照：缓冲外环顶点距离实测相差 −0.18%～+0.002%（0°–72°、500 m–200 km），88°–89.6° 为 ±0.05%。半径 / 最近邻先按经纬度包络预筛（只多收不漏，越过 ±180° 时拆成两个框），再精算。
+ *
+ * <p>Java 侧逐要素处理：极区照常计算（极点为原点的投影）。跨 180° 经线的要素按 RFC 7946 逐部件展开后照常计算，
+ * 缓冲结果越过 180° 时切成 MultiPolygon；缓冲包住极点、或单个部件宽于 180° 算不出时跳过。跳过数写进响应 {@code skipped}，
+ * 并按「操作 + 图层」限频记 WARN。
  */
 @Service
 public class GisSpatialQueryService {
 
 	/** 赤道处每度纬度约 110574 米。预过滤框用这个下限，避免把圆内的点挡在框外。精确距离仍由 geography 判断。 */
 	private static final double M_PER_DEG = 110_574d;
+
+	private static final Logger log = LoggerFactory.getLogger(GisSpatialQueryService.class);
+	/** 同一「操作 + 图层」的跳过 WARN 至少间隔这么久，其余降为 DEBUG */
+	static final long SKIP_WARN_INTERVAL_MS = 60_000L;
+	/** WARN 里最多列出的要素 id 数 */
+	private static final int SKIP_LOG_IDS = 10;
+	private static final Map<String, Long> LAST_SKIP_WARN = new ConcurrentHashMap<>();
 
 	private final GisSpatialSupport support;
 	private final GisFeatureStore featureStore;
@@ -47,20 +63,29 @@ public class GisSpatialQueryService {
 	public Map<String, Object> bbox(GisLayer layer, double minLon, double minLat,
 									double maxLon, double maxLat, int limit, boolean forceJava) {
 		requireIndexable(layer);
-		if (!valid(minLon, minLat) || !valid(maxLon, maxLat) || minLon >= maxLon || minLat >= maxLat) {
+		if (!valid(minLon, minLat) || !valid(maxLon, maxLat) || minLon == maxLon || minLat >= maxLat) {
 			throw new ServiceException(GisConstants.MSG_SPATIAL_BBOX);
 		}
 		int cap = clampLimit(limit);
+		if (minLon > maxLon) {
+			// RFC 7946 §5.2：west > east 表示跨 180° 经线的范围，拆成 [west, 180] 与 [-180, east] 两个框
+			if (ready(layer, forceJava)) {
+				return sqlWrapAware(layer, "ST_Intersects",
+					"ST_Collect(ST_MakeEnvelope(?, ?, 180, ?, 4326), ST_MakeEnvelope(-180, ?, ?, ?, 4326))",
+					new Object[] { minLon, minLat, maxLat, minLat, maxLon, maxLat }, cap);
+			}
+			Geometry east = codec.factory().toGeometry(new org.locationtech.jts.geom.Envelope(minLon, 180d, minLat, maxLat));
+			Geometry west = codec.factory().toGeometry(new org.locationtech.jts.geom.Envelope(-180d, maxLon, minLat, maxLat));
+			return java(layer, cap, (geom, feat) ->
+				GisAntimeridian.intersects(geom, east) || GisAntimeridian.intersects(geom, west) ? 0d : null);
+		}
 		if (ready(layer, forceJava)) {
-			return sql(layer,
-				" AND geom && ST_MakeEnvelope(?, ?, ?, ?, 4326)"
-					+ " AND ST_Intersects(geom, ST_MakeEnvelope(?, ?, ?, ?, 4326))",
-				new Object[] { minLon, minLat, maxLon, maxLat, minLon, minLat, maxLon, maxLat },
-				null, cap);
+			return sqlWrapAware(layer, "ST_Intersects", "ST_MakeEnvelope(?, ?, ?, ?, 4326)",
+				new Object[] { minLon, minLat, maxLon, maxLat }, cap);
 		}
 		Geometry box = codec.factory().toGeometry(
 			new org.locationtech.jts.geom.Envelope(minLon, maxLon, minLat, maxLat));
-		return java(layer, cap, (geom, feat) -> geom.intersects(box) ? 0d : null);
+		return java(layer, cap, (geom, feat) -> GisAntimeridian.intersects(geom, box) ? 0d : null);
 	}
 
 	public Map<String, Object> radius(GisLayer layer, double lon, double lat, double meters,
@@ -75,21 +100,39 @@ public class GisSpatialQueryService {
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
 			// 先用包围盒收窄（走 GiST 索引），再用 geography 精确判距；只有后者是准的，前者只为提速
-			double dy = meters / M_PER_DEG;
-			double dx = dy / Math.max(0.01d, Math.cos(Math.toRadians(lat)));
-			return sql(layer,
-				" AND geom && ST_Expand(ST_SetSRID(ST_MakePoint(?, ?), 4326), ?, ?)"
-					+ " AND ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)",
-				new Object[] { lon, lat, dx, dy, lon, lat, meters },
+			// 预筛框越过 ±180° 时拆成多个框；库里存的跨 180° 要素（平面包络横跨全球）另按纬度带收进来，精判交给 geography
+			List<Envelope> pre = GisGeodesic.looseEnvelopes(lon, lat, meters);
+			StringBuilder where = new StringBuilder(" AND (");
+			List<Object> args = new ArrayList<>();
+			for (Envelope e : pre) {
+				where.append("geom && ST_MakeEnvelope(?, ?, ?, ?, 4326) OR ");
+				args.addAll(List.of(e.getMinX(), e.getMinY(), e.getMaxX(), e.getMaxY()));
+			}
+			double minY = pre.stream().mapToDouble(Envelope::getMinY).min().orElse(-90d);
+			double maxY = pre.stream().mapToDouble(Envelope::getMaxY).max().orElse(90d);
+			where.append("(geom && ST_MakeEnvelope(-180, ?, 180, ?, 4326)").append(WIDE).append("))")
+				.append(" AND ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)");
+			args.addAll(List.of(minY, maxY, lon, lat, meters));
+			return sql(layer, where.toString(), args.toArray(),
 				"ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(" + lon + ", " + lat + "), 4326)::geography)",
 				cap);
 		}
-		Metric metric = new Metric(lat);
-		Coordinate center = metric.project(lon, lat);
-		return java(layer, cap, (geom, feat) -> {
-			double d = metric.distance(geom, center);
+		List<Envelope> boxes = GisGeodesic.looseEnvelopes(lon, lat, meters);
+		Skips skips = new Skips();
+		Map<String, Object> out = java(layer, cap, (geom, feat) -> {
+			Envelope env = geom.getEnvelopeInternal();
+			// 存量跨 180° 要素的平面包络不能代表实际范围（mugsun-boot#64），不做包络预筛，直接精算
+			if (boxes.stream().noneMatch(b -> b.intersects(env)) && !GisAntimeridian.wraps(geom)) {
+				return null;
+			}
+			double d = GisGeodesic.distanceLenient(geom, lon, lat);
+			if (Double.isNaN(d)) {
+				skips.add(feat);
+				return null;
+			}
 			return d <= meters ? d : null;
 		});
+		return skips.finish(out, "radius", layer);
 	}
 
 	public Map<String, Object> intersects(GisLayer layer, Object geometry, int limit, boolean forceJava) {
@@ -97,17 +140,14 @@ public class GisSpatialQueryService {
 		Map<?, ?> geomMap = geometryOf(geometry);
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
-			String json = writeJson(geomMap);
-			return sql(layer,
-				" AND geom && ST_SetSRID(ST_GeomFromGeoJSON(?), 4326)"
-					+ " AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(?), 4326))",
-				new Object[] { json, json }, null, cap);
+			return sqlWrapAware(layer, "ST_Intersects", "ST_SetSRID(ST_GeomFromGeoJSON(?), 4326)",
+				new Object[] { writeJson(geomMap) }, cap);
 		}
 		Geometry other = codec.fromGeometry(geomMap);
 		if (other == null || other.isEmpty()) {
 			throw new ServiceException(GisConstants.MSG_SPATIAL_GEOM);
 		}
-		return java(layer, cap, (geom, feat) -> geom.intersects(other) ? 0d : null);
+		return java(layer, cap, (geom, feat) -> GisAntimeridian.intersects(geom, other) ? 0d : null);
 	}
 
 	public Map<String, Object> nearest(GisLayer layer, double lon, double lat, int limit, boolean forceJava) {
@@ -117,15 +157,41 @@ public class GisSpatialQueryService {
 		}
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
-			// <-> 是 GiST 的 KNN 距离算子，索引直接按距离出序，不需要先全表算距离
+			// <-> 是 GiST 的 KNN 算子，但按经纬度平面距离出序，与地面距离不一致（高纬、跨 180°）。
+			// 按 PostGIS 手册 geometry_distance_knn 的做法：先用 <-> 多取候选（手册示例取 10 倍：100 个候选出前 10），
+			// 再按 geography 距离重排。候选另外并上：查询点平移 ±360 后的 KNN（180° 对岸的普通要素），
+			// 以及库里存的跨 180° 要素（平面距离不能代表实际远近，mugsun-boot#64）
+			int candidates = knnCandidates(cap);
 			String point = "ST_SetSRID(ST_MakePoint(" + lon + ", " + lat + "), 4326)";
-			return sql(layer, "", new Object[0],
+			String mirror = "ST_SetSRID(ST_MakePoint(" + (lon > 0 ? lon - 360d : lon + 360d) + ", " + lat + "), 4326)";
+			String scope = "FROM gis_feature WHERE layer_id = ? AND is_deleted = 0";
+			String where = " AND id IN ("
+				+ "SELECT id FROM (SELECT id " + scope + " ORDER BY geom <-> " + point + " LIMIT ?) k1"
+				+ " UNION SELECT id FROM (SELECT id " + scope + " ORDER BY geom <-> " + mirror + " LIMIT ?) k2"
+				+ " UNION SELECT id " + scope + " AND geom && ST_MakeEnvelope(-180, -90, 180, 90, 4326)" + WIDE + ")";
+			return sql(layer, where,
+				new Object[] { layer.getId(), candidates, layer.getId(), candidates, layer.getId() },
 				"ST_Distance(geom::geography, " + point + "::geography)",
-				cap, " ORDER BY geom <-> " + point);
+				cap, " ORDER BY meters");
 		}
-		Metric metric = new Metric(lat);
-		Coordinate center = metric.project(lon, lat);
-		Map<String, Object> out = java(layer, Integer.MAX_VALUE, (geom, feat) -> metric.distance(geom, center));
+		Skips skips = new Skips();
+		// 包络预筛：已有 cap 个候选时，纬度差下限都比第 cap 近的还远的要素直接跳过，不做精算
+		PriorityQueue<Double> best = new PriorityQueue<>(Comparator.reverseOrder());
+		Map<String, Object> out = java(layer, Integer.MAX_VALUE, (geom, feat) -> {
+			if (best.size() >= cap && GisGeodesic.lowerBound(geom.getEnvelopeInternal(), lat) > best.peek()) {
+				return null;
+			}
+			double d = GisGeodesic.distanceLenient(geom, lon, lat);
+			if (Double.isNaN(d)) {
+				skips.add(feat);
+				return null;
+			}
+			best.offer(d);
+			if (best.size() > cap) {
+				best.poll();
+			}
+			return d;
+		});
 		@SuppressWarnings("unchecked")
 		List<Map<String, Object>> feats = (List<Map<String, Object>>) out.get("features");
 		feats.sort(Comparator.comparingDouble(f -> distanceOf(f)));
@@ -133,7 +199,7 @@ public class GisSpatialQueryService {
 			out.put("features", new ArrayList<>(feats.subList(0, cap)));
 		}
 		out.put("count", ((List<?>) out.get("features")).size());
-		return out;
+		return skips.finish(out, "nearest", layer);
 	}
 
 	/**
@@ -145,17 +211,14 @@ public class GisSpatialQueryService {
 		Map<?, ?> geomMap = geometryOf(geometry);
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
-			String json = writeJson(geomMap);
-			return sql(layer,
-				" AND geom && ST_SetSRID(ST_GeomFromGeoJSON(?), 4326)"
-					+ " AND ST_Contains(geom, ST_SetSRID(ST_GeomFromGeoJSON(?), 4326))",
-				new Object[] { json, json }, null, cap);
+			return sqlWrapAware(layer, "ST_Contains", "ST_SetSRID(ST_GeomFromGeoJSON(?), 4326)",
+				new Object[] { writeJson(geomMap) }, cap);
 		}
 		Geometry other = codec.fromGeometry(geomMap);
 		if (other == null || other.isEmpty()) {
 			throw new ServiceException(GisConstants.MSG_SPATIAL_GEOM);
 		}
-		return java(layer, cap, (geom, feat) -> geom.contains(other) ? 0d : null);
+		return java(layer, cap, (geom, feat) -> GisAntimeridian.contains(geom, other) ? 0d : null);
 	}
 
 	/**
@@ -169,21 +232,31 @@ public class GisSpatialQueryService {
 		}
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
-			String select = "SELECT ST_AsGeoJSON(ST_Buffer(geom::geography, ?)::geometry) AS geom, props_json"
+			// 横跨全经度、平移后仍宽于 180° 的面（极冠这类包住极点的面）在 geography 里被理解成另一块区域，
+			// ST_Buffer 会悄悄丢掉极冠（mugsun-boot#63）。这类要素不缓冲，计入 skipped，与 Java 路径口径一致
+			String select = "SELECT CASE WHEN " + AMBIGUOUS + " THEN NULL"
+				+ " ELSE ST_AsGeoJSON(ST_Buffer(geom::geography, ?)::geometry) END AS geom, props_json, id"
 				+ " FROM gis_feature WHERE layer_id = ? AND is_deleted = 0 LIMIT ?";
 			List<Map<String, Object>> feats = new ArrayList<>();
+			Skips sqlSkips = new Skips();
 			support.jdbc().query(select, rs -> {
+				String geomJson = rs.getString("geom");
+				if (geomJson == null) {
+					sqlSkips.add(Map.of("id", rs.getString("id")));
+					return;
+				}
 				Map<String, Object> props = readProps(rs.getString("props_json"));
 				props.put("bufferMeters", meters);
 				Map<String, Object> feat = new LinkedHashMap<>();
 				feat.put("type", "Feature");
-				feat.put("geometry", readJson(rs.getString("geom")));
+				feat.put("geometry", readJson(geomJson));
 				feat.put("properties", props);
 				feats.add(feat);
 			}, meters, layer.getId(), cap);
-			return collection(feats, GisConstants.ENGINE_POSTGIS, cap);
+			return sqlSkips.finish(collection(feats, GisConstants.ENGINE_POSTGIS, cap), "buffer", layer);
 		}
 		List<Map<String, Object>> feats = new ArrayList<>();
+		Skips skips = new Skips();
 		for (Map<?, ?> feat : features(layer)) {
 			Object geomRaw = feat.get("geometry");
 			if (!(geomRaw instanceof Map<?, ?> geomMap)) {
@@ -198,9 +271,12 @@ public class GisSpatialQueryService {
 			if (geom == null || geom.isEmpty()) {
 				continue;
 			}
-			Geometry buf = org.locationtech.jts.operation.buffer.BufferOp.bufferOp(
-				codec.toMercator(geom), meters);
-			if (buf == null || buf.isEmpty()) {
+			Geometry buf = GisGeodesic.tryBuffer(geom, meters);
+			if (buf == null) {
+				skips.add(feat);
+				continue;
+			}
+			if (buf.isEmpty()) {
 				continue;
 			}
 			Map<String, Object> props = new LinkedHashMap<>();
@@ -208,16 +284,98 @@ public class GisSpatialQueryService {
 				p.forEach((k, v) -> props.put(String.valueOf(k), v));
 			}
 			props.put("bufferMeters", meters);
-			feats.add(codec.toFeature(codec.toWgs84(buf), props,
+			feats.add(codec.toFeature(buf, props,
 				feat.get("id") == null ? null : String.valueOf(feat.get("id"))));
 			if (feats.size() >= cap) {
 				break;
 			}
 		}
-		return collection(feats, GisConstants.ENGINE_JAVA, cap);
+		return skips.finish(collection(feats, GisConstants.ENGINE_JAVA, cap), "buffer", layer);
+	}
+
+	/** 一次查询里因极区 / 跨 180° 被跳过的要素：计数 + 前几个 id，结束时写进响应并限频记 WARN */
+	static final class Skips {
+
+		private int count;
+		private final List<String> ids = new ArrayList<>();
+
+		void add(Map<?, ?> feat) {
+			count++;
+			if (ids.size() < SKIP_LOG_IDS) {
+				Object id = feat.get("id");
+				if (id == null && feat.get("properties") instanceof Map<?, ?> p) {
+					id = p.get("id");
+				}
+				ids.add(String.valueOf(id));
+			}
+		}
+
+		Map<String, Object> finish(Map<String, Object> out, String op, GisLayer layer) {
+			out.put("skipped", count);
+			if (count == 0) {
+				return out;
+			}
+			String key = op + ":" + layer.getId();
+			long now = System.currentTimeMillis();
+			boolean warn = LAST_SKIP_WARN.compute(key, (k, last) ->
+				last == null || now - last >= SKIP_WARN_INTERVAL_MS ? now : last) == now;
+			String fmt = "GIS {} 跳过极区或跨 180° 经线的要素：layerId={} 数量={} 要素id(前{}个)={}";
+			if (warn) {
+				log.warn(fmt, op, layer.getId(), count, SKIP_LOG_IDS, ids);
+			} else if (log.isDebugEnabled()) {
+				log.debug(fmt, op, layer.getId(), count, SKIP_LOG_IDS, ids);
+			}
+			return out;
+		}
 	}
 
 	// ==================== 下沉数据库 ====================
+
+	/**
+	 * 平面包络宽于 180°、负经度加 360（{@code ST_ShiftLongitude}）后仍宽于 180° 的要素：经度走向无法确定
+	 * （典型是在 ±180 切开、带极点边的极冠）。与 Java 侧 {@code GisGeodesic.unwrapPart} 抛异常的条件一致。
+	 */
+	static final String AMBIGUOUS = "(ST_XMax(geom) - ST_XMin(geom) > 180"
+		+ " AND ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) > 180)";
+
+	/** 最近邻 KNN 候选数：结果数的 10 倍（PostGIS 手册 geometry_distance_knn 示例），至少 100、至多 10000 */
+	static int knnCandidates(int cap) {
+		return (int) Math.min(10_000L, Math.max(100L, cap * 10L));
+	}
+
+	/**
+	 * 库里存的跨 180° 要素：平面包络宽于 180°、负经度加 360（{@code ST_ShiftLongitude}）后不再宽于 180°。
+	 * 与 Java 侧 {@link GisAntimeridian#wraps} 同一判定（GeoTools WrappingProjectionHandler 的「半个地球」启发式），
+	 * 极冠这类本来就横跨全经度的面平移后仍宽于 180°，不算。
+	 */
+	static final String WIDE = " AND ST_XMax(geom) - ST_XMin(geom) > 180"
+		+ " AND ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) <= 180";
+
+	/**
+	 * 与查询几何 G 做谓词判断，兼顾库里存的跨 180° 要素（mugsun-boot#64）：
+	 * 普通要素照旧 {@code geom && G AND pred(geom, G)}；跨 180° 要素换到 [0, 360) 经度
+	 * （{@code ST_ShiftLongitude}），与 G 及 G 平移 +360 分别判断。两支都先过 GiST 可用的 {@code &&}：
+	 * 跨 180° 要素的平面包络横跨全经度，用 G 的纬度带框收。
+	 */
+	private Map<String, Object> sqlWrapAware(GisLayer layer, String pred, String g, Object[] gArgs, int limit) {
+		List<Object> args = new ArrayList<>();
+		for (int i = 0; i < WRAP_AWARE_G_COUNT; i++) {
+			args.addAll(java.util.Arrays.asList(gArgs));
+		}
+		return sql(layer, wrapAwareWhere(pred, g), args.toArray(), null, limit);
+	}
+
+	/** {@link #wrapAwareWhere} 里 G 出现的次数，参数要重复这么多遍 */
+	static final int WRAP_AWARE_G_COUNT = 6;
+
+	static String wrapAwareWhere(String pred, String g) {
+		return " AND ((geom && " + g + " AND " + pred + "(geom, " + g + ")"
+			+ " AND NOT (ST_XMax(geom) - ST_XMin(geom) > 180"
+			+ " AND ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) <= 180))"
+			+ " OR (geom && ST_MakeEnvelope(-180, ST_YMin(" + g + "), 180, ST_YMax(" + g + "), 4326)" + WIDE
+			+ " AND (" + pred + "(ST_ShiftLongitude(geom), " + g + ")"
+			+ " OR " + pred + "(ST_ShiftLongitude(geom), ST_Translate(" + g + ", 360, 0)))))";
+	}
 
 	private Map<String, Object> sql(GisLayer layer, String where, Object[] args, String distanceExpr, int limit) {
 		return sql(layer, where, args, distanceExpr, limit, "");
@@ -313,46 +471,9 @@ public class GisSpatialQueryService {
 		return out;
 	}
 
-	/**
-	 * 半正矢（haversine）球面距离。
-	 *
-	 * <p>早先用的是「经度按 cos(lat) 收缩」的局部等距近似，2 公里半径下就会把边界要素判反
-	 * （与 PostGIS 的 geography 结果差 1 个），既然两条路要求口径一致，这里按球面距离算。
-	 * 与 PostGIS 的椭球距离仍有约 0.3% 的固有差异，来自球体假设而非算法。
-	 */
-	private static final class Metric {
-
-		private static final double EARTH_R = 6_371_008.8d;
-
-		Metric(double baseLat) {
-			// 保留构造参数以贴合调用方语义（以查询点为基准），球面公式本身不需要基准纬度
-		}
-
-		Coordinate project(double lon, double lat) {
-			return new Coordinate(lon, lat);
-		}
-
-		double distance(Geometry geom, Coordinate center) {
-			double best = Double.MAX_VALUE;
-			for (Coordinate c : geom.getCoordinates()) {
-				best = Math.min(best, haversine(center.y, center.x, c.y, c.x));
-			}
-			return best;
-		}
-
-		private static double haversine(double lat1, double lon1, double lat2, double lon2) {
-			double dLat = Math.toRadians(lat2 - lat1);
-			double dLon = Math.toRadians(lon2 - lon1);
-			double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-				+ Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-				* Math.sin(dLon / 2) * Math.sin(dLon / 2);
-			return 2 * EARTH_R * Math.asin(Math.min(1d, Math.sqrt(a)));
-		}
-	}
-
 	// ==================== 杂项 ====================
 
-	/** forceJava 只给诊断与压测用：PostGIS 在线时也能走一遍回落路径，方便对比耗时、验证两条路口径一致 */
+	/** forceJava 只给诊断与压测用：PostGIS 在线时也能走一遍回落路径，方便对比耗时、核对两条路的差异（米制差异见类注释） */
 	private boolean ready(GisLayer layer, boolean forceJava) {
 		if (forceJava || !support.available()) {
 			return false;

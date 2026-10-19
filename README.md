@@ -11,7 +11,7 @@
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![JDK](https://img.shields.io/badge/JDK-21-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
-![License](https://img.shields.io/badge/License-Apache%202.0-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 ## 概述
 
@@ -22,14 +22,20 @@
 | 框架 | Spring Boot 3.5.13 |
 | 数据层 | PostgreSQL 16（PostGIS + pgvector）；Redis 7（默认库号 `3`） |
 | 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0`（已发布至 [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)） |
-| 许可 | [Apache-2.0](./LICENSE) |
+| 许可 | [MIT](./LICENSE) |
 | 文档 | [docs.mugsun.com/boot](https://docs.mugsun.com/boot/) |
 
-技术组件（以当前 POM 为准）：MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway、Spring AI 1.1.2（AI 模块）。
+技术组件（以当前 POM 为准）：MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway。AI 模块不依赖 Spring AI：模型、向量检索与 MCP 工具调用均由模块内的 HTTP 客户端和 pgvector 查询实现。
 
 ## 部署
 
 前置条件：JDK 21、Maven 3.9+、Docker。`mugsun-core` 0.1.0 已发布至 Maven Central，构建时由 Maven 自动解析，无需平级 clone。
+
+首次 `docker compose up -d` 会在本地构建数据库镜像（`postgis/postgis:16-3.4` + pgvector）。官方 PostGIS 镜像只有 amd64，Apple Silicon 上默认走仿真，首次构建要多等几分钟，运行也偏慢。想原生运行可换多架构基础镜像：
+
+```bash
+MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 docker compose up -d --build
+```
 
 ```bash
 docker compose up -d
@@ -46,13 +52,21 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar
 
 健康检查：http://localhost:8080/ping
 
-默认初始账号：`admin` / `123456`（可通过环境变量 `MUGSUN_INIT_PASSWORD` 覆盖）。生产环境必须更换口令；`prod` 配置未注入初始口令时拒绝启动。
+默认初始账号：`admin` / `123456`。初始口令由代码读取 `mugsun.security.init-password`，未配置时读环境变量 `MUGSUN_INIT_PASSWORD`（见 `SecurityPolicyService`）。`application.yml` 里不写这一项是有意的：prod 启动守卫据此判断口令是否被显式注入。生产环境必须更换口令；`prod` 配置未注入初始口令时拒绝启动。
 
 管理端见 [mugsun-pc](https://github.com/mugsun/mugsun-pc)（开发默认端口 `3006`，代理至本服务 `8080`）。逐步说明见 [文档 · 快速开始](https://docs.mugsun.com/guide/getting-started)。
 
 打包产物：`mugsun-boot-server/target/mugsun-boot.jar`。
 
-Compose 暴露端口：`5432`（PostgreSQL）、`6379`（Redis）。开发库账号默认与 JDBC 配置一致（`mugsun` / `mugsun`）。无 Docker 时可参考 `scripts/init-db.sql`。
+Compose 暴露端口：`5432`（PostgreSQL）、`6379`（Redis）。本机已有 PostgreSQL / Redis 占用这两个端口时，换端口启动并让后端用同一变量：
+
+```bash
+export MUGSUN_DB_PORT=55432 MUGSUN_REDIS_PORT=56379
+docker compose up -d
+java -jar mugsun-boot-server/target/mugsun-boot.jar
+```
+
+后端可用的环境变量：`MUGSUN_DB_HOST`、`MUGSUN_DB_PORT`、`MUGSUN_DB_NAME`、`MUGSUN_DB_USERNAME`、`MUGSUN_DB_PASSWORD`（或整条 `MUGSUN_DB_URL`）、`MUGSUN_REDIS_HOST`、`MUGSUN_REDIS_PORT`；埋点库 `mugsun_track` 默认跟随同一主机端口，仍可用 `TRACK_JDBC_URL` 单独覆盖。`prod` 配置不读这些变量，仍用 `JDBC_URL`、`REDIS_HOST` 等。开发库账号默认与 JDBC 配置一致（`mugsun` / `mugsun`）。无 Docker 时可参考 `scripts/init-db.sql`。
 
 本地配置文件路径：`optional:file:./config/application-local.yml`（已列入 `.gitignore`）。工作目录须为本仓库根目录。生产配置注入说明见 [配置](https://docs.mugsun.com/boot/configuration)。
 
@@ -80,7 +94,7 @@ OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
 | `mugsun.captcha.rate-limit.*` | 见 `application.yml` | 单 IP 取挑战/分钟、全局每秒上限（Redis 跨节点）、失败锁定（键盘模式更严） |
 | `mugsun.captcha.rate-limit.sms-phone-per-day` / `sms-ip-per-hour` | `10` / `20` | 发送短信验证码频控（叠加同号 60 秒节流），与验证码开关无关 |
 
-租户开关：`sys_tenant.captcha_enabled`（`V4__tenant_captcha.sql`，默认 1，新建租户一律开启），仅平台超管可通过 `POST /system/tenant/captcha` 修改并写入审计日志；多节点时其他节点最多 60 秒后生效。发送短信验证码与租户无关，只看全局开关。滑块模式下客户端开关 `sys_client.captcha_enabled` 不再能关闭验证码（clientId 由请求方自选），仅旧数字码模式下对登录生效。输入方式（`inputMode`）在取题时声明，校验时不一致即失败。App 端 `/app/captcha/*` 接口形状不变，内部共用同一引擎。
+租户开关：`sys_tenant.captcha_enabled`（`V9__tenant_captcha.sql`，默认 1，新建租户一律开启），仅平台超管可通过 `POST /system/tenant/captcha` 修改并写入审计日志；多节点时其他节点最多 60 秒后生效。发送短信验证码与租户无关，只看全局开关。滑块模式下客户端开关 `sys_client.captcha_enabled` 不再能关闭验证码（clientId 由请求方自选），仅旧数字码模式下对登录生效。输入方式（`inputMode`）在取题时声明，校验时不一致即失败。App 端 `/app/captcha/*` 接口形状不变，内部共用同一引擎。
 
 ## 组成
 
@@ -93,7 +107,7 @@ mugsun-boot/
   mugsun-boot-core/     # 认证、系统、流程、租户、开放平台等
   mugsun-boot-gis/      # 可选：图层、空间查询、矢量瓦片
   mugsun-boot-track/    # 可选：采集摄入、聚合、回放相关 API
-  mugsun-boot-ai/       # 可选：模型、对话、知识库、MCP（Spring AI）
+  mugsun-boot-ai/       # 可选：模型、对话、知识库、调用外部 MCP 工具
   mugsun-boot-server/   # 装配壳；默认 profile = full
 ```
 
@@ -106,11 +120,13 @@ Maven Profile：
 | `gis-only` / `track-only` / `ai-only` | 核心 + 单一可选模块；须关闭 full |
 | `kingbase` / `dameng` | 信创数据库驱动 |
 
-运行时可通过环境变量关闭能力（JAR 仍可能包含对应类路径）：
+运行时可通过环境变量关闭能力（JAR 仍可能包含对应类路径）。不设置按开启；设置时只接受 `true` 或 `false`（不区分大小写，前后不能有空格），空值、`1` / `0`、`yes` / `no` 等其它值都会启动失败：
 
 - `MUGSUN_GIS_ENABLED=false`
 - `MUGSUN_TRACK_ENABLED=false`
 - `MUGSUN_AI_ENABLED=false`
+
+内置 MCP Server 暂时下线，正在加鉴权后恢复。下线期间 `/sse`、`/mcp` 返回 404，`MUGSUN_AI_MCP_SERVER` 不起作用；根 POM 的 maven-enforcer 规则暂时拦下 Spring AI（`org.springframework.ai:*`）与 MCP SDK（`io.modelcontextprotocol*`），包括传递依赖。
 
 模块装配说明见 [docs/可选模块装配.md](docs/可选模块装配.md)。
 
@@ -128,7 +144,7 @@ Maven Profile：
 
 - `mugsun-boot-track`：`/track/collect`、配置下发与分析相关 API，与浏览器 SDK、管理端看板构成完整链路
 - `mugsun-boot-gis`：空间数据与矢量瓦片（依赖 PostGIS）
-- `mugsun-boot-ai`：模型、对话、知识库与 MCP（Spring AI）
+- `mugsun-boot-ai`：模型、对话、知识库，以及在编排中调用外部 MCP 工具（内置 MCP Server 暂时下线，正在加鉴权后恢复）
 
 **运行约定**
 
@@ -155,4 +171,4 @@ Maven Profile：
 
 ## 许可
 
-[Apache-2.0](./LICENSE) · 版权见 [NOTICE](./NOTICE) · © 2026 北京定旭晨 / mugsun
+[MIT](./LICENSE) · 版权见 [NOTICE](./NOTICE) · © 2026 北京定旭晨 / mugsun

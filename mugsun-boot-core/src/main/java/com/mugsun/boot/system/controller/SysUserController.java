@@ -501,9 +501,11 @@ public class SysUserController {
 	@PostMapping("/import")
 	@SaCheckPermission("sys:user:add")
 	@OperationLog("导入用户")
-	public R<UserImportResult> importUser(@RequestParam("file") MultipartFile file,
+	public R<UserImportResult> importUser(@RequestParam(value = "file", required = false) MultipartFile file,
 										  @RequestParam(required = false, defaultValue = "false") boolean updateSupport) {
-		List<SysUserExcel> rows = ExcelUtil.read(file, SysUserExcel.class);
+		List<SysUserExcel> rows = com.mugsun.boot.common.excel.ImportFiles.requireRows(
+			com.mugsun.boot.common.excel.ImportFiles.readExcel(file, SysUserExcel.class),
+			MSG_IMPORT_NO_ROWS);
 		String tenant = com.mugsun.boot.tenant.TenantContext.current();
 		int success = 0;
 		List<UserImportResult.FailRow> failList = new java.util.ArrayList<>();
@@ -524,8 +526,22 @@ public class SysUserController {
 				failList.add(new UserImportResult.FailRow(i + 2, username, "与已有账号数据冲突（用户名或手机号重复）。请改一个还没用过的用户名或手机号后再导入"));
 			}
 		}
-		return R.data(new UserImportResult(success, failList.size(), failList));
+		UserImportResult result = new UserImportResult(success, failList.size(), failList);
+		if (success == 0) {
+			// 导入 0 条不算成功：有失败行时带回明细便于逐行修改；全是空行时同「没有数据」
+			if (failList.isEmpty()) {
+				throw new com.mugsun.core.tool.exception.ServiceException(MSG_IMPORT_NO_ROWS);
+			}
+			R<UserImportResult> fail = R.fail(com.mugsun.core.tool.api.ResultCode.FAILURE,
+				"一条都没有导入。共 " + failList.size() + " 行有问题，请按失败明细改好后再导入");
+			fail.setData(result);
+			return fail;
+		}
+		return R.data(result);
 	}
+
+	/** 表格解析出 0 行，或全部是空用户名行 */
+	static final String MSG_IMPORT_NO_ROWS = "这份表格里没有用户。请先下载模板，至少填好用户名后再导入";
 
 	/** 导入单行：格式校验 → 部门/岗位名解析 → 新增或按 updateSupport 覆盖 */
 	private void importRow(SysUserExcel row, String username, boolean updateSupport, String tenant) {

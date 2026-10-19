@@ -22,8 +22,11 @@ public class AiModelBizService {
 	private final AiModuleService moduleService;
 	private final AiModelMapper modelMapper;
 	private final AiLlmClient llmClient;
+	private final com.mugsun.boot.ai.support.AiOutboundProperties outbound;
 
-	public AiModelBizService(AiModuleService moduleService, AiModelMapper modelMapper, AiLlmClient llmClient) {
+	public AiModelBizService(AiModuleService moduleService, AiModelMapper modelMapper, AiLlmClient llmClient,
+							 com.mugsun.boot.ai.support.AiOutboundProperties outbound) {
+		this.outbound = outbound;
 		this.moduleService = moduleService;
 		this.modelMapper = modelMapper;
 		this.llmClient = llmClient;
@@ -107,6 +110,11 @@ public class AiModelBizService {
 		if (baseUrl.length() > 255 || !(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))
 			|| baseUrl.contains(" ") || baseUrl.contains("<")) {
 			throw new ServiceException("接口地址需要以 http:// 或 https:// 开头，并且不要带空格");
+		}
+		try {
+			outbound.guard(baseUrl);
+		} catch (ServiceException e) {
+			throw new ServiceException("接口地址不允许访问内网、元数据地址或非常用端口。内网自部署模型请让平台管理员把主机加入出站白名单");
 		}
 		String code = body.getModelCode() == null ? "" : body.getModelCode().trim();
 		if (!code.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")) {

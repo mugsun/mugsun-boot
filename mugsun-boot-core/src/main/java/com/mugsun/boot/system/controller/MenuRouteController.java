@@ -33,21 +33,15 @@ public class MenuRouteController {
 	private final SysMenuMapper menuMapper;
 	private final SysUserRoleMapper userRoleMapper;
 	private final SysRoleMenuMapper roleMenuMapper;
-	private final com.mugsun.boot.common.module.GisModuleStatus gisModuleStatus;
-	private final com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus;
-	private final com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus;
+	private final com.mugsun.boot.common.module.ModuleMenuFilter moduleMenuFilter;
 
 	public MenuRouteController(SysMenuMapper menuMapper, SysUserRoleMapper userRoleMapper,
 							   SysRoleMenuMapper roleMenuMapper,
-							   com.mugsun.boot.common.module.GisModuleStatus gisModuleStatus,
-							   com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus,
-							   com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus) {
+							   com.mugsun.boot.common.module.ModuleMenuFilter moduleMenuFilter) {
 		this.menuMapper = menuMapper;
 		this.userRoleMapper = userRoleMapper;
 		this.roleMenuMapper = roleMenuMapper;
-		this.gisModuleStatus = gisModuleStatus;
-		this.trackModuleStatus = trackModuleStatus;
-		this.aiModuleStatus = aiModuleStatus;
+		this.moduleMenuFilter = moduleMenuFilter;
 	}
 
 	@GetMapping("/menus")
@@ -96,30 +90,8 @@ public class MenuRouteController {
 				}
 			}
 		}
-		if (!gisModuleStatus.enabled()) {
-			for (SysMenu m : all) {
-				String path = m.getPath();
-				if (path != null && (path.equals("/gis") || path.startsWith("/gis/"))) {
-					visible.remove(m.getId());
-				}
-			}
-		}
-		if (!trackModuleStatus.enabled()) {
-			for (SysMenu m : all) {
-				String path = m.getPath();
-				if (path != null && (path.equals("/track") || path.startsWith("/track/"))) {
-					visible.remove(m.getId());
-				}
-			}
-		}
-		if (!aiModuleStatus.enabled()) {
-			for (SysMenu m : all) {
-				String path = m.getPath();
-				if (path != null && (path.equals("/ai") || path.startsWith("/ai/"))) {
-					visible.remove(m.getId());
-				}
-			}
-		}
+		// 可选模块未装配/已关闭：剔除其目录与子孙（与菜单管理树、角色授权树同口径）
+		visible.removeAll(moduleMenuFilter.hiddenMenuIds(all));
 		// 建树（父不存在的节点提升为根）+ 空目录剔除
 		List<Map<String, Object>> tree = buildTree(0L, byId, visible);
 		return R.data(tree);

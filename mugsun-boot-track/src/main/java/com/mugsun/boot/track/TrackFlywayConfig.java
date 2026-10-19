@@ -45,6 +45,8 @@ public class TrackFlywayConfig {
 	private static final String DUPLICATE_DATABASE_SQL_STATE = "42P04";
 	/** PG 错误码：insufficient_privilege（应用账号无 CREATEDB 权限） */
 	private static final String INSUFFICIENT_PRIVILEGE_SQL_STATE = "42501";
+	/** Flyway 迁移锁重试次数（每次约 1s）：多节点滚动/同时启动时后到者最多等约 10 分钟 */
+	static final int FLYWAY_LOCK_RETRY_COUNT = 600;
 
 	/**
 	 * 建库 + 迁移埋点库，返回初始化标记 bean（承载库名，供健康检查/日志辨识）。
@@ -64,6 +66,16 @@ public class TrackFlywayConfig {
 		// 信创联调：主库金仓手工灌库后可关埋点 Flyway（分区等 PG 专属语法）；或 track 仍指本地 PG
 		if (!env.getProperty("mugsun.track.flyway-enabled", Boolean.class, true)) {
 			log.warn("mugsun.track.flyway-enabled=false，跳过埋点库建库与 Flyway（假定 {} 已就绪）", trackDb);
+			if (env.getProperty(com.mugsun.boot.demo.DemoConstants.ENABLED_PROPERTY, Boolean.class, false)) {
+				// 只读演示模式：埋点账号只有 INSERT/SELECT，不迁移；只读校验迁移历史，不一致拒绝启动
+				com.mugsun.boot.demo.DemoSchemaGuard.validate(new FluentConfiguration()
+					.dataSource(trackUrl, trackUser, trackPassword)
+					.locations(TrackConstants.FLYWAY_LOCATIONS)
+					.sqlMigrationPrefix(TrackConstants.FLYWAY_SQL_PREFIX)
+					.baselineVersion("0")
+					.placeholderReplacement(false)
+					.load(), "埋点库");
+			}
 			return new TrackFlywayInitializer(trackDb);
 		}
 
@@ -92,6 +104,12 @@ public class TrackFlywayConfig {
 			.baselineVersion("0")
 			// 与主库 spring.flyway 约定一致：SQL 内 ${} 占位符不替换（DO $$ 块/函数字面量防误吞）
 			.placeholderReplacement(false)
+			// T4 起有非事务迁移（CREATE INDEX CONCURRENTLY）：PG 默认的事务级 advisory 锁会在 Flyway 锁连接上
+			// 一直挂着一个打开的事务，CONCURRENTLY 要等所有旧快照事务结束 → 自等死锁；改用会话级锁
+			// 会话级锁要求直连 PG 或 PgBouncer session 模式：不支持 PgBouncer transaction pooling（锁会落到别的会话上）
+			.configuration(java.util.Map.of("flyway.postgresql.transactional.lock", "false"))
+			// 多节点同时启动：后到者等锁（每次 1s），默认 50 次偏短，放宽到 600 次
+			.lockRetryCount(FLYWAY_LOCK_RETRY_COUNT)
 			.load();
 		int applied = flyway.migrate().migrationsExecuted;
 		log.info("埋点库 Flyway 迁移完成：{}（本次执行 {} 个迁移脚本）", trackDb, applied);

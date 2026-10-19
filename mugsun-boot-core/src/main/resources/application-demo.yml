@@ -1,0 +1,63 @@
+# 只读演示模式（--spring.profiles.active=prod,demo）。
+# B1：profile 骨架 + 只读白名单过滤器；B2：只读/日志/埋点三个数据库账号、Flyway 关闭 + 版本校验、写库任务关闭、资源闸门。
+# 每日 04:00（北京时间）重置见 B5。目前仅支持 PostgreSQL 部署演示环境；达梦/人大金仓/openGauss/MySQL 暂不支持 demo。
+#
+# 账号（建账号 SQL 见 docs/demo/sql/demo-accounts.sql）：
+#   业务库   MUGSUN_DB_USERNAME=mugsun_demo_ro      只授 SELECT
+#   日志     MUGSUN_DEMO_LOG_DB_USERNAME=mugsun_demo_log  只授 5 张日志表 INSERT
+#   埋点库   TRACK_JDBC_USERNAME=mugsun_demo_track  只授 INSERT、SELECT
+# 迁移与启动期初始化由 owner 账号一次性执行：非 demo profile + --mugsun.demo.migrate-only=true（执行完即退出）。
+mugsun:
+  demo:
+    enabled: true
+    # 埋点采集（/track/collect|replay|api-body）：决定是演示环境开启，写独立埋点库、独立账号（仅 INSERT/SELECT）。
+    # 但在 B3（输出转义/敏感词）落地前，匿名写入有存储型 XSS 风险（安全复审 F3），默认先关。
+    track-collect: ${MUGSUN_DEMO_TRACK_COLLECT:false}
+    # WebSocket 允许的来源（安全复审 F7）：demo 下只放管理端 origin，逗号分隔
+    ws-allowed-origins: ${MUGSUN_DEMO_WS_ALLOWED_ORIGINS:${mugsun.web.front-url}}
+    # 导出/下载/SSE 并发上限，按实例计（安全复审 F4）
+    heavy-concurrency: ${MUGSUN_DEMO_HEAVY_CONCURRENCY:2}
+    # 按 IP 限流（Bucket4j + Redis，多实例共享；安全复审 F1 / F3）
+    rate:
+      login-per-ip-per-minute: ${MUGSUN_DEMO_LOGIN_PER_IP_PER_MINUTE:20}
+      track-per-ip-per-minute: ${MUGSUN_DEMO_TRACK_PER_IP_PER_MINUTE:120}
+    # 埋点库容量：超过告警线打 WARN，超过上限暂停采集（503）
+    track-capacity:
+      warn-mb: ${MUGSUN_DEMO_TRACK_WARN_MB:2048}
+      max-mb: ${MUGSUN_DEMO_TRACK_MAX_MB:4096}
+  # 反向代理后面按真实访客 IP 锁定与限流：默认只信任回环（同机 Nginx）。Nginx/网关在别的容器或主机上时
+  # 必须显式写它的地址或网段（一键部署是 pc 的 172.30.88.10/32），不要整段信任私网：私网里任何主机都能伪造 XFF。
+  # 没配（只有回环默认值）或设为空都会在启动时打 WARN
+  openapi:
+    trusted-proxies: ${MUGSUN_OPENAPI_TRUSTED_PROXIES:127.0.0.0/8,::1/128}
+  track:
+    # 埋点库不迁移（埋点账号无 DDL 权限），启动时只读校验迁移版本
+    flyway-enabled: false
+  ai:
+    # 安全复审 F4：演示环境关闭 AI 模块（模型通道可能访问外部服务）
+    enabled: false
+spring:
+  # demo 下不跑 Flyway（业务账号只读），启动时由 DemoSchemaGuard 只读校验版本，不一致拒绝启动
+  flyway:
+    enabled: false
+  mvc:
+    hiddenmethod:
+      filter:
+        # 安全复审 F5：demo 下强制关闭 HiddenHttpMethodFilter（_method 表单参数改写方法），防止以后被误开
+        enabled: false
+  data:
+    redis:
+      # 安全复审 F4：演示环境用独立的 Redis db（默认 4，正式环境默认 3），重置时只 FLUSHDB 这一个
+      database: ${MUGSUN_DEMO_REDIS_DB:4}
+jetcache:
+  remote:
+    default:
+      uri: redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT:6379}/${MUGSUN_DEMO_REDIS_DB:4}
+mybatis-flex:
+  datasource:
+    # 日志专用数据源：登录/访问/错误/操作/通用日志只 INSERT（LogDataSourceRouter）
+    log:
+      type: hikari
+      url: ${MUGSUN_DEMO_LOG_DB_URL:${mybatis-flex.datasource.primary.url}}
+      username: ${MUGSUN_DEMO_LOG_DB_USERNAME:mugsun_demo_log}
+      password: ${MUGSUN_DEMO_LOG_DB_PASSWORD:}

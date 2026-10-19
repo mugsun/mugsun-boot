@@ -21,15 +21,16 @@ import com.mugsun.boot.ai.AiConstants;
 
 /**
  * OpenAI 兼容 HTTP 客户端：探测、同步补全、SSE 流式。
+ * <p>普通与流式调用都走 {@link OutboundWebClientFactory#create()}（模型 baseUrl 由租户配置，必须按出站规则校验）。
  */
 @Component
 public class AiLlmClient {
 
-	private final WebClient.Builder webClientBuilder;
+	private final OutboundWebClientFactory outboundWebClients;
 	private final ObjectMapper objectMapper;
 
-	public AiLlmClient(WebClient.Builder webClientBuilder, ObjectMapper objectMapper) {
-		this.webClientBuilder = webClientBuilder;
+	public AiLlmClient(OutboundWebClientFactory outboundWebClients, ObjectMapper objectMapper) {
+		this.outboundWebClients = outboundWebClients;
 		this.objectMapper = objectMapper;
 	}
 
@@ -212,7 +213,8 @@ public class AiLlmClient {
 	}
 
 	private WebClient client(AiModel model) {
-		return webClientBuilder.build().mutate()
+		// 统一外呼客户端：逐请求校验 + 钉 IP + 不跟随 3xx；内网自部署模型（如 Ollama）经 allow-hosts 放行
+		return outboundWebClients.create().mutate()
 			.defaultHeader("Authorization", "Bearer " + (model.getApiKey() == null ? "" : model.getApiKey()))
 			.build();
 	}

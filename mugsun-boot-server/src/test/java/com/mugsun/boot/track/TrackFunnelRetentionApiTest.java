@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -39,6 +39,8 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 
 	private static final String APP_FUNNEL = "ak_test_funnel_01";
 	private static final String APP_RETENTION = "ak_test_retention_01";
+	/** 未配置租户时区时的默认统计时区：留存活跃日 = 当地日期 */
+	private static final ZoneId STATS_ZONE = ZoneId.of("Asia/Shanghai");
 	private static final String APP_B = "ak_test_funnel_b";
 	private static final String LOW_USERNAME = "it_g103_lowpriv";
 	private static final String LOW_PASSWORD = "123456";
@@ -123,7 +125,7 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 			evTenant(APP_B, STEP2, t0 + 30 * MIN_MS, "it-g103-b-a", tenantBCode)));
 
 		// ---------- 留存夹具（UTC 日切；cohort 日 c1/c2/c3 = 前 3/2/1 天；回看窗首日 = 前 36 天） ----------
-		LocalDate today = LocalDate.now(ZoneOffset.UTC);
+		LocalDate today = LocalDate.now(STATS_ZONE);
 		LocalDate c1 = today.minusDays(3);
 		LocalDate c2 = today.minusDays(2);
 		LocalDate c3 = today.minusDays(1);
@@ -249,7 +251,7 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 		assertThat(data.path("days").asInt()).isEqualTo(7);
 		JsonNode rows = data.path("rows");
 		assertThat(rows.size()).as("3 个 cohort 日（其余窗口日无新客不出行）").isEqualTo(3);
-		LocalDate today = LocalDate.now(ZoneOffset.UTC);
+		LocalDate today = LocalDate.now(STATS_ZONE);
 
 		JsonNode r1 = rows.get(0);
 		assertThat(r1.path("cohortDate").asText()).isEqualTo(today.minusDays(3).toString());
@@ -278,15 +280,24 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 	void retentionDaysClampAndDefaults() {
 		JsonNode clamped = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RETENTION + "&days=100", adminToken));
 		assertThat(clamped.path("days").asInt()).as("钳到 RETENTION_DAYS_MAX").isEqualTo(TrackConstants.RETENTION_DAYS_MAX);
+		assertThat(clamped.path("clamped").asBoolean()).as("超上限明示 clamped").isTrue();
+		assertThat(clamped.path("zone").asText()).isEqualTo(STATS_ZONE.getId());
+		assertThat(clamped.path("today").asText()).isEqualTo(LocalDate.now(STATS_ZONE).toString());
 		JsonNode rows = clamped.path("rows");
 		assertThat(rows.size()).as("钳后 cohort 网格不变").isEqualTo(3);
-		LocalDate today = LocalDate.now(ZoneOffset.UTC);
+		LocalDate today = LocalDate.now(STATS_ZONE);
 		assertThat(rows.get(0).path("cohortDate").asText()).isEqualTo(today.minusDays(3).toString());
 		assertThat(rows.get(0).path("cohortSize").asLong()).isEqualTo(2L);
 		assertThat(rows.get(0).path("retained").path("2").asLong()).isEqualTo(2L);
 
 		JsonNode def = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RETENTION, adminToken));
 		assertThat(def.path("days").asInt()).as("缺省 7 天").isEqualTo(7);
+		assertThat(def.path("clamped").asBoolean()).isFalse();
+		JsonNode exact = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RETENTION + "&days="
+			+ TrackConstants.RETENTION_DAYS_MAX, adminToken));
+		assertThat(exact.path("clamped").asBoolean()).as("恰好等于上限不算钳制").isFalse();
+		JsonNode low = readBodyAssertOk(get("/system/track/retention?appKey=" + APP_RETENTION + "&days=0", adminToken));
+		assertThat(low.path("days").asInt()).as("<1 回落 7").isEqualTo(7);
 		assertThat(def.path("rows").size()).isEqualTo(3);
 	}
 
@@ -364,7 +375,7 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 
 	/** 留存夹具事件（当日 UTC 正午，防日切边界漂移；活跃 = 任意事件，用 $pageview） */
 	private TrackIngestEvent evDay(LocalDate day, String distinctId) {
-		long ms = day.atTime(12, 0).toInstant(ZoneOffset.UTC).toEpochMilli();
+		long ms = day.atTime(12, 0).atZone(STATS_ZONE).toInstant().toEpochMilli();
 		return ev(APP_RETENTION, TrackConstants.EVENT_PAGEVIEW, ms, distinctId);
 	}
 

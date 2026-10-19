@@ -33,6 +33,9 @@ public class GisSearchService {
 			throw new ServiceException(GisConstants.MSG_SEARCH_KEYWORD);
 		}
 		String code = requireProvider(provider);
+		if (GisConstants.PROVIDER_XYZ.equals(code)) {
+			throw new ServiceException(GisConstants.MSG_XYZ_NO_SEARCH);
+		}
 		GisMapEngine engine = engines.require(code);
 		String key = requireKey(code);
 		try {
@@ -49,6 +52,9 @@ public class GisSearchService {
 			throw new ServiceException("坐标超出范围");
 		}
 		String code = requireProvider(provider);
+		if (GisConstants.PROVIDER_XYZ.equals(code)) {
+			throw new ServiceException(GisConstants.MSG_XYZ_NO_SEARCH);
+		}
 		GisMapEngine engine = engines.require(code);
 		String key = requireKey(code);
 		try {

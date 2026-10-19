@@ -24,6 +24,11 @@ import java.util.Map;
 @Service
 public class NotifyService {
 
+	private static final org.slf4j.Logger DEMO_LOG = org.slf4j.LoggerFactory.getLogger(NotifyService.class);
+
+	@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}")
+	private boolean demoMode;
+
 	private final SysNotifyTemplateMapper templateMapper;
 	private final SysNotifyRecordMapper recordMapper;
 	private final NotifyTemplateRenderer renderer;
@@ -39,6 +44,11 @@ public class NotifyService {
 
 	/** 见 {@link com.mugsun.boot.notify.api.NotifySendApi#send} 契约 */
 	public void send(String templateCode, List<NotifyReceiver> receivers, Map<String, String> params, String... channels) {
+		if (demoMode) {
+			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）
+			DEMO_LOG.info("[demo] 跳过对外发送：NotifyService");
+			return;
+		}
 		if (receivers == null || receivers.isEmpty()) {
 			throw new ServiceException("通知接收人不能为空");
 		}

@@ -163,7 +163,7 @@ public class AuthController {
 		// 与验证码判定使用同一规范化结果（trim），避免判定租户与登录租户不一致
 		String tenantId = com.mugsun.boot.captcha.CaptchaGate.normalizeTenant(dto.getTenantId());
 		// 锁定按「租户+账号」维度：多租户同名账号（各租户 admin）独立计数，防跨租户连锁锁死
-		String lockKey = loginLockService.keyOf(tenantId, username);
+		String lockKey = loginLockService.keyForLogin(tenantId, username, com.mugsun.boot.common.web.ClientIpResolver.clientIp(request));
 		loginLockService.assertNotLocked(lockKey);
 		SysUser user = TenantContext.ignore(() ->
 			userMapper.selectOneByQuery(QueryWrapper.create().eq("tenant_id", tenantId).eq("username", username)));

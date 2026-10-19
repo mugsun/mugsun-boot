@@ -115,6 +115,14 @@ public abstract class AbstractIntegrationTest {
 		return url.substring(0, url.lastIndexOf('/')) + "/" + TRACK_DB;
 	}
 
+	/**
+	 * 子类在静态初始化块里放入的覆盖项，在 {@link #containerProperties} 末尾注册、优先于上面的默认值
+	 * （父子各写一个 {@code @DynamicPropertySource} 时父类后执行，子类无法覆盖同名属性）。
+	 * 只给独立 surefire fork 里的测试用（如 DemoAccountsApiTest），否则会污染同 JVM 后续上下文。
+	 */
+	protected static final java.util.Map<String, java.util.function.Supplier<Object>> PROPERTY_OVERRIDES =
+		new java.util.LinkedHashMap<>();
+
 	@DynamicPropertySource
 	static void containerProperties(DynamicPropertyRegistry registry) {
 		if (useExternalServices()) {
@@ -147,6 +155,8 @@ public abstract class AbstractIntegrationTest {
 				+ (useExternalServices() ? EXT_REDIS_PORT : REDIS.getMappedPort(6379)) + "/3");
 		// 测试环境不连 PowerJob Server
 		registry.add("powerjob.worker.enabled", () -> "false");
+		// 时间线索引后台补建：测试里按需显式打开（防 02–06 点跑 CI 时后台任务与用例抢 advisory 锁）
+		registry.add("mugsun.track.timeline-index.backfill-enabled", () -> "false");
 		// 文件存储落 target 下临时目录，不污染 /tmp。
 		// 注意 Spring 列表绑定规则：列表在多属性源时按最高优先级源「整体替换」——只覆盖 storage-path
 		// 会把该元素的 platform/enable-storage 等字段冲成默认值（平台不注册、默认平台不可用），
@@ -164,6 +174,7 @@ public abstract class AbstractIntegrationTest {
 		registry.add("mugsun.websocket.sender-type", () -> "redis");
 		// application.yml 的 SMTP 为占位符，邮件健康检查必然 DOWN 拖垮聚合 503；测试环境关闭该指标
 		registry.add("management.health.mail.enabled", () -> "false");
+		PROPERTY_OVERRIDES.forEach(registry::add);
 	}
 
 	@LocalServerPort

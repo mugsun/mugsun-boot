@@ -1,5 +1,7 @@
 package com.mugsun.boot.config;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -15,6 +17,7 @@ import java.sql.Statement;
  */
 @Component
 @Order(0)
+@ConditionalOnNotDemo
 public class GenSchemeSchemaRunner implements CommandLineRunner {
 
 	private final DataSource dataSource;

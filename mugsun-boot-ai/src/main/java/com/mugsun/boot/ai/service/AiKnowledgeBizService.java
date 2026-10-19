@@ -42,12 +42,15 @@ public class AiKnowledgeBizService {
 	private final AiKbVectorStore vectorStore;
 	private final WebClient.Builder webClientBuilder;
 	private final com.mugsun.boot.ai.support.AiOutboundProperties outbound;
+	private final com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients;
 
 	public AiKnowledgeBizService(AiModuleService moduleService, AiKnowledgeMapper knowledgeMapper,
 								 AiKnowledgeAssetMapper assetMapper, AiKnowledgeSegmentMapper segmentMapper,
 								 AiModelBizService modelBizService, AiLlmClient llmClient,
 								 AiKbVectorStore vectorStore, WebClient.Builder webClientBuilder,
-								 com.mugsun.boot.ai.support.AiOutboundProperties outbound) {
+								 com.mugsun.boot.ai.support.AiOutboundProperties outbound,
+								 com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients) {
+		this.outboundWebClients = outboundWebClients;
 		this.moduleService = moduleService;
 		this.knowledgeMapper = knowledgeMapper;
 		this.assetMapper = assetMapper;
@@ -777,7 +780,7 @@ public class AiKnowledgeBizService {
 			if (url.startsWith("http://") || url.startsWith("https://")) {
 				url = outbound.guard(url);
 				try {
-					byte[] bytes = webClientBuilder.build().get().uri(url)
+					byte[] bytes = outboundWebClients.create().get().uri(url)
 						.retrieve().bodyToMono(byte[].class).block(Duration.ofSeconds(30));
 					if (bytes != null && bytes.length > 0) {
 						return new String(bytes, StandardCharsets.UTF_8);

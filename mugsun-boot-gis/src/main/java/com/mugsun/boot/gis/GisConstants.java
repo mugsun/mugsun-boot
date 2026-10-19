@@ -9,7 +9,7 @@ import java.util.Set;
 public final class GisConstants {
 
 	/** sys_param：模块总开关，默认 true；false 时菜单隐藏、业务接口拒绝 */
-	public static final String PARAM_MODULE_ENABLED = "gis.module.enabled";
+	public static final String PARAM_MODULE_ENABLED = com.mugsun.boot.common.module.ModuleSwitch.PARAM_GIS;
 	/** sys_param：quantized-mesh 地形服务地址，留空则三维只有平地形，前端地形开关置灰 */
 	public static final String PARAM_TERRAIN_URL = "gis.terrain.url";
 
@@ -17,9 +17,16 @@ public final class GisConstants {
 	public static final String PROVIDER_AMAP = "amap";
 	public static final String PROVIDER_BAIDU = "baidu";
 	public static final String PROVIDER_GOOGLE = "google";
+	/** 自定义 XYZ 瓦片（免密钥可用，域名受部署级白名单约束） */
+	public static final String PROVIDER_XYZ = "xyz";
 
 	public static final List<String> PROVIDERS = List.of(
-		PROVIDER_TIANDITU, PROVIDER_AMAP, PROVIDER_BAIDU, PROVIDER_GOOGLE);
+		PROVIDER_TIANDITU, PROVIDER_AMAP, PROVIDER_BAIDU, PROVIDER_GOOGLE, PROVIDER_XYZ);
+
+	/** 需要访问密钥的厂商底图（xyz 的密钥可空） */
+	public static boolean requiresKey(String provider) {
+		return !PROVIDER_XYZ.equals(provider);
+	}
 
 	/** 底图样式：矢量 / 影像 / 影像注记 / 矢量注记 */
 	public static final String STYLE_VEC = "vec";
@@ -100,6 +107,8 @@ public final class GisConstants {
 
 	public static final String MSG_DISABLED = "地理信息模块未启用";
 	public static final String MSG_PROVIDER_UNKNOWN = "未知底图供应商";
+	public static final String MSG_XYZ_NO_SEARCH = "自定义瓦片底图不提供地名检索，请切换到天地图、高德、百度或谷歌后再搜索";
+	public static final String MSG_XYZ_DISABLED = "自定义瓦片底图未启用：部署配置 mugsun.gis.xyz.allowed-hosts 为空";
 	public static final String MSG_PROVIDER_KEY = "请先配置该底图的访问密钥";
 	public static final String MSG_SCENE_MISSING = "这个场景不存在。请刷新列表后再打开";
 	public static final String MSG_JSON_INVALID = "场景配置不是合法内容。请回到地图里重新保存";
@@ -114,13 +123,16 @@ public final class GisConstants {
 	public static final String MSG_LAYER_NAME = "请填写图层名称";
 	public static final String MSG_ANALYZE_OP = "不支持的空间运算";
 	public static final String MSG_ANALYZE_DISTANCE = "请填写缓冲距离（米）";
+	/** 米制计算（缓冲 / 距离 / 面积 / 长度）的适用范围：极区阈值（度），与 Web Mercator 显示上限 85.05° 对齐 */
+	public static final String MSG_GEODESIC_POLE = "缓冲范围包住了极点，暂不支持输出该缓冲结果，请缩小缓冲距离或在极点附近拆分要素";
+	public static final String MSG_GEODESIC_ANTIMERIDIAN = "要素单个部件的经度跨度超过 180°（或缓冲结果绕地球一周），无法确定走向，请先在 180° 经线处拆分要素";
 	public static final String MSG_ANALYZE_OTHER = "该运算需要第二组几何（other）";
 	public static final String MSG_ANALYZE_EMPTY = "没有可运算的几何";
 	public static final String MSG_RASTER_URL = "栅格图层需要 http(s) 服务地址；XYZ 须含 {z}/{x}/{y}，WMS 须含 layers";
 	public static final String MSG_DEMO_MISSING = "没有这个示例";
 	public static final String MSG_TILESET_URL = "三维切片图层需要 tileset.json 地址：内置示例填 hosted:<code>，外部数据填 http(s) 链接";
 	public static final String MSG_TILESET_MISSING = "没有这个内置三维切片";
-	public static final String MSG_SPATIAL_BBOX = "请给出合法的查询范围（minLon/minLat/maxLon/maxLat，且最小值小于最大值）";
+	public static final String MSG_SPATIAL_BBOX = "请给出合法的查询范围（minLon/minLat/maxLon/maxLat，minLat 小于 maxLat；minLon 大于 maxLon 表示跨 180° 经线）";
 	public static final String MSG_SPATIAL_POINT = "请给出合法的中心点经纬度";
 	public static final String MSG_SPATIAL_RADIUS = "半径需在 0～200000 米之间";
 	public static final String MSG_SPATIAL_GEOM = "请给出合法的 GeoJSON 几何（geometry 或 Feature）";

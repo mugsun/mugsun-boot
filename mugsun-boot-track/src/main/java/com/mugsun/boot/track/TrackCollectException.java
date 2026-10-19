@@ -7,10 +7,21 @@ package com.mugsun.boot.track;
 public class TrackCollectException extends RuntimeException {
 
 	private final int status;
+	/** 接入自检原因码（可空：控制器按状态码兜底） */
+	private final TrackRejectReason reason;
 
 	public TrackCollectException(int status, String message) {
+		this(status, message, null);
+	}
+
+	public TrackCollectException(int status, String message, TrackRejectReason reason) {
 		super(message);
 		this.status = status;
+		this.reason = reason;
+	}
+
+	public TrackRejectReason getReason() {
+		return reason;
 	}
 
 	public int getStatus() {

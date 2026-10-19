@@ -1,5 +1,7 @@
 package com.mugsun.boot.monitor;
 
+import com.mugsun.boot.demo.LogDataSourceRouter;
+
 import com.mugsun.boot.monitor.entity.SysApiLog;
 import com.mugsun.boot.monitor.mapper.SysApiLogMapper;
 import com.mugsun.boot.tenant.TenantContext;
@@ -18,13 +20,19 @@ public class ApiLogService {
 	private static final Logger log = LoggerFactory.getLogger(ApiLogService.class);
 
 	private final SysApiLogMapper apiLogMapper;
+	private final LogDataSourceRouter logRouter;
 
-	public ApiLogService(SysApiLogMapper apiLogMapper) {
+	public ApiLogService(SysApiLogMapper apiLogMapper, LogDataSourceRouter logRouter) {
 		this.apiLogMapper = apiLogMapper;
+		this.logRouter = logRouter;
 	}
 
 	@Async
 	public void saveAsync(SysApiLog record) {
+		logRouter.write(() -> doSave(record));
+	}
+
+	private void doSave(SysApiLog record) {
 		clip(record);
 		try {
 			// 有租户上下文（经 TenantTaskDecorator 透传）→ 正常落库并打租户标
