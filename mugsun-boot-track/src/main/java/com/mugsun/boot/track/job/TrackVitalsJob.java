@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackDS;
@@ -30,6 +32,7 @@ import java.util.List;
  */
 @Component
 @TrackDS
+@ConditionalOnNotDemo
 public class TrackVitalsJob extends AbstractTrackRollupJob {
 
 	/** 窗口粒度（分钟）：1440 = UTC 日界（track_stats_vitals.stat_date 为 DATE） */
@@ -141,7 +144,7 @@ public class TrackVitalsJob extends AbstractTrackRollupJob {
 	}
 
 	/** 分桶 CASE 表达式（桶界定自 TrackConstants；CLS 千分制桶，其余毫秒对数桶） */
-	private static String bucketCaseSql() {
+	public static String bucketCaseSql() {
 		String value = "((props->>'" + TrackConstants.PROP_VITALS_VALUE + "')::numeric)";
 		return "CASE WHEN props->>'" + TrackConstants.PROP_VITALS_METRIC + "' = '" + TrackConstants.VITALS_METRIC_CLS + "'"
 			+ " THEN " + buildCase(value, TrackConstants.VITALS_CLS_BUCKET_BOUNDS)

@@ -3,9 +3,9 @@
 import json, os, sys, time, uuid, urllib.request, subprocess
 from gmssl import sm2
 
-BASE = os.environ.get("BASE", "http://pc")  # 经 Nginx /api 反代，与浏览器同路径
+BASE = os.environ.get("BASE", "http://pc:8080")  # 经 pc 镜像的非 root Nginx（容器内 8080）/api 反代，与浏览器同路径
 env = {}
-for line in open("/secrets/mugsun.env"):
+for line in open("/secrets/boot/boot.env"):  # 自检容器以 root 只读挂载后端的 secrets 卷
     if line.startswith("export "):
         k, v = line[7:].strip().split("=", 1)
         env[k] = v
@@ -55,6 +55,15 @@ for i in range(60):
                       for r in (page.get("data") or {}).get("records", []))
     if seen_rt and seen_db:
         print("OK 管理端看到第一条埋点事件（实时流 + 已落库）")
-        sys.exit(0)
+        break
     time.sleep(2)
-print(f"FAIL 120 秒内管理端没看到事件（实时流 {seen_rt}，落库 {seen_db}）", file=sys.stderr); sys.exit(1)
+else:
+    print(f"FAIL 120 秒内管理端没看到事件（实时流 {seen_rt}，落库 {seen_db}）", file=sys.stderr); sys.exit(1)
+
+# 管理员改口令：之后 init show 不应再显示初始口令（由 compose-full-smoke.sh 检查）
+def sm2enc(text):
+    return sm2.CryptSM2(private_key="", public_key=pub[2:] if pub.startswith("04") else pub, mode=1).encrypt(text.encode()).hex()
+new_pw = "Smk-" + uuid.uuid4().hex[:12] + "A9"
+res = call("POST", "/api/auth/update-password", {"oldPassword": sm2enc(pw), "newPassword": sm2enc(new_pw)}, token=token)
+assert res.get("code") == 200, f"改口令失败: {res}"
+print("OK 管理员已改口令")

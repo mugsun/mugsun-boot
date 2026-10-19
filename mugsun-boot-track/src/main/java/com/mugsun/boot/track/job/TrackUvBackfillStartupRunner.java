@@ -1,5 +1,7 @@
 package com.mugsun.boot.track.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @ConditionalOnProperty(prefix = "mugsun.track.uv-backfill", name = "on-startup", havingValue = "true")
+@ConditionalOnNotDemo
 public class TrackUvBackfillStartupRunner implements ApplicationRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackUvBackfillStartupRunner.class);

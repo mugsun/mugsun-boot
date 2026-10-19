@@ -30,6 +30,11 @@ import java.util.Random;
 @Service
 public class SmsService {
 
+	private static final org.slf4j.Logger DEMO_LOG = org.slf4j.LoggerFactory.getLogger(SmsService.class);
+
+	@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}")
+	private boolean demoMode;
+
 	private static final Logger log = LoggerFactory.getLogger(SmsService.class);
 
 	/** 发送节流锁键前缀（同号 60s 一码） */
@@ -66,6 +71,11 @@ public class SmsService {
 	/** 发送验证码：同号 60s 节流（防短信轰炸），发新作废旧码（任意时刻仅一码有效）。
 	 *  通道显式降级：无启用配置/下发失败即抛错并作废刚写入的验证码，不再静默降级假成功 */
 	public void sendCode(String phone) {
+		if (demoMode) {
+			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）
+			DEMO_LOG.info("[demo] 跳过对外发送：SmsService");
+			return;
+		}
 		Boolean first = redis.opsForValue().setIfAbsent(THROTTLE_KEY + phone, "1", Duration.ofSeconds(60));
 		if (!Boolean.TRUE.equals(first)) {
 			throw new ServiceException("发送过于频繁，请 60 秒后再试");
@@ -131,6 +141,11 @@ public class SmsService {
 	 * 与验证码的降级日志语义相反，调度侧须拿到真实回执（FAILURE 留痕 + 重试）。
 	 */
 	public void sendText(String phone, String text) {
+		if (demoMode) {
+			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）
+			DEMO_LOG.info("[demo] 跳过对外发送：SmsService");
+			return;
+		}
 		SysSms sms = TenantContext.ignore(() ->
 			smsMapper.selectOneByQuery(QueryWrapper.create().eq("status", 1).orderBy("id", false)));
 		if (sms == null) {
@@ -152,6 +167,11 @@ public class SmsService {
 
 	/** 按指定配置试发一条，不走登录验证码，失败时不返回网关原文。 */
 	public String debugSend(SysSms sms, String phone) {
+		if (demoMode) {
+			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）
+			DEMO_LOG.info("[demo] 跳过对外发送：SmsService");
+			return "演示环境不发送短信";
+		}
 		if (sms == null) {
 			throw new ServiceException("请从列表里选择一套短信配置后再试发");
 		}

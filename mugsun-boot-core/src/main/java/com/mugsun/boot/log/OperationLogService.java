@@ -1,5 +1,7 @@
 package com.mugsun.boot.log;
 
+import com.mugsun.boot.demo.LogDataSourceRouter;
+
 import cn.hutool.crypto.SmUtil;
 import com.mugsun.boot.common.crypto.Sm2Util;
 import com.mugsun.boot.log.entity.SysOperLog;
@@ -48,6 +50,7 @@ public class OperationLogService {
 
 	private final SysOperLogMapper operLogMapper;
 	private final com.mugsun.boot.system.service.ParamService paramService;
+	private final LogDataSourceRouter logRouter;
 	private final TransactionTemplate tx;
 	private final Semaphore anonymousPermits;
 	private final AtomicLong anonymousDropped = new AtomicLong();
@@ -56,9 +59,11 @@ public class OperationLogService {
 	public OperationLogService(SysOperLogMapper operLogMapper,
 							   com.mugsun.boot.system.service.ParamService paramService,
 							   PlatformTransactionManager txManager,
+							   LogDataSourceRouter logRouter,
 							   @Value("${mugsun.audit.anonymous-max-pending:64}") int anonymousMaxPending) {
 		this.operLogMapper = operLogMapper;
 		this.paramService = paramService;
+		this.logRouter = logRouter;
 		this.tx = new TransactionTemplate(txManager);
 		this.anonymousPermits = new Semaphore(Math.max(1, anonymousMaxPending));
 		this.executor = new SimpleAsyncTaskExecutor("mugsun-oper-log-");
@@ -120,19 +125,22 @@ public class OperationLogService {
 			log.setRecordHash(recordHash);
 			log.setSign(Sm2Util.signHex(recordHash));
 			log.setId(null);
-			try {
-				// 有租户上下文（认证写请求，经 TenantTaskDecorator 透传）→ 正常落库并打租户标
-				operLogMapper.insertSelective(log);
-			} catch (RuntimeException e) {
-				if (!causedByTenant(e)) {
-					throw e;
-				}
-				// 无租户上下文（租户插件在发 SQL 前就拒绝，事务未被污染）（如未认证写请求）→ 忽略隔离补插，保证审计不丢（tenant_id 空）
-				TenantContext.ignore(() -> {
+			// 链哈希读取走业务数据源；demo 下仅 INSERT 走独立日志账号
+			logRouter.write(() -> {
+				try {
+					// 有租户上下文（认证写请求，经 TenantTaskDecorator 透传）→ 正常落库并打租户标
 					operLogMapper.insertSelective(log);
-					return null;
-				});
-			}
+				} catch (RuntimeException e) {
+					if (!causedByTenant(e)) {
+						throw e;
+					}
+					// 无租户上下文（租户插件在发 SQL 前就拒绝，事务未被污染）（如未认证写请求）→ 忽略隔离补插，保证审计不丢（tenant_id 空）
+					TenantContext.ignore(() -> {
+						operLogMapper.insertSelective(log);
+						return null;
+					});
+				}
+			});
 		});
 	}
 

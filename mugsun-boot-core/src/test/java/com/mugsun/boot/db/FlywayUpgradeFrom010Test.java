@@ -118,6 +118,63 @@ class FlywayUpgradeFrom010Test {
 		});
 	}
 
+	/**
+	 * V7：删除后的行不再占唯一键（与 openGauss / 达梦 V7 同一套场景 SQL，见 db/unique-delete-flag/）。
+	 * 删租户后再建同编号、同一个键删两次、手机号 NULL / 空串可重复；未删除的行仍唯一。
+	 */
+	@Test
+	void deletedRowsDoNotBlockUniqueKeysAfterV7() throws Exception {
+		withTempDb(url -> {
+			Flyway target3 = Flyway.configure().dataSource(url, user, pass)
+				.locations("classpath:db/migration").baselineOnMigrate(true).baselineVersion("0")
+				.placeholderReplacement(false).target("3").load();
+			target3.migrate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				executeScript(st, "db/unique-delete-flag/scenario.sql");
+			}
+			Flyway current = current(url);
+			current.migrate();
+			current.validate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				executeScript(st, "db/unique-delete-flag/verify.sql");
+				assertThat(count(st, "SELECT count(*) FROM sys_tenant WHERE tenant_code = '700001'")).isEqualTo(3);
+				assertThat(count(st, "SELECT count(*) FROM sys_user WHERE username = 'u1'")).isEqualTo(3);
+				assertThat(count(st, "SELECT count(*) FROM sys_role_menu WHERE role_id = 9100000000000000031")).isEqualTo(3);
+				int n = 0;
+				for (String sql : statements(readResource("db/unique-delete-flag/negative.sql"))) {
+					n++;
+					java.sql.SQLException e = org.assertj.core.api.Assertions.catchThrowableOfType(
+						java.sql.SQLException.class, () -> st.execute(sql));
+					assertThat((Object) e).as("第 %d 条应撞唯一键：%s", n, sql).isNotNull();
+					assertThat(e.getSQLState()).as(sql).isEqualTo("23505");
+				}
+				assertThat(n).isEqualTo(8);
+			}
+		});
+	}
+
+	private static void executeScript(Statement st, String path) throws Exception {
+		for (String sql : statements(readResource(path))) {
+			st.execute(sql);
+		}
+	}
+
+	/** 按行尾分号拆语句，去掉整行注释 */
+	private static java.util.List<String> statements(String script) {
+		java.util.List<String> out = new java.util.ArrayList<>();
+		for (String part : script.split(";\\s*\\n")) {
+			String sql = part.lines().filter(l -> !l.trim().startsWith("--"))
+				.collect(java.util.stream.Collectors.joining("\n")).trim();
+			if (sql.endsWith(";")) {
+				sql = sql.substring(0, sql.length() - 1);
+			}
+			if (!sql.isEmpty()) {
+				out.add(sql);
+			}
+		}
+		return out;
+	}
+
 	private void installReleased010(String url) {
 		Flyway.configure().dataSource(url, user, pass)
 			.locations("classpath:db/released/v0.1.0")

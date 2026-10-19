@@ -11,7 +11,7 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![JDK](https://img.shields.io/badge/JDK-21-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
-![License](https://img.shields.io/badge/License-Apache%202.0-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 ## Overview
 
@@ -22,10 +22,10 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 | Framework | Spring Boot 3.5.13 |
 | Data stores | PostgreSQL 16 (PostGIS + pgvector); Redis 7 (default database index `3`) |
 | Dependency | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0` (published to [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)) |
-| License | [Apache-2.0](./LICENSE) |
+| License | [MIT](./LICENSE) |
 | Docs | [docs.mugsun.com/en/boot](https://docs.mugsun.com/en/boot/) |
 
-Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway, Spring AI 1.1.2 (AI module).
+Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway. The AI module does not depend on Spring AI: model calls, vector retrieval and MCP tool calls are implemented with the module's own HTTP client and pgvector queries.
 
 ## Deployment
 
@@ -81,7 +81,7 @@ mugsun-boot/
   mugsun-boot-core/     # auth, system, workflow, tenant, open platform, …
   mugsun-boot-gis/      # optional: layers, spatial queries, vector tiles
   mugsun-boot-track/    # optional: ingest, aggregation, replay-related APIs
-  mugsun-boot-ai/       # optional: models, chat, knowledge base, MCP (Spring AI)
+  mugsun-boot-ai/       # optional: models, chat, knowledge base, calling external MCP tools
   mugsun-boot-server/   # assembly shell; default profile = full
 ```
 
@@ -94,11 +94,13 @@ Maven profiles:
 | `gis-only` / `track-only` / `ai-only` | Core + one optional module; disable full |
 | `kingbase` / `dameng` | Domestic database drivers |
 
-Runtime flags (classes may still be on the classpath):
+Runtime flags (classes may still be on the classpath). Unset means on. When set, only `true` or `false` is accepted (case-insensitive, no surrounding spaces); an empty value, `1` / `0`, `yes` / `no` or anything else stops startup:
 
 - `MUGSUN_GIS_ENABLED=false`
 - `MUGSUN_TRACK_ENABLED=false`
 - `MUGSUN_AI_ENABLED=false`
+
+The built-in MCP Server is temporarily offline and will return with authentication. While it is offline, `/sse` and `/mcp` return 404 and `MUGSUN_AI_MCP_SERVER` has no effect; a maven-enforcer rule in the root POM temporarily blocks Spring AI (`org.springframework.ai:*`) and the MCP SDK (`io.modelcontextprotocol*`), including transitive dependencies.
 
 Module assembly notes: [docs/可选模块装配.md](docs/可选模块装配.md) (Chinese).
 
@@ -116,7 +118,7 @@ Module assembly notes: [docs/可选模块装配.md](docs/可选模块装配.md) 
 
 - `mugsun-boot-track`: `/track/collect`, config delivery, and analytics APIs; forms a vertical slice with the browser SDK and admin console
 - `mugsun-boot-gis`: spatial data and vector tiles (requires PostGIS)
-- `mugsun-boot-ai`: models, chat, knowledge base, and MCP (Spring AI)
+- `mugsun-boot-ai`: models, chat, knowledge base, and calling external MCP tools from flows (the built-in MCP Server is temporarily offline and will return with authentication)
 
 **Runtime conventions**
 
@@ -143,4 +145,4 @@ Open-source line: `boot` · `core` · `pc` · `track` · [mugsun-docs](https://g
 
 ## License
 
-[Apache-2.0](./LICENSE)
+[MIT](./LICENSE)

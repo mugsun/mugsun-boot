@@ -1,6 +1,7 @@
 package com.mugsun.boot.log;
 
 import com.mugsun.boot.AbstractIntegrationTest;
+import com.mugsun.boot.demo.LogDataSourceRouter;
 import com.mugsun.boot.log.entity.SysOperLog;
 import com.mugsun.boot.log.mapper.SysOperLogMapper;
 import com.mugsun.boot.system.service.ParamService;
@@ -30,6 +31,8 @@ class OperLogChainGuardTest extends AbstractIntegrationTest {
 	ParamService paramService;
 	@Autowired
 	PlatformTransactionManager txManager;
+	@Autowired
+	LogDataSourceRouter logRouter;
 
 	private long count() {
 		return TenantContext.ignore(() -> Db.selectCount("SELECT count(*) FROM sys_oper_log"));
@@ -57,7 +60,7 @@ class OperLogChainGuardTest extends AbstractIntegrationTest {
 	@Timeout(value = 90, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 	void twoInstancesConcurrentAppendsKeepSingleChain() throws Exception {
 		// 两个独立实例（各自的本地锁）模拟两个节点并发写，只能靠数据库链头锁串行
-		OperationLogService other = new OperationLogService(mapper, paramService, txManager, 64);
+		OperationLogService other = new OperationLogService(mapper, paramService, txManager, logRouter, 64);
 		long before = count();
 		CountDownLatch go = new CountDownLatch(1);
 		for (int i = 0; i < 20; i++) {
@@ -93,7 +96,7 @@ class OperLogChainGuardTest extends AbstractIntegrationTest {
 	@Test
 	@Timeout(value = 60, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 	void anonymousAuditIsBoundedWhileAuthenticatedIsNot() throws Exception {
-		OperationLogService bounded = new OperationLogService(mapper, paramService, txManager, 1);
+		OperationLogService bounded = new OperationLogService(mapper, paramService, txManager, logRouter, 1);
 		long before = count();
 		CountDownLatch locked = new CountDownLatch(1);
 		CountDownLatch release = new CountDownLatch(1);

@@ -118,6 +118,144 @@ class TrackCollectApiTest extends AbstractTrackIntegrationTest {
 		assertThat(row.getLong("ts_ms")).as("无偏差时 ts 等于 client_ts").isEqualTo(clientTs);
 	}
 
+	/** ①b Web SDK 只报完整 referrer URL：服务端取主机名落 referrer_domain（事件与会话） */
+	@Test
+	void referrerUrlDerivesReferrerDomain() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String e1 = uuid();
+		String e2 = uuid();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(e1, "$pageview", clientTs, distinctId, sessionId, Map.of(
+			"url_path", "/landing", "referrer", "https://www.Baidu.com/s?wd=mugsun")));
+		events.add(event(e2, "$pageview", clientTs + 100, distinctId, sessionId, Map.of(
+			"url_path", "/next", "referrer", "")));
+
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条事件落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+
+		assertThat(trackRow("SELECT referrer_domain FROM track_event WHERE event_id = ?", e1).getString("referrer_domain"))
+			.isEqualTo("www.baidu.com");
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ? AND referrer_domain IS NULL", e2))
+			.as("空 referrer（直接访问）不落域名").isEqualTo(1L);
+		awaitUntil("会话来源域名", () -> trackLong("SELECT count(*) AS c FROM track_session"
+			+ " WHERE session_id = ? AND referrer_domain = 'www.baidu.com'", sessionId) == 1L);
+	}
+
+	/** ①d 同站 referrer（与页面主机相同）不算来源；referrer_domain 统一小写 */
+	@Test
+	void sameSiteReferrerExcludedAndDomainLowercased() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String same = uuid();
+		String external = uuid();
+		String explicitUpper = uuid();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(same, "$pageview", clientTs, distinctId, sessionId, Map.of(
+			"url_path", "/b", "referrer", "https://shop.example.com/a?x=1")));
+		events.add(event(external, "$pageview", clientTs + 10, distinctId, sessionId, Map.of(
+			"url_path", "/c", "referrer", "https://www.google.com/search?q=a b|c")));
+		events.add(event(explicitUpper, "custom_ev", clientTs + 20, distinctId, sessionId, Map.of(
+			"referrer_domain", "Partner.IO")));
+		org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+		headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+		// HttpURLConnection 不允许设置 Origin，这里用 Referer 头（服务端 Origin 缺省时回退 Referer）
+		headers.set("Referer", "https://Shop.Example.com/b");
+		ResponseEntity<String> resp = rest.exchange("/track/collect", org.springframework.http.HttpMethod.POST,
+			new org.springframework.http.HttpEntity<>(payload(APP_A, events), headers), String.class);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("3 条事件落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 3L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ? AND referrer_domain IS NULL", same))
+			.as("站内跳转不算来源").isEqualTo(1L);
+		assertThat(trackRow("SELECT referrer_domain FROM track_event WHERE event_id = ?", external).getString("referrer_domain"))
+			.as("query 带空格、| 时 URI 解析失败，宽松正则兜底").isEqualTo("www.google.com");
+		assertThat(trackRow("SELECT referrer_domain FROM track_event WHERE event_id = ?", explicitUpper).getString("referrer_domain"))
+			.as("显式 referrer_domain 也归一小写").isEqualTo("partner.io");
+	}
+
+	/** ①c 错误堆栈保留到 4096 字符（与 SDK error 插件一致），其它字符串值仍 ≤1024 */
+	@Test
+	void errorStackKeptUpTo4096() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String e1 = uuid();
+		String e2 = uuid();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(e1, "$error", clientTs, distinctId, sessionId, Map.of(
+			"message", "m".repeat(2000), "stack", "s".repeat(3000))));
+		events.add(event(e2, "$error", clientTs + 1, distinctId, sessionId, Map.of(
+			"message", "boom", "stack", "t".repeat(5000))));
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+		assertThat(trackLong("SELECT length(props->>'stack') AS c FROM track_event WHERE event_id = ?", e1))
+			.as("3000 字符堆栈完整保留").isEqualTo(3000L);
+		assertThat(trackLong("SELECT length(props->>'message') AS c FROM track_event WHERE event_id = ?", e1))
+			.as("其它字符串仍截到 1024").isEqualTo(1024L);
+		assertThat(trackLong("SELECT length(props->>'stack') AS c FROM track_event WHERE event_id = ?", e2))
+			.as("超长堆栈截到 4096").isEqualTo(4096L);
+	}
+
+	/** ①d 堆栈：超 16KB 先缩 stack（其它键保留）；帧 URL query 去掉；不拆代理对 */
+	@Test
+	void errorStackShrinksFirstAndDropsUrlQuery() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String e1 = uuid();
+		String e2 = uuid();
+		Map<String, Object> big = new java.util.LinkedHashMap<>();
+		big.put("message", "boom");
+		big.put("stack", "错".repeat(4096));
+		for (int i = 0; i < 6; i++) {
+			big.put("k" + i, "值".repeat(300));
+		}
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(e1, "$error", clientTs, distinctId, sessionId, big));
+		events.add(event(e2, "$error", clientTs + 1, distinctId, sessionId, Map.of(
+			"message", "q", "stack", "Error\n    at f (https://x.com/a.js?token=SECRET:1:2)\n" + "a".repeat(4090) + "😀😀")));
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+		assertThat(trackLong("SELECT octet_length(props::text) AS c FROM track_event WHERE event_id = ?", e1))
+			.as("总量不超 16KB（jsonb 文本形态有空格，留余量）").isLessThanOrEqualTo(16384L + 64);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ? AND props->>'k5' IS NOT NULL"
+			+ " AND length(props->>'k5') = 300", e1)).as("尾部键保留").isEqualTo(1L);
+		long stackLen = trackLong("SELECT length(props->>'stack') AS c FROM track_event WHERE event_id = ?", e1);
+		assertThat(stackLen).as("stack 被缩短").isGreaterThan(1000L).isLessThan(4096L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ?"
+			+ " AND props->>'stack' LIKE '%a.js:1:2)%' AND props->>'stack' NOT LIKE '%SECRET%'", e2))
+			.as("帧 URL query 去掉").isEqualTo(1L);
+	}
+
+	/** ①e 错误指纹：服务端计算前先去掉帧 URL query，仅 query 不同的同一错误归为一组 */
+	@Test
+	void errorFingerprintIgnoresStackUrlQuery() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(uuid(), "$error", clientTs, distinctId, sessionId, Map.of(
+			"message", "fp", "stack", "at f (https://x.com/a.js?token=AAA:1:2)\n    at g")));
+		events.add(event(uuid(), "$error", clientTs + 1, distinctId, sessionId, Map.of(
+			"message", "fp", "stack", "at f (https://x.com/a.js?token=BBB#h:1:2)\n    at g")));
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("2 条错误落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 2L);
+		assertThat(trackLong("SELECT count(DISTINCT error_fingerprint) AS c FROM track_event"
+			+ " WHERE session_id = ? AND error_fingerprint IS NOT NULL", sessionId))
+			.as("query 不同不拆组").isEqualTo(1L);
+	}
+
 	/** ② 伪 app_key / 停用应用 4xx（不存在的 key 走负缓存，不打库风暴） */
 	@Test
 	void fakeAppKeyRejected() {

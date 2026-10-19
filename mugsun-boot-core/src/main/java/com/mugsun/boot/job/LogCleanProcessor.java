@@ -1,5 +1,7 @@
 package com.mugsun.boot.job;
 
+import com.mugsun.boot.demo.ConditionalOnNotDemo;
+
 import com.mugsun.boot.monitor.LogCleanJob;
 import org.springframework.stereotype.Component;
 import tech.powerjob.worker.core.processor.ProcessResult;
@@ -13,6 +15,7 @@ import java.util.Map;
  * 清理逻辑复用 {@link LogCleanJob}（分布式锁 + 截断锚点），此处仅作调度入口。
  */
 @Component
+@ConditionalOnNotDemo
 public class LogCleanProcessor implements BasicProcessor {
 
 	private final LogCleanJob logCleanJob;

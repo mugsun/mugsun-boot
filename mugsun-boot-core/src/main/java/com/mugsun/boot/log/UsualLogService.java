@@ -1,5 +1,7 @@
 package com.mugsun.boot.log;
 
+import com.mugsun.boot.demo.LogDataSourceRouter;
+
 import com.mugsun.boot.log.entity.SysUsualLog;
 import com.mugsun.boot.log.mapper.SysUsualLogMapper;
 import com.mugsun.boot.tenant.TenantContext;
@@ -24,7 +26,10 @@ public class UsualLogService {
 
 	private final SysUsualLogMapper logMapper;
 
-	public UsualLogService(SysUsualLogMapper logMapper) {
+	private final LogDataSourceRouter logRouter;
+
+	public UsualLogService(SysUsualLogMapper logMapper, LogDataSourceRouter logRouter) {
+		this.logRouter = logRouter;
 		this.logMapper = logMapper;
 	}
 
@@ -43,11 +48,13 @@ public class UsualLogService {
 				row.setRemoteIp(cut(request.getRemoteAddr(), 64));
 				row.setUserAgent(cut(request.getHeader("User-Agent"), 512));
 			}
-			if (tenant != null && !tenant.isBlank()) {
-				TenantContext.execute(tenant, () -> logMapper.insert(row));
-			} else {
-				logMapper.insert(row);
-			}
+			logRouter.write(() -> {
+				if (tenant != null && !tenant.isBlank()) {
+					TenantContext.execute(tenant, () -> logMapper.insert(row));
+				} else {
+					logMapper.insert(row);
+				}
+			});
 		} catch (Exception ex) {
 			log.warn("通用日志没有写入: {}", ex.getClass().getSimpleName());
 		}

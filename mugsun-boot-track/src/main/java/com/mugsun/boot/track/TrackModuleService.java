@@ -1,7 +1,8 @@
 package com.mugsun.boot.track;
 
+import com.mugsun.boot.common.module.ModuleSwitch;
 import com.mugsun.boot.common.module.TrackModuleStatus;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 /**
@@ -11,8 +12,12 @@ import org.springframework.stereotype.Service;
 @Service
 public class TrackModuleService implements TrackModuleStatus {
 
-	@Value("${mugsun.track.enabled:true}")
-	private boolean yamlEnabled;
+	/** yml / 环境变量开关原值；{@code null} 表示属性不存在。按 {@link ModuleSwitch#parseStrict} 解析，与装配条件同一规则 */
+	private final String yamlRaw;
+
+	public TrackModuleService(Environment environment) {
+		this.yamlRaw = environment.getProperty("mugsun.track.enabled");
+	}
 
 	@Override
 	public boolean present() {
@@ -21,6 +26,6 @@ public class TrackModuleService implements TrackModuleStatus {
 
 	@Override
 	public boolean enabled() {
-		return yamlEnabled;
+		return ModuleSwitch.parseStrict(yamlRaw).enabled();
 	}
 }

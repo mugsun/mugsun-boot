@@ -66,6 +66,16 @@ public class TrackFlywayConfig {
 		// 信创联调：主库金仓手工灌库后可关埋点 Flyway（分区等 PG 专属语法）；或 track 仍指本地 PG
 		if (!env.getProperty("mugsun.track.flyway-enabled", Boolean.class, true)) {
 			log.warn("mugsun.track.flyway-enabled=false，跳过埋点库建库与 Flyway（假定 {} 已就绪）", trackDb);
+			if (env.getProperty(com.mugsun.boot.demo.DemoConstants.ENABLED_PROPERTY, Boolean.class, false)) {
+				// 只读演示模式：埋点账号只有 INSERT/SELECT，不迁移；只读校验迁移历史，不一致拒绝启动
+				com.mugsun.boot.demo.DemoSchemaGuard.validate(new FluentConfiguration()
+					.dataSource(trackUrl, trackUser, trackPassword)
+					.locations(TrackConstants.FLYWAY_LOCATIONS)
+					.sqlMigrationPrefix(TrackConstants.FLYWAY_SQL_PREFIX)
+					.baselineVersion("0")
+					.placeholderReplacement(false)
+					.load(), "埋点库");
+			}
 			return new TrackFlywayInitializer(trackDb);
 		}
 

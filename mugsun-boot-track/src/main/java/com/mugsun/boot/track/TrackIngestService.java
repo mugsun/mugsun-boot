@@ -76,6 +76,14 @@ public class TrackIngestService {
 	 * @throws TrackCollectException 400 协议/应用非法；429 限流
 	 */
 	public int ingest(JsonNode root, String ip, String userAgent) {
+		return ingest(root, ip, userAgent, null);
+	}
+
+	/**
+	 * @param pageOrigin 上报请求的 Origin（缺省 Referer）头：页面主机，用于把同站 referrer 排除出来源维度；可为 null
+	 */
+	public int ingest(JsonNode root, String ip, String userAgent, String pageOrigin) {
+		String pageHost = TrackReferrer.hostOf(pageOrigin);
 		// 1) appKey 校验：存在且 enabled=1（本地缓存 30s，多副本生效延迟见 TrackAppService javadoc）
 		String appKey = text(root, TrackConstants.FIELD_APP_KEY);
 		if (appKey == null || appKey.isBlank() || appKey.length() > TrackConstants.APP_KEY_MAX_LEN) {
@@ -114,7 +122,7 @@ public class TrackIngestService {
 		String platform = text(root.path(TrackConstants.FIELD_SDK), TrackConstants.FIELD_PLATFORM);
 		for (int i = 0; i < acceptedTarget; i++) {
 			TrackIngestEvent event = processEvent(events.get(i), app, platform, tenantId, tokenUserId,
-				receivedAtMs, ip, userAgent, issues);
+				receivedAtMs, ip, userAgent, pageHost, issues);
 			if (event == null) {
 				continue;
 			}
@@ -161,7 +169,7 @@ public class TrackIngestService {
 	/** 事件级处理：校验 → 校时 → 身份/租户裁定 → 幂等；任一环不过返回 null（已计数） */
 	private TrackIngestEvent processEvent(JsonNode node, TrackApp app, String platform, String tenantId,
 										  Long tokenUserId, long receivedAtMs, String ip, String userAgent,
-										  Map<TrackRejectReason, Long> issues) {
+										  String pageHost, Map<TrackRejectReason, Long> issues) {
 		if (node == null || !node.isObject()) {
 			drop(issues, "invalid_event");
 			return null;
@@ -234,7 +242,8 @@ public class TrackIngestService {
 		event.setUrlPath(truncate(text(props, TrackConstants.PROP_URL_PATH), TrackConstants.URL_MAX_LEN));
 		event.setRoutePath(truncate(text(props, TrackConstants.PROP_ROUTE_PATH), TrackConstants.DIM_MAX_LEN));
 		event.setPageTitle(truncate(text(props, TrackConstants.PROP_PAGE_TITLE), TrackConstants.PAGE_TITLE_MAX_LEN));
-		event.setReferrerDomain(truncate(text(props, TrackConstants.PROP_REFERRER_DOMAIN), TrackConstants.DIM_MAX_LEN));
+		event.setReferrerDomain(truncate(TrackReferrer.domainOf(text(props, TrackConstants.PROP_REFERRER_DOMAIN),
+			text(props, TrackConstants.PROP_REFERRER), pageHost), TrackConstants.DIM_MAX_LEN));
 		event.setUtmSource(truncate(text(props, TrackConstants.PROP_UTM_SOURCE), TrackConstants.DIM_MAX_LEN));
 		event.setUtmMedium(truncate(text(props, TrackConstants.PROP_UTM_MEDIUM), TrackConstants.DIM_MAX_LEN));
 		event.setUtmCampaign(truncate(text(props, TrackConstants.PROP_UTM_CAMPAIGN), TrackConstants.DIM_MAX_LEN));
@@ -355,7 +364,7 @@ public class TrackIngestService {
 		}
 	}
 
-	/** props 截断净化：键 ≤64 / 值 ≤1024 / 嵌套深度 ≤3（超出剪为 null）/ 单事件总量 ≤16KB（超出从尾部逐键摘除） */
+	/** props 截断净化：键 ≤64 / 值 ≤1024（顶层 stack ≤4096）/ 嵌套深度 ≤3（超出剪为 null）/ 单事件总量 ≤16KB（超出从尾部逐键摘除） */
 	private String sanitizeProps(JsonNode props) {
 		if (props == null || !props.isObject()) {
 			return "{}";
@@ -370,10 +379,26 @@ public class TrackIngestService {
 			}
 			// 同键（截断后撞键）保留先出现者
 			if (!out.has(key)) {
-				out.set(key, sanitizeValue(field.getValue(), 1));
+				JsonNode value = field.getValue();
+				out.set(key, TrackConstants.PROP_ERROR_STACK.equals(key) && value != null && value.isTextual()
+					? TextNode.valueOf(truncate(TrackPropsText.stripStackUrlQuery(value.asText()), TrackConstants.PROPS_STACK_MAX_LEN))
+					: sanitizeValue(value, 1));
 			}
 		}
 		String json = out.toString();
+		// 超总量时先缩 stack（按 UTF-8 字节、不拆字符），仍超再从尾部摘键；JSON 转义使实际字节 ≥ 原文，最多复核 3 次
+		JsonNode stackNode = out.get(TrackConstants.PROP_ERROR_STACK);
+		if (stackNode != null && stackNode.isTextual()) {
+			String stack = stackNode.asText();
+			int size = TrackPropsText.utf8Length(json);
+			int target = TrackPropsText.utf8Length(stack) - (size - TrackConstants.PROPS_TOTAL_MAX_BYTES);
+			for (int i = 0; i < 3 && size > TrackConstants.PROPS_TOTAL_MAX_BYTES && target > 0; i++) {
+				out.put(TrackConstants.PROP_ERROR_STACK, TrackPropsText.truncateUtf8(stack, target));
+				json = out.toString();
+				size = TrackPropsText.utf8Length(json);
+				target -= size - TrackConstants.PROPS_TOTAL_MAX_BYTES;
+			}
+		}
 		while (json.getBytes(StandardCharsets.UTF_8).length > TrackConstants.PROPS_TOTAL_MAX_BYTES && out.size() > 0) {
 			String last = null;
 			Iterator<String> names = out.fieldNames();
@@ -435,7 +460,11 @@ public class TrackIngestService {
 		if (message == null) {
 			return null;
 		}
+		// 与入库的 stack 同口径：先去掉帧 URL 的 query / hash，否则同一错误因 token 等参数不同被拆成多组
 		String stack = text(props, TrackConstants.PROP_ERROR_STACK);
+		if (stack != null) {
+			stack = TrackPropsText.stripStackUrlQuery(stack);
+		}
 		String firstFrame = stack == null ? "" : stack.split("\\R", 2)[0];
 		try {
 			MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -500,9 +529,6 @@ public class TrackIngestService {
 	}
 
 	private String truncate(String s, int max) {
-		if (s == null) {
-			return null;
-		}
-		return s.length() > max ? s.substring(0, max) : s;
+		return TrackPropsText.truncate(s, max);
 	}
 }
