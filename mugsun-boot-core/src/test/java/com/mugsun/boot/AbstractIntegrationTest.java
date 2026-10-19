@@ -37,6 +37,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 	properties = {
 		// 测试链路复刻前端真实登录：验证码/短信码回显仅测试环境开启（生产配置恒 false）
 		"mugsun.captcha.show-code=true",
+		// 存量用例走旧数字码链路；滑块链路见 captcha 包下的专项测试（DynamicPropertySource 覆盖为 SLIDER）
+		"mugsun.captcha.type=IMAGE",
 		"mugsun.sms.show-code=true",
 		"mugsun.crypto.sm4-key=mugsun-test-sm4k16",
 		"mugsun.crypto.api-key=mugsun-test-apk16",

@@ -45,7 +45,8 @@ public class SysApiScopeController {
 	private static final Pattern PATH = Pattern.compile("^/[A-Za-z0-9_./-]{1,127}$");
 	private static final Set<String> CLOSED = Set.of(
 		"/auth/login", "/auth/captcha", "/auth/sm2-public-key", "/auth/sms-login", "/auth/sms-code",
-		"/auth/register", "/auth/forget-code", "/auth/forget-reset", "/auth/two-factor");
+		"/auth/register", "/auth/forget-code", "/auth/forget-reset", "/auth/two-factor",
+		"/auth/captcha/config", "/auth/captcha/challenge", "/auth/captcha/verify");
 
 	private final SysApiScopeMapper apiScopeMapper;
 	private final SysRoleApiScopeMapper linkMapper;

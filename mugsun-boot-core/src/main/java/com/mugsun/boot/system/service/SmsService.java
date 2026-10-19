@@ -70,6 +70,22 @@ public class SmsService {
 
 	/** 发送验证码：同号 60s 节流（防短信轰炸），发新作废旧码（任意时刻仅一码有效）。
 	 *  通道显式降级：无启用配置/下发失败即抛错并作废刚写入的验证码，不再静默降级假成功 */
+	/** 号码规范化（发码、频控、核验统一口径）：去空白与 - ，去 +86/0086/86 前缀；空则 null */
+	public static String normalizePhone(String phone) {
+		if (phone == null) {
+			return null;
+		}
+		String p = phone.replaceAll("[\\s-]", "");
+		if (p.startsWith("+86")) {
+			p = p.substring(3);
+		} else if (p.startsWith("0086")) {
+			p = p.substring(4);
+		} else if (p.startsWith("86") && p.length() == 13) {
+			p = p.substring(2);
+		}
+		return p.isEmpty() ? null : p;
+	}
+
 	public void sendCode(String phone) {
 		if (demoMode) {
 			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）

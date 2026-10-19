@@ -22,6 +22,8 @@ public class SysTenant extends BaseEntity {
 	private Integer status;
 	/** 账号数上限（-1 不限制） */
 	private Integer accountCount;
+	/** 登录等场景的行为验证码开关：1/NULL 开、0 关（仅平台超管可改，见 /system/tenant/captcha） */
+	private Integer captchaEnabled;
 
 	public String getTenantCode() {
 		return tenantCode;
@@ -85,5 +87,13 @@ public class SysTenant extends BaseEntity {
 
 	public void setAccountCount(Integer accountCount) {
 		this.accountCount = accountCount;
+	}
+
+	public Integer getCaptchaEnabled() {
+		return captchaEnabled;
+	}
+
+	public void setCaptchaEnabled(Integer captchaEnabled) {
+		this.captchaEnabled = captchaEnabled;
 	}
 }

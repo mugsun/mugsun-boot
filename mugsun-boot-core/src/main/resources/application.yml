@@ -158,9 +158,46 @@ mugsun:
     # 管理端 origin；e2e :3007 / 反代域名设 MUGSUN_FRONT_URL，禁止代码写死端口
     front-url: ${MUGSUN_FRONT_URL:http://localhost:3006}
   captcha:
-    enabled: true
-    show-code: false         # 验证码回显仅 dev profile 开启（生产开启=防爆破体系架空）
-    expire-seconds: 300
+    enabled: true            # 全局开关；与客户端开关(sys_client.captcha_enabled，仅登录)、租户开关(sys_tenant.captcha_enabled)取 AND
+    type: SLIDER             # SLIDER 滑块拼图（默认）| IMAGE 旧数字码（保留一个版本）；只由服务端决定
+    store: redis             # redis | memory（memory 仅单机/开发，prod profile 启动即失败）
+    show-code: false         # 旧数字码回显，仅 dev profile 开启（生产开启=防爆破体系架空）
+    expire-seconds: 300      # 旧数字码有效期
+    slider:
+      width: 320             # 底图原始尺寸（前端按显示宽度缩放，answer.x 按 width/bgDisplayWidth 换算）
+      height: 180
+      piece-size: 46
+      expire-seconds: 120    # 挑战有效期
+      token-expire-seconds: 120
+      tolerance-px: 6        # 落点/轨迹位移容差（底图原始像素）
+      min-duration-ms: 300   # 服务端计时下限（签发→校验）与指针模式客户端时长下限
+      max-duration-ms: 15000
+      min-track-points: 8
+      max-track-points: 400
+      keyboard-min-duration-ms: 600
+      keyboard-min-key-presses: 3
+      keyboard-max-key-presses: 300
+      keyboard-step-px: 4    # 键盘模式每次按键移动的原始像素，challenge 下发 keyboardStep
+      decoy-count: 1         # 假缺口 0–2
+      bind-ip: false         # token 强制绑定 IP 哈希（默认只记录）
+      bind-ua: false         # prod 为 true
+    background:
+      dir: classpath:captcha/bg/   # 或 file:/opt/mugsun/captcha-bg/；jpg/png，推荐 640×360，为空时纯色占位
+      rotate: random               # random | round-robin
+      reload-seconds: 600          # 目录重扫间隔，0=仅启动加载
+      placeholder-color: "#E6F4FF"
+    rate-limit:
+      challenge-per-minute: 30     # 单 IP 每分钟取挑战
+      global-challenge-per-second: 200   # 全局每秒上限（redis 跨节点；memory 单节点）
+      verify-fail-max: 5           # 指针模式窗口内失败上限
+      keyboard-fail-max: 3         # 键盘模式（更严）
+      keyboard-verify-per-minute: 6
+      fail-window-seconds: 600
+      lock-seconds: 600
+      sms-phone-per-day: 10        # 发送短信：单手机号每天
+      sms-ip-per-hour: 20          # 发送短信：单 IP 每小时
+      sms-phone-per-minute: 5      # 发送短信短窗口：单手机号每分钟（含无 token 请求，自动恢复）
+      sms-ip-per-minute: 30        # 发送短信短窗口：单 IP 每分钟
   sms:
     show-code: false         # 短信验证码回显仅 dev profile 开启（生产开启=未认证接管任意账号）
   crypto:

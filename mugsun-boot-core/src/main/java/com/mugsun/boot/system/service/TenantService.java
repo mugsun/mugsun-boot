@@ -80,6 +80,8 @@ public class TenantService {
 			throw new ServiceException("请填写租户名称后再创建");
 		}
 		normalize(tenant, false);
+		// 验证码开关只能由平台超管经 /system/tenant/captcha 关闭，创建时一律开启
+		tenant.setCaptchaEnabled(1);
 		String code = genCode();
 		tenant.setTenantCode(code);
 		tenantMapper.insertSelective(tenant);
@@ -119,6 +121,19 @@ public class TenantService {
 	}
 
 	/** 按套餐 id 查绑定租户（套餐删除前占用检查）。 */
+	/** 租户验证码开关（调用方负责平台超管鉴权与审计），返回租户编号 */
+	public String setCaptchaEnabled(Long id, boolean enabled) {
+		SysTenant exist = id == null ? null : tenantMapper.selectOneById(id);
+		if (exist == null) {
+			throw new ServiceException("这个租户不存在。请刷新列表后再编辑");
+		}
+		SysTenant upd = com.mybatisflex.core.util.UpdateEntity.of(SysTenant.class, id);
+		upd.setCaptchaEnabled(enabled ? 1 : 0);
+		tenantMapper.update(upd);
+		tenantValidator.evict(exist.getTenantCode());
+		return exist.getTenantCode();
+	}
+
 	public List<SysTenant> listByPackageIds(java.util.Collection<Long> packageIds) {
 		if (packageIds == null || packageIds.isEmpty()) {
 			return List.of();

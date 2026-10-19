@@ -3,9 +3,9 @@
 - `V1__baseline_0_1.sql`：0.1.0 发布基线（已发布，不可修改）。
 - `V2__file_perm.sql`：附件归属列 `sys_attach.create_user` 与 `sys:file:manage/public/remove` 权限。
 - `V3__clean_fake_changelog.sql`：清掉演示更新日志，写入真实 0.1.0。
-- `V4` / `V5`：验证码 PR 预留号。main 已有 `V7`，合入时改用比 `V7` 更大的版本号，避免已执行 `V7` 的库因未开 `outOfOrder` 启动失败。
-- `V7__unique_index_delete_flag.sql`：同租户手机号唯一索引（已在 main）。
-- `V8__oper_log_chain_guard.sql`（本 PR，审计链加固；原预留 V6，因 V7 已发布而后移）：操作日志哈希链链头锁表 `sys_oper_log_chain` 与 `chain_prev` 唯一索引（多节点防分叉）。
+- `V7__unique_index_delete_flag.sql`：同租户手机号唯一索引。
+- `V8__oper_log_chain_guard.sql`：操作日志哈希链链头锁表 `sys_oper_log_chain` 与 `chain_prev` 唯一索引。
+- `V9__tenant_captcha.sql`：租户验证码开关（原预留 V4；V7、V8 已在 main，未开 `outOfOrder`，所以后移）。多类型验证码若再改表，用比 V9 更大的版本号。
 
 ## 迁移规则（0.1.0 已发布）
 

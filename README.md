@@ -46,6 +46,8 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar
 
 须在仓库根目录执行 `java -jar`，否则读不到 `config/application-local.yml`。开发时也可在根目录直接运行（可选）：`mvn -pl mugsun-boot-server -am spring-boot:run`。
 
+> **请始终在仓库根目录、带 `-am` 构建**（或用 `mvn clean package -DskipTests` 构建整个工程）。只构建 server 模块（`-pl mugsun-boot-server` 不带 `-am`、在 `mugsun-boot-server` 目录里执行 `mvn package`，或 IDE 只构建该模块）时，`mugsun-boot-core` 会从本地 Maven 仓库 `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/` 取。所有分支和工作区共用这一个 0.1.0 版本，里面是最后一次 `mvn install` 的那个分支，打出的 jar 会带上别的分支的旧代码（例如旧的验证码返回结构），这跟加不加 `clean` 无关。拿不准时先在根目录执行一次 `mvn -B install -DskipTests`。
+
 **本地 install（离线或未同步 Central 时的回退）：** 平级克隆 [mugsun-core](https://github.com/mugsun/mugsun-core) 后执行 `cd ../mugsun-core && mvn clean install -DskipTests`，再返回本仓库构建。
 
 健康检查：http://localhost:8080/ping
@@ -69,6 +71,30 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar
 本地配置文件路径：`optional:file:./config/application-local.yml`（已列入 `.gitignore`）。工作目录须为本仓库根目录。生产配置注入说明见 [配置](https://docs.mugsun.com/boot/configuration)。
 
 OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
+
+## 安全验证（滑块验证码）
+
+登录、注册、忘记密码发码、发送短信验证码默认需要滑块拼图验证（自研，无第三方依赖）。流程：`GET /auth/captcha/config` 提示是否需要 → `POST /auth/captcha/challenge` 取底图/拼图块 → `POST /auth/captcha/verify` 换一次性 `captchaToken` → 业务接口请求体带 `captchaToken`。业务接口按服务端解析的租户与客户端重新判定，`config` 只是提示。错误码（HTTP 200 + `R.code`）：`40010` 过期、`40011` 未通过、`40012` 限流（`data.retryAfter` 秒）、`40013` 缺少有效令牌、`40014` 当前无需验证。
+
+| 配置键 | 默认 | 说明 |
+|---|---|---|
+| `mugsun.captcha.enabled` | `true` | 全局开关（prod 配置为 true） |
+| `mugsun.captcha.type` | `SLIDER` | `SLIDER` 或 `IMAGE`（旧数字码，保留一个版本）；只由服务端决定 |
+| `mugsun.captcha.store` | `redis` | `redis` 或 `memory`；`memory` 仅单机开发，`prod` profile 下启动失败 |
+| `mugsun.captcha.slider.width` / `height` | `320` / `180` | 底图原始尺寸 |
+| `mugsun.captcha.slider.tolerance-px` | `6` | 落点与轨迹位移容差（原始像素） |
+| `mugsun.captcha.slider.expire-seconds` / `token-expire-seconds` | `120` / `120` | 挑战与令牌有效期 |
+| `mugsun.captcha.slider.min-duration-ms` | `300` | 服务端计时下限（签发→校验） |
+| `mugsun.captcha.slider.decoy-count` | `1` | 假缺口数量（0–2） |
+| `mugsun.captcha.slider.keyboard-step-px` | `4` | 键盘模式每次按键移动的原始像素（challenge 返回 `keyboardStep`） |
+| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` / `false`（prod 的 `bind-ua` 为 `true`） | 令牌强制绑定 IP / UA 哈希（关闭时只记录） |
+| `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | 背景图目录（`file:` 亦可），jpg/png，推荐 640×360；为空用纯色占位 |
+| `mugsun.captcha.background.rotate` | `random` | `random` 或 `round-robin` |
+| `mugsun.captcha.background.reload-seconds` | `600` | 目录重扫间隔，0 只在启动时加载 |
+| `mugsun.captcha.rate-limit.*` | 见 `application.yml` | 单 IP 取挑战/分钟、全局每秒上限（Redis 跨节点）、失败锁定（键盘模式更严） |
+| `mugsun.captcha.rate-limit.sms-phone-per-day` / `sms-ip-per-hour` | `10` / `20` | 发送短信验证码频控（叠加同号 60 秒节流），与验证码开关无关 |
+
+租户开关：`sys_tenant.captcha_enabled`（`V9__tenant_captcha.sql`，默认 1，新建租户一律开启），仅平台超管可通过 `POST /system/tenant/captcha` 修改并写入审计日志；多节点时其他节点最多 60 秒后生效。发送短信验证码与租户无关，只看全局开关。滑块模式下客户端开关 `sys_client.captcha_enabled` 不再能关闭验证码（clientId 由请求方自选），仅旧数字码模式下对登录生效。输入方式（`inputMode`）在取题时声明，校验时不一致即失败。App 端 `/app/captcha/*` 接口形状不变，内部共用同一引擎。
 
 ## 组成
 

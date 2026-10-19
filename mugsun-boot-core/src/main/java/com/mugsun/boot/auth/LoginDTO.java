@@ -10,6 +10,8 @@ public class LoginDTO {
 	private String password;
 	private String captchaUuid;
 	private String captchaCode;
+	/** 滑块验证通过后签发的一次性令牌（mugsun.captcha.type=SLIDER） */
+	private String captchaToken;
 	/** 登录客户端码（web/app…），决定验证码开关/令牌有效期/并发在线数等差异化策略；缺省 web */
 	private String clientId;
 
@@ -59,5 +61,13 @@ public class LoginDTO {
 
 	public void setCaptchaCode(String captchaCode) {
 		this.captchaCode = captchaCode;
+	}
+
+	public String getCaptchaToken() {
+		return captchaToken;
+	}
+
+	public void setCaptchaToken(String captchaToken) {
+		this.captchaToken = captchaToken;
 	}
 }
