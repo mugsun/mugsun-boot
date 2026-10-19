@@ -340,6 +340,64 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		assertThat(login(code, null, false).path("code").asInt()).isEqualTo(CaptchaCodes.REQUIRED);
 	}
 
+	/** /system/tenant/captcha 设置 types：保存、查询回显、出题只用该集合、非法值 400、无 SLIDER/ROTATE 给 warning、null/[] 清回默认、缺省不改 */
+	@Test
+	void tenantCaptchaTypesApi() {
+		String admin = loginAdminWithSlider();
+		String[] t = createTenant(admin, Map.of());
+		long id = Long.parseLong(t[1]);
+
+		JsonNode ok = readBody(post("/system/tenant/captcha", Map.of("id", id, "enabled", true,
+			"types", List.of("JIGSAW", "ROTATE")), admin));
+		assertThat(ok.path("code").asInt()).as(ok.path("msg").asText()).isEqualTo(200);
+		assertThat(ok.path("data").path("warning").isMissingNode() || ok.path("data").isNull()).isTrue();
+		assertThat(captchaTypesOf(admin, t[0])).isEqualTo("ROTATE,JIGSAW");
+		java.util.Set<String> seen = new java.util.HashSet<>();
+		for (int i = 0; i < 10; i++) {
+			JsonNode c = challenge("login", t[0]);
+			assertThat(c.path("code").asInt()).as(c.path("msg").asText()).isEqualTo(200);
+			seen.add(c.path("data").path("type").asText());
+		}
+		assertThat(seen).isSubsetOf("ROTATE", "JIGSAW");
+
+		// 缺省 types：只改开关，不动类型
+		assertThat(readBody(post("/system/tenant/captcha", Map.of("id", id, "enabled", true), admin))
+			.path("code").asInt()).isEqualTo(200);
+		assertThat(captchaTypesOf(admin, t[0])).isEqualTo("ROTATE,JIGSAW");
+
+		// 非法值 / 混入非法值 → 拒绝且不改
+		for (Object bad : List.of(List.of("FOO"), List.of("SLIDER", "FOO"), "SLIDER")) {
+			JsonNode r = readBody(post("/system/tenant/captcha", Map.of("id", id, "enabled", true, "types", bad), admin));
+			assertThat(r.path("code").asInt()).isNotEqualTo(200);
+		}
+		assertThat(captchaTypesOf(admin, t[0])).isEqualTo("ROTATE,JIGSAW");
+
+		// 不含 SLIDER/ROTATE：保存，但带 warning
+		JsonNode warn = readBody(post("/system/tenant/captcha", Map.of("id", id, "enabled", true,
+			"types", List.of("WORD_CLICK")), admin));
+		assertThat(warn.path("code").asInt()).isEqualTo(200);
+		assertThat(warn.path("data").path("warning").asText()).contains("40015");
+		assertThat(captchaTypesOf(admin, t[0])).isEqualTo("WORD_CLICK");
+
+		// [] 与 null 都清回平台默认（NULL）
+		assertThat(readBody(post("/system/tenant/captcha", Map.of("id", id, "enabled", true, "types", List.of()), admin))
+			.path("code").asInt()).isEqualTo(200);
+		assertThat(captchaTypesOf(admin, t[0])).isNull();
+		readBody(post("/system/tenant/captcha", Map.of("id", id, "enabled", true, "types", List.of("ROTATE")), admin));
+		Map<String, Object> nullTypes = new HashMap<>();
+		nullTypes.put("id", id);
+		nullTypes.put("enabled", true);
+		nullTypes.put("types", null);
+		JsonNode nr = readBody(post("/system/tenant/captcha", nullTypes, admin));
+		assertThat(nr.path("code").asInt()).as(nr.toString()).isEqualTo(200);
+		assertThat(captchaTypesOf(admin, t[0])).isNull();
+	}
+
+	private String captchaTypesOf(String admin, String code) {
+		JsonNode n = readBody(get("/system/tenant/list?tenantCode=" + code, admin)).path("data").get(0).path("captchaTypes");
+		return n.isMissingNode() || n.isNull() ? null : n.asText();
+	}
+
 	@Test
 	void tenantSwitchRequiresLogin() {
 		JsonNode r = readBody(post("/system/tenant/captcha", Map.of("id", 1, "enabled", false), null));

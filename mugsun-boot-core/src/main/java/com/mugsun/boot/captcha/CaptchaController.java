@@ -39,7 +39,12 @@ public class CaptchaController {
 		String sc = requireScene(scene);
 		SysClient client = gate.resolveClient(clientId);
 		boolean on = gate.required(sc, client, CaptchaGate.effectiveTenant(sc, tenantId));
-		return R.data(new CaptchaConfigVO(on, gate.isSlider() ? SliderCaptchaService.TYPE_SLIDER : "IMAGE", sc));
+		String type = "IMAGE";
+		if (gate.isSlider()) {
+			java.util.Set<CaptchaType> types = gate.enabledTypes(sc, CaptchaGate.effectiveTenant(sc, tenantId));
+			type = types.size() > 1 ? "RANDOM" : types.iterator().next().name();
+		}
+		return R.data(new CaptchaConfigVO(on, type, sc));
 	}
 
 	@PostMapping("/challenge")
@@ -51,7 +56,8 @@ public class CaptchaController {
 			throw CaptchaException.disabled();
 		}
 		return R.data(slider.challenge(sc, client.getClientId(), tenant, req == null ? null : req.inputMode(),
-			ClientIpResolver.clientIp(request)));
+			ClientIpResolver.clientIp(request), gate.enabledTypes(sc, tenant), gate.statTenant(sc, tenant),
+			request.getHeader("Accept-Language") == null ? null : request.getLocale()));
 	}
 
 	@PostMapping("/verify")

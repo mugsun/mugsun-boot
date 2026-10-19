@@ -31,10 +31,15 @@ public class SysTenantController {
 		this.usualLogService = usualLogService;
 	}
 
-	/** 租户验证码开关：仅平台超管可改，写审计日志 */
+	/**
+	 * 租户验证码开关 + 启用题型：仅平台超管可改，写审计日志。
+	 * types 缺省 = 不改；types 为 null 或 [] = 清回平台默认（NULL）；否则只能是 5 个合法值。
+	 * 启用集合不含 SLIDER/ROTATE 时仍保存，但响应 data.warning 提示 keyboard 用户会收到 40015；
+	 * 只启用 ROTATE 或只启用 ICON_CLICK 时同样保存并提示该题型只能部分抵御自动求解（辅助题型，默认关闭）。
+	 */
 	@RepeatSubmit
 	@PostMapping("/captcha")
-	public R<Void> captchaSwitch(@RequestBody CaptchaSwitchDTO dto) {
+	public R<java.util.Map<String, Object>> captchaSwitch(@RequestBody CaptchaSwitchDTO dto) {
 		if (!com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()) {
 			throw new ServiceException(com.mugsun.core.tool.api.ResultCode.FORBIDDEN);
 		}
@@ -42,13 +47,66 @@ public class SysTenantController {
 			throw new ServiceException("参数不完整。请选择租户和开关状态后再保存");
 		}
 		boolean on = Boolean.TRUE.equals(dto.enabled());
-		String code = tenantService.setCaptchaEnabled(dto.id(), on);
+		String types = null;
+		String warning = null;
+		com.fasterxml.jackson.databind.JsonNode raw = dto.types();
+		if (raw != null) {
+			if (raw.isNull() || (raw.isArray() && raw.isEmpty())) {
+				types = TenantService.CLEAR_CAPTCHA_TYPES;
+			} else {
+				java.util.List<String> list = new java.util.ArrayList<>();
+				if (raw.isArray()) {
+					raw.forEach(n -> list.add(n.isTextual() ? n.asText() : "\u0000"));
+				}
+				java.util.Set<com.mugsun.boot.captcha.CaptchaType> parsed = com.mugsun.boot.captcha.CaptchaType.parseAll(list);
+				if (!raw.isArray() || parsed == null || parsed.size() != list.stream().distinct().count()) {
+					throw new ServiceException("验证码类型无效。可选：SLIDER、ROTATE、WORD_CLICK、ICON_CLICK、JIGSAW；传空数组恢复平台默认");
+				}
+				types = com.mugsun.boot.captcha.CaptchaType.toCsv(parsed);
+				warning = captchaTypesWarning(parsed);
+			}
+		}
+		String code = tenantService.setCaptcha(dto.id(), on, types);
+		String typeLog = types == null ? "" : TenantService.CLEAR_CAPTCHA_TYPES.equals(types) ? "，类型 恢复平台默认" : "，类型 " + types;
 		usualLogService.record("warn", String.valueOf(cn.dev33.satoken.stp.StpUtil.getLoginIdDefaultNull()),
-			"租户验证码开关：" + code + " → " + (on ? "开启" : "关闭"), code);
-		return R.success(Boolean.TRUE.equals(dto.enabled()) ? "已开启该租户的安全验证" : "已关闭该租户的安全验证");
+			"租户验证码开关：" + code + " → " + (on ? "开启" : "关闭") + typeLog, code);
+		java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+		if (warning != null) {
+			data.put("warning", warning);
+		}
+		R<java.util.Map<String, Object>> r = R.data(data.isEmpty() ? null : data);
+		r.setMsg(on ? "已开启该租户的安全验证" : "已关闭该租户的安全验证");
+		return r;
 	}
 
-	public record CaptchaSwitchDTO(Long id, Boolean enabled) {
+	static final String WARN_NO_KEYBOARD = "未启用 SLIDER 或 ROTATE：键盘/读屏用户将无法完成验证（返回 40015「未启用无障碍验证方式」）";
+	static final String WARN_ROTATE_ONLY = "只启用了 ROTATE：旋转题目前只能部分抵御自动求解（按边缘匹配约 60% 可解），不应作为唯一防线，建议同时启用 SLIDER 或其他题型";
+
+	static final String WARN_ICON_CLICK_ONLY = "只启用了 ICON_CLICK：图标库公开，图标点选只能部分抵御自动求解，不应作为唯一防线，建议同时启用 SLIDER 或其他题型";
+
+	/** 保存题型时的提示（仍保存）；多条用「；」连接，无提示返回 null */
+	static String captchaTypesWarning(java.util.Set<com.mugsun.boot.captcha.CaptchaType> parsed) {
+		java.util.List<String> w = new java.util.ArrayList<>();
+		if (java.util.Collections.disjoint(parsed, com.mugsun.boot.captcha.CaptchaType.KEYBOARD)) {
+			w.add(WARN_NO_KEYBOARD);
+		}
+		if (parsed.equals(java.util.EnumSet.of(com.mugsun.boot.captcha.CaptchaType.ROTATE))) {
+			w.add(WARN_ROTATE_ONLY);
+		}
+		if (parsed.equals(java.util.EnumSet.of(com.mugsun.boot.captcha.CaptchaType.ICON_CLICK))) {
+			w.add(WARN_ICON_CLICK_ONLY);
+		}
+		return w.isEmpty() ? null : String.join("；", w);
+	}
+
+	/** types 用 JsonNode 区分「缺省（不改）」与「显式 null（清回默认）」 */
+	public record CaptchaSwitchDTO(Long id, Boolean enabled, com.fasterxml.jackson.databind.JsonNode types) {
+		/** 防重复提交按 toString 取指纹：缺省 types 与显式 null 是两种操作，不能撞成同一指纹 */
+		@Override
+		public String toString() {
+			String t = types == null ? "<unset>" : types.isNull() ? "<null>" : types.toString();
+			return "CaptchaSwitchDTO[id=" + id + ", enabled=" + enabled + ", types=" + t + "]";
+		}
 	}
 
 	@GetMapping("/list")

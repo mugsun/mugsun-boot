@@ -178,7 +178,7 @@ mugsun:
       keyboard-min-key-presses: 3
       keyboard-max-key-presses: 300
       keyboard-step-px: 4    # 键盘模式每次按键移动的原始像素，challenge 下发 keyboardStep
-      decoy-count: 1         # 假缺口 0–2
+      decoy-count: 2         # 假缺口数（与真缺口同轮廓），0–3
       bind-ip: false         # token 强制绑定 IP 哈希（默认只记录）
       bind-ua: false         # prod 为 true
     background:

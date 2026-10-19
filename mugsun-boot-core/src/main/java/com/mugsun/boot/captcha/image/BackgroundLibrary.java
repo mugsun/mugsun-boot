@@ -36,6 +36,7 @@ public class BackgroundLibrary {
 	private volatile List<BufferedImage> cache = List.of();
 	private volatile boolean placeholder = true;
 	private volatile long loadedAtMs;
+	private volatile boolean builtin;
 
 	public BackgroundLibrary(CaptchaProperties props) {
 		this.props = props;
@@ -52,7 +53,11 @@ public class BackgroundLibrary {
 		return cache.size();
 	}
 
-	/** 取一张 width×height 的底图副本（可直接在上面绘制） */
+	/**
+	 * 取一张 width×height 的底图副本（可直接在上面绘制）。
+	 * 每题随机扰动：缩放（1.0–1.25 倍放大后再裁）、随机裁切位置、水平镜像（50%）、逐通道调色（色偏）与亮度，
+	 * 使题图无法与公开原图逐像素做差。
+	 */
 	public BufferedImage next(int width, int height) {
 		ensureLoaded();
 		List<BufferedImage> pool = cache;
@@ -62,21 +67,51 @@ public class BackgroundLibrary {
 		} else {
 			src = pool.get(Rng.get().nextInt(pool.size()));
 		}
-		java.util.random.RandomGenerator rnd = Rng.get();
-		int ox = src.getWidth() > width ? rnd.nextInt(src.getWidth() - width + 1) : 0;
-		int oy = src.getHeight() > height ? rnd.nextInt(src.getHeight() - height + 1) : 0;
+		return perturb(src, width, height, Rng.get());
+	}
+
+	/** 对 src 做随机缩放 + 裁切 + 镜像 + 调色，输出 width×height 新图（src 不变） */
+	public static BufferedImage perturb(BufferedImage src, int width, int height,
+										java.util.random.RandomGenerator rnd) {
+		double zoom = 1.0 + rnd.nextDouble() * 0.25;
+		// 先按目标尺寸等比铺满，再放大 zoom 倍，从中随机取 width×height 窗口
+		double k = Math.max((double) width / src.getWidth(), (double) height / src.getHeight()) * zoom;
+		int sw = (int) Math.ceil(src.getWidth() * k);
+		int sh = (int) Math.ceil(src.getHeight() * k);
+		int ox = sw > width ? rnd.nextInt(sw - width + 1) : 0;
+		int oy = sh > height ? rnd.nextInt(sh - height + 1) : 0;
+		boolean mirror = rnd.nextBoolean();
 		BufferedImage out = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		Graphics2D g = out.createGraphics();
-		g.drawImage(src, -ox, -oy, null);
+		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		if (mirror) {
+			g.translate(width, 0);
+			g.scale(-1, 1);
+		}
+		g.drawImage(src, -ox, -oy, sw, sh, null);
 		g.dispose();
-		float gain = 0.94f + rnd.nextFloat() * 0.12f;
+		float gain = 0.92f + rnd.nextFloat() * 0.16f;
+		float kr = gain * (0.93f + rnd.nextFloat() * 0.14f);
+		float kg = gain * (0.93f + rnd.nextFloat() * 0.14f);
+		float kb = gain * (0.93f + rnd.nextFloat() * 0.14f);
+		int[] row = new int[width];
 		for (int y = 0; y < height; y++) {
+			out.getRGB(0, y, width, 1, row, 0, width);
 			for (int x = 0; x < width; x++) {
-				int p = out.getRGB(x, y);
-				out.setRGB(x, y, scale(p, gain));
+				int p = row[x];
+				row[x] = (clamp(Math.round(((p >> 16) & 0xFF) * kr)) << 16)
+					| (clamp(Math.round(((p >> 8) & 0xFF) * kg)) << 8)
+					| clamp(Math.round((p & 0xFF) * kb));
 			}
+			out.setRGB(0, y, width, 1, row, 0, width);
 		}
 		return out;
+	}
+
+	/** 当前底图是否来自仓库自带素材（目录为默认 classpath 目录，或任一文件哈希与自带素材相同） */
+	public boolean usesBuiltin() {
+		ensureLoaded();
+		return builtin;
 	}
 
 	private void ensureLoaded() {
@@ -101,6 +136,7 @@ public class BackgroundLibrary {
 		int th = (int) Math.ceil(s.getHeight() * OVERSCAN);
 		List<BufferedImage> loaded = new ArrayList<>();
 		String dir = props.getBackground().getDir();
+		boolean usesBuiltin = BuiltinAssets.isBuiltin(dir, BuiltinAssets.BG);
 		if (dir != null && !dir.isBlank()) {
 			String base = dir.endsWith("/") ? dir : dir + "/";
 			PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
@@ -130,6 +166,7 @@ public class BackgroundLibrary {
 		} else {
 			placeholder = false;
 		}
+		builtin = !placeholder && usesBuiltin;
 		cache = List.copyOf(loaded);
 		log.info("验证码底图已加载：{} 张{}", loaded.size(), placeholder ? "（纯色占位）" : "");
 	}

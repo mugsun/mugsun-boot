@@ -14,7 +14,6 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Shape;
-import java.awt.geom.AffineTransform;
 import java.awt.geom.Area;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.RoundRectangle2D;
@@ -28,7 +27,8 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * 拼图出题：底图上挖一个真缺口 + 0–2 个假缺口，切出对应拼图块（全高透明图，不暴露纵坐标）。
+ * 拼图出题：底图（每题随机缩放/裁切/镜像/调色）上挖一个真缺口 + decoy-count 个与真缺口同轮廓的假缺口（默认 2，0–3），
+ * 切出对应拼图块（全高透明图，不暴露纵坐标）；拼图块另加噪声与色偏，不能与缺口内容逐像素匹配。
  * 返回值中的 {@code answerX} 是拼图块图片左边缘在底图原始像素中的横坐标，只入存储不下发。
  */
 @Component
@@ -36,6 +36,8 @@ public class PuzzleRenderer {
 
 	/** 拼图块图片左右留白 */
 	static final int PAD = 2;
+	/** 假缺口上限：320 宽底图横向最多再放 3 个不重叠的缺口 */
+	static final int MAX_DECOYS = 3;
 
 	private final CaptchaProperties props;
 	private final BackgroundLibrary library;
@@ -76,6 +78,7 @@ public class PuzzleRenderer {
 		pg.setClip(real);
 		pg.drawImage(bg, 0, 0, null);
 		pg.setClip(null);
+		jitterPiece(piece, rnd);
 		pg.setStroke(new BasicStroke(1.6f));
 		pg.setColor(new Color(255, 255, 255, 210));
 		pg.draw(real);
@@ -84,13 +87,35 @@ public class PuzzleRenderer {
 		Graphics2D g = bg.createGraphics();
 		smooth(g);
 		for (Shape decoy : decoys(gapX, w, h, body, knob, boxW, boxH, cfg.getDecoyCount())) {
-			shade(g, decoy, 70 + rnd.nextInt(40));
+			shade(g, decoy, 85 + rnd.nextInt(40));
 		}
-		shade(g, real, 95 + rnd.nextInt(40));
+		shade(g, real, 85 + rnd.nextInt(40));
 		g.dispose();
 		sprinkleNoise(bg);
 
 		return new Puzzle(dataUri("jpeg", toJpeg(bg)), dataUri("png", toPng(piece)), w, h, pieceW, h, gapX - PAD);
+	}
+
+	/** 拼图块：整体色偏（逐通道 ±10）+ 逐像素噪声（±9），只动不透明像素 */
+	static void jitterPiece(BufferedImage piece, java.util.random.RandomGenerator rnd) {
+		int dr = rnd.nextInt(-10, 11);
+		int dg = rnd.nextInt(-10, 11);
+		int db = rnd.nextInt(-10, 11);
+		java.util.random.RandomGenerator n = Rng.noise();
+		for (int y = 0; y < piece.getHeight(); y++) {
+			for (int x = 0; x < piece.getWidth(); x++) {
+				int p = piece.getRGB(x, y);
+				int a = p >>> 24;
+				if (a == 0) {
+					continue;
+				}
+				int d = n.nextInt(-9, 10);
+				int r = BackgroundLibrary.clamp(((p >> 16) & 0xFF) + dr + d);
+				int g = BackgroundLibrary.clamp(((p >> 8) & 0xFF) + dg + d);
+				int b = BackgroundLibrary.clamp((p & 0xFF) + db + d);
+				piece.setRGB(x, y, (a << 24) | (r << 16) | (g << 8) | b);
+			}
+		}
 	}
 
 	/** 拼图轮廓：圆角方块 + 顶部、右侧各一个凸起（flip=true 时换到底部、左侧，用于假缺口） */
@@ -111,28 +136,36 @@ public class PuzzleRenderer {
 		return a;
 	}
 
-	private static List<Shape> decoys(int gapX, int w, int h, int body, int knob, int boxW, int boxH, int count) {
-		List<Shape> out = new ArrayList<>();
+	/** 假缺口：与真缺口同轮廓（同 outline、同朝向、不旋转），横向互不重叠；数量 decoy-count（0–3） */
+	static List<Shape> decoys(int gapX, int w, int h, int body, int knob, int boxW, int boxH, int count) {
 		java.util.random.RandomGenerator rnd = Rng.get();
-		int n = Math.max(0, Math.min(2, count));
-		List<Integer> taken = new ArrayList<>(List.of(gapX));
-		for (int tries = 0; out.size() < n && tries < 40; tries++) {
-			int x = rnd.nextInt(6, Math.max(7, w - boxW - 6));
-			boolean clash = taken.stream().anyMatch(t -> Math.abs(t - x) < boxW + 4);
-			if (clash) {
-				continue;
+		int n = Math.max(0, Math.min(MAX_DECOYS, count));
+		List<Shape> best = new ArrayList<>();
+		// 在所有可行横坐标里随机挑；整轮放不满就重来，取放得最多的一轮
+		for (int round = 0; round < 50 && best.size() < n; round++) {
+			List<Shape> out = new ArrayList<>();
+			List<Integer> taken = new ArrayList<>(List.of(gapX));
+			while (out.size() < n) {
+				List<Integer> free = new ArrayList<>();
+				for (int x = 6; x <= Math.max(6, w - boxW - 6); x++) {
+					final int cx = x;
+					if (taken.stream().noneMatch(t -> Math.abs(t - cx) < boxW + 4)) {
+						free.add(x);
+					}
+				}
+				if (free.isEmpty()) {
+					break;
+				}
+				int x = free.get(rnd.nextInt(free.size()));
+				int y = rnd.nextInt(6, Math.max(7, h - boxH - 6));
+				taken.add(x);
+				out.add(outline(x, y, body, knob, false));
 			}
-			int y = rnd.nextInt(6, Math.max(7, h - boxH - 6));
-			Shape s = outline(x, y, body, knob, true);
-			if (rnd.nextBoolean()) {
-				double cx = x + boxW / 2.0;
-				double cy = y + boxH / 2.0;
-				s = AffineTransform.getRotateInstance(Math.toRadians(rnd.nextInt(-12, 13)), cx, cy).createTransformedShape(s);
+			if (out.size() > best.size()) {
+				best = out;
 			}
-			taken.add(x);
-			out.add(s);
 		}
-		return out;
+		return best;
 	}
 
 	private static void shade(Graphics2D g, Shape s, int alpha) {

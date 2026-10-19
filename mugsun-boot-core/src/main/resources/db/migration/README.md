@@ -5,7 +5,8 @@
 - `V3__clean_fake_changelog.sql`：清掉演示更新日志，写入真实 0.1.0。
 - `V7__unique_index_delete_flag.sql`：同租户手机号唯一索引。
 - `V8__oper_log_chain_guard.sql`：操作日志哈希链链头锁表 `sys_oper_log_chain` 与 `chain_prev` 唯一索引。
-- `V9__tenant_captcha.sql`：租户验证码开关（原预留 V4；V7、V8 已在 main，未开 `outOfOrder`，所以后移）。多类型验证码若再改表，用比 V9 更大的版本号。
+- `V9__tenant_captcha.sql`：租户验证码开关（原预留 V4；V7、V8 已在 main，未开 `outOfOrder`，所以后移）。
+- `V10__tenant_captcha_types.sql`：租户可用验证码题型（原预留 V5，同样后移到 V9 之后）。
 
 ## 迁移规则（0.1.0 已发布）
 

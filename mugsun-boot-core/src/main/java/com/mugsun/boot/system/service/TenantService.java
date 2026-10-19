@@ -123,12 +123,23 @@ public class TenantService {
 	/** 按套餐 id 查绑定租户（套餐删除前占用检查）。 */
 	/** 租户验证码开关（调用方负责平台超管鉴权与审计），返回租户编号 */
 	public String setCaptchaEnabled(Long id, boolean enabled) {
+		return setCaptcha(id, enabled, null);
+	}
+
+	/** setCaptcha 的 types 取此值表示清回 NULL（平台默认） */
+	public static final String CLEAR_CAPTCHA_TYPES = "";
+
+	/** 租户验证码开关 + 启用题型（types 为 null 不改，"" 清回 NULL；调用方负责鉴权、审计与取值校验） */
+	public String setCaptcha(Long id, boolean enabled, String types) {
 		SysTenant exist = id == null ? null : tenantMapper.selectOneById(id);
 		if (exist == null) {
 			throw new ServiceException("这个租户不存在。请刷新列表后再编辑");
 		}
 		SysTenant upd = com.mybatisflex.core.util.UpdateEntity.of(SysTenant.class, id);
 		upd.setCaptchaEnabled(enabled ? 1 : 0);
+		if (types != null) {
+			upd.setCaptchaTypes(types.isEmpty() ? null : types);
+		}
 		tenantMapper.update(upd);
 		tenantValidator.evict(exist.getTenantCode());
 		return exist.getTenantCode();

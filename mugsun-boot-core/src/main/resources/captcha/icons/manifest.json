@@ -1,0 +1,347 @@
+[
+ {
+  "slug": "sun",
+  "name_zh": "太阳",
+  "name_en": "sun",
+  "confusable": [
+   "round-radiant",
+   "sun-clock"
+  ]
+ },
+ {
+  "slug": "moon",
+  "name_zh": "月亮",
+  "name_en": "moon",
+  "confusable": [
+   "round-face"
+  ]
+ },
+ {
+  "slug": "star",
+  "name_zh": "星星",
+  "name_en": "star",
+  "confusable": [
+   "round-radiant"
+  ]
+ },
+ {
+  "slug": "cloud",
+  "name_zh": "云",
+  "name_en": "cloud",
+  "confusable": []
+ },
+ {
+  "slug": "umbrella",
+  "name_zh": "雨伞",
+  "name_en": "umbrella",
+  "confusable": []
+ },
+ {
+  "slug": "house",
+  "name_zh": "房子",
+  "name_en": "house",
+  "confusable": [
+   "peak-roof",
+   "house-phone"
+  ]
+ },
+ {
+  "slug": "tree",
+  "name_zh": "树",
+  "name_en": "tree",
+  "confusable": [
+   "plant-flame"
+  ]
+ },
+ {
+  "slug": "flower",
+  "name_zh": "花",
+  "name_en": "flower",
+  "confusable": [
+   "round-radiant"
+  ]
+ },
+ {
+  "slug": "leaf",
+  "name_zh": "叶子",
+  "name_en": "leaf",
+  "confusable": [
+   "plant-flame"
+  ]
+ },
+ {
+  "slug": "fish",
+  "name_zh": "鱼",
+  "name_en": "fish",
+  "confusable": [
+   "water-craft"
+  ]
+ },
+ {
+  "slug": "cat",
+  "name_zh": "猫脸",
+  "name_en": "cat face",
+  "confusable": [
+   "round-face"
+  ]
+ },
+ {
+  "slug": "bell",
+  "name_zh": "铃铛",
+  "name_en": "bell",
+  "confusable": [
+   "cup-bell"
+  ]
+ },
+ {
+  "slug": "key",
+  "name_zh": "钥匙",
+  "name_en": "key",
+  "confusable": [
+   "key-lock"
+  ]
+ },
+ {
+  "slug": "lock",
+  "name_zh": "锁",
+  "name_en": "padlock",
+  "confusable": [
+   "key-lock"
+  ]
+ },
+ {
+  "slug": "heart",
+  "name_zh": "爱心",
+  "name_en": "heart",
+  "confusable": []
+ },
+ {
+  "slug": "smile",
+  "name_zh": "笑脸",
+  "name_en": "smiley face",
+  "confusable": [
+   "round-face"
+  ]
+ },
+ {
+  "slug": "cup",
+  "name_zh": "杯子",
+  "name_en": "cup",
+  "confusable": [
+   "cup-bell"
+  ]
+ },
+ {
+  "slug": "book",
+  "name_zh": "书",
+  "name_en": "book",
+  "confusable": [
+   "paper"
+  ]
+ },
+ {
+  "slug": "pencil",
+  "name_zh": "铅笔",
+  "name_en": "pencil",
+  "confusable": [
+   "tools"
+  ]
+ },
+ {
+  "slug": "scissors",
+  "name_zh": "剪刀",
+  "name_en": "scissors",
+  "confusable": [
+   "tools"
+  ]
+ },
+ {
+  "slug": "flag",
+  "name_zh": "旗子",
+  "name_en": "flag",
+  "confusable": []
+ },
+ {
+  "slug": "rocket",
+  "name_zh": "火箭",
+  "name_en": "rocket",
+  "confusable": [
+   "flying"
+  ]
+ },
+ {
+  "slug": "plane",
+  "name_zh": "飞机",
+  "name_en": "plane",
+  "confusable": [
+   "flying"
+  ]
+ },
+ {
+  "slug": "car",
+  "name_zh": "汽车",
+  "name_en": "car",
+  "confusable": [
+   "wheeled"
+  ]
+ },
+ {
+  "slug": "bike",
+  "name_zh": "自行车",
+  "name_en": "bicycle",
+  "confusable": [
+   "wheeled"
+  ]
+ },
+ {
+  "slug": "boat",
+  "name_zh": "帆船",
+  "name_en": "sailboat",
+  "confusable": [
+   "water-craft"
+  ]
+ },
+ {
+  "slug": "camera",
+  "name_zh": "相机",
+  "name_en": "camera",
+  "confusable": [
+   "phone-camera"
+  ]
+ },
+ {
+  "slug": "note",
+  "name_zh": "音符",
+  "name_en": "music note",
+  "confusable": [
+   "paper"
+  ]
+ },
+ {
+  "slug": "bolt",
+  "name_zh": "闪电",
+  "name_en": "lightning bolt",
+  "confusable": []
+ },
+ {
+  "slug": "drop",
+  "name_zh": "水滴",
+  "name_en": "water drop",
+  "confusable": [
+   "plant-flame",
+   "teardrop"
+  ]
+ },
+ {
+  "slug": "fire",
+  "name_zh": "火焰",
+  "name_en": "flame",
+  "confusable": [
+   "plant-flame"
+  ]
+ },
+ {
+  "slug": "diamond",
+  "name_zh": "钻石",
+  "name_en": "diamond",
+  "confusable": [
+   "gem-crown"
+  ]
+ },
+ {
+  "slug": "crown",
+  "name_zh": "皇冠",
+  "name_en": "crown",
+  "confusable": [
+   "gem-crown"
+  ]
+ },
+ {
+  "slug": "gift",
+  "name_zh": "礼物",
+  "name_en": "gift",
+  "confusable": [
+   "round-radiant"
+  ]
+ },
+ {
+  "slug": "bulb",
+  "name_zh": "灯泡",
+  "name_en": "light bulb",
+  "confusable": [
+   "teardrop"
+  ]
+ },
+ {
+  "slug": "clock",
+  "name_zh": "时钟",
+  "name_en": "clock",
+  "confusable": [
+   "clock-glasses",
+   "sun-clock"
+  ]
+ },
+ {
+  "slug": "envelope",
+  "name_zh": "信封",
+  "name_en": "envelope",
+  "confusable": [
+   "paper"
+  ]
+ },
+ {
+  "slug": "pin",
+  "name_zh": "地图针",
+  "name_en": "map pin",
+  "confusable": [
+   "teardrop"
+  ]
+ },
+ {
+  "slug": "mountain",
+  "name_zh": "山",
+  "name_en": "mountain",
+  "confusable": [
+   "peak-roof"
+  ]
+ },
+ {
+  "slug": "hammer",
+  "name_zh": "锤子",
+  "name_en": "hammer",
+  "confusable": [
+   "tools"
+  ]
+ },
+ {
+  "slug": "piggy",
+  "name_zh": "存钱罐",
+  "name_en": "piggy bank",
+  "confusable": []
+ },
+ {
+  "slug": "phone",
+  "name_zh": "老式电话",
+  "name_en": "old telephone",
+  "confusable": [
+   "phone-camera",
+   "house-phone"
+  ]
+ },
+ {
+  "slug": "glasses",
+  "name_zh": "眼镜",
+  "name_en": "glasses",
+  "confusable": [
+   "clock-glasses"
+  ]
+ },
+ {
+  "slug": "anchor",
+  "name_zh": "船锚",
+  "name_en": "anchor",
+  "confusable": [
+   "water-craft"
+  ]
+ }
+]
