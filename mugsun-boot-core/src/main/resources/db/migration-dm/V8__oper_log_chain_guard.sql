@@ -1,0 +1,17 @@
+-- pg2dm: manual
+-- 0.1.x：操作日志哈希链多节点防分叉（达梦）。
+-- ① 链头锁行：落库事务内 SELECT ... FOR UPDATE 串行化各实例的「读链头→写新记录」。
+CREATE TABLE sys_oper_log_chain (
+	id          INT       PRIMARY KEY,
+	update_time TIMESTAMP
+);
+INSERT INTO sys_oper_log_chain (id, update_time)
+SELECT 1, SYSDATE FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM sys_oper_log_chain WHERE id = 1);
+COMMENT ON TABLE sys_oper_log_chain IS '操作日志哈希链链头锁（单行 id=1）';
+
+-- ② 唯一兜底：新记录 chain_prev = prev_hash，唯一索引让两条记录无法接在同一链头后。
+--    历史记录保持 NULL（不回填，避免历史分叉/重复的 prev_hash 让本迁移失败；达梦唯一索引允许多个 NULL）。
+ALTER TABLE sys_oper_log ADD chain_prev VARCHAR(64);
+COMMENT ON COLUMN sys_oper_log.chain_prev IS '链唯一兜底：新记录等于 prev_hash，历史记录为空';
+CREATE UNIQUE INDEX uk_oper_log_chain_prev ON sys_oper_log (chain_prev);
