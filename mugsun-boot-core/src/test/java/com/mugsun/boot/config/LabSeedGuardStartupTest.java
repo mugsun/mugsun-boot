@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -25,14 +24,20 @@ import static org.mockito.Mockito.verifyNoInteractions;
  */
 class LabSeedGuardStartupTest {
 
-	static final SysUserMapper USERS = mock(SysUserMapper.class);
-	static final SysRoleMapper ROLES = mock(SysRoleMapper.class);
-	static final SysMenuMapper MENUS = mock(SysMenuMapper.class);
-	static final SysUserRoleMapper USER_ROLES = mock(SysUserRoleMapper.class);
-	static final SysRoleMenuMapper ROLE_MENUS = mock(SysRoleMenuMapper.class);
-	static final SysTenantMapper TENANTS = mock(SysTenantMapper.class);
+	/** 每个用例自己的 mock，经 initializer 注册进上下文，避免全量跑时静态 mock 串用 */
+	record Mocks(SysUserMapper users, SysRoleMapper roles, SysMenuMapper menus,
+				 SysUserRoleMapper userRoles, SysRoleMenuMapper roleMenus, SysTenantMapper tenants) {
+		static Mocks create() {
+			return new Mocks(mock(SysUserMapper.class), mock(SysRoleMapper.class), mock(SysMenuMapper.class),
+				mock(SysUserRoleMapper.class), mock(SysRoleMenuMapper.class), mock(SysTenantMapper.class));
+		}
+	}
 
-	@Configuration(proxyBeanMethods = false)
+	/**
+	 * 刻意不加 @Configuration：本类在 com.mugsun.boot 包下，加了会被集成测试的组件扫描收进真实应用上下文，
+	 * 多出一个用 mock PasswordEncoder 的 DataInitializer，导致管理员登录失败（全量跑 24 失败 23 错误的根因）。
+	 * 只作为 SpringApplicationBuilder 的 source 显式传入（@Bean lite 模式）。
+	 */
 	static class Cfg {
 		@Bean
 		LabSeedProdGuard labSeedProdGuard(Environment env) {
@@ -40,22 +45,24 @@ class LabSeedGuardStartupTest {
 		}
 
 		@Bean
-		DataInitializer dataInitializer() {
-			return new DataInitializer(USERS, ROLES, MENUS, USER_ROLES, ROLE_MENUS,
-				mock(PasswordEncoder.class), mock(SecurityPolicyService.class), TENANTS);
+		DataInitializer dataInitializer(Mocks m) {
+			return new DataInitializer(m.users(), m.roles(), m.menus(), m.userRoles(), m.roleMenus(),
+				mock(PasswordEncoder.class), mock(SecurityPolicyService.class), m.tenants());
 		}
 	}
 
 	@Test
 	void prodWithSeedOnFailsBeforeAnySeeding() {
+		Mocks m = Mocks.create();
 		assertThatThrownBy(() -> new SpringApplicationBuilder(Cfg.class)
 			.web(WebApplicationType.NONE)
 			.profiles("prod")
+			.initializers(ctx -> ctx.getBeanFactory().registerSingleton("mocks", m))
 			.properties(LabSeedProdGuard.KEY + "=true", "mugsun.security.init-password=x",
 				"spring.main.banner-mode=off")
 			.run().close())
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessageContaining(LabSeedProdGuard.KEY);
-		verifyNoInteractions(USERS, ROLES, MENUS, USER_ROLES, ROLE_MENUS, TENANTS);
+		verifyNoInteractions(m.users(), m.roles(), m.menus(), m.userRoles(), m.roleMenus(), m.tenants());
 	}
 }

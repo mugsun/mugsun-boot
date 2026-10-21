@@ -16,8 +16,9 @@
 
 - 启动守卫改为「非 dev/test/local 一律按生产」，生产误开联调账号时拒绝启动
   - **行为变更**：没配 profile 也按生产处理，自测请显式加 `--spring.profiles.active=dev`
-  - 白名单为常量，严格匹配小写；staging、PROD、production 都按生产，prod 优先于 dev
-  - 用 `acceptsProfiles` 判定，没激活 profile 时按 `spring.profiles.default` 算
+  - 只看显式 active：非空、含 dev/test/local 之一且不含 prod 才放行
+  - profile 名先 trim 再转小写；staging、production 按生产，prod 优先于 dev
+  - 不看 `spring.profiles.default`：只配 `default=dev`、active 为空也按生产
   - 新增 `DeployProfiles`，`InitPasswordHardeningGuard` 与新守卫共用这套判定
   - 新增 `LabSeedProdGuard`：生产开启 `mugsun.lab.seed-fronttest` 即拒绝启动
   - 该开关会播种弱口令联调账号，仅供开发和 e2e

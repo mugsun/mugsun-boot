@@ -91,10 +91,11 @@ class LabSeedProdGuardTest {
 	}
 
 	@org.junit.jupiter.api.Test
-	void startsWhenOnlyDefaultProfileIsDev() {
+	void refusesWhenOnlyDefaultProfileIsDev() {
 		MockEnvironment env = new MockEnvironment();
 		env.setDefaultProfiles("dev");
 		env.setProperty(LabSeedProdGuard.KEY, "true");
-		assertThatCode(() -> new LabSeedProdGuard(env).run()).doesNotThrowAnyException();
+		// 只看显式 active：只配 default=dev、active 为空按生产处理
+		assertThatThrownBy(() -> new LabSeedProdGuard(env).run()).isInstanceOf(IllegalStateException.class);
 	}
 }

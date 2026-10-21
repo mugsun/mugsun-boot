@@ -8,7 +8,7 @@ import org.springframework.mock.env.MockEnvironment;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 只有严格小写的 dev/test/local 白名单才算非生产；没配、staging、大写、同时带 prod 一律按生产。
+ * 只看显式 active：含 dev/test/local（trim+小写）且不含 prod 才算非生产；其余一律按生产。
  */
 class DeployProfilesTest {
 
@@ -21,7 +21,7 @@ class DeployProfilesTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"", "prod", "PROD", "production", "staging", "Dev", "TEST", "demo", "prod,demo", "dev,prod", "prod,test", "prod,lab", "lab"})
+	@ValueSource(strings = {"", "prod", "PROD", "production", "staging", "demo", "prod,demo", "dev,prod", "DEV,prod", " Prod ,dev", "prod,test", "prod,lab", "lab"})
 	void treatedAsProduction(String profiles) {
 		assertThat(production(profiles)).isTrue();
 	}
@@ -34,10 +34,17 @@ class DeployProfilesTest {
 	}
 
 	@Test
-	void onlyDefaultDevIsNonProduction() {
+	void onlyDefaultDevWithEmptyActiveIsProduction() {
 		MockEnvironment env = new MockEnvironment();
 		env.setDefaultProfiles("dev");
-		assertThat(DeployProfiles.isProduction(env)).isFalse();
+		assertThat(DeployProfiles.isProduction(env)).isTrue();
+	}
+
+	@Test
+	void activeUpperDevWithProdIsProduction() {
+		MockEnvironment env = new MockEnvironment();
+		env.setActiveProfiles("DEV", "prod");
+		assertThat(DeployProfiles.isProduction(env)).isTrue();
 	}
 
 	@Test
@@ -49,7 +56,7 @@ class DeployProfilesTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"dev", "test", "local", "demo,test", "dev,kingbase"})
+	@ValueSource(strings = {"dev", "test", "local", "demo,test", "dev,kingbase", "DEV", " Test ", "Local"})
 	void treatedAsNonProduction(String profiles) {
 		assertThat(production(profiles)).isFalse();
 	}

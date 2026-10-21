@@ -46,10 +46,11 @@ class InitPasswordHardeningGuardTest {
 	}
 
 	@org.junit.jupiter.api.Test
-	void startsWhenOnlyDefaultProfileIsDev() {
+	void refusesWhenOnlyDefaultProfileIsDev() {
 		MockEnvironment env = new MockEnvironment();
 		env.setDefaultProfiles("dev");
 		
-		assertThatCode(() -> new InitPasswordHardeningGuard(env).run()).doesNotThrowAnyException();
+		// 只看显式 active：只配 default=dev、active 为空按生产处理
+		assertThatThrownBy(() -> new InitPasswordHardeningGuard(env).run()).isInstanceOf(IllegalStateException.class);
 	}
 }
