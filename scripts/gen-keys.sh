@@ -20,7 +20,7 @@ set -- $(sm2); B_PRI=$1 B_PUB=$2
 for k in "$A_PRI" "$B_PRI"; do [ ${#k} -eq 64 ] || { echo "SM2 私钥生成失败（需 OpenSSL 1.1.1+）" >&2; exit 1; }; done
 for k in "$A_PUB" "$B_PUB"; do [ ${#k} -eq 130 ] || { echo "SM2 公钥生成失败（需 OpenSSL 1.1.1+）" >&2; exit 1; }; done
 cat <<ENV
-MUGSUN_SM4_KEY=$(rnd 16)
+MUGSUN_SM4_KEY=$(openssl rand -hex 16)
 MUGSUN_API_KEY=$(openssl rand -hex 16)
 MUGSUN_SM2_PRIVATE_KEY=$A_PRI
 MUGSUN_SM2_PUBLIC_KEY=$A_PUB

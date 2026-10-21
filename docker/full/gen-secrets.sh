@@ -63,7 +63,7 @@ need_len() { [ "${#2}" -eq "$3" ] || fail "$1 生成失败（长度 ${#2}，应�
 # SM2×2 / SM4×2 / 管理员口令 / 文件签名密钥：复用仓库 scripts/gen-keys.sh（与手工部署同一来源）
 KEYS=$(/gen-keys.sh --all) || fail "gen-keys.sh 失败"
 get() { printf '%s\n' "$KEYS" | sed -n "s/^$1=//p"; }
-need_len MUGSUN_SM4_KEY "$(get MUGSUN_SM4_KEY)" 16
+need_len MUGSUN_SM4_KEY "$(get MUGSUN_SM4_KEY)" 32
 need_len MUGSUN_API_KEY "$(get MUGSUN_API_KEY)" 32
 need_len MUGSUN_SM2_PRIVATE_KEY "$(get MUGSUN_SM2_PRIVATE_KEY)" 64
 need_len MUGSUN_SIGN_PRIVATE_KEY "$(get MUGSUN_SIGN_PRIVATE_KEY)" 64

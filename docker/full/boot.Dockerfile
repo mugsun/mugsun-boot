@@ -1,8 +1,19 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
-# 一条命令起全套用的后端镜像：构建上下文是 mugsun-boot 仓库根目录，mugsun-core 0.1.0 从 Maven Central 解析。
+# 一条命令起全套用的后端镜像：构建上下文是 mugsun-boot 仓库根目录。
+# mugsun-core 在镜像里先构建安装（boot 依赖 0.2.0-SNAPSHOT，Central 上没有；也不再拉旧的 0.1.0）。
+# core 源码默认取 GitHub 上 MUGSUN_CORE_REF（默认 main）；本地联调可覆盖：
+#   docker build --build-context mugsun-core=../mugsun-core -f docker/full/boot.Dockerfile .
 # 带 -Pfull,kingbase,dameng（显式 -P 会关掉默认激活的 full，所以 full 要写上）：镜像内置人大金仓 / 达梦驱动，换库只改 JDBC_URL，不必重建。
 # 基础镜像固定 digest（多架构 index；升级时同步更新 tag 与 digest）
+FROM scratch AS mugsun-core
+ARG MUGSUN_CORE_REF=main
+ADD https://github.com/mugsun/mugsun-core.git#${MUGSUN_CORE_REF} /
+
 FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320 AS build
+WORKDIR /core
+COPY --from=mugsun-core / ./
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -q install -DskipTests
 WORKDIR /build
 COPY pom.xml ./
 COPY mugsun-boot-core/ mugsun-boot-core/

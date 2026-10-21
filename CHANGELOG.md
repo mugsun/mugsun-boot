@@ -12,13 +12,32 @@
 ### 不兼容变更
 
 - 去掉接口加密和字段加密的内置回落密钥；非 dev 环境必须显式配置密钥
-  - 依赖 mugsun-core 新版：`MUGSUN_API_KEY` 须为 32 位 hex 或带填充的 16 字节 base64
+  - 依赖 mugsun-core `0.2.0-SNAPSHOT`（Central 没有，须先装 core；core 先合）
+  - `MUGSUN_API_KEY` 须为 32 位 hex 或带填充的 16 字节 base64
   - 接口加密改 SM4-GCM，只是传输混淆，不能代替 TLS；前端须同步升级
   - `Sm4CryptoConfig` 不再回落固定密钥；缺 `MUGSUN_SM4_KEY` 拒绝启动
-  - 新增 dev profile：接口用临时密钥，字段用 `.mugsun/dev-sm4.key`
+  - 新增 dev profile：接口用临时密钥，字段用 `~/.mugsun/dev-sm4.key`
+  - dev 密钥文件创建即 600、目录 700，权限过宽打 WARN
+  - `strict-keys` 保留，只作否决：为 true 时不认临时密钥和本地文件
   - `gen-keys.sh` 的 `MUGSUN_API_KEY` 改为 `openssl rand -hex 16`
   - 已部署环境的旧 16 字符 `MUGSUN_API_KEY` 要先换成新格式再升级
-  - `MUGSUN_SM4_KEY` 格式不变，已落库的加密字段不受影响
+  - `MUGSUN_SM4_KEY` 只认 32 位 hex、16 字节标准 base64、16 字符旧写法
+  - 16 字符旧写法本版仍兼容并打 WARN，下一版只认 32 位 hex
+  - 短于或长于 16 字节的值拒绝启动，不再补零、截断，没有 legacy 开关
+  - 新增离线迁移工具 `Sm4KeyMigrationTool`，覆盖 15 个加密字段
+    - 新旧密钥只走环境变量；默认 dry-run，按表和字段输出计数
+    - `--apply` 单事务写库，有一条解不开就整体回滚
+    - 旧短密钥、旧回落值加密的数据设 `..._LEGACY_PADDED=true` 还原
+  - 用旧回落值或短密钥跑过的部署，升级前必须迁移，步骤见文档站：
+    1. 备份数据库，停应用
+    2. 先 dry-run，确认「解不开=0」，再 `--apply`
+    3. 换新密钥启动，核对 error 日志「SM4 解密失败」为 0 条
+    4. 这些字段里存的第三方凭据全部轮换
+  - 解密失败返回 null，不会被写回库里（实体更新跳过 null 列）
+  - `gen-keys.sh`、`gen-secrets.sh` 的 `MUGSUN_SM4_KEY` 改为 32 位 hex
+  - `docker/full/boot.Dockerfile` 在镜像里先构建 core，不再拉 0.1.0
+  - 开发者本地以前用旧回落值加密的数据，升级后会解不开
+  - 接口加密不防重放、不绑定接口（暂无 AAD）
 
 ### CI
 

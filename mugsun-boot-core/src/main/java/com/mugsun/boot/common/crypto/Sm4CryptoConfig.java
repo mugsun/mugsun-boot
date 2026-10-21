@@ -13,8 +13,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -23,7 +26,7 @@ import java.util.regex.Pattern;
  * <ol>
  *   <li>{@code mugsun.crypto.sm4-key}（环境变量 {@code MUGSUN_SM4_KEY}），所有环境都可用；</li>
  *   <li>{@code mugsun.crypto.sm4-local-key-file}：本地开发用，首次启动生成随机密钥写入该文件
- *       （须在 gitignore 里，默认 {@code .mugsun/dev-sm4.key}），之后每次启动复用，重启后旧数据仍能解开。</li>
+ *       （默认 {@code ${user.home}/.mugsun/dev-sm4.key}，文件 600、目录 700），之后每次启动复用，重启后旧数据仍能解开。</li>
  * </ol>
  * 两者都没有，或开了 {@code strict-keys} 却没配 {@code sm4-key}，一律拒绝启动。
  * 字段加密密钥不能每次启动随机生成，否则重启后库里的数据解不开。
@@ -38,7 +41,7 @@ public class Sm4CryptoConfig {
 	@Value("${mugsun.crypto.sm4-key:}")
 	private String sm4Key;
 
-	/** 已有的生产开关（prod 配置为 true）：为 true 时只认 sm4-key，本地密钥文件也不允许 */
+	/** 已有的生产开关（prod 配置为 true），只作否决：为 true 时只认 sm4-key，本地密钥文件也不允许 */
 	@Value("${mugsun.crypto.strict-keys:false}")
 	private boolean strictKeys;
 
@@ -62,20 +65,31 @@ public class Sm4CryptoConfig {
 			+ "删掉该文件后，用它加密的数据将无法解开）", file);
 	}
 
+	private static final String FILE_PERMS = "rw-------";
+	private static final String DIR_PERMS = "rwx------";
+
 	static byte[] loadOrCreate(Path file) {
 		try {
 			if (!Files.exists(file)) {
 				byte[] k = new byte[16];
 				new SecureRandom().nextBytes(k);
-				Files.createDirectories(file.getParent());
+				createPrivateDirectories(file.getParent());
 				try {
-					Files.writeString(Files.createFile(file), HexUtil.encodeHexStr(k) + "\n", StandardCharsets.US_ASCII);
-					restrictPermissions(file);
+					// 创建时就带 600 权限，不留按 umask 可读的窗口
+					boolean posix = posix(file.getParent());
+					Path created = posix
+						? Files.createFile(file, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(FILE_PERMS)))
+						: Files.createFile(file);
+					if (!posix) {
+						log.warn("文件系统不支持 POSIX 权限，没法把本地 SM4 密钥文件设成 600，请自行限制访问：{}", file);
+					}
+					Files.writeString(created, HexUtil.encodeHexStr(k) + "\n", StandardCharsets.US_ASCII);
 					return k;
 				} catch (FileAlreadyExistsException race) {
 					// 并发启动时别的进程刚写好，按读取处理
 				}
 			}
+			warnIfTooOpen(file);
 			String s = Files.readString(file, StandardCharsets.US_ASCII).trim();
 			if (!HEX_KEY.matcher(s).matches()) {
 				throw new IllegalStateException("本地 SM4 密钥文件格式不对（须为 32 位 hex）：" + file);
@@ -86,11 +100,42 @@ public class Sm4CryptoConfig {
 		}
 	}
 
-	private static void restrictPermissions(Path file) {
+	private static boolean posix(Path p) throws IOException {
+		Path existing = p;
+		while (existing != null && !Files.exists(existing)) {
+			existing = existing.getParent();
+		}
+		return existing != null && Files.getFileStore(existing).supportsFileAttributeView("posix");
+	}
+
+	/** 逐级创建缺失目录，新建的目录一律 700；已有目录不改 */
+	private static void createPrivateDirectories(Path dir) throws IOException {
+		if (dir == null || Files.isDirectory(dir)) {
+			return;
+		}
+		createPrivateDirectories(dir.getParent());
+		if (posix(dir)) {
+			Files.createDirectory(dir, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(DIR_PERMS)));
+		} else {
+			Files.createDirectory(dir);
+			log.warn("文件系统不支持 POSIX 权限，没法把密钥目录设成 700，请自行限制访问：{}", dir);
+		}
+	}
+
+	/** 读取时权限比 600 宽（组或其他用户可读写）就打 WARN；非 POSIX 跳过 */
+	private static void warnIfTooOpen(Path file) {
 		try {
-			Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
-		} catch (UnsupportedOperationException | IOException ignored) {
-			// 非 POSIX 文件系统（Windows）跳过
+			if (!posix(file)) {
+				return;
+			}
+			Set<PosixFilePermission> perms = Files.getPosixFilePermissions(file);
+			Set<PosixFilePermission> extra = EnumSet.copyOf(perms);
+			extra.removeAll(EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+			if (!extra.isEmpty()) {
+				log.warn("本地 SM4 密钥文件权限过宽（{}），建议 chmod 600：{}", PosixFilePermissions.toString(perms), file);
+			}
+		} catch (IOException | UnsupportedOperationException e) {
+			log.warn("读不到本地 SM4 密钥文件的权限，没法确认是否为 600：{}", file);
 		}
 	}
 }

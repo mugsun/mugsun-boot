@@ -59,6 +59,19 @@ class Sm4CryptoConfigTest {
 	}
 
 	@Test
+	@DisplayName("新建目录 700、文件 600；已有文件权限过宽时仍可读取（只告警）")
+	void createsPrivateDirAndFile(@TempDir Path dir) throws IOException {
+		org.junit.jupiter.api.Assumptions.assumeTrue(Files.getFileStore(dir).supportsFileAttributeView("posix"));
+		Path f = dir.resolve("a/b/dev-sm4.key");
+		config("", false, f.toString()).init();
+		assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(dir.resolve("a")))).isEqualTo("rwx------");
+		assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(dir.resolve("a/b")))).isEqualTo("rwx------");
+		assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(f))).isEqualTo("rw-------");
+		Files.setPosixFilePermissions(f, PosixFilePermissions.fromString("rw-r--r--"));
+		config("", false, f.toString()).init();
+	}
+
+	@Test
 	@DisplayName("本地密钥文件内容格式不对：拒绝启动")
 	void malformedLocalFileRejected(@TempDir Path dir) throws IOException {
 		Path f = dir.resolve("bad.key");
