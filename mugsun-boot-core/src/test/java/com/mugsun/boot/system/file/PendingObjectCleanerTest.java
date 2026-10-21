@@ -198,6 +198,12 @@ class PendingObjectCleanerTest {
 			assertThat(errors.get(0).getFormattedMessage()).startsWith("8 个待删对象")
 				.contains("tmp/f0.png").contains("tmp/f4.png").doesNotContain("tmp/f5.png");
 			assertThat(queue).as("仍不删不丢").hasSize(8);
+			assertThat(queue).allSatisfy(j -> assertThat(j).contains("\"attempts\":0")
+				.contains("\"unknownRounds\":" + (PendingObjectCleaner.MAX_UNKNOWN_ROUNDS + 1)));
+			c.drain();
+			assertThat(app.list.stream().filter(e -> e.getLevel() == ch.qos.logback.classic.Level.ERROR))
+				.as("越线之后的下一轮不再告警").hasSize(1);
+			org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).delete(any());
 		} finally {
 			lg.detachAppender(app);
 		}

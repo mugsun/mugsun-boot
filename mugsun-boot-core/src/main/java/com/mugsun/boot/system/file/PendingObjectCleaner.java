@@ -16,6 +16,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -173,7 +175,7 @@ public class PendingObjectCleaner {
 			drain();
 			sweepLocalStaging();
 		} finally {
-			redis.execute(UNLOCK, java.util.List.of(LOCK_KEY), token);
+			redis.execute(UNLOCK, List.of(LOCK_KEY), token);
 		}
 	}
 
@@ -181,7 +183,7 @@ public class PendingObjectCleaner {
 	int drain() {
 		int ok = 0;
 		int alerted = 0;
-		java.util.List<String> alertSample = new java.util.ArrayList<>();
+		List<String> alertSample = new ArrayList<>();
 		Long size = redis.opsForList().size(QUEUE_KEY);
 		long n = Math.min(size == null ? 0 : size, BATCH);
 		for (long i = 0; i < n; i++) {
