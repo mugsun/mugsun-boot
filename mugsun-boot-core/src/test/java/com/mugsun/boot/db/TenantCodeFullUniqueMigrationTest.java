@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** V11（不连库）：三套方言都把 uk_tenant_code、uk_tenant_ds_code 改回全量唯一，查重在任何 DDL 之前（B1） */
+/** V11（不连库）：三套方言都把 uk_tenant_code 改回全量唯一（uk_tenant_ds_code 不动），查重在任何 DDL 之前（B1） */
 class TenantCodeFullUniqueMigrationTest {
 
 	private static String read(String dir) throws Exception {
@@ -25,7 +25,7 @@ class TenantCodeFullUniqueMigrationTest {
 		String sql = read(dir);
 		String body = sql.lines().filter(l -> !l.trim().startsWith("--")).reduce("", (a, b) -> a + b + "\n");
 		assertThat(body).contains("CREATE UNIQUE INDEX uk_tenant_code ON sys_tenant (tenant_code);");
-		assertThat(body).contains("CREATE UNIQUE INDEX uk_tenant_ds_code ON sys_tenant_datasource (tenant_code);");
+		assertThat(body).as("数据源编号索引保持只约束未删除行，V11 不动").doesNotContain("uk_tenant_ds_code");
 		assertThat(body).doesNotContain("is_deleted");
 		assertThat(body.indexOf("V11 升级中止")).isPositive().isLessThan(body.indexOf("DROP INDEX"));
 	}

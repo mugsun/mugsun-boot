@@ -7,7 +7,7 @@
 - `V8__oper_log_chain_guard.sql`：操作日志哈希链链头锁表 `sys_oper_log_chain` 与 `chain_prev` 唯一索引。
 - `V9__tenant_captcha.sql`：租户验证码开关（原预留 V4；V7、V8 已在 main，未开 `outOfOrder`，所以后移）。
 - `V10__tenant_captcha_types.sql`：租户可用验证码题型（原预留 V5，同样后移到 V9 之后）。
-- `V11__tenant_code_full_unique.sql`：`uk_tenant_code`、`uk_tenant_ds_code` 改回全量唯一（含已删除行），租户编号永不复用；已有编号被复用时中止（三套方言同号）。
+- `V11__tenant_code_full_unique.sql`：`uk_tenant_code` 改回全量唯一（含已删除行），租户编号永不复用；已有编号被复用时中止（三套方言同号）。`uk_tenant_ds_code` 不动，仍只约束未删除行。
 
 ## 迁移规则（0.1.0 已发布）
 

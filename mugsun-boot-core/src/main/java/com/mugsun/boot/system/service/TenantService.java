@@ -23,13 +23,17 @@ import com.mybatisflex.core.logicdelete.LogicDeleteManager;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Random;
+import java.security.SecureRandom;
+import java.util.random.RandomGenerator;
 
 /**
  * 租户服务：创建租户并一键初始化其默认部门/岗位/角色/管理员。
@@ -50,8 +54,28 @@ public class TenantService {
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
 	private final TenantPackageService packageService;
-	/** 非 final：测试替换为固定序列，验证已删除编号不会被复用 */
-	private Random random = new Random();
+	/** 候选编号的随机源，构造注入（测试用固定序列验证已删除编号不会被复用） */
+	private final RandomGenerator random;
+	/** 建租户每次尝试一个独立事务：撞键后整个事务回滚，换号重来（PG 系撞键后事务不能继续用）。单测可传 null，直接执行 */
+	private final TransactionTemplate txTemplate;
+
+	/** genCode 最多抽几次候选编号 */
+	static final int GEN_CODE_MAX_ATTEMPTS = 10;
+	/** 租户行插入撞唯一键（并发建租户抽到同一编号）后，换号重试的次数 */
+	static final int INSERT_DUPLICATE_RETRIES = 2;
+
+	@org.springframework.beans.factory.annotation.Autowired
+	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
+						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
+						 SysRoleMenuMapper roleMenuMapper, SysRoleDeptMapper roleDeptMapper,
+						 TenantDatasourceService datasourceService,
+						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
+						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
+						 TenantPackageService packageService, PlatformTransactionManager txManager) {
+		this(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper, roleMenuMapper, roleDeptMapper,
+			datasourceService, passwordEncoder, tenantValidator, securityPolicyService, packageService, new SecureRandom(),
+			new TransactionTemplate(txManager));
+	}
 
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
 						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
@@ -59,7 +83,9 @@ public class TenantService {
 						 TenantDatasourceService datasourceService,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
 						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
-						 TenantPackageService packageService) {
+						 TenantPackageService packageService, RandomGenerator random, TransactionTemplate txTemplate) {
+		this.random = random;
+		this.txTemplate = txTemplate;
 		this.tenantMapper = tenantMapper;
 		this.deptMapper = deptMapper;
 		this.postMapper = postMapper;
@@ -76,7 +102,6 @@ public class TenantService {
 	}
 
 	/** 创建租户并初始化默认数据，返回租户编号 */
-	@Transactional(rollbackFor = Exception.class)
 	public String create(SysTenant tenant) {
 		if (tenant == null) {
 			throw new ServiceException("请填写租户名称后再创建");
@@ -84,12 +109,35 @@ public class TenantService {
 		normalize(tenant, false);
 		// 验证码开关只能由平台超管经 /system/tenant/captcha 关闭，创建时一律开启
 		tenant.setCaptchaEnabled(1);
-		String code = genCode();
-		tenant.setTenantCode(code);
-		tenantMapper.insertSelective(tenant);
-		// 忽略当前会话租户条件，按新租户编号写入默认数据
-		TenantContext.ignore(() -> initDefaults(code, tenant.getTenantName()));
-		return code;
+		for (int attempt = 0; ; attempt++) {
+			boolean[] tenantRowDuplicate = {false};
+			try {
+				return inTransaction(() -> {
+					String code = genCode();
+					tenant.setTenantCode(code);
+					try {
+						tenantMapper.insertSelective(tenant);
+					} catch (DuplicateKeyException e) {
+						tenantRowDuplicate[0] = true;
+						throw e;
+					}
+					// 忽略当前会话租户条件，按新租户编号写入默认数据
+					TenantContext.ignore(() -> initDefaults(code, tenant.getTenantName()));
+					return code;
+				});
+			} catch (DuplicateKeyException e) {
+				// 只对租户行撞键（并发建租户抽到同一编号）换号重试；默认数据撞键照常抛出
+				tenant.setId(null);
+				tenant.setTenantCode(null);
+				if (!tenantRowDuplicate[0] || attempt >= INSERT_DUPLICATE_RETRIES) {
+					throw e;
+				}
+			}
+		}
+	}
+
+	private <T> T inTransaction(java.util.function.Supplier<T> action) {
+		return txTemplate == null ? action.get() : txTemplate.execute(status -> action.get());
 	}
 
 	/**
@@ -324,12 +372,15 @@ public class TenantService {
 	 * 复用编号会让新租户接手旧租户的残留数据。
 	 */
 	private String genCode() {
-		String code;
-		do {
-			code = String.valueOf(100000 + random.nextInt(900000));
-		} while (tenantCodeTaken(code));
-		return code;
+		for (int i = 0; i < GEN_CODE_MAX_ATTEMPTS; i++) {
+			String code = String.valueOf(100000 + random.nextInt(900000));
+			if (!tenantCodeTaken(code)) {
+				return code;
+			}
+		}
+		throw new ServiceException("没能生成可用的租户编号，请稍后重试");
 	}
+
 
 	private boolean tenantCodeTaken(String code) {
 		Long n = LogicDeleteManager.execWithoutLogicDelete(

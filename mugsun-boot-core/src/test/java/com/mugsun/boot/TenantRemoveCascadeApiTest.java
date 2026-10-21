@@ -118,8 +118,13 @@ class TenantRemoveCascadeApiTest extends AbstractIntegrationTest {
 		Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(tenantService);
 		Object original = org.springframework.test.util.ReflectionTestUtils.getField(target, "random");
 		int deleted = Integer.parseInt(code);
-		org.springframework.test.util.ReflectionTestUtils.setField(target, "random", new java.util.Random() {
+		org.springframework.test.util.ReflectionTestUtils.setField(target, "random", new java.util.random.RandomGenerator() {
 			private boolean first = true;
+
+			@Override
+			public long nextLong() {
+				return ((java.util.random.RandomGenerator) original).nextLong();
+			}
 
 			@Override
 			public int nextInt(int bound) {
@@ -127,7 +132,7 @@ class TenantRemoveCascadeApiTest extends AbstractIntegrationTest {
 					first = false;
 					return deleted - 100000;
 				}
-				return ((java.util.Random) original).nextInt(bound);
+				return ((java.util.random.RandomGenerator) original).nextInt(bound);
 			}
 		});
 		try {

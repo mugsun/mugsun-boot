@@ -157,7 +157,7 @@ class FlywayUpgradeFrom010Test {
 	}
 
 	/**
-	 * V11：租户编号改回全量唯一（含已删除行），删掉的编号不能再用；其余 V7 口径不变。
+	 * V11：租户编号改回全量唯一（含已删除行），删掉的编号不能再用；数据源编号仍可删后重建。
 	 */
 	@Test
 	void deletedTenantCodeCannotBeReusedAfterV11() throws Exception {
@@ -172,11 +172,54 @@ class FlywayUpgradeFrom010Test {
 					"INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (9100000000000000302, '700301', 'T2', 0)"));
 				assertThat((Object) e).as("已删除租户的编号不能复用").isNotNull();
 				assertThat(e.getSQLState()).isEqualTo("23505");
-				st.execute("INSERT INTO sys_tenant_datasource (id, tenant_code, ds_url, ds_username, ds_password, is_deleted) VALUES (9100000000000000311, '700301', 'u', 'u', 'p', 1)");
-				e = org.assertj.core.api.Assertions.catchThrowableOfType(java.sql.SQLException.class, () -> st.execute(
-					"INSERT INTO sys_tenant_datasource (id, tenant_code, ds_url, ds_username, ds_password, is_deleted) VALUES (9100000000000000312, '700301', 'u', 'u', 'p', 0)"));
-				assertThat((Object) e).as("已删除数据源的租户编号不能复用").isNotNull();
-				assertThat(e.getSQLState()).isEqualTo("23505");
+				// 数据源编号仍只约束未删除行：同一租户删掉数据源配置后可以用同一编号重建
+				st.execute("INSERT INTO sys_tenant_datasource (id, tenant_code, ds_url, ds_username, ds_password, is_deleted) VALUES (9100000000000000311, '700301', 'u', 'u', 'p', 0)");
+				st.execute("UPDATE sys_tenant_datasource SET is_deleted = 1 WHERE id = 9100000000000000311");
+				st.execute("INSERT INTO sys_tenant_datasource (id, tenant_code, ds_url, ds_username, ds_password, is_deleted) VALUES (9100000000000000312, '700301', 'u', 'u', 'p', 0)");
+				assertThat(count(st, "SELECT count(*) FROM sys_tenant_datasource WHERE tenant_code = '700301'")).isEqualTo(2);
+			}
+		});
+	}
+
+	/**
+	 * 迁到最新版本后再跑一遍 verify.sql（去掉租户段）：用户名、用户-角色、角色-菜单、角色-部门、手机号、租户数据源
+	 * 的 V7 口径在最新 schema 上仍成立；租户编号在 V11 后不再允许删后重建，单独由上面的用例覆盖。
+	 */
+	@Test
+	void v7RulesStillHoldOnLatestSchema() throws Exception {
+		withTempDb(url -> {
+			Flyway.configure().dataSource(url, user, pass)
+				.locations("classpath:db/migration").baselineOnMigrate(true).baselineVersion("0")
+				.placeholderReplacement(false).target("3").load().migrate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				executeScript(st, "db/unique-delete-flag/scenario.sql");
+			}
+			Flyway current = current(url);
+			current.migrate();
+			current.validate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				int run = 0;
+				for (String sql : statements(readResource("db/unique-delete-flag/verify.sql"))) {
+					if (sql.matches("(?s).*\\bsys_tenant\\b(?!_).*")) {
+						continue;
+					}
+					st.execute(sql);
+					run++;
+				}
+				assertThat(run).isPositive();
+				assertThat(count(st, "SELECT count(*) FROM sys_tenant WHERE tenant_code = '700001'")).isEqualTo(1);
+				assertThat(count(st, "SELECT count(*) FROM sys_user WHERE username = 'u1'")).isEqualTo(3);
+				assertThat(count(st, "SELECT count(*) FROM sys_role_menu WHERE role_id = 9100000000000000031")).isEqualTo(3);
+				assertThat(count(st, "SELECT count(*) FROM sys_tenant_datasource WHERE tenant_code = 't1'")).isEqualTo(3);
+				int n = 0;
+				for (String sql : statements(readResource("db/unique-delete-flag/negative.sql"))) {
+					n++;
+					java.sql.SQLException e = org.assertj.core.api.Assertions.catchThrowableOfType(
+						java.sql.SQLException.class, () -> st.execute(sql));
+					assertThat((Object) e).as("第 %d 条应撞唯一键：%s", n, sql).isNotNull();
+					assertThat(e.getSQLState()).as(sql).isEqualTo("23505");
+				}
+				assertThat(n).isEqualTo(8);
 			}
 		});
 	}

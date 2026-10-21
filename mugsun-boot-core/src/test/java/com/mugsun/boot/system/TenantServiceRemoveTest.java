@@ -35,7 +35,6 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
-import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -82,7 +81,7 @@ class TenantServiceRemoveTest {
 		when(provider.getIfAvailable()).thenReturn(registry);
 		service = new TenantService(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper,
 			roleMenuMapper, roleDeptMapper, new TenantDatasourceService(datasourceMapper, provider),
-			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null);
+			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null, new java.util.Random(), null);
 	}
 
 	private static SysTenant tenant(long id, String code) {
@@ -199,31 +198,87 @@ class TenantServiceRemoveTest {
 	}
 
 	/** 依次给出固定候选：nextInt(900000) 返回 code - 100000 */
-	private static Random sequence(int... codes) {
-		return new Random() {
-			private int i;
+	private static java.util.random.RandomGenerator sequence(int... codes) {
+		int[] i = {0};
+		return new java.util.random.RandomGenerator() {
+			@Override
+			public long nextLong() {
+				throw new UnsupportedOperationException();
+			}
 
 			@Override
 			public int nextInt(int bound) {
-				return codes[i++] - 100000;
+				return codes[Math.min(i[0]++, codes.length - 1)] - 100000;
 			}
 		};
 	}
 
+	private TenantService serviceWith(java.util.random.RandomGenerator random) {
+		ObjectProvider<TenantDataSourceRegistry> provider = mock(ObjectProvider.class);
+		return new TenantService(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper,
+			roleMenuMapper, roleDeptMapper, new TenantDatasourceService(datasourceMapper, provider),
+			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null, random, null);
+	}
+
+	private static Object invoke(Object target, String name, Class<?>[] types, Object... args) throws Throwable {
+		java.lang.reflect.Method m = TenantService.class.getDeclaredMethod(name, types);
+		m.setAccessible(true);
+		try {
+			return m.invoke(target, args);
+		} catch (java.lang.reflect.InvocationTargetException e) {
+			throw e.getCause();
+		}
+	}
+
 	@Test
 	@DisplayName("建租户编号：查重绕过逻辑删除，已删除租户的编号不会被复用")
-	void genCodeSkipsCodesOfDeletedTenants() throws Exception {
+	void genCodeSkipsCodesOfDeletedTenants() throws Throwable {
 		// 700001 是已删除租户：只有不带逻辑删除过滤的查询才看得到它
 		when(tenantMapper.selectCountByQuery(any(QueryWrapper.class))).thenAnswer(inv -> {
 			boolean seesDeleted = com.mybatisflex.core.logicdelete.LogicDeleteManager.getLogicDeleteColumn("is_deleted") == null;
 			return sql(inv.getArgument(0)).contains("'700001'") && seesDeleted ? 1L : 0L;
 		});
-		org.springframework.test.util.ReflectionTestUtils.setField(service, "random", sequence(700001, 700002));
-		java.lang.reflect.Method genCode = TenantService.class.getDeclaredMethod("genCode");
-		genCode.setAccessible(true);
+		TenantService svc = serviceWith(sequence(700001, 700002));
 
-		assertThat(genCode.invoke(service)).isEqualTo("700002");
+		assertThat(invoke(svc, "genCode", new Class<?>[0])).isEqualTo("700002");
 		// 查完恢复逻辑删除过滤，不影响同线程后续查询
 		assertThat(com.mybatisflex.core.logicdelete.LogicDeleteManager.getLogicDeleteColumn("is_deleted")).isEqualTo("is_deleted");
+	}
+
+	@Test
+	@DisplayName("建租户编号：连续抽 10 次都被占用就报错，不会无限循环")
+	void genCodeGivesUpAfterMaxAttempts() {
+		when(tenantMapper.selectCountByQuery(any(QueryWrapper.class))).thenReturn(1L);
+		TenantService svc = serviceWith(sequence(700001));
+
+		assertThatThrownBy(() -> invoke(svc, "genCode", new Class<?>[0]))
+			.isInstanceOf(ServiceException.class).hasMessageContaining("没能生成可用的租户编号");
+		verify(tenantMapper, org.mockito.Mockito.times(10)).selectCountByQuery(any(QueryWrapper.class));
+	}
+
+	@Test
+	@DisplayName("并发建租户撞键：换号重试，最多重试 2 次，仍冲突抛 DuplicateKeyException（core 返回 400 数据已存在）")
+	void createRetriesOnDuplicateTenantCodeThenGivesUp() {
+		when(tenantMapper.selectCountByQuery(any(QueryWrapper.class))).thenReturn(0L);
+		when(tenantMapper.insertSelective(any(SysTenant.class)))
+			.thenThrow(new org.springframework.dao.DuplicateKeyException("dup"))
+			.thenReturn(1);
+		// 租户行插入成功后进入默认数据初始化：这里用标记异常截停，只验证换号
+		when(deptMapper.insertSelective(any(SysDept.class))).thenThrow(new IllegalStateException("stop-after-tenant-row"));
+		TenantService svc = serviceWith(sequence(700001, 700002));
+		SysTenant t = new SysTenant();
+		t.setTenantName("并发");
+		assertThatThrownBy(() -> svc.create(t)).hasMessage("stop-after-tenant-row");
+		assertThat(t.getTenantCode()).isEqualTo("700002");
+		verify(tenantMapper, org.mockito.Mockito.times(2)).insertSelective(any(SysTenant.class));
+
+		org.mockito.Mockito.reset(tenantMapper);
+		when(tenantMapper.selectCountByQuery(any(QueryWrapper.class))).thenReturn(0L);
+		when(tenantMapper.insertSelective(any(SysTenant.class))).thenThrow(new org.springframework.dao.DuplicateKeyException("dup"));
+		TenantService always = serviceWith(sequence(700011, 700012, 700013, 700014));
+		SysTenant t2 = new SysTenant();
+		t2.setTenantName("并发2");
+		assertThatThrownBy(() -> always.create(t2)).isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
+		verify(tenantMapper, org.mockito.Mockito.times(3)).insertSelective(any(SysTenant.class));
 	}
 }
