@@ -15,6 +15,8 @@ import re
 import sys
 
 USES_RE = re.compile(r"^\s*(?:-\s+)?uses:\s*(['\"]?)([^\s'\"#]+)\1\s*(#.*)?$")
+# flow-map 写法：- {uses: x@v4} / {name: a, uses: 'x@v4'}；行尾注释在 } 之后
+FLOW_USES_RE = re.compile(r"[{,]\s*uses:\s*(['\"]?)([^\s'\",}#]+)\1\s*[,}].*?(#.*)?$")
 SHA_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[^@]+)?@[0-9a-f]{40}$")
 VERSION_COMMENT_RE = re.compile(r"^#\s*v\d+(?:\.\d+)*\b")
 
@@ -58,7 +60,7 @@ def check_file(path: pathlib.Path, errors):
             errors.append(f"{path}:{i} 禁用 pull_request_target")
         if re.search(r"^\s+permissions:\s*write-all\s*$", code):
             errors.append(f"{path}:{i} 禁止 permissions: write-all，按需逐项放开")
-        m = USES_RE.match(raw)
+        m = USES_RE.match(raw) or FLOW_USES_RE.search(raw)
         if not m:
             continue
         ref, comment = m.group(2), (m.group(3) or "").strip()

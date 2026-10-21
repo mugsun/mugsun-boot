@@ -1,0 +1,14 @@
+# check-workflows.py 的反例：每一行违规都必须被报出（CI 里自检）
+on:
+  pull_request_target:
+jobs:
+  bad:
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - {uses: actions/checkout@v4}
+      - {name: flow-map, uses: 'actions/setup-java@v5'}
+      - {uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262}
+      - uses: docker://alpine:3

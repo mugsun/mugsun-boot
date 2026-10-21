@@ -24,6 +24,9 @@ jobs:
       - name: Check workflow rules
         run: python3 scripts/ci/check-workflows.py .github/workflows
 
+      - name: Self-test check-workflows
+        run: bash scripts/ci/test-check-workflows.sh
+
       # actionlint 钉版本并校验 sha256，不用 curl | sh
       - name: actionlint
         env:
@@ -103,12 +106,14 @@ jobs:
       - name: Checkout mugsun-core
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           repository: mugsun/mugsun-core
           path: mugsun-core
 
       - name: Checkout mugsun-boot
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           path: mugsun-boot
           fetch-depth: 0
 
@@ -127,7 +132,7 @@ jobs:
 
       - name: Install mugsun-core
         working-directory: mugsun-core
-        run: mvn -B install -DskipTests
+        run: mvn -B -C install -DskipTests
 
       # B89-0：根 pom 的 bannedDependencies 规则必须真的会拦下 Spring AI 与 MCP SDK（探针工程逐个验证）
       - name: Prove banned-dependency rule trips
@@ -137,11 +142,11 @@ jobs:
       # 信创驱动 profile 平时不进 verify；validate 一次，确保 enforcer 等规则在 full + kingbase + dameng 组合下也成立
       - name: Validate full + kingbase + dameng profiles
         working-directory: mugsun-boot
-        run: mvn -B validate -Pfull,kingbase,dameng
+        run: mvn -B -C validate -Pfull,kingbase,dameng
 
       - name: Verify mugsun-boot
         working-directory: mugsun-boot
-        run: mvn -B verify
+        run: mvn -B -C verify
 
       # 模块开关回归用例在 surefire 控制台只打印类名与条数；这里把用例名从报告 XML 列到日志里，便于核对 CI 实际跑了哪些
       - name: List module-switch ApiTest cases
