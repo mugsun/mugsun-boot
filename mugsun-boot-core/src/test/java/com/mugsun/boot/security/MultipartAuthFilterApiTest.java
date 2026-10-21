@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 端到端复现 P3「匿名 multipart 预解析」：未登录的 multipart 在解析之前被拒，不触发解析、不写临时文件
  * （max-swallow-size 以内容器仍可能读完请求体再丢弃，这里不断言）；
  * 登录后的正常上传和超限 400 保持不变；过滤器排在所有会读参数的 Filter 之前。
- * <p>计数靠 {@link MultipartResolverRecorder}（被扫描进共享上下文的 BeanPostProcessor），每个用例独立，
+ * <p>计数靠 {@link MultipartResolverRecorder}（集成测试基类 @Import 引入的 BeanPostProcessor），每个用例独立，
  * 单独运行本类也成立；{@link #recorderIsActive} 与 {@link #authenticatedUploadStillWorks} 是正对照。
  */
 class MultipartAuthFilterApiTest extends AbstractIntegrationTest {
@@ -62,7 +62,6 @@ class MultipartAuthFilterApiTest extends AbstractIntegrationTest {
 
 	@BeforeEach
 	void resetCounters() {
-		MultipartResolverRecorder.tmpCounter = () -> MultipartResolverRecorder.countTmp(servletContext);
 		MultipartResolverRecorder.reset();
 		tmpBaseline = MultipartResolverRecorder.countTmp(servletContext);
 	}
