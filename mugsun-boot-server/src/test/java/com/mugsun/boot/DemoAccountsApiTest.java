@@ -97,6 +97,13 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 			PROPERTY_OVERRIDES.putAll(overrides);
 		}
 		cmd.add("--spring.profiles.active=test");
+		// 密钥不再有内置回落：与测试上下文用同一组 mugsun.crypto.* 配置（取自 AbstractIntegrationTest 的注解，不重复写值）
+		for (String prop : AbstractIntegrationTest.class
+				.getAnnotation(org.springframework.boot.test.context.SpringBootTest.class).properties()) {
+			if (prop.startsWith("mugsun.crypto.")) {
+				cmd.add("--" + prop);
+			}
+		}
 		cmd.add("--server.port=0");
 		cmd.add("--" + DemoConstants.MIGRATE_ONLY_PROPERTY + "=true");
 		java.io.File log = new java.io.File("target/demo-migrate-only.log");
@@ -400,10 +407,16 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 	@Test
 	void perIpRateLimitIsSharedThroughRedis() throws Exception {
 		String ip = "198.51.100." + (System.nanoTime() % 200);
-		for (int i = 0; i < 120; i++) {
-			assertThat(rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ip)).as("token %d", i).isTrue();
+		// 120/分钟是贪婪补充（每 0.5 秒补 1 个）：机器慢时 120 次 Redis 往返超过 0.5 秒就会多补，
+		// 固定断言「第 121 次失败」会偶发失败。改为取到拒绝为止，按实际耗时给补充量留余量。
+		long start = System.nanoTime();
+		int acquired = 0;
+		while (acquired < 1000 && rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ip)) {
+			acquired++;
 		}
-		assertThat(rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ip)).isFalse();
+		double elapsedSec = (System.nanoTime() - start) / 1e9;
+		assertThat(acquired).isGreaterThanOrEqualTo(120)
+			.isLessThanOrEqualTo(120 + (int) Math.ceil(elapsedSec * 2) + 1);
 		// 别的 IP、别的维度不受影响
 		assertThat(rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ip + "1")).isTrue();
 		assertThat(rateLimiter.tryAcquire(DemoRateLimiter.Scope.LOGIN, ip)).isTrue();

@@ -10,8 +10,10 @@ mugsun:
     # e2e 走 :3007 时改为 http://localhost:3007，或导出 MUGSUN_FRONT_URL
     front-url: http://localhost:3006
   crypto:
-    sm4-key: mugsun-local-sm4
-    api-key: mugsun-local-apk
+    # 留空：dev profile 用 ~/.mugsun/dev-sm4.key（首次启动生成）；要固定就填 openssl rand -hex 16 的结果（32 位 hex）
+    sm4-key:
+    # 留空：dev profile 用进程内临时密钥；要和前端互通就填 openssl rand -hex 16 的结果
+    api-key:
     # 下列占位须换成你自己的密钥对；留空则每次启动临时生成（登录会 flake）
     sm2-private-key:
     sm2-public-key:
