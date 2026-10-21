@@ -131,4 +131,10 @@ scripts/check-banned-dependencies.sh
 - 提交的作者和提交者一律用 `mugsun <bydongxin@gmail.com>`：只在仓库级配置（`git config --local`）里设，或用 `git -c user.name=… -c user.email=…` 传入，不改全局配置。已推送的历史不改；未推送的提交推送前用 `git rebase --exec 'git commit --amend --no-edit --reset-author'` 重做，并确认提交者也是 bydongxin@gmail.com。这条 rebase 只用于未推送的提交；已推送的提交改身份要从 origin/main 新开分支 cherry-pick 后 `commit --amend --reset-author`，旧分支不动。
 - 合入 main 后，作者自己删掉远端分支（`git push origin --delete <分支>`）。
 - **只有分支最新的 commit 已经在分支上跑过同名必需检查、并且全绿，才可以快进推入 main。推送前用 `gh run list --commit <sha>` 自己确认。不要 force push。**
+- 推 main 前的防误推（同步清单 3.20）：
+  1. 先核对这个完整 SHA 已经审过（审查结论里写的就是它），并且 `gh run list --commit <完整SHA>` 显示同名检查全绿；短 SHA 查到空不算核对。
+  2. 推送一律写全 refspec：`git push origin <sha>:refs/heads/<分支>`，不用裸 `git push`、`HEAD` 或依赖 upstream 跟踪。
+  3. 还没审的本地提交，不放在跟踪 main（upstream 为 origin/main）的分支上。
+  4. 改动 `.github/` 下任何文件的提交，必须先有安全官签字，才能进 main。
+  5. 一个 worktree 只给一条工作线用，另开的工作线一律新建自己的 worktree；推送前用 `git rev-parse HEAD` 对照审过的 SHA。被打断的 push 先用 `git ls-remote` 和 `ps` 确认没有在后台跑完，再做下一步。
 - 鉴权、租户、密钥、新依赖、公开 API、CI workflow 属于敏感改动，需安全审查后再合。
