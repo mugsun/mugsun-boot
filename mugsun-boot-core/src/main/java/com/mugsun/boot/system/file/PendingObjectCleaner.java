@@ -3,6 +3,10 @@ package com.mugsun.boot.system.file;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mugsun.boot.common.constant.OssConstants;
+import com.mugsun.boot.system.mapper.SysAttachMapper;
+import com.mugsun.boot.tenant.TenantContext;
+import com.mybatisflex.core.query.QueryWrapper;
 import org.dromara.x.file.storage.core.FileInfo;
 import org.dromara.x.file.storage.core.FileStorageService;
 import org.slf4j.Logger;
@@ -20,6 +24,9 @@ import java.util.UUID;
  * <p>队列项可带 {@code notBefore}（毫秒时间戳），没到时间不删也不计失败次数：用于直传暂存 key
  * 在预签名 URL 过期后再删一次，防止有效期内被再次 PUT 后遗留。
  * <p>本地存储不支持直传，但仍按天清掉各本地平台暂存前缀 {@code tmp/} 下超过 1 天的文件兜底。
+ * <p><b>删除前护栏</b>：只删两类 key——暂存前缀 {@code tmp/} 下的，或本次登记流程刚复制出、标了
+ * {@code fresh} 且文件名是服务端随机名的；两类都必须没有在 sys_attach 登记。已登记的对象一律不删，
+ * 打告警并丢弃该队列项；查登记表出错时不删，按失败重试。
  * <p>集群下用 Redis SETNX 锁保证同一时刻只有一个节点在扫；释放锁用 Lua 先比较 token 再删。
  */
 @Component
@@ -33,7 +40,10 @@ public class PendingObjectCleaner {
 
 	private final StringRedisTemplate redis;
 	private final FileStorageService fileStorageService;
+	private final SysAttachMapper attachMapper;
 	private final ObjectMapper om = new ObjectMapper();
+	/** 服务端随机存储名：UploadPolicy.storedName 生成的 32 位十六进制 + 扩展名 */
+	private static final java.util.regex.Pattern RANDOM_NAME = java.util.regex.Pattern.compile("[0-9a-f]{32}\\.[a-z0-9]{1,8}");
 	/** 先比较 token 再删，避免锁过期后误删别的节点刚拿到的锁 */
 	static final org.springframework.data.redis.core.script.RedisScript<Long> UNLOCK =
 		new org.springframework.data.redis.core.script.DefaultRedisScript<>(
@@ -41,34 +51,76 @@ public class PendingObjectCleaner {
 			Long.class);
 	private static final long LOCAL_STAGING_TTL_MS = 24L * 3600 * 1000;
 
-	public PendingObjectCleaner(StringRedisTemplate redis, FileStorageService fileStorageService) {
+	public PendingObjectCleaner(StringRedisTemplate redis, FileStorageService fileStorageService,
+								SysAttachMapper attachMapper) {
 		this.redis = redis;
 		this.fileStorageService = fileStorageService;
+		this.attachMapper = attachMapper;
 	}
 
-	/** 立即删一次；失败就入队，不向调用方抛错 */
+	/** 暂存 key：立即删一次，失败就入队，不向调用方抛错 */
 	public void deleteOrEnqueue(FileInfo info) {
-		if (!tryDelete(info)) {
-			enqueue(info, 0);
+		deleteOrEnqueue(info, false);
+	}
+
+	/** fresh=true 表示本次登记流程刚复制出、还没登记的随机 key */
+	public void deleteOrEnqueue(FileInfo info, boolean fresh) {
+		Verdict v = check(info, fresh);
+		if (v == Verdict.REFUSE) {
+			return;
+		}
+		if (v == Verdict.UNKNOWN || !tryDelete(info)) {
+			enqueue(info, 0, 0L, fresh);
 		}
 	}
 
-	/** 排一条不早于 notBefore 才执行的删除 */
+	/** 排一条不早于 notBefore 才执行的暂存 key 删除 */
 	public void enqueueAfter(FileInfo info, long notBefore) {
-		enqueue(info, 0, notBefore);
+		enqueue(info, 0, notBefore, false);
 	}
 
 	void enqueue(FileInfo info, int attempts) {
-		enqueue(info, attempts, 0L);
+		enqueue(info, attempts, 0L, false);
 	}
 
-	void enqueue(FileInfo info, int attempts, long notBefore) {
+	enum Verdict { ALLOW, REFUSE, UNKNOWN }
+
+	/** 删除前护栏，见类注释 */
+	Verdict check(FileInfo info, boolean fresh) {
+		String path = info.getPath() == null ? "" : info.getPath();
+		String name = info.getFilename() == null ? "" : info.getFilename();
+		boolean staging = path.equals(OssConstants.PATH_STAGING) || path.startsWith(OssConstants.PATH_STAGING);
+		boolean freshKey = fresh && RANDOM_NAME.matcher(name).matches()
+			&& (path.equals(OssConstants.PATH_PUBLIC) || path.equals(OssConstants.PATH_PRIVATE));
+		if (!staging && !freshKey) {
+			log.warn("待删对象不在暂存前缀，也不是本次新生成的 key，拒绝删除并丢弃：{}/{}{}", info.getPlatform(), path, name);
+			return Verdict.REFUSE;
+		}
+		long registered;
+		try {
+			registered = TenantContext.ignore(() -> attachMapper.selectCountByQuery(QueryWrapper.create()
+				.eq("platform", info.getPlatform()).eq("path", path).eq("filename", name)));
+		} catch (Exception e) {
+			log.warn("查附件登记失败，暂不删除：{}{}", path, name);
+			return Verdict.UNKNOWN;
+		}
+		if (registered > 0) {
+			log.warn("待删对象已在附件表登记，拒绝删除并丢弃：{}/{}{}", info.getPlatform(), path, name);
+			return Verdict.REFUSE;
+		}
+		return Verdict.ALLOW;
+	}
+
+	void enqueue(FileInfo info, int attempts, long notBefore, boolean fresh) {
 		ObjectNode n = om.createObjectNode();
 		n.put("platform", info.getPlatform());
 		n.put("basePath", info.getBasePath() == null ? "" : info.getBasePath());
 		n.put("path", info.getPath());
 		n.put("filename", info.getFilename());
 		n.put("attempts", attempts);
+		if (fresh) {
+			n.put("fresh", true);
+		}
 		if (notBefore > 0) {
 			n.put("notBefore", notBefore);
 		}
@@ -122,12 +174,14 @@ public class PendingObjectCleaner {
 			FileInfo info;
 			int attempts;
 			long notBefore;
+			boolean fresh;
 			try {
 				JsonNode j = om.readTree(json);
 				info = new FileInfo().setPlatform(j.path("platform").asText()).setBasePath(j.path("basePath").asText(""))
 					.setPath(j.path("path").asText()).setFilename(j.path("filename").asText());
 				attempts = j.path("attempts").asInt();
 				notBefore = j.path("notBefore").asLong(0L);
+				fresh = j.path("fresh").asBoolean(false);
 			} catch (Exception e) {
 				log.error("待清理队列里有读不出的条目，已丢弃：{}", json);
 				continue;
@@ -136,13 +190,17 @@ public class PendingObjectCleaner {
 				redis.opsForList().rightPush(QUEUE_KEY, json);
 				continue;
 			}
-			if (tryDelete(info)) {
+			Verdict v = check(info, fresh);
+			if (v == Verdict.REFUSE) {
+				continue;
+			}
+			if (v == Verdict.ALLOW && tryDelete(info)) {
 				ok++;
 			} else if (attempts + 1 >= MAX_ATTEMPTS) {
 				log.error("存储对象重删 {} 次仍失败，已放弃，需人工删除：{}/{}{}", MAX_ATTEMPTS, info.getPlatform(),
 					info.getPath(), info.getFilename());
 			} else {
-				enqueue(info, attempts + 1);
+				enqueue(info, attempts + 1, 0L, fresh);
 			}
 		}
 		return ok;
@@ -157,7 +215,7 @@ public class PendingObjectCleaner {
 				continue;
 			}
 			java.io.File dir = new java.io.File(local.getAbsolutePath(
-				(local.getBasePath() == null ? "" : local.getBasePath()) + com.mugsun.boot.common.constant.OssConstants.PATH_STAGING));
+				(local.getBasePath() == null ? "" : local.getBasePath()) + OssConstants.PATH_STAGING));
 			java.io.File[] files = dir.listFiles();
 			if (files == null) {
 				continue;

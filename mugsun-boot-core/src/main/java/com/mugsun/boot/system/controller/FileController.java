@@ -442,13 +442,13 @@ public class FileController {
 			storage.sameCopy(staged, dest, fileStorageService.copy(staged).setPath(targetPath).setFilename(newName));
 		} catch (Exception e) {
 			log.warn("直传对象复制到新 key 失败：{}", staged.getFilename());
-			pendingObjectCleaner.deleteOrEnqueue(dest);
+			pendingObjectCleaner.deleteOrEnqueue(dest, true);
 			cleanStaged(staged, notBefore);
 			throw new ServiceException("文件登记没有成功。请重新选择文件再上传");
 		}
 		cleanStaged(staged, notBefore);
 		if (!verifyObject(dest)) {
-			pendingObjectCleaner.deleteOrEnqueue(dest);
+			pendingObjectCleaner.deleteOrEnqueue(dest, true);
 			throw new ServiceException("上传的文件和申请时登记的大小或类型对不上。请重新选择文件再上传");
 		}
 		dest.setUrl(ossService.predictUrl(dest.getPlatform(), targetPath, newName));
@@ -458,7 +458,7 @@ public class FileController {
 			}
 		} catch (Exception e) {
 			log.warn("直传对象登记失败，新 key 进待清理队列：{}", newName);
-			pendingObjectCleaner.deleteOrEnqueue(dest);
+			pendingObjectCleaner.deleteOrEnqueue(dest, true);
 			throw new ServiceException("文件登记没有成功。请重新选择文件再上传");
 		}
 		return dest;
