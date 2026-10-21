@@ -18,7 +18,10 @@
   - 移除的接口与字段：`GET /auth/captcha`（返回 `captchaUuid`、`captchaImage`、`expireSeconds`、`captchaCode`）不再存在；`POST /auth/login`、`/auth/register`、`/auth/forget-code`、`/auth/sms-login` 不再读请求体里的 `captchaUuid`、`captchaCode`（传了也忽略）。`/auth/sms-login` 不再校验验证码，验证码前移到 `/auth/sms-code`（带 `captchaToken`）
   - 移除的配置：`mugsun.captcha.type=IMAGE`（`SLIDER` / `IMAGE` 切换）、`mugsun.captcha.expire-seconds`（旧数字码有效期，已无作用）。`mugsun.captcha.type` 只认 `SLIDER`（不起作用，启动打 WARN，请删掉）；写 `IMAGE` 或其它值启动失败，报错写明「IMAGE 已移除」
   - 新配置 `mugsun.captcha.default-types`，平台默认 `SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW`（五种全开；`application-demo.yml` 相同）：默认就是多题型随机，每次取题从这五种里随机出一种，`GET /auth/captcha/config` 返回 `type: RANDOM`；键盘模式只出 `SLIDER` / `ROTATE`。只接受上面五个题型名（不区分大小写），空值、未知值、`IMAGE` 一律启动失败，报错写出配置项、环境变量名（`MUGSUN_CAPTCHA_DEFAULT_TYPES`）和转义后的原值。租户可单独设置题型（`POST /system/tenant/captcha` 的 `types`，仅平台超管）
-  - 取舍：五种题型随机时，攻击者可以反复刷新、等到最弱的题型再解，整体强度接近最弱的那一种。后续计划：同一会话或 IP 在一段时间内固定题型；取了题没答或过期也算一次失败；拼图改成 3×3 并加接缝扰动
+  - 取舍：五种题型随机时，攻击者可以反复刷新、等到最弱的题型再解，整体强度接近最弱的那一种。后续计划：
+    - 同一会话或 IP 在一段时间内固定题型
+    - 取了题没答或过期，也算一次失败
+    - 拼图改成 3×3，并加接缝扰动
   - 总开关不变：`mugsun.captcha.enabled=false` 时所有场景都不要验证码。租户开关 `sys_tenant.captcha_enabled` 照旧；客户端开关 `sys_client.captcha_enabled` 不再参与判定（列与字段暂留）。`mugsun.captcha.show-code` 现在只控制双因子登录验证码回显
   - 演示环境只读白名单放行 `POST /auth/captcha/challenge`、`POST /auth/captcha/verify`（只写 Redis 挑战记录与日志库），否则演示账号无法登录
   - 数据库：本次没有新迁移。租户开关与题型列来自已发布的 `V9__tenant_captcha.sql`、`V10__tenant_captcha_types.sql`（`captcha_types` 为 NULL 时用平台默认 `mugsun.captcha.default-types`，所以默认题型改成五种随机不用改库）；旧数字码没有菜单或系统参数，不需要清理。Redis 里旧数字码的 `mugsun:captcha:<uuid>` 键最多 5 分钟后自然过期

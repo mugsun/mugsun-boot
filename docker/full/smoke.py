@@ -27,6 +27,7 @@ cap = call("POST", "/api/auth/captcha/challenge", {"scene": "login", "clientId":
                                                  "inputMode": "keyboard"})
 assert cap.get("code") == 200, f"取验证码失败: {cap}"
 cap = cap["data"]
+print(f"验证码题型: {cap['type']}")
 assert cap["type"] in ("SLIDER", "ROTATE"), f"键盘模式只应出 SLIDER/ROTATE: {cap['type']}"
 rec = r.get("mugsun:captcha:v2:challenge:" + cap["captchaId"])
 assert rec, "Redis 里没有验证码答案"
