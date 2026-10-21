@@ -19,6 +19,7 @@ import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
 import com.mugsun.boot.tenant.TenantPackageService;
 import com.mugsun.core.tool.exception.ServiceException;
+import com.mybatisflex.core.logicdelete.LogicDeleteManager;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -49,7 +50,8 @@ public class TenantService {
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
 	private final TenantPackageService packageService;
-	private final Random random = new Random();
+	/** 非 final：测试替换为固定序列，验证已删除编号不会被复用 */
+	private Random random = new Random();
 
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
 						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
@@ -316,12 +318,22 @@ public class TenantService {
 		userRoleMapper.insertSelective(userRole);
 	}
 
-	/** 生成 6 位租户编号，规避超管保留号 000000 且不重复 */
+	/**
+	 * 生成 6 位租户编号，规避超管保留号 000000 且永不复用。
+	 * 查重绕过逻辑删除过滤，已删除租户的编号也算占用：级联只清组织数据，业务表、凭据、会话和数据源路由仍按编号关联，
+	 * 复用编号会让新租户接手旧租户的残留数据。
+	 */
 	private String genCode() {
 		String code;
 		do {
 			code = String.valueOf(100000 + random.nextInt(900000));
-		} while (tenantMapper.selectCountByQuery(QueryWrapper.create().eq("tenant_code", code)) > 0);
+		} while (tenantCodeTaken(code));
 		return code;
+	}
+
+	private boolean tenantCodeTaken(String code) {
+		Long n = LogicDeleteManager.execWithoutLogicDelete(
+			() -> tenantMapper.selectCountByQuery(QueryWrapper.create().eq("tenant_code", code)));
+		return n != null && n > 0;
 	}
 }

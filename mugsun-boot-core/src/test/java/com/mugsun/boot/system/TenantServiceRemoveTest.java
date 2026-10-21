@@ -35,6 +35,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
+import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -195,5 +196,34 @@ class TenantServiceRemoveTest {
 			SysRole.class, SysRoleMenu.class, SysRoleDept.class, SysTenantDatasource.class)) {
 			assertThat(BaseEntity.class).as(c.getSimpleName()).isAssignableFrom(c);
 		}
+	}
+
+	/** 依次给出固定候选：nextInt(900000) 返回 code - 100000 */
+	private static Random sequence(int... codes) {
+		return new Random() {
+			private int i;
+
+			@Override
+			public int nextInt(int bound) {
+				return codes[i++] - 100000;
+			}
+		};
+	}
+
+	@Test
+	@DisplayName("建租户编号：查重绕过逻辑删除，已删除租户的编号不会被复用")
+	void genCodeSkipsCodesOfDeletedTenants() throws Exception {
+		// 700001 是已删除租户：只有不带逻辑删除过滤的查询才看得到它
+		when(tenantMapper.selectCountByQuery(any(QueryWrapper.class))).thenAnswer(inv -> {
+			boolean seesDeleted = com.mybatisflex.core.logicdelete.LogicDeleteManager.getLogicDeleteColumn("is_deleted") == null;
+			return sql(inv.getArgument(0)).contains("'700001'") && seesDeleted ? 1L : 0L;
+		});
+		org.springframework.test.util.ReflectionTestUtils.setField(service, "random", sequence(700001, 700002));
+		java.lang.reflect.Method genCode = TenantService.class.getDeclaredMethod("genCode");
+		genCode.setAccessible(true);
+
+		assertThat(genCode.invoke(service)).isEqualTo("700002");
+		// 查完恢复逻辑删除过滤，不影响同线程后续查询
+		assertThat(com.mybatisflex.core.logicdelete.LogicDeleteManager.getLogicDeleteColumn("is_deleted")).isEqualTo("is_deleted");
 	}
 }

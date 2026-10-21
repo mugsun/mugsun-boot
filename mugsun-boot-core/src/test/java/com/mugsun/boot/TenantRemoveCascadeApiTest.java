@@ -99,4 +99,45 @@ class TenantRemoveCascadeApiTest extends AbstractIntegrationTest {
 			assertThat(scalar(c, "SELECT count(*) FROM sys_user WHERE tenant_id = ? AND is_deleted = 0", other)).isPositive();
 		}
 	}
+
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.mugsun.boot.system.service.TenantService tenantService;
+
+	@Test
+	void createAfterDeleteDoesNotReuseTenantCode() throws Exception {
+		String adminToken = loginAdmin();
+		String code = createTenant(adminToken, "编号复用测试");
+		long tenantId;
+		try (Connection c = db()) {
+			tenantId = scalar(c, "SELECT id FROM sys_tenant WHERE tenant_code = ? AND is_deleted = 0", code);
+		}
+		JsonNode removed = readBody(post("/system/tenant/remove", List.of(tenantId), adminToken));
+		assertThat(removed.path("code").asInt()).as("删租户：" + removed.path("msg").asText()).isEqualTo(200);
+
+		// 让随机数先抽到刚删掉的编号：genCode 必须跳过它
+		Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(tenantService);
+		Object original = org.springframework.test.util.ReflectionTestUtils.getField(target, "random");
+		int deleted = Integer.parseInt(code);
+		org.springframework.test.util.ReflectionTestUtils.setField(target, "random", new java.util.Random() {
+			private boolean first = true;
+
+			@Override
+			public int nextInt(int bound) {
+				if (first) {
+					first = false;
+					return deleted - 100000;
+				}
+				return ((java.util.Random) original).nextInt(bound);
+			}
+		});
+		try {
+			String next = createTenant(adminToken, "编号复用测试-新");
+			assertThat(next).as("删除后新建不会拿到同一编号").isNotEqualTo(code);
+			try (Connection c = db()) {
+				assertThat(scalar(c, "SELECT count(*) FROM sys_tenant WHERE tenant_code = ?", code)).isEqualTo(1);
+			}
+		} finally {
+			org.springframework.test.util.ReflectionTestUtils.setField(target, "random", original);
+		}
+	}
 }

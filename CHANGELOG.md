@@ -12,6 +12,7 @@
 
 ### 升级须知
 
+- **租户编号永不复用**（V11，boot#100 复核 B1）。`uk_tenant_code`、`uk_tenant_ds_code` 在 PostgreSQL / 金仓 / openGauss / 达梦上都改回全量唯一（含已删除行），建租户时查重也包含已删除租户。库里已有同一编号被复用的多行时，V11 会中止并提示查重 SQL，此时还没有改任何索引；核对数据归属并处理后再重新迁移
 - **破坏性变更：模块开关取值收紧**（mugsun-boot#96）。GIS / 埋点 / AI 三个模块开关共用一个解析器，yml / 环境变量与系统参数两层规则如下：
   - yml / 环境变量（`MUGSUN_GIS_ENABLED`、`MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED`，即 `mugsun.<模块>.enabled`）：不写按开启；只接受恰好 `true` 或 `false`（不区分大小写，前后不能有空格）；其它值一律启动失败，报错里写出配置项、环境变量名和原值
   - 系统参数 `gis.module.enabled`、`ai.module.enabled`：判定规则不变（去首尾空格，`true` / `false` 不区分大小写，`1` / `0` 仍有效，空值按开启）。新增保存校验：其它值保存时拒收，`1` / `0` 能保存但提示已弃用。运行时读到升级前留下的非法值按关闭处理，同一键同一值每 10 分钟最多警告一次

@@ -132,9 +132,12 @@ class FlywayUpgradeFrom010Test {
 			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
 				executeScript(st, "db/unique-delete-flag/scenario.sql");
 			}
-			Flyway current = current(url);
-			current.migrate();
-			current.validate();
+			// 停在 V10：V11 把租户编号改回全量唯一，verify.sql 里「删租户后再建同编号」只在 V7–V10 成立
+			Flyway upToV10 = Flyway.configure().dataSource(url, user, pass)
+				.locations("classpath:db/migration").baselineOnMigrate(true).baselineVersion("0")
+				.placeholderReplacement(false).target("10").load();
+			upToV10.migrate();
+			upToV10.validate();
 			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
 				executeScript(st, "db/unique-delete-flag/verify.sql");
 				assertThat(count(st, "SELECT count(*) FROM sys_tenant WHERE tenant_code = '700001'")).isEqualTo(3);
@@ -151,6 +154,60 @@ class FlywayUpgradeFrom010Test {
 				assertThat(n).isEqualTo(8);
 			}
 		});
+	}
+
+	/**
+	 * V11：租户编号改回全量唯一（含已删除行），删掉的编号不能再用；其余 V7 口径不变。
+	 */
+	@Test
+	void deletedTenantCodeCannotBeReusedAfterV11() throws Exception {
+		withTempDb(url -> {
+			Flyway current = current(url);
+			current.migrate();
+			current.validate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				st.execute("INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (9100000000000000301, '700301', 'T', 0)");
+				st.execute("UPDATE sys_tenant SET is_deleted = 1 WHERE id = 9100000000000000301");
+				java.sql.SQLException e = org.assertj.core.api.Assertions.catchThrowableOfType(java.sql.SQLException.class, () -> st.execute(
+					"INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (9100000000000000302, '700301', 'T2', 0)"));
+				assertThat((Object) e).as("已删除租户的编号不能复用").isNotNull();
+				assertThat(e.getSQLState()).isEqualTo("23505");
+				st.execute("INSERT INTO sys_tenant_datasource (id, tenant_code, ds_url, ds_username, ds_password, is_deleted) VALUES (9100000000000000311, '700301', 'u', 'u', 'p', 1)");
+				e = org.assertj.core.api.Assertions.catchThrowableOfType(java.sql.SQLException.class, () -> st.execute(
+					"INSERT INTO sys_tenant_datasource (id, tenant_code, ds_url, ds_username, ds_password, is_deleted) VALUES (9100000000000000312, '700301', 'u', 'u', 'p', 0)"));
+				assertThat((Object) e).as("已删除数据源的租户编号不能复用").isNotNull();
+				assertThat(e.getSQLState()).isEqualTo("23505");
+			}
+		});
+	}
+
+	/** V11 遇到已被复用的编号就中止，不动索引 */
+	@Test
+	void v11AbortsWhenTenantCodeAlreadyReused() throws Exception {
+		withTempDb(url -> {
+			Flyway.configure().dataSource(url, user, pass)
+				.locations("classpath:db/migration").baselineOnMigrate(true).baselineVersion("0")
+				.placeholderReplacement(false).target("10").load().migrate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				st.execute("INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (9100000000000000321, '700321', 'old', 1)");
+				st.execute("INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (9100000000000000322, '700321', 'new', 0)");
+			}
+			Throwable t = org.assertj.core.api.Assertions.catchThrowable(() -> current(url).migrate());
+			assertThat(t).isNotNull();
+			assertThat(rootMessage(t)).contains("V11 升级中止");
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				assertThat(count(st, "SELECT count(*) FROM pg_indexes WHERE indexname = 'uk_tenant_code' AND indexdef LIKE '%is_deleted%'"))
+					.as("部分唯一索引原样未动").isEqualTo(1);
+			}
+		});
+	}
+
+	private static String rootMessage(Throwable t) {
+		StringBuilder sb = new StringBuilder();
+		for (Throwable x = t; x != null; x = x.getCause()) {
+			sb.append(x.getMessage()).append('\n');
+		}
+		return sb.toString();
 	}
 
 	private static void executeScript(Statement st, String path) throws Exception {
