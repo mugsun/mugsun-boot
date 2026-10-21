@@ -1,0 +1,52 @@
+# gitleaks 配置：在默认规则上追加 allowlist。
+# 新增或修改 allowlist 条目必须安全官审；只写位置和规则名，不写密钥值。
+# 条目按「commit + 文件」同时匹配才放行，之后改到这些行仍会重新报出。
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "测试假值：验证码用例里的固定 captchaToken（generic-api-key）"
+condition = "AND"
+paths = ['''^mugsun-boot-core/src/test/java/com/mugsun/boot/captcha/SliderCaptchaApiTest\.java$''']
+commits = [
+  "792e1c08a810d8aa81418ebdb40ce220be86897c",
+  "c15051fff0855601d6dddfafb767e3b3fb94e9a3",
+  "c7b3d1cb198c38d2707ec42701739a8a80d27f82",
+]
+
+[[allowlists]]
+description = "测试假值：瓦片签名失败用例的固定 SECRET（generic-api-key）"
+condition = "AND"
+paths = ['''^mugsun-boot-gis/src/test/java/com/mugsun/boot/gis/GisTileServiceFailureTest\.java$''']
+commits = [
+  "0ea85a768efd7a6645b38f2719f18077d402fba5",
+  "2aab5b379d2412621e0ed4c4ba773f2311f94d21",
+]
+
+[[allowlists]]
+description = "测试假值：本地文件 URL 签名用例的固定 SECRET（generic-api-key）"
+condition = "AND"
+paths = ['''^mugsun-boot-core/src/test/java/com/mugsun/boot/system/file/LocalFileUrlSignerTest\.java$''']
+commits = [
+  "c5fee0d012b69506f74da71d4b4b6f17b9e3f05e",
+  "d8c83c9def61c2a2bfb4707da2ac75ee14bc1500",
+]
+
+[[allowlists]]
+description = "测试假值：集成测试注入的 mugsun.crypto.api-key（generic-api-key）"
+condition = "AND"
+paths = ['''^src/test/java/com/mugsun/boot/AbstractIntegrationTest\.java$''']
+commits = [
+  "420ed51df779112bd42cfe59bb70947ee8080d38",
+  "607c170aaae3bb37dbec76a44ab23ca37c908c05",
+  "8377658a4a7ddc447b40e542874ad4178aa6657a",
+]
+
+[[allowlists]]
+description = "开发默认值（已从 HEAD 移除）：早期 application.yml 的 crypto.api-key（generic-api-key）"
+condition = "AND"
+paths = ['''^src/main/resources/application\.yml$''']
+commits = [
+  "26411ac118b5f12d3c0242638ca2d7aa1ca76527",
+]
