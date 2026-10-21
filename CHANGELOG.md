@@ -22,6 +22,14 @@
   - 新增 `LabSeedProdGuard`：生产开启 `mugsun.lab.seed-fronttest` 即拒绝启动
   - 该开关会播种弱口令联调账号，仅供开发和 e2e
   - 集成测试统一激活 `test` profile，`spring-boot:run` 默认激活 `dev`
+- 生产关闭开放接口签名或国密时拒绝启动，各留一个显眼的豁免开关
+  - `mugsun.open-api.sign-required=false` 需同时设
+    `mugsun.open-api.i-understand-unsigned-requests-are-insecure=true`
+  - `mugsun.crypto.gm-enabled=false` 需同时设
+    `mugsun.crypto.i-understand-plaintext-passwords-rely-on-tls=true`
+  - 豁免时启动打 WARN；关闭国密后密码明文提交，完全靠 TLS 保护
+  - 国密关闭时生产的登录、注册、改密请求必须 `isSecure()`，否则拒绝
+  - 反向代理后需配 `server.forward-headers-strategy=native`
 
 ### CI
 
