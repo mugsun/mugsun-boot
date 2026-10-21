@@ -1,0 +1,9 @@
+# 本地开发 profile：--spring.profiles.active=dev
+# 只放「没配密钥也能起」的开关；任何环境都不要在这里写密钥值。
+mugsun:
+  crypto:
+    # 接口传输加密：没配 MUGSUN_API_KEY 时用进程内临时密钥（重启即变，多实例不互通）
+    allow-ephemeral-keys: true
+    # 字段落库加密：没配 MUGSUN_SM4_KEY 时用本地密钥文件，首次启动生成，之后复用
+    # 该目录已在 .gitignore；删掉文件后，用它加密的本地数据将无法解开
+    sm4-local-key-file: ${MUGSUN_SM4_LOCAL_KEY_FILE:.mugsun/dev-sm4.key}

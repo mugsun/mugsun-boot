@@ -42,7 +42,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 		"mugsun.captcha.enabled=false",
 		"mugsun.sms.show-code=true",
 		"mugsun.crypto.sm4-key=mugsun-test-sm4k16",
-		"mugsun.crypto.api-key=mugsun-test-apk16",
+		// 接口加密密钥不写死：测试用进程内临时密钥（strict-keys 由 application.yml 默认 false）
+		"mugsun.crypto.allow-ephemeral-keys=true",
 		"mugsun.web.front-url=http://frontend.test:3006"
 	})
 public abstract class AbstractIntegrationTest {

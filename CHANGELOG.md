@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### 不兼容变更
+
+- 去掉接口加密和字段加密的内置回落密钥；非 dev 环境必须显式配置密钥
+  - 依赖 mugsun-core 新版：`MUGSUN_API_KEY` 须为 32 位 hex 或带填充的 16 字节 base64
+  - 接口加密改 SM4-GCM，只是传输混淆，不能代替 TLS；前端须同步升级
+  - `Sm4CryptoConfig` 不再回落固定密钥；缺 `MUGSUN_SM4_KEY` 拒绝启动
+  - 新增 dev profile：接口用临时密钥，字段用 `.mugsun/dev-sm4.key`
+  - `gen-keys.sh` 的 `MUGSUN_API_KEY` 改为 `openssl rand -hex 16`
+  - 已部署环境的旧 16 字符 `MUGSUN_API_KEY` 要先换成新格式再升级
+  - `MUGSUN_SM4_KEY` 格式不变，已落库的加密字段不受影响
+
 ### CI
 
 - 收紧 workflow 权限并把 Actions 钉到 commit SHA
