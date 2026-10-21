@@ -8,6 +8,13 @@ import com.mugsun.boot.demo.DemoConstants;
 import com.mugsun.boot.demo.DemoRateLimiter;
 import com.mugsun.boot.demo.DemoSchemaGuard;
 import com.mugsun.boot.demo.LogDataSourceRouter;
+import com.mugsun.boot.log.OperationLogService;
+import com.mugsun.boot.log.entity.SysOperLog;
+import com.mugsun.boot.log.mapper.SysOperLogMapper;
+import com.mugsun.boot.system.service.ParamService;
+import com.mybatisflex.core.FlexGlobalConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.transaction.PlatformTransactionManager;
 import com.mugsun.boot.mail.MailService;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.track.TrackEventStore;
@@ -179,6 +186,90 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 	private TrackEventStore trackEventStore;
 	@Autowired
 	private DemoCapacityGate capacityGate;
+
+	@Autowired
+	private OperationLogService operationLogService;
+	@Autowired
+	private SysOperLogMapper operLogMapper;
+	@Autowired
+	private ParamService paramService;
+	@Autowired
+	private PlatformTransactionManager txManager;
+
+	@Test
+	void demoPoolsAreSizedForThirtyConnections() {
+		var flex = FlexGlobalConfig.getDefaultConfig().getDataSource();
+		Map<String, Integer> expected = Map.of("primary", 5, "log", 4);
+		expected.forEach((key, max) -> {
+			javax.sql.DataSource ds = flex.getDataSourceMap().get(key);
+			assertThat(ds).as(key).isInstanceOf(HikariDataSource.class);
+			assertThat(((HikariDataSource) ds).getMaximumPoolSize()).as(key + " maximum-pool-size 生效").isEqualTo(max);
+			assertThat(((HikariDataSource) ds).getMinimumIdle()).as(key + " minimum-idle 生效").isEqualTo(1);
+		});
+		javax.sql.DataSource track = flex.getDataSourceMap().get("track");
+		if (track != null) {
+			assertThat(((HikariDataSource) track).getMaximumPoolSize()).as("track maximum-pool-size 生效").isEqualTo(4);
+		}
+	}
+
+	private static SysOperLog chainEntry(int n) {
+		SysOperLog l = new SysOperLog();
+		l.setTitle("demo-chain");
+		l.setRequestMethod("POST");
+		l.setRequestUri("/it/demo-chain/" + n);
+		l.setOperator("1");
+		l.setStatus(1);
+		return l;
+	}
+
+	@Test
+	void concurrentOperLogAppendsThroughLogAccountKeepOneChain() throws Exception {
+		// 两个实例（各自的本地锁）模拟两个节点：只能靠日志连接上的链头行锁串行
+		OperationLogService other = new OperationLogService(operLogMapper, paramService, txManager, logRouter, 64);
+		long before = count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri LIKE '/it/demo-chain/%'");
+		int n = 24;
+		java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+		for (int i = 0; i < n; i++) {
+			OperationLogService target = i % 2 == 0 ? operationLogService : other;
+			int k = i;
+			Thread.ofVirtual().start(() -> {
+				try {
+					go.await();
+				} catch (InterruptedException ignored) {
+					Thread.currentThread().interrupt();
+				}
+				TenantContext.execute(PLATFORM_TENANT, () -> target.saveAsync(chainEntry(k)));
+			});
+		}
+		go.countDown();
+		long deadline = System.currentTimeMillis() + 60_000;
+		while (count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri LIKE '/it/demo-chain/%'") < before + n
+			&& System.currentTimeMillis() < deadline) {
+			Thread.sleep(100);
+		}
+		assertThat(count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri LIKE '/it/demo-chain/%'"))
+			.as("全部经日志账号落库").isEqualTo(before + n);
+		assertThat(count("SELECT COUNT(*) FROM (SELECT prev_hash FROM sys_oper_log WHERE chain_prev IS NOT NULL "
+			+ "GROUP BY prev_hash HAVING COUNT(*) > 1) t")).as("没有重复的 prev_hash").isZero();
+		Map<String, Object> verified = operationLogService.verify(null);
+		assertThat(verified.get("valid")).as(String.valueOf(verified)).isEqualTo(true);
+	}
+
+	@Test
+	void readOnlyAccountCannotUpdateOrLockOperLogChain() {
+		for (String sql : List.of(
+			"UPDATE sys_oper_log_chain SET update_time = CURRENT_TIMESTAMP WHERE id = 1",
+			"SELECT id FROM sys_oper_log_chain WHERE id = 1 FOR UPDATE",
+			"SELECT id FROM sys_oper_log ORDER BY id DESC LIMIT 1 FOR UPDATE",
+			"UPDATE sys_oper_log SET title = title WHERE 1 = 0")) {
+			assertThatThrownBy(() -> {
+				try (Connection c = DriverManager.getConnection(primaryJdbcUrl(), "mugsun_demo_ro", RO_PASSWORD);
+					 Statement st = c.createStatement()) {
+					st.execute(sql);
+				}
+			}).as(sql).isInstanceOf(SQLException.class).extracting(e -> ((SQLException) e).getSQLState()).isEqualTo("42501");
+		}
+	}
 
 	@Test
 	void demoContextUsesLowPrivilegeAccounts() {

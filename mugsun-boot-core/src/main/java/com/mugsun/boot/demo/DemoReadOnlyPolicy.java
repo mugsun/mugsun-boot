@@ -58,6 +58,13 @@ public final class DemoReadOnlyPolicy {
 		"/auth/social",
 		"/system/ai");
 
+	/**
+	 * ALWAYS_BLOCKED_PREFIXES 下例外放行的只读端点（仅 GET/HEAD/OPTIONS，精确匹配）。
+	 * GET /auth/social/sources 只返回已配置的社交登录源名称（不写任何状态），登录页加载即调用；
+	 * 被拒会让登录页一打开就弹「演示环境只读」。社交登录本身（render/login/bind/mock-authorize）仍整体关闭。
+	 */
+	public static final Set<String> SAFE_EXCEPTIONS_IN_BLOCKED = Set.of("/auth/social/sources");
+
 	/** 方法覆盖头：存在即拒绝 */
 	public static final List<String> METHOD_OVERRIDE_HEADERS = List.of(
 		"X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override");
@@ -96,12 +103,15 @@ public final class DemoReadOnlyPolicy {
 			return false;
 		}
 		String lower = normalized.toLowerCase(Locale.ROOT);
+		String m = method.toUpperCase(Locale.ROOT);
+		if (SAFE_METHODS.contains(m) && SAFE_EXCEPTIONS_IN_BLOCKED.contains(normalized)) {
+			return true;
+		}
 		for (String prefix : ALWAYS_BLOCKED_PREFIXES) {
 			if (lower.equals(prefix) || lower.startsWith(prefix + "/")) {
 				return false;
 			}
 		}
-		String m = method.toUpperCase(Locale.ROOT);
 		if (SAFE_METHODS.contains(m)) {
 			return true;
 		}

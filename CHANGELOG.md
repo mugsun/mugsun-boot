@@ -12,6 +12,15 @@
 
 ### 升级须知
 
+- **只读演示环境（demo profile）：操作日志能写入、连接池调小、登录页不再弹「演示环境只读」**
+  - 操作日志哈希链（V8）在 demo 下改走日志账号：锁链头（`SET LOCAL lock_timeout = '3s'` 后 `SELECT ... FOR UPDATE`）、读最后一条哈希、INSERT、刷新链头时间放在日志数据源的同一个独立事务、同一连接里，只读账号保持纯 SELECT。此前 demo 下链头锁走只读账号，每条操作日志都报 `permission denied for table sys_oper_log_chain`。demo 下日志记录的是操作尝试，与业务事务无关；非 demo 行为不变。
+  - 已部署的演示库要给日志账号补授权（`docs/demo/sql/demo-accounts.sql` 已更新）：
+    `GRANT SELECT ON sys_oper_log, sys_oper_log_chain TO mugsun_demo_log;`
+    `GRANT UPDATE (update_time) ON sys_oper_log_chain TO mugsun_demo_log;`
+  - 日志数据源必须连主库：`mybatis-flex.datasource.log.url`（`MUGSUN_DEMO_LOG_DB_URL`）与 `primary.url` 不同时 demo 启动失败。
+  - 连接池：demo 下业务只读池 5、日志池 4、埋点池 4（`MUGSUN_DEMO_DB_POOL_MAX` / `MUGSUN_DEMO_LOG_POOL_MAX` / `MUGSUN_DEMO_TRACK_POOL_MAX` 可调），合计 13，给 `max_connections=30` 的演示库留出迁移和运维余量。此前三个池都是 Hikari 默认 10，会占满全部非 superuser 连接。
+  - 只读白名单：`GET /auth/social/sources`（只返回已配置的社交登录源名称）从 `/auth/social` 整段拒绝里精确放行，登录页加载不再被拒；社交登录本身仍关闭。
+
 - **租户编号永不复用**（V11，boot#100 复核 B1）。`uk_tenant_code` 在 PostgreSQL / 金仓 / openGauss / 达梦上都改回全量唯一（含已删除行），建租户时查重也包含已删除租户；`uk_tenant_ds_code` 仍只约束未删除行，租户可以删掉数据源配置后用同一编号重建。新建租户数据源时，租户编号必须对应一个未删除的租户，否则接口拒绝并提示编号不存在或已删除。库里已有同一编号被复用的多行时，V11 会中止并提示查重 SQL，此时还没有改任何索引；核对数据归属并处理后再重新迁移
 
 - **破坏性变更：旧的数字图形验证码已移除，改为行为验证码**（行为验证码由 mugsun-boot#17、#35 引入，本次移除旧数字码；验证码契约 v0.6.3）。登录、注册、忘记密码发码、发送短信验证码改用行为验证码：`GET /auth/captcha/config` 提示是否需要 → `POST /auth/captcha/challenge` 取题 → `POST /auth/captcha/verify` 换一次性 `captchaToken` → 业务接口请求体带 `captchaToken`。题型 `SLIDER`（滑块拼图）、`ROTATE`（旋转）、`WORD_CLICK`（词语点选）、`ICON_CLICK`（图标点选）、`JIGSAW`（拼图还原），由服务端在启用集合里随机选一种。

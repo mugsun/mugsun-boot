@@ -28,6 +28,15 @@ public class LogDataSourceRouter {
 	public LogDataSourceRouter(@Value("${" + DemoConstants.ENABLED_PROPERTY + ":false}") boolean demo, Environment env) {
 		this.demo = demo;
 		this.route = demo && env.containsProperty("mybatis-flex.datasource." + LOG_DS_KEY + ".url");
+		if (route) {
+			// 操作日志的链头锁与「读最后一条哈希」走日志连接：日志库必须就是主库，指向只读副本/别的库会断链或读到旧哈希
+			String logUrl = env.getProperty("mybatis-flex.datasource." + LOG_DS_KEY + ".url");
+			String primaryUrl = env.getProperty("mybatis-flex.datasource.primary.url");
+			if (!java.util.Objects.equals(logUrl, primaryUrl)) {
+				throw new IllegalStateException("[demo] 日志数据源必须连主库：mybatis-flex.datasource.log.url 须与 primary.url 相同"
+					+ "（MUGSUN_DEMO_LOG_DB_URL 不要指向只读副本或其它库）");
+			}
+		}
 		if (demo) {
 			if (route) {
 				log.info("[demo] 日志写入走独立数据源 {}", LOG_DS_KEY);

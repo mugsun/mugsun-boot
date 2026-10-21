@@ -1,6 +1,7 @@
 package com.mugsun.boot.log;
 
 import com.mugsun.boot.demo.LogDataSourceRouter;
+import com.mybatisflex.core.datasource.DataSourceKey;
 
 import cn.hutool.crypto.SmUtil;
 import com.mugsun.boot.common.crypto.Sm2Util;
@@ -47,6 +48,10 @@ public class OperationLogService {
 
 	private static final Logger LOG = LoggerFactory.getLogger(OperationLogService.class);
 	private static final String LOCK_CHAIN_HEAD = "SELECT id FROM sys_oper_log_chain WHERE id = 1 FOR UPDATE";
+	/** demo：链头锁等待上限（只在本事务内生效），超时即放弃本条，不让日志线程无限排队 */
+	static final String DEMO_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '3s'";
+	/** demo：同一事务内刷新链头行（日志账号只有该列的 UPDATE 权限） */
+	static final String DEMO_TOUCH_CHAIN_HEAD = "UPDATE sys_oper_log_chain SET update_time = CURRENT_TIMESTAMP WHERE id = 1";
 
 	private final SysOperLogMapper operLogMapper;
 	private final com.mugsun.boot.system.service.ParamService paramService;
@@ -116,6 +121,10 @@ public class OperationLogService {
 
 	/** 事务内：锁链头行（跨实例串行）→ 读最后哈希 → 算哈希签名 → 落库 */
 	private void appendInTx(SysOperLog log) {
+		if (logRouter.routed()) {
+			appendInDemoLogTx(log);
+			return;
+		}
 		tx.executeWithoutResult(status -> {
 			TenantContext.ignore(() -> Db.selectObjectList(LOCK_CHAIN_HEAD));
 			String prevHash = lastRecordHash();
@@ -142,6 +151,37 @@ public class OperationLogService {
 				}
 			});
 		});
+	}
+
+	/**
+	 * 只读演示模式：整段在日志数据源（日志账号）的一个独立事务、同一连接里完成——
+	 * 设 lock_timeout → 锁链头行 → 读最后一条哈希 → 算哈希签名 → INSERT → 刷新链头时间，一起提交；全程不经过只读账号。
+	 * demo 下记录的是「操作尝试」：业务写请求已被只读过滤器拒绝，日志与业务事务无关。非 demo 走上面原来的路径，行为不变。
+	 */
+	private void appendInDemoLogTx(SysOperLog log) {
+		DataSourceKey.use(LogDataSourceRouter.LOG_DS_KEY, () -> tx.executeWithoutResult(status -> {
+			TenantContext.ignore(() -> Db.updateBySql(DEMO_LOCK_TIMEOUT));
+			TenantContext.ignore(() -> Db.selectObjectList(LOCK_CHAIN_HEAD));
+			String prevHash = lastRecordHash();
+			log.setPrevHash(prevHash);
+			log.setChainPrev(prevHash);
+			String recordHash = SmUtil.sm3(canonical(log) + "|" + prevHash);
+			log.setRecordHash(recordHash);
+			log.setSign(Sm2Util.signHex(recordHash));
+			log.setId(null);
+			try {
+				operLogMapper.insertSelective(log);
+			} catch (RuntimeException e) {
+				if (!causedByTenant(e)) {
+					throw e;
+				}
+				TenantContext.ignore(() -> {
+					operLogMapper.insertSelective(log);
+					return null;
+				});
+			}
+			TenantContext.ignore(() -> Db.updateBySql(DEMO_TOUCH_CHAIN_HEAD));
+		}));
 	}
 
 	private static boolean causedByTenant(Throwable e) {

@@ -29,8 +29,13 @@ GRANT USAGE ON SCHEMA public TO mugsun_demo_ro, mugsun_demo_log;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO mugsun_demo_ro;
 ALTER DEFAULT PRIVILEGES FOR ROLE {{OWNER}} IN SCHEMA public GRANT SELECT ON TABLES TO mugsun_demo_ro;
 
--- 日志账号：只 INSERT 五张日志表（主键为雪花 id，INSERT 不需要 RETURNING/SELECT）
+-- 日志账号：五张日志表只 INSERT（主键为雪花 id，INSERT 不需要 RETURNING/SELECT）；操作日志链另见下方
 GRANT INSERT ON sys_login_log, sys_api_log, sys_error_log, sys_oper_log, sys_usual_log TO mugsun_demo_log;
+-- 操作日志哈希链（V8）：demo 下「锁链头 → 读最后一条哈希 → INSERT → 刷新链头时间」在日志账号的同一事务、同一连接里完成，
+-- 只读账号保持纯 SELECT。SELECT ... FOR UPDATE 需要 UPDATE 权限，这里只给链头表的 update_time 一列。
+-- demo 下日志记录的是「操作尝试」：写请求已被只读过滤器拒绝，日志在独立事务里提交，与业务事务无关。
+GRANT SELECT ON sys_oper_log, sys_oper_log_chain TO mugsun_demo_log;
+GRANT UPDATE (update_time) ON sys_oper_log_chain TO mugsun_demo_log;
 
 
 -- ============ 埋点库 {{TRACK_DB}} ============

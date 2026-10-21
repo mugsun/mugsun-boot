@@ -261,7 +261,8 @@ class DemoReadOnlyEndpointsTest {
 		sb.append("# 只读演示模式：写端点清单（自动生成，勿手改）\n\n")
 			.append("由 `DemoReadOnlyEndpointsTest` 反射生成；代码与清单不一致时测试失败。重新生成：\n\n")
 			.append("```bash\nmvn -pl mugsun-boot-server test -Dtest=DemoReadOnlyEndpointsTest -Ddemo.endpoints.write=true\n```\n\n")
-			.append("GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/crypto/**` 除外，任何方法都拒）。\n")
+			.append("GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/crypto/**`、`/auth/social/**`、`/system/ai/**` 除外，任何方法都拒；"
+				+ "唯一例外是登录页加载要用的只读接口 `GET /auth/social/sources`，精确匹配）。\n")
 			.append("下表只列写方法（POST/PUT/DELETE/PATCH）；「放行」即白名单，其余返回 403「演示环境只读」。\n\n")
 			.append("| 方法 | 路径 | 处理器 | demo |\n|---|---|---|---|\n");
 		endpoints.stream()

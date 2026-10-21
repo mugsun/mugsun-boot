@@ -58,9 +58,22 @@ jetcache:
       uri: redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT:6379}/${MUGSUN_DEMO_REDIS_DB:4}
 mybatis-flex:
   datasource:
-    # 日志专用数据源：登录/访问/错误/操作/通用日志只 INSERT（LogDataSourceRouter）
+    # 连接池（三个池合计 13）：演示库 PG 的 max_connections=30，扣掉 superuser 保留的 3 个还剩 27；
+    # 不设时每个池 Hikari 默认 10，三个池会把 27 个全占满，迁移、psql 运维和重置任务都连不上。
+    # 演示并发很低：导出/SSE 有 heavy-concurrency=2 闸门、登录 20 次/分钟/IP，操作日志落库被本地锁 + 链头行锁串行，
+    # 所以业务只读池 5、日志池 4、埋点池 4 足够，另外留 14 个给 owner 迁移、运维和备份。
+    primary:
+      maximum-pool-size: ${MUGSUN_DEMO_DB_POOL_MAX:5}
+      minimum-idle: 1
+    track:
+      maximum-pool-size: ${MUGSUN_DEMO_TRACK_POOL_MAX:4}
+      minimum-idle: 1
+    # 日志专用数据源（LogDataSourceRouter）：五张日志表只 INSERT；操作日志链另需 SELECT 与链头 UPDATE(update_time)，见 demo-accounts.sql。
+    # 必须连主库（默认即 primary.url），否则启动失败
     log:
       type: hikari
       url: ${MUGSUN_DEMO_LOG_DB_URL:${mybatis-flex.datasource.primary.url}}
       username: ${MUGSUN_DEMO_LOG_DB_USERNAME:mugsun_demo_log}
+      maximum-pool-size: ${MUGSUN_DEMO_LOG_POOL_MAX:4}
+      minimum-idle: 1
       password: ${MUGSUN_DEMO_LOG_DB_PASSWORD:}
