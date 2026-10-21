@@ -26,7 +26,8 @@ import java.util.UUID;
  * <p>本地存储不支持直传，但仍按天清掉各本地平台暂存前缀 {@code tmp/} 下超过 1 天的文件兜底。
  * <p><b>删除前护栏</b>：只删两类 key——暂存前缀 {@code tmp/} 下的，或本次登记流程刚复制出、标了
  * {@code fresh} 且文件名是服务端随机名的；两类都必须没有在 sys_attach 登记。已登记的对象一律不删，
- * 打告警并丢弃该队列项；查登记表出错时不删，按失败重试。
+ * 打告警并丢弃该队列项；查登记表出错时不删，原样放回且不计失败次数；连续查不了超过
+ * {@value #MAX_UNKNOWN_ROUNDS} 轮（约 1 天）打一次 error 日志，仍然不删。
  * <p>集群下用 Redis SETNX 锁保证同一时刻只有一个节点在扫；释放锁用 Lua 先比较 token 再删。
  */
 @Component
@@ -36,6 +37,8 @@ public class PendingObjectCleaner {
 	public static final String QUEUE_KEY = "mugsun:oss:pending-delete";
 	private static final String LOCK_KEY = "mugsun:oss:pending-delete:lock";
 	static final int MAX_ATTEMPTS = 20;
+	/** 查登记表连续失败的告警轮数：144 轮 × 10 分钟 ≈ 1 天 */
+	static final int MAX_UNKNOWN_ROUNDS = 144;
 	private static final int BATCH = 200;
 
 	private final StringRedisTemplate redis;
@@ -117,6 +120,10 @@ public class PendingObjectCleaner {
 	}
 
 	void enqueue(FileInfo info, int attempts, long notBefore, boolean fresh) {
+		enqueue(info, attempts, notBefore, fresh, 0);
+	}
+
+	void enqueue(FileInfo info, int attempts, long notBefore, boolean fresh, int unknownRounds) {
 		ObjectNode n = om.createObjectNode();
 		n.put("platform", info.getPlatform());
 		n.put("basePath", info.getBasePath() == null ? "" : info.getBasePath());
@@ -128,6 +135,9 @@ public class PendingObjectCleaner {
 		}
 		if (notBefore > 0) {
 			n.put("notBefore", notBefore);
+		}
+		if (unknownRounds > 0) {
+			n.put("unknownRounds", unknownRounds);
 		}
 		try {
 			redis.opsForList().rightPush(QUEUE_KEY, n.toString());
@@ -180,6 +190,7 @@ public class PendingObjectCleaner {
 			int attempts;
 			long notBefore;
 			boolean fresh;
+			int unknownRounds;
 			try {
 				JsonNode j = om.readTree(json);
 				info = new FileInfo().setPlatform(j.path("platform").asText()).setBasePath(j.path("basePath").asText(""))
@@ -187,6 +198,7 @@ public class PendingObjectCleaner {
 				attempts = j.path("attempts").asInt();
 				notBefore = j.path("notBefore").asLong(0L);
 				fresh = j.path("fresh").asBoolean(false);
+				unknownRounds = j.path("unknownRounds").asInt(0);
 			} catch (Exception e) {
 				log.error("待清理队列里有读不出的条目，已丢弃：{}", json);
 				continue;
@@ -200,8 +212,13 @@ public class PendingObjectCleaner {
 				continue;
 			}
 			if (v == Verdict.UNKNOWN) {
-				// 查登记表失败不是删除失败：原样放回，不加失败次数
-				enqueue(info, attempts, 0L, fresh);
+				// 查登记表失败不是删除失败：原样放回，不加失败次数；只记轮数，超限告警一次，仍不删
+				int rounds = unknownRounds + 1;
+				if (rounds == MAX_UNKNOWN_ROUNDS + 1) {
+					log.error("连续 {} 轮查不了附件登记表，待删对象仍保留在队列，请检查数据库：{}/{}{}",
+						MAX_UNKNOWN_ROUNDS, info.getPlatform(), info.getPath(), info.getFilename());
+				}
+				enqueue(info, attempts, 0L, fresh, rounds);
 				continue;
 			}
 			if (tryDelete(info)) {

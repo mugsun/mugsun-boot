@@ -145,6 +145,37 @@ class PendingObjectCleanerTest {
 	}
 
 	@Test
+	void registryFailureRoundsAreCountedAndAlertedOnceButNeverDeleted() {
+		when(attachMapper.selectCountByQuery(any(com.mybatisflex.core.query.QueryWrapper.class)))
+			.thenThrow(new RuntimeException("db down"));
+		ch.qos.logback.classic.Logger lg = (ch.qos.logback.classic.Logger)
+			org.slf4j.LoggerFactory.getLogger(PendingObjectCleaner.class);
+		ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> app =
+			new ch.qos.logback.core.read.ListAppender<>();
+		app.start();
+		lg.addAppender(app);
+		try {
+			PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+			c.enqueue(obj(), 2);
+			c.drain();
+			assertThat(queue).hasSize(1).first().asString().contains("\"unknownRounds\":1");
+			queue.clear();
+			c.enqueue(obj(), 2, 0L, false, PendingObjectCleaner.MAX_UNKNOWN_ROUNDS - 1);
+			c.drain();
+			c.drain();
+			c.drain();
+			assertThat(queue).as("超限也不删、不丢").hasSize(1).first().asString()
+				.contains("\"unknownRounds\":" + (PendingObjectCleaner.MAX_UNKNOWN_ROUNDS + 2))
+				.contains("\"attempts\":2");
+			assertThat(app.list.stream().filter(e -> e.getLevel() == ch.qos.logback.classic.Level.ERROR))
+				.as("只告警一次").hasSize(1);
+			org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).delete(any());
+		} finally {
+			lg.detachAppender(app);
+		}
+	}
+
+	@Test
 	void delayedFreshItemIsCheckedAgainstRegistryBeforeDelete() {
 		when(storage.delete(any())).thenReturn(true);
 		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
