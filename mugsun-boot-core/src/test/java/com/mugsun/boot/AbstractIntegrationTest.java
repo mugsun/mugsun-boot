@@ -41,8 +41,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 		// 行为验证码链路见 captcha 包下的专项测试（运行期 props.setEnabled(true)，用完复原）
 		"mugsun.captcha.enabled=false",
 		"mugsun.sms.show-code=true",
-		"mugsun.crypto.sm4-key=mugsun-test-sm4k16",
-		"mugsun.crypto.api-key=mugsun-test-apk16",
+		"mugsun.crypto.sm4-key=6d756773756e2d746573742d736d346b",
+		// 接口加密密钥不写死：测试用进程内临时密钥（strict-keys 由 application.yml 默认 false）
+		"mugsun.crypto.allow-ephemeral-keys=true",
 		"mugsun.web.front-url=http://frontend.test:3006",
 		// 测试上下文没有显式 profile，按生产规则注册默认关闭；存量注册用例需要开放。
 		// 关闭场景见 RegisterOffApiTest；IP 限流放宽，避免同 JVM 多个注册用例互相挤占，账号维度保持默认
