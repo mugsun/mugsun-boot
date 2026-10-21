@@ -12,6 +12,18 @@
 
 ### CI
 
+- CI 改为推送任意分支即运行，分支先绿再快进 main
+  - `ci.yml` 触发改为 push `**`，新增 `workflow_dispatch`
+  - 加 concurrency：同一分支新推送取消旧运行
+  - main 上不取消正在跑的运行
+  - main 按 SHA 单独分组，排队中的运行不被后来的推送顶掉
+  - `'**'` 只匹配分支，不匹配 tag
+  - compose-full 只在 main 按路径跑，另加手动触发和每周定时
+- 已发布迁移守卫按事件取基线，拿不到基线即失败
+  - 其他分支和手动触发用 merge-base(origin/main, HEAD)
+  - main 用 event.before，全零或不可达即失败；PR 用 base.sha
+  - 新增 `scripts/ci/test_migration_guard.py` 反例测试
+
 - 收紧 workflow 权限并把 Actions 钉到 commit SHA
   - 每个 workflow 顶层 `permissions: contents: read`，禁用 `pull_request_target`
   - Actions 钉 40 位 SHA，行尾注释版本号
