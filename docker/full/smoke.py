@@ -22,24 +22,27 @@ def call(method, path, body=None, token=None):
 
 import redis
 r = redis.Redis(host="redis", password=rpw, db=3, decode_responses=True)
-# 行为验证码：键盘模式只出 SLIDER/ROTATE（平台默认五种随机），取到 SLIDER 为止；答案从 Redis 挑战记录读（仅供自检）
-for _ in range(8):
-    cap = call("POST", "/api/auth/captcha/challenge", {"scene": "login", "clientId": "web", "tenantId": "000000",
-                                                     "inputMode": "keyboard"})
-    assert cap.get("code") == 200, f"取验证码失败: {cap}"
-    cap = cap["data"]
-    assert cap["type"] in ("SLIDER", "ROTATE"), f"键盘模式只应出 SLIDER/ROTATE: {cap['type']}"
-    if cap["type"] == "SLIDER":
-        break
-assert cap["type"] == "SLIDER", "8 次都没取到 SLIDER"
+# 行为验证码：键盘模式只出 SLIDER / ROTATE（平台默认五种随机），只取一次题；答案从 Redis 挑战记录读（仅供自检）
+cap = call("POST", "/api/auth/captcha/challenge", {"scene": "login", "clientId": "web", "tenantId": "000000",
+                                                 "inputMode": "keyboard"})
+assert cap.get("code") == 200, f"取验证码失败: {cap}"
+cap = cap["data"]
+assert cap["type"] in ("SLIDER", "ROTATE"), f"键盘模式只应出 SLIDER/ROTATE: {cap['type']}"
 rec = r.get("mugsun:captcha:v2:challenge:" + cap["captchaId"])
 assert rec, "Redis 里没有验证码答案"
-x = int(rec.split("|")[0]); step = cap.get("keyboardStep") or 4
+expected = int(rec.split("|")[0])
+if cap["type"] == "SLIDER":
+    step = cap.get("keyboardStep") or 4
+    answer, presses = {"x": expected}, round(expected / step)
+else:
+    # ROTATE：记录里的答案是角度；键盘每按一次转 keyboardStep 度
+    step = cap.get("keyboardStep") or 5
+    answer, presses = {"angle": expected}, round(expected / step)
 time.sleep(1)
 end = int(time.time() * 1000)
 ver = call("POST", "/api/auth/captcha/verify", {"captchaId": cap["captchaId"], "inputMode": "keyboard",
                                              "bgDisplayWidth": cap["bgWidth"], "startTime": end - 800, "endTime": end,
-                                             "answer": {"x": x}, "keyPresses": round(x / step)})
+                                             "answer": answer, "keyPresses": presses})
 assert ver.get("code") == 200, f"验证码校验失败: {ver}"
 enc = sm2.CryptSM2(private_key="", public_key=pub[2:] if pub.startswith("04") else pub, mode=1).encrypt(pw.encode()).hex()
 res = call("POST", "/api/auth/login", {"username": "admin", "password": enc, "tenantId": "000000", "clientId": "web",

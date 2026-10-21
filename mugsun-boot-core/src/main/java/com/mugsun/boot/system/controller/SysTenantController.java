@@ -35,7 +35,7 @@ public class SysTenantController {
 	 * 租户验证码开关 + 启用题型：仅平台超管可改，写审计日志。
 	 * types 缺省 = 不改；types 为 null 或 [] = 清回平台默认（NULL）；否则只能是 5 个合法值。
 	 * 启用集合不含 SLIDER/ROTATE 时仍保存，但响应 data.warning 提示 keyboard 用户会收到 40015；
-	 * 只启用 ROTATE 或只启用 ICON_CLICK 时同样保存并提示该题型只能部分抵御自动求解（辅助题型，默认关闭）。
+	 * 只启用 ROTATE 或只启用 ICON_CLICK 时同样保存并提示该题型只能部分抵御自动求解（辅助题型）。
 	 */
 	@RepeatSubmit
 	@PostMapping("/captcha")
