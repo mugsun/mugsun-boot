@@ -2,6 +2,8 @@
 
 演示环境用 `--spring.profiles.active=prod,demo` 启动，目前只支持 PostgreSQL。账号和授权见 [`sql/demo-accounts.sql`](sql/demo-accounts.sql)，只读放行名单见 [`readonly-endpoints.md`](readonly-endpoints.md)。
 
+> 以文档站为准：[docs.mugsun.com/demo](https://docs.mugsun.com/demo)。本文件是部署时的速查摘要。
+
 ## 部署顺序
 
 1. 用 owner 账号、非 demo profile 跑一次迁移：`--spring.profiles.active=prod --mugsun.demo.migrate-only=true`，跑完进程自己退出。

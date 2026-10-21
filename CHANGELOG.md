@@ -13,13 +13,14 @@
 ### 升级须知
 
 - **只读演示环境（demo profile）：操作日志能写入、连接池调小、登录页不再弹「演示环境只读」**
-  - 操作日志哈希链（V8）在 demo 下改走日志账号：锁链头（`SET LOCAL lock_timeout = '3s'` 后 `SELECT ... FOR UPDATE`）、读最后一条哈希、INSERT、刷新链头时间放在日志数据源的同一个独立事务、同一连接里，只读账号保持纯 SELECT。此前 demo 下链头锁走只读账号，每条操作日志都报 `permission denied for table sys_oper_log_chain`。demo 下日志记录的是操作尝试，与业务事务无关；非 demo 行为不变。
+  - 操作日志哈希链（V8）在 demo 下改走日志账号：锁链头（`SET LOCAL lock_timeout = '3s'` 后 `SELECT ... FOR UPDATE`）、读最后一条哈希、INSERT、刷新链头时间放在日志数据源的同一个独立事务（`REQUIRES_NEW`）、同一连接里，只读账号保持纯 SELECT。demo 下记录的是操作尝试：业务写请求已被只读过滤器拒绝，日志与业务事务无关。此前 demo 下链头锁走只读账号，每条操作日志都报 `permission denied for table sys_oper_log_chain`。demo 下日志记录的是操作尝试，与业务事务无关；非 demo 行为不变。
   - 已部署的演示库要给日志账号补授权（`docs/demo/sql/demo-accounts.sql` 已更新）：
     `GRANT SELECT ON sys_oper_log, sys_oper_log_chain TO mugsun_demo_log;`
     `GRANT UPDATE (update_time) ON sys_oper_log_chain TO mugsun_demo_log;`
-  - 日志数据源必须连主库：`mybatis-flex.datasource.log.url`（`MUGSUN_DEMO_LOG_DB_URL`）与 `primary.url` 不同时 demo 启动失败。
+  - 日志数据源必须连主库：`mybatis-flex.datasource.log.url`（`MUGSUN_DEMO_LOG_DB_URL`）与 `primary.url` 的主机（不分大小写）、端口、库名不一致时 demo 启动失败，查询参数可以不同；报错里两边 URL 脱敏。
   - 连接池：demo 下业务只读池 5、日志池 4、埋点池 4（`MUGSUN_DEMO_DB_POOL_MAX` / `MUGSUN_DEMO_LOG_POOL_MAX` / `MUGSUN_DEMO_TRACK_POOL_MAX` 可调），合计 13，给 `max_connections=30` 的演示库留出迁移和运维余量。此前三个池都是 Hikari 默认 10，会占满全部非 superuser 连接。
-  - 只读白名单：`GET /auth/social/sources`（只返回已配置的社交登录源名称）从 `/auth/social` 整段拒绝里精确放行，登录页加载不再被拒；社交登录本身仍关闭。
+  - 只读白名单：`GET /auth/social/sources`（只返回已配置的社交登录源名称）从 `/auth/social` 整段拒绝里精确放行（只认 GET/HEAD 和原样路径，尾斜杠、矩阵参数、编码或大小写变体仍拒绝），登录页加载不再被拒；社交登录本身仍关闭。
+  - 锁超时：等链头锁超过 3 秒的操作日志被丢弃，打 WARN 并计数（`OperationLogService#demoLockTimeoutDroppedCount`），链不受影响；链头 UPDATE 影响行数不是 1 时报错。
 
 - **租户编号永不复用**（V11，boot#100 复核 B1）。`uk_tenant_code` 在 PostgreSQL / 金仓 / openGauss / 达梦上都改回全量唯一（含已删除行），建租户时查重也包含已删除租户；`uk_tenant_ds_code` 仍只约束未删除行，租户可以删掉数据源配置后用同一编号重建。新建租户数据源时，租户编号必须对应一个未删除的租户，否则接口拒绝并提示编号不存在或已删除。库里已有同一编号被复用的多行时，V11 会中止并提示查重 SQL，此时还没有改任何索引；核对数据归属并处理后再重新迁移
 
