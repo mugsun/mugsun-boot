@@ -6,7 +6,9 @@ import cn.hutool.crypto.asymmetric.SM2;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.bouncycastle.crypto.engines.SM2Engine;
+import com.mugsun.boot.common.crypto.Sm4TestKeys;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -41,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 		// 行为验证码链路见 captcha 包下的专项测试（运行期 props.setEnabled(true)，用完复原）
 		"mugsun.captcha.enabled=false",
 		"mugsun.sms.show-code=true",
-		"mugsun.crypto.sm4-key=6d756773756e2d746573742d736d346b",
+		"mugsun.crypto.sm4-key=" + Sm4TestKeys.INTEGRATION_KEY,
 		// 接口加密密钥不写死：测试用进程内临时密钥（strict-keys 由 application.yml 默认 false）
 		"mugsun.crypto.allow-ephemeral-keys=true",
 		"mugsun.web.front-url=http://frontend.test:3006"
@@ -186,6 +188,21 @@ public abstract class AbstractIntegrationTest {
 	protected TestRestTemplate rest;
 
 	protected final ObjectMapper om = new ObjectMapper();
+
+	/**
+	 * 每个用例前把 Sm4Util 恢复成测试密钥：单测改过静态密钥后，缓存复用的上下文不会再初始化，
+	 * 否则会用错密钥往共享库写 sys_user.id_card 等密文，后续模块启动自检解不开就拒绝启动。
+	 */
+	@BeforeAll
+	static void resetSm4KeyBeforeClass() {
+		// 子类的 @BeforeAll（如 FieldMaskApiTest 建数据）在这之后执行，也拿到正确密钥
+		Sm4TestKeys.useIntegrationKey();
+	}
+
+	@BeforeEach
+	void resetSm4KeyToIntegrationKey() {
+		Sm4TestKeys.useIntegrationKey();
+	}
 
 	@BeforeAll
 	static void containersRunning() {
