@@ -6,6 +6,28 @@
 
 ### 安全
 
+- 导出导入改用独立权限码，只有列表读权不能导出
+  - `GET /system/user/export` 由 `sys:user:list` 改为 `sys:user:export`
+  - 用户导入及导入模板由 `sys:user:add` 改为 `sys:user:import`
+  - `GET /system/region/export` 改为 `sys:region:export`
+  - V13 新增两个用户按钮权限，按旧码给已有角色补授，升级不掉权限
+  - 导出导入接口写操作日志；用户导出仍按数据权限过滤，手机号按字段权限脱敏
+  - 前端按钮需改用新码（pc 用户页导出、导入按钮）
+
+- 附件上传需要 `sys:file:upload`，并收紧文件类型
+  - `upload`、`presigned-put`、`create` 三个上传入口都校验新码
+  - V13 把 `sys:file:upload` 补授给全部现有角色；之后新建的角色要手动勾选
+  - 扩展名白名单 + 文件头校验 + 20MB 上限，拒绝 html、svg、js 等
+  - 存储文件名、Content-Type 由服务端定，不用客户端上报值
+  - 直传签发须带 `size`，签名绑定大小、类型和 `attachment`
+  - 本地直出与授权下载一律 `attachment` + `nosniff`
+
+- 表单、流程、规则、租户写接口加方法级权限校验
+  - 表单 `sys:form:save/remove`，流程 `sys:flow:deploy/design/design-graph`
+  - 流程发布、下线 `sys:flow:definition`；V13 补授给各租户 admin 角色
+  - `/system/rule/tenant-init` 只允许平台超管（`sys:rule:tenant-init`）
+  - 租户、套餐、租户数据源写接口加注解，并在方法内再校验平台超管
+
 - prod 下开启 `mugsun.lab.seed-fronttest` 时拒绝启动
   - 该开关会播种口令 123456 的 fronttest 账号，仅供开发联调
   - 新增 `LabSeedProdGuard`，判定方式与 `InitPasswordHardeningGuard` 一致

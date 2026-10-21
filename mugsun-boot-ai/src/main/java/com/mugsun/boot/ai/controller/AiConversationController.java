@@ -47,6 +47,7 @@ public class AiConversationController {
 		return R.data(chatService.messages(real));
 	}
 
+	@com.mugsun.boot.log.OperationLog("导出 AI 对话")
 	@GetMapping("/export")
 	@SaCheckPermission(AiConstants.PERM_CONVERSATION_EXPORT)
 	public void export(@RequestParam(required = false) String keyword, HttpServletResponse response) throws IOException {

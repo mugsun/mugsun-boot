@@ -450,10 +450,12 @@ public class SysUserController {
 
 	/**
 	 * 导出用户（与 page 同查询条件，受 @DataScope 行级范围约束）。
+	 * 独立导出码 sys:user:export：只有列表读权（sys:user:list）不能整表导出。
 	 * 手机号导出形态由字段级权限裁决（@ColumnMask 读管线自动生效）：无查看权→空、无明文权→脱敏、有明文权→明文。
 	 */
+	@com.mugsun.boot.log.OperationLog("导出用户")
 	@GetMapping("/export")
-	@SaCheckPermission("sys:user:list")
+	@SaCheckPermission("sys:user:export")
 	@DataScope
 	public void export(HttpServletResponse response,
 					   @RequestParam(required = false) String username,
@@ -478,9 +480,9 @@ public class SysUserController {
 		ExcelUtil.export(response, "用户数据", "用户", rows, SysUserExportExcel.class);
 	}
 
-	/** 导入模板下载：表头 + 一行示例（权限码与导入一致） */
+	/** 导入模板下载：表头 + 一行示例（权限码与导入一致：sys:user:import） */
 	@GetMapping("/import-template")
-	@SaCheckPermission("sys:user:add")
+	@SaCheckPermission("sys:user:import")
 	public void importTemplate(HttpServletResponse response) {
 		SysUserExcel example = new SysUserExcel();
 		example.setUsername("zhangsan");
@@ -499,7 +501,7 @@ public class SysUserController {
 	 * 已存在账号：updateSupport=false 记失败「已存在」，=true 覆盖更新 昵称/状态/邮箱/部门/岗位（不更新密码与手机号）。
 	 */
 	@PostMapping("/import")
-	@SaCheckPermission("sys:user:add")
+	@SaCheckPermission("sys:user:import")
 	@OperationLog("导入用户")
 	public R<UserImportResult> importUser(@RequestParam(value = "file", required = false) MultipartFile file,
 										  @RequestParam(required = false, defaultValue = "false") boolean updateSupport) {

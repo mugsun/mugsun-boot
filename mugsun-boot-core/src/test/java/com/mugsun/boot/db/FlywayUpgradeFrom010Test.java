@@ -119,6 +119,48 @@ class FlywayUpgradeFrom010Test {
 	}
 
 	/**
+	 * V13：用户导出/导入拆出独立权限码。已有 sys:user:list 的角色补授 sys:user:export，
+	 * 已有 sys:user:add 的角色补授 sys:user:import；已授过的不重复授，再跑一遍也不报错。
+	 */
+	@Test
+	void v13GrantsExportImportToExistingUserRoles() throws Exception {
+		withTempDb(url -> {
+			Flyway.configure().dataSource(url, user, pass)
+				.locations("classpath:db/migration").baselineOnMigrate(true).baselineVersion("0")
+				.placeholderReplacement(false).target("11").load().migrate();
+			long listMenu;
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				listMenu = count(st, "SELECT MIN(id) FROM sys_menu WHERE permission = 'sys:user:list' AND is_deleted = 0");
+				st.execute("INSERT INTO sys_role (id, role_name, role_code, is_deleted) VALUES (9100000000000000401, 'L', 'it-v13-list', 0)");
+				st.execute("INSERT INTO sys_role (id, role_name, role_code, is_deleted) VALUES (9100000000000000402, 'A', 'it-v13-add', 0)");
+				st.execute("INSERT INTO sys_role (id, role_name, role_code, is_deleted) VALUES (9100000000000000403, 'N', 'it-v13-none', 0)");
+				st.execute("INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted) VALUES (9100000000000000411, 9100000000000000401, " + listMenu + ", now(), 0)");
+				st.execute("INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted) VALUES (9100000000000000412, 9100000000000000402, 1061000000000000001, now(), 0)");
+				// 删除态的授权不算
+				st.execute("INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted) VALUES (9100000000000000413, 9100000000000000403, " + listMenu + ", now(), 1)");
+			}
+			Flyway current = current(url);
+			current.migrate();
+			current.validate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				String has = "SELECT count(*) FROM sys_role_menu WHERE is_deleted = 0 AND role_id = %d AND menu_id = %d";
+				assertThat(count(st, "SELECT count(*) FROM sys_menu WHERE permission IN ('sys:user:export','sys:user:import')")).isEqualTo(2);
+				assertThat(count(st, has.formatted(9100000000000000401L, 1078000000000000001L))).isEqualTo(1);
+				assertThat(count(st, has.formatted(9100000000000000401L, 1078000000000000002L))).isZero();
+				assertThat(count(st, has.formatted(9100000000000000402L, 1078000000000000002L))).isEqualTo(1);
+				assertThat(count(st, has.formatted(9100000000000000402L, 1078000000000000001L))).isZero();
+				assertThat(count(st, "SELECT count(*) FROM sys_role_menu WHERE role_id = 9100000000000000403 AND menu_id IN (1078000000000000001, 1078000000000000002)")).isZero();
+				// 附件上传码补授给全部未删除角色
+				assertThat(count(st, "SELECT count(*) FROM sys_role_menu rm JOIN sys_menu m ON m.id = rm.menu_id "
+					+ "WHERE m.permission = 'sys:file:upload' AND rm.role_id IN (9100000000000000401, 9100000000000000402, 9100000000000000403)")).isEqualTo(3);
+				long before = count(st, "SELECT count(*) FROM sys_role_menu");
+				st.execute(readResource("db/migration/V13__export_import_upload_flow_perm.sql"));
+				assertThat(count(st, "SELECT count(*) FROM sys_role_menu")).as("重跑不重复授").isEqualTo(before);
+			}
+		});
+	}
+
+	/**
 	 * V7：删除后的行不再占唯一键（与 openGauss / 达梦 V7 同一套场景 SQL，见 db/unique-delete-flag/）。
 	 * 删租户后再建同编号、同一个键删两次、手机号 NULL / 空串可重复；未删除的行仍唯一。
 	 */

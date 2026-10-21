@@ -160,6 +160,7 @@ public class AiAppController {
 		return R.data(service.share(id, enable));
 	}
 
+	@com.mugsun.boot.log.OperationLog("导出 AI 应用")
 	@GetMapping("/export")
 	@SaCheckPermission(AiConstants.PERM_APP_EXPORT)
 	public R<Map<String, Object>> export(@RequestParam Long id) {
@@ -169,6 +170,7 @@ public class AiAppController {
 		return R.data(resp);
 	}
 
+	@com.mugsun.boot.log.OperationLog("导入 AI 应用")
 	@PostMapping("/import")
 	@SaCheckPermission(AiConstants.PERM_APP_IMPORT)
 	public R<AiApp> importApp(@RequestBody Map<String, Object> body) {

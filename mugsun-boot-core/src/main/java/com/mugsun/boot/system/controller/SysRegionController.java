@@ -129,7 +129,8 @@ public class SysRegionController {
 	}
 
 	/** 导出全部区划 */
-	@SaCheckPermission(value = {"sys:region:save", "sys:region:remove", "sys:region:import"}, mode = SaMode.OR)
+	@SaCheckPermission("sys:region:export")
+	@com.mugsun.boot.log.OperationLog("导出行政区划")
 	@GetMapping("/export")
 	public void export(HttpServletResponse response) {
 		List<RegionExcel> rows = regionMapper.selectListByQuery(QueryWrapper.create().orderBy("code", true))
@@ -147,6 +148,7 @@ public class SysRegionController {
 	/** 导入区划：先整表校验，通过后再按编码新增或更新 */
 	@SaCheckPermission("sys:region:import")
 	@PostMapping("/import")
+	@com.mugsun.boot.log.OperationLog("导入行政区划")
 	@RepeatSubmit(message = "请勿重复导入。请先看列表里是否已经出现这些区划")
 	public R<Integer> importData(@RequestParam(value = "file", required = false) MultipartFile file) {
 		if (file == null) {

@@ -101,6 +101,7 @@ public class AiGenController {
 		return emitter;
 	}
 
+	@com.mugsun.boot.log.OperationLog("导出 AI 生成内容")
 	@PostMapping("/{type}/export")
 	@SaCheckPermission(value = {
 		AiConstants.PERM_GEN_MINDMAP, AiConstants.PERM_GEN_POSTER, AiConstants.PERM_GEN_ARTICLE,

@@ -40,6 +40,7 @@ public class AiBillingController {
 		return R.data(chatService.billTrend(days));
 	}
 
+	@com.mugsun.boot.log.OperationLog("导出 AI 计费")
 	@GetMapping("/export")
 	@SaCheckPermission(AiConstants.PERM_BILLING_EXPORT)
 	public void export(HttpServletResponse response) throws IOException {
