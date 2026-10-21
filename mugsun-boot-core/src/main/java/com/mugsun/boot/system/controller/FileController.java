@@ -1,5 +1,7 @@
 package com.mugsun.boot.system.controller;
 
+import com.mugsun.boot.system.file.PendingObjectCleaner;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.dromara.x.file.storage.core.get.RemoteFileInfo;
 import com.mugsun.boot.system.file.UploadPolicy;
 import java.util.Locale;
@@ -59,6 +61,12 @@ public class FileController {
 	private final FileAccessService fileAccessService;
 	private final com.mugsun.boot.system.file.LocalFileUrlSigner localFileUrlSigner;
 	private final ObjectMapper objectMapper = new ObjectMapper();
+	private PendingObjectCleaner pendingObjectCleaner;
+
+	@Autowired
+	void setPendingObjectCleaner(PendingObjectCleaner pendingObjectCleaner) {
+		this.pendingObjectCleaner = pendingObjectCleaner;
+	}
 
 	public FileController(FileStorageService fileStorageService, FileRecorder fileRecorder,
 						  SysAttachMapper attachMapper, OssService ossService, ParamService paramService,
@@ -201,8 +209,10 @@ public class FileController {
 		info.setUrl(ossService.predictUrl(platform, path, filename));
 		info.setAttr(Dict.create().set(OssConstants.ATTR_ACCESS,
 			isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE));
-		fileRecorder.save(info);
-		SysAttach attach = toAttach(info, isPublic);
+		// 预签名 URL 在有效期内还能再 PUT：回验通过后在服务端复制到客户端不知道的新 key，删掉原 key，
+		// 只登记新 key（copy 内部经 FileRecorder 落库）。之后再用原 URL 覆盖，也碰不到已登记的对象
+		FileInfo stored = relocate(info);
+		SysAttach attach = toAttach(stored, isPublic);
 		if (!isPublic) {
 			attach.setUrl(null);
 		}
@@ -409,6 +419,20 @@ public class FileController {
 	 * 直传回验：HEAD 对象核对实际大小、Content-Type 与凭证一致，再读文件头跑魔数校验。
 	 * 任一不符就删掉对象并拒绝登记，避免绕过签名约束的 PUT 落成附件。
 	 */
+	private FileInfo relocate(FileInfo info) {
+		String newName = UploadPolicy.storedName(info.getExt());
+		FileInfo stored;
+		try {
+			stored = fileStorageService.copy(info).setFilename(newName).copy();
+		} catch (Exception e) {
+			log.warn("直传对象搬到新 key 失败：{}", info.getFilename());
+			pendingObjectCleaner.deleteOrEnqueue(info);
+			throw new ServiceException("文件登记没有成功。请重新选择文件再上传");
+		}
+		pendingObjectCleaner.deleteOrEnqueue(info);
+		return stored;
+	}
+
 	private static String baseType(String contentType) {
 		return contentType == null ? "" : contentType.split(";")[0].trim().toLowerCase(Locale.ROOT);
 	}
@@ -442,11 +466,7 @@ public class FileController {
 			ok = n[0] > 0 && UploadPolicy.magicMatches(info.getExt(), head, n[0]);
 		}
 		if (!ok) {
-			try {
-				fileStorageService.getFileStorageVerify(info).delete(info);
-			} catch (Exception e) {
-				log.warn("直传回验不通过，删除对象失败：{}", info.getFilename());
-			}
+			pendingObjectCleaner.deleteOrEnqueue(info);
 			throw new ServiceException("上传的文件和申请时登记的大小或类型对不上。请重新选择文件再上传");
 		}
 	}

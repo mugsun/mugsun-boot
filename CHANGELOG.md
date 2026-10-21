@@ -15,10 +15,13 @@
   - 生产要开放注册，请设 `mugsun.auth.register.enabled=true`
   - `GET /auth/captcha/config` 新增 `registerMode`，前端据此隐藏注册入口
   - 注册按 IP（默认 10 次/时）、账号和手机号（各 5 次/时）限流，超限 429
+  - 反代后面须设 `MUGSUN_OPENAPI_TRUSTED_PROXIES`，否则全站算一个 IP
   - 新参数 `security.register.register-role-code`（V14 播种为 user）
 - V14 播种内置 user 角色，并给注册角色补授 `sys:file:upload`
 - 直传签名有效期由 60 分钟降到 15 分钟
 - 直传登记前回查对象：大小、类型或文件头不符就删对象并拒绝
+- 回查通过后复制到服务端新 key 再登记，原直传 URL 再 PUT 也改不到已登记对象
+- 删不掉的存储对象进 Redis 待清理队列，每 10 分钟重删，失败 20 次后报错
 - 上传上限 20MB 改由容器在接收阶段截断，超限返回 400
 - 文本附件跳过开头空白后再查 HTML 标签；mp3 帧头判断收紧
 - 操作日志脱敏补上 api_key、secretKey、appSecret 及字符串里嵌的 JSON

@@ -182,6 +182,16 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 		byte[] stored = minioClient.getObject(
 			GetObjectArgs.builder().bucket(BUCKET).object(objectKey).build()).readAllBytes();
 		assertThat(stored).isEqualTo(content);
+		assertThat(objectKey).as("登记的是服务端新 key，不是签发给客户端的 key").isNotEqualTo(objectKeyOf(uploadUrl));
+
+		// 2b) 预签名 URL 还没过期：用它再 PUT 一份等长的篡改内容，已登记的对象不受影响
+		byte[] tampered = content.clone();
+		java.util.Arrays.fill(tampered, (byte) 'X');
+		putBytes(uploadUrl, signData.path("headers"), tampered);
+		byte[] after = minioClient.getObject(
+			GetObjectArgs.builder().bucket(BUCKET).object(objectKey).build()).readAllBytes();
+		assertThat(after).as("登记对象内容不变").isEqualTo(content);
+		minioClient.removeObject(io.minio.RemoveObjectArgs.builder().bucket(BUCKET).object(objectKeyOf(uploadUrl)).build());
 
 		// 4) 伪造未签发凭证 create 被拒；重放已消费凭证同样被拒（一次性）
 		Map<String, Object> forged = new HashMap<>();
@@ -365,6 +375,8 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 			.stream(new java.io.ByteArrayInputStream(fake), fake.length, -1).contentType("image/png").build());
 		JsonNode rejectedPng = readBody(post("/system/file/create", Map.of("ticket", signPng.path("ticket").asText()), token));
 		assertThat(rejectedPng.path("code").asInt()).as("魔数不符应被拒：" + rejectedPng).isNotEqualTo(200);
+		assertThatThrownBy(() -> minioClient.statObject(StatObjectArgs.builder().bucket(BUCKET).object(pngKey).build()))
+			.as("魔数不符的对象已删除").isInstanceOf(ErrorResponseException.class);
 	}
 
 	private JsonNode signPut(String token, String filename, int size) {
