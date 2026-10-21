@@ -1,7 +1,9 @@
 name: compose-full smoke
 
 on:
-  pull_request:
+  # 只在 main 上按路径跑；其他分支不跑，节省 runner
+  push:
+    branches: [main]
     paths:
       - docker-compose.full.yml
       - docker/full/**
@@ -11,6 +13,13 @@ on:
       - .github/workflows/compose-full.yml
       - Dockerfile
   workflow_dispatch:
+  # 每周一次：UTC 周日 18:00 = 北京时间周一 02:00
+  schedule:
+    - cron: '0 18 * * 0'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
