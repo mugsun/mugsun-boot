@@ -251,12 +251,24 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 			.as("全部经日志账号落库").isEqualTo(before + n);
 		assertThat(count("SELECT COUNT(*) FROM (SELECT prev_hash FROM sys_oper_log WHERE chain_prev IS NOT NULL "
 			+ "GROUP BY prev_hash HAVING COUNT(*) > 1) t")).as("没有重复的 prev_hash").isZero();
-		Map<String, Object> verified = operationLogService.verify(null);
+		// 只验本测试写入的这一段：CI 用外部服务库，库里可能留着别的运行（别的 SM2 密钥）签的旧记录
+		Map<String, Object> verified = operationLogService.verify(n);
 		assertThat(verified.get("valid")).as(String.valueOf(verified)).isEqualTo(true);
+		assertThat(verified.get("verified")).as(String.valueOf(verified)).isEqualTo(n);
 	}
 
 	@Test
 	void lockHeldLongerThanTimeoutDropsThatEntryAndCounts() throws Exception {
+		// 先写一条锚点，最后验「锚点 → 放锁后那条」这一段链
+		SysOperLog anchor = chainEntry(2);
+		anchor.setRequestUri("/it/demo-lock-timeout-before");
+		long anchorBefore = count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-before'");
+		TenantContext.execute(PLATFORM_TENANT, () -> operationLogService.saveAsync(anchor));
+		long anchorDeadline = System.currentTimeMillis() + 15_000;
+		while (count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-before'") == anchorBefore
+			&& System.currentTimeMillis() < anchorDeadline) {
+			Thread.sleep(100);
+		}
 		long dropped = operationLogService.demoLockTimeoutDroppedCount();
 		long before = count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout'");
 		// owner 连接持有链头行锁超过 lock_timeout（3s）
@@ -287,8 +299,9 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 			Thread.sleep(100);
 		}
 		assertThat(count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-after'")).isEqualTo(1);
-		Map<String, Object> verified = operationLogService.verify(null);
+		Map<String, Object> verified = operationLogService.verify(2);
 		assertThat(verified.get("valid")).as(String.valueOf(verified)).isEqualTo(true);
+		assertThat(verified.get("verified")).as(String.valueOf(verified)).isEqualTo(2);
 	}
 
 	@Test
