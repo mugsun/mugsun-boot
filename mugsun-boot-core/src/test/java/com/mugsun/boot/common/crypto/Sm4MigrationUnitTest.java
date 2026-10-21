@@ -1,6 +1,7 @@
 package com.mugsun.boot.common.crypto;
 
 import cn.hutool.crypto.SmUtil;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,13 @@ import static org.mockito.Mockito.when;
  * 用 mock 的 JDBC 对象，每个加密字段都返回一行同一个值。
  */
 class Sm4MigrationUnitTest {
+
+	/** Sm4Util 的密钥是 JVM 级静态状态：用完恢复成集成测试密钥，避免后面复用缓存上下文的集成测试用错密钥写库 */
+	@AfterEach
+	void restoreIntegrationSm4Key() {
+		Sm4TestKeys.useIntegrationKey();
+	}
+
 
 	private static final byte[] OLD = Sm4Util.legacyPaddedKey("old-short");
 	private static final byte[] NEW = Sm4Util.parseKey("00112233445566778899aabbccddeeff");

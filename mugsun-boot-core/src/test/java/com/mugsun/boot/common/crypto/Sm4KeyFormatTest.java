@@ -1,5 +1,6 @@
 package com.mugsun.boot.common.crypto;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -13,6 +14,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** MUGSUN_SM4_KEY 只认三种写法，其他一律拒绝启动（不补零、不截断） */
 class Sm4KeyFormatTest {
+
+	/** Sm4Util 的密钥是 JVM 级静态状态：用完恢复成集成测试密钥，避免后面复用缓存上下文的集成测试用错密钥写库 */
+	@AfterEach
+	void restoreIntegrationSm4Key() {
+		Sm4TestKeys.useIntegrationKey();
+	}
+
 
 	@Test
 	@DisplayName("32 位 hex（大小写）、规范 base64、16 字符旧写法都能启动")

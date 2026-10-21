@@ -1,6 +1,7 @@
 package com.mugsun.boot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -33,10 +34,21 @@ class FieldMaskApiTest extends AbstractIntegrationTest {
 	private static final String MASKED_PHONE = "138****" + TS.substring(TS.length() - 4);
 	private static final String TARGET_ID_CARD = "11010119900101001X";
 
+	@org.springframework.beans.factory.annotation.Autowired
+	private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
 	private String adminToken;
 	private long targetId;
 	private String tokenMasked;
 	private String tokenNoView;
+
+	/** 清掉本类写入的身份证密文：CI 里各模块共用一个库，残留密文会进入后续模块的启动自检 */
+	@AfterAll
+	void clearTargetIdCard() {
+		if (targetId > 0) {
+			jdbc.update("update sys_user set id_card = null where id = ?", targetId);
+		}
+	}
 
 	@BeforeAll
 	void setupMaskFixture() {
