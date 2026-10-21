@@ -11,6 +11,13 @@ COMMENT ON TABLE sys_oper_log_chain IS '操作日志哈希链链头锁（单行 
 
 -- ② 唯一兜底：新记录 chain_prev = prev_hash，唯一索引让两条记录无法接在同一链头后。
 --    历史记录保持 NULL（不回填，避免历史分叉/重复的 prev_hash 让本迁移失败；NULL 不参与唯一约束）。
-ALTER TABLE sys_oper_log ADD COLUMN IF NOT EXISTS chain_prev VARCHAR(64);
+--    openGauss-lite 5.1 不支持 ADD COLUMN IF NOT EXISTS，用 information_schema 判断（同 V2/V9/V10 写法）。
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+	               WHERE table_schema = current_schema() AND table_name = 'sys_oper_log' AND column_name = 'chain_prev') THEN
+		ALTER TABLE sys_oper_log ADD COLUMN chain_prev VARCHAR(64);
+	END IF;
+END $$;
 COMMENT ON COLUMN sys_oper_log.chain_prev IS '链唯一兜底：新记录等于 prev_hash，历史记录为空';
 CREATE UNIQUE INDEX IF NOT EXISTS uk_oper_log_chain_prev ON sys_oper_log (chain_prev);
