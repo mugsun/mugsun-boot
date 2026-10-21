@@ -108,6 +108,26 @@ class GuardTest(unittest.TestCase):
         self.assertIn("::error::", r.stderr)
         self.assertIn("::error::", self.guard("").stdout)
 
+    def test_pr_valid_base_passes(self):
+        sh(self.repo, "git", "checkout", "-qb", "pr-ok")
+        self.write("db/migration/V2__add.sql", "select 1;\n")
+        self.commit("add V2")
+        r = self.resolve(EVENT_NAME="pull_request", PR_BASE_SHA=self.main_sha)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), self.main_sha)
+        self.assertEqual(self.guard(r.stdout.strip()).returncode, 0)
+
+    def test_pr_manifest_edit_fails(self):
+        sh(self.repo, "git", "checkout", "-qb", "pr-bad")
+        with open(os.path.join(self.repo, "db/RELEASED.sha256"), "w") as f:
+            f.write("e" * 64 + "  " + self.mig + "\n")
+        self.commit("edit manifest")
+        r = self.resolve(EVENT_NAME="pull_request", PR_BASE_SHA=self.main_sha)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        g = self.guard(r.stdout.strip())
+        self.assertNotEqual(g.returncode, 0)
+        self.assertIn("只能追加", g.stdout)
+
     def test_dispatch_uses_merge_base_and_passes_clean(self):
         sh(self.repo, "git", "checkout", "-qb", "feat3")
         self.write("db/migration/V2__add.sql", "select 1;\n")
