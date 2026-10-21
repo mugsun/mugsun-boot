@@ -75,6 +75,20 @@ public final class Sm4Util {
 		return Arrays.copyOf(key.getBytes(StandardCharsets.UTF_8), 16);
 	}
 
+	/** 当前密钥能否解开这条密文（不计失败、不打日志；解出非法 UTF-8 也算解不开）。启动自检用 */
+	static boolean canDecrypt(String cipher) {
+		try {
+			byte[] raw = sm4.decrypt(cipher);
+			StandardCharsets.UTF_8.newDecoder()
+				.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+				.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+				.decode(java.nio.ByteBuffer.wrap(raw));
+			return true;
+		} catch (Exception e) {
+			return false;
+		}
+	}
+
 	/** 启动以来解密失败次数（迁移核对用） */
 	public static long decryptFailures() {
 		return DECRYPT_FAILURES.get();

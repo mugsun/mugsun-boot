@@ -28,7 +28,10 @@ import java.util.function.Function;
  *   <li>{@code MUGSUN_MIGRATE_JDBC_URL}、{@code MUGSUN_MIGRATE_DB_USER}、{@code MUGSUN_MIGRATE_DB_PASSWORD}</li>
  * </ul>
  * 参数：{@code --dry-run}（默认，只统计不写库）或 {@code --apply}（单事务写库，有任何一条解不开就整体回滚）。
- * 每个字段输出：总数、需重加密、已是新密钥、历史明文、解不开。只按 id 改行，不打印任何值。
+ * 每个字段输出：总数、需重加密、已是新密钥、历史明文、解不开及其主键。只按 id 改行，不打印 key、明文或密文。
+ * 新旧两把钥都能解开的值按「解不开」处理，避免重跑时二次加密。
+ * <p>只读当前连接 search_path（或默认 schema）下的表：多 schema 部署请用目标 schema 的账号运行，
+ * 或在 JDBC URL 里带 {@code currentSchema}。
  * <p>多租户独立库（sys_tenant_datasource）要对每个库各跑一次。
  */
 public final class Sm4KeyMigrationTool {
@@ -61,12 +64,15 @@ public final class Sm4KeyMigrationTool {
 		public long plaintext;
 		public long failed;
 		public boolean missing;
+		/** 解不开的行的主键（只记主键，不记值） */
+		public final List<Object> failedIds = new ArrayList<>();
 
 		@Override
 		public String toString() {
 			return missing ? "表或列不存在，跳过"
 				: "总数=" + total + " 需重加密=" + reencrypted + " 已是新密钥=" + alreadyNew
-				+ " 历史明文=" + plaintext + " 解不开=" + failed;
+				+ " 历史明文=" + plaintext + " 解不开=" + failed
+				+ (failedIds.isEmpty() ? "" : " 解不开的主键=" + failedIds);
 		}
 	}
 
@@ -75,15 +81,46 @@ public final class Sm4KeyMigrationTool {
 
 	public Sm4KeyMigrationTool(byte[] oldKey, byte[] newKey) {
 		if (Arrays.equals(oldKey, newKey)) {
-			throw new IllegalArgumentException("新旧密钥相同，不需要迁移");
+			throw new IllegalArgumentException("新旧密钥相同，拒绝执行");
 		}
 		this.oldKey = SmUtil.sm4(oldKey.clone());
 		this.newKey = SmUtil.sm4(newKey.clone());
 	}
 
-	public static void main(String[] args) throws SQLException {
-		boolean apply = Arrays.asList(args).contains("--apply");
-		Function<String, String> env = System::getenv;
+	public static void main(String[] args) {
+		try {
+			System.exit(run(args, System::getenv));
+		} catch (IllegalArgumentException | IllegalStateException e) {
+			// 自己抛的异常信息不含 key、明文、密文
+			System.err.println("迁移中止：" + e.getMessage());
+			System.exit(1);
+		} catch (SQLException e) {
+			// 驱动的报错可能带参数值，只输出 SQLState 和错误码
+			System.err.println("迁移中止：数据库错误 SQLState=" + e.getSQLState() + " code=" + e.getErrorCode() + "，已回滚");
+			System.exit(1);
+		} catch (RuntimeException e) {
+			// 第三方异常（如 hutool CryptoException）的信息和堆栈可能带值，只输出类名
+			System.err.println("迁移中止：" + e.getClass().getName() + "，已回滚");
+			System.exit(1);
+		}
+	}
+
+	/** 只认 --dry-run（默认）和 --apply；key 只从环境变量读，命令行出现其他参数一律拒绝 */
+	static int run(String[] args, Function<String, String> env) throws SQLException {
+		boolean apply = false;
+		boolean dryRun = false;
+		for (String a : args) {
+			if ("--apply".equals(a)) {
+				apply = true;
+			} else if ("--dry-run".equals(a)) {
+				dryRun = true;
+			} else {
+				throw new IllegalArgumentException("不认识的参数（key 只能用环境变量传入，不接受命令行参数），拒绝执行");
+			}
+		}
+		if (apply && dryRun) {
+			throw new IllegalArgumentException("参数冲突：--dry-run 和 --apply 只能二选一");
+		}
 		Sm4KeyMigrationTool tool = fromEnv(env);
 		try (Connection c = DriverManager.getConnection(require(env, "MUGSUN_MIGRATE_JDBC_URL"),
 			require(env, "MUGSUN_MIGRATE_DB_USER"), env.apply("MUGSUN_MIGRATE_DB_PASSWORD"))) {
@@ -93,9 +130,7 @@ public final class Sm4KeyMigrationTool {
 			System.out.println(apply
 				? (failed == 0 ? "已写库（单事务提交）" : "有 " + failed + " 条解不开，已整体回滚，什么都没改")
 				: "dry-run：没有写库；确认「解不开=0」后加 --apply 执行");
-			if (failed > 0) {
-				System.exit(2);
-			}
+			return failed > 0 ? 2 : 0;
 		}
 	}
 
@@ -163,13 +198,19 @@ public final class Sm4KeyMigrationTool {
 					continue;
 				}
 				String plain = tryDecrypt(oldKey, v);
-				if (plain != null) {
+				boolean newOk = tryDecrypt(newKey, v) != null;
+				if (plain != null && newOk) {
+					// 两把钥都能解（重跑时旧钥碰巧解出合法 UTF-8）：不敢判断，交给人工
+					n.failed++;
+					n.failedIds.add(id);
+				} else if (plain != null) {
 					n.reencrypted++;
 					updates.add(new Object[]{newKey.encryptBase64(plain), id});
-				} else if (tryDecrypt(newKey, v) != null) {
+				} else if (newOk) {
 					n.alreadyNew++;
 				} else {
 					n.failed++;
+					n.failedIds.add(id);
 				}
 			}
 		}

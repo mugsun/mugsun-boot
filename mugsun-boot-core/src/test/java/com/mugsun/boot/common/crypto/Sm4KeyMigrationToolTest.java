@@ -51,6 +51,8 @@ class Sm4KeyMigrationToolTest extends AbstractIntegrationTest {
 				String broken = idCard(c);
 				var failed = tool.run(c, true);
 				assertThat(failed.get("sys_user.id_card").failed).isEqualTo(1);
+				String report = failed.get("sys_user.id_card").toString();
+				assertThat(report).contains("解不开的主键=").doesNotContain(broken).doesNotContain(plain);
 				assertThat(idCard(c)).isEqualTo(broken);
 			} finally {
 				setIdCard(c, original);
@@ -67,6 +69,22 @@ class Sm4KeyMigrationToolTest extends AbstractIntegrationTest {
 			.hasMessageContaining("MUGSUN_SM4_NEW_KEY");
 		assertThatThrownBy(() -> Sm4KeyMigrationTool.fromEnv(Map.of("MUGSUN_SM4_OLD_KEY", APP_KEY,
 			"MUGSUN_SM4_NEW_KEY", "short")::get)).isInstanceOf(IllegalStateException.class);
+	}
+
+	@Test
+	@DisplayName("新旧密钥相同（含同一把钥的 hex 与 base64 两种写法）：拒绝执行")
+	void sameKeyRejected() {
+		String b64 = java.util.Base64.getEncoder().encodeToString(Sm4Util.parseKey(APP_KEY));
+		assertThatThrownBy(() -> Sm4KeyMigrationTool.fromEnv(Map.of("MUGSUN_SM4_OLD_KEY", APP_KEY,
+			"MUGSUN_SM4_NEW_KEY", b64)::get)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("相同").hasMessageNotContaining(APP_KEY).hasMessageNotContaining(b64);
+	}
+
+	@Test
+	@DisplayName("命令行只认 --dry-run / --apply，传 key 之类的参数直接拒绝，报错不回显参数")
+	void rejectsCommandLineKeys() {
+		assertThatThrownBy(() -> Sm4KeyMigrationTool.run(new String[]{"--old-key=" + APP_KEY}, Map.<String, String>of()::get))
+			.isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining(APP_KEY);
 	}
 
 	@Test
