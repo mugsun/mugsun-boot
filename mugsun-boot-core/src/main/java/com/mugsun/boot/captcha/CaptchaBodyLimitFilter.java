@@ -22,7 +22,8 @@ import java.nio.charset.StandardCharsets;
  * 分块传输（无 Content-Length）先限长读入，超出同样回标准 R JSON（HTTP 200 + 40011）。
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+// 让出 HIGHEST_PRECEDENCE 给 MultipartAuthFilter：本过滤器会读请求体，必须排在 multipart 闸门之后
+@Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class CaptchaBodyLimitFilter extends OncePerRequestFilter {
 
 	/** 400 个轨迹点约 20KB */
