@@ -12,12 +12,15 @@ on:
       - Dockerfile
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: 从零一键起全栈 → 登录 → 第一条埋点
         run: scripts/compose-full-smoke.sh
       - name: 失败时打印日志

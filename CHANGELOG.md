@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### CI
+
+- 收紧 workflow 权限并把 Actions 钉到 commit SHA
+  - 每个 workflow 顶层 `permissions: contents: read`，禁用 `pull_request_target`
+  - Actions 钉 40 位 SHA，行尾注释版本号
+  - 新增 `scripts/ci/check-workflows.py` 和 actionlint（钉版本、校验 sha256）
+
 ### 说明
 
 - 许可证由 Apache-2.0 改为 MIT（见 `LICENSE`）
