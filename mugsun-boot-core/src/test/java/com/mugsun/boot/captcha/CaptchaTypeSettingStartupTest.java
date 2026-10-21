@@ -47,13 +47,12 @@ class CaptchaTypeSettingStartupTest {
 	}
 
 	@Test
-	@DisplayName("不写：平台默认 SLIDER,WORD_CLICK，旋转 / 图标点选默认关")
+	@DisplayName("不写：平台默认五种全开")
 	void unsetUsesPlatformDefault() {
 		env(Map.of()).run(ctx -> {
 			assertThat(ctx).hasNotFailed();
 			CaptchaProperties p = ctx.getBean(CaptchaProperties.class);
-			assertThat(p.validate()).containsExactlyInAnyOrder(CaptchaType.SLIDER, CaptchaType.WORD_CLICK);
-			assertThat(p.getDefaultTypes()).doesNotContain("ROTATE", "ICON_CLICK");
+			assertThat(p.validate()).containsExactlyInAnyOrder(CaptchaType.values());
 		});
 	}
 

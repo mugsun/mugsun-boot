@@ -23,11 +23,11 @@ public class CaptchaProperties implements InitializingBean {
 	public static final String PROP_DEFAULT_TYPES = "mugsun.captcha.default-types";
 
 	/**
-	 * 平台默认启用的题型：滑块 + 词语点选，多题型时每次随机出一种（config 返回 RANDOM）。
-	 * 旋转 / 图标点选为辅助题型，默认关，可显式启用。拼图还原（JIGSAW）待安全官确认后再加入默认
+	 * 平台默认启用的题型：五种全开（滑块、词语点选、旋转、图标点选、拼图还原），每次随机出一种（config 返回 RANDOM）。
+	 * 旋转 / 图标点选只能部分抵御自动求解，与其它题型一起随机出、不单独使用
 	 * （同时改 application.yml、application-demo.yml 的 default-types，CaptchaDefaultTypesTest 校验三处一致）。
 	 */
-	public static final java.util.List<String> PLATFORM_DEFAULT_TYPES = java.util.List.of("SLIDER", "WORD_CLICK");
+	public static final java.util.List<String> PLATFORM_DEFAULT_TYPES = java.util.List.of("SLIDER", "WORD_CLICK", "ROTATE", "ICON_CLICK", "JIGSAW");
 
 	/** 已移除的取值 → 改法 */
 	public static final java.util.Map<String, String> REMOVED_TYPES = java.util.Map.of("IMAGE",
@@ -49,7 +49,7 @@ public class CaptchaProperties implements InitializingBean {
 	private final Slider slider = new Slider();
 	private final Background background = new Background();
 	private final RateLimit rateLimit = new RateLimit();
-	/** 租户未单独配置启用类型时的默认集合（默认 SLIDER,WORD_CLICK；ROTATE / ICON_CLICK 默认关） */
+	/** 租户未单独配置启用类型时的默认集合（默认五种全开：SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW） */
 	private java.util.List<String> defaultTypes = new java.util.ArrayList<>(PLATFORM_DEFAULT_TYPES);
 	private final Rotate rotate = new Rotate();
 	private final Click click = new Click();

@@ -131,7 +131,7 @@ class RotateSameImageTest {
 			}
 		}
 		System.out.printf("ROTATE-ADVERSARIAL hits=%d/%d (%.1f%%)%n", hits, n, 100.0 * hits / n);
-		// Regression guard (≤ 65%, per security review). ROTATE is positioned as an auxiliary method only: off by default,
+		// Regression guard (≤ 65%, per security review). ROTATE is an auxiliary method: in the default random mix (since 2026-10-21) but never alone,
 		// partly resistant to automated solving (edge-continuity matching solves ~55–60% over 300-challenge runs), never the only line of defence.
 		assertThat(hits).as("NCC solver within ±10° in %d/%d", hits, n)
 			.isLessThanOrEqualTo((int) Math.floor(n * MAX_ADVERSARIAL_HIT_RATE));
@@ -167,8 +167,8 @@ class RotateSameImageTest {
 	}
 
 	@Test
-	void platformDefaultTypesAreSliderAndWordClick() {
-		assertThat(new CaptchaProperties().getDefaultTypes()).containsExactly("SLIDER", "WORD_CLICK").doesNotContain("ROTATE");
+	void platformDefaultTypesIncludeRotateInMix() {
+		assertThat(new CaptchaProperties().getDefaultTypes()).containsExactly("SLIDER", "WORD_CLICK", "ROTATE", "ICON_CLICK", "JIGSAW");
 	}
 
 	/** Hole-interior NCC only: returns {best angle, best score, second-best score more than 15° away} */

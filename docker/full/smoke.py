@@ -22,12 +22,16 @@ def call(method, path, body=None, token=None):
 
 import redis
 r = redis.Redis(host="redis", password=rpw, db=3, decode_responses=True)
-# 行为验证码：键盘模式只出 SLIDER/ROTATE，平台默认 SLIDER,WORD_CLICK 下必为 SLIDER；答案从 Redis 挑战记录读（仅供自检）
-cap = call("POST", "/api/auth/captcha/challenge", {"scene": "login", "clientId": "web", "tenantId": "000000",
-                                                 "inputMode": "keyboard"})
-assert cap.get("code") == 200, f"取验证码失败: {cap}"
-cap = cap["data"]
-assert cap["type"] == "SLIDER", f"键盘模式应为 SLIDER: {cap['type']}"
+# 行为验证码：键盘模式只出 SLIDER/ROTATE（平台默认五种随机），取到 SLIDER 为止；答案从 Redis 挑战记录读（仅供自检）
+for _ in range(8):
+    cap = call("POST", "/api/auth/captcha/challenge", {"scene": "login", "clientId": "web", "tenantId": "000000",
+                                                     "inputMode": "keyboard"})
+    assert cap.get("code") == 200, f"取验证码失败: {cap}"
+    cap = cap["data"]
+    assert cap["type"] in ("SLIDER", "ROTATE"), f"键盘模式只应出 SLIDER/ROTATE: {cap['type']}"
+    if cap["type"] == "SLIDER":
+        break
+assert cap["type"] == "SLIDER", "8 次都没取到 SLIDER"
 rec = r.get("mugsun:captcha:v2:challenge:" + cap["captchaId"])
 assert rec, "Redis 里没有验证码答案"
 x = int(rec.split("|")[0]); step = cap.get("keyboardStep") or 4

@@ -160,8 +160,8 @@ mugsun:
   captcha:
     enabled: true            # 全局开关，false = 所有场景都不要验证码；与租户开关(sys_tenant.captcha_enabled)取 AND
     # 租户未单独设置时启用的题型（服务端随机选一种）：SLIDER | ROTATE | WORD_CLICK | ICON_CLICK | JIGSAW，不区分大小写。
-    # ROTATE / ICON_CLICK 为辅助题型，默认关。非法值（含已移除的 IMAGE）启动失败
-    default-types: SLIDER,WORD_CLICK
+    # 默认五种全开、随机出题；ROTATE / ICON_CLICK 只能部分抵御自动求解，不要单独启用。非法值（含已移除的 IMAGE）启动失败
+    default-types: SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW
     store: redis             # redis | memory（memory 仅单机/开发，prod profile 启动即失败）
     show-code: false         # 双因子登录验证码回显，仅 dev profile 开启（生产开启=防爆破体系架空）
     slider:

@@ -31,8 +31,8 @@ mugsun:
   openapi:
     trusted-proxies: ${MUGSUN_OPENAPI_TRUSTED_PROXIES:127.0.0.0/8,::1/128}
   captcha:
-    # 与平台默认一致：滑块 + 词语点选；旋转 / 图标点选默认关
-    default-types: SLIDER,WORD_CLICK
+    # 与平台默认一致：五种全开，每次随机出一种
+    default-types: SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW
   track:
     # 埋点库不迁移（埋点账号无 DDL 权限），启动时只读校验迁移版本
     flyway-enabled: false

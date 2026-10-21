@@ -61,20 +61,24 @@ class MultiTypeCaptchaApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	void platformDefaultIsSliderPlusWordClick() {
-		// application.yml 的平台默认：SLIDER,WORD_CLICK；旋转 / 图标点选默认关
-		assertThat(props.getDefaultTypes()).containsExactly("SLIDER", "WORD_CLICK");
+	void platformDefaultIsAllFiveRandom() {
+		// application.yml 的平台默认：五种全开，每次随机出一种
+		assertThat(props.getDefaultTypes()).containsExactly("SLIDER", "WORD_CLICK", "ROTATE", "ICON_CLICK", "JIGSAW");
 		JsonNode cfg = readBody(get("/auth/captcha/config?scene=login&clientId=web&tenantId=000000", null)).path("data");
 		assertThat(cfg.path("enabled").asBoolean()).isTrue();
 		assertThat(cfg.path("type").asText()).isEqualTo("RANDOM");
 		Set<String> seen = new HashSet<>();
-		// 默认就是多题型随机（RANDOM）：40 次里两种都要出现（漏掉一种的概率约 2^-39），且客户端点名 ROTATE 无效
-		for (int i = 0; i < 40; i++) {
-			seen.add(challenge("pointer", "ROTATE").path("type").asText());
+		// 默认就是多题型随机（RANDOM）：80 次里五种都要出现（漏掉任一种的概率约 5×0.8^80 ≈ 1e-7）；客户端点名的 type 被忽略
+		for (int i = 0; i < 80; i++) {
+			seen.add(challenge("pointer", "SLIDER").path("type").asText());
 		}
-		assertThat(seen).containsExactlyInAnyOrder("SLIDER", "WORD_CLICK");
-		// 键盘只从 SLIDER/ROTATE 里选：平台默认下就是 SLIDER
-		assertThat(challenge("keyboard", null).path("type").asText()).isEqualTo("SLIDER");
+		assertThat(seen).containsExactlyInAnyOrder("SLIDER", "WORD_CLICK", "ROTATE", "ICON_CLICK", "JIGSAW");
+		// 键盘只从 SLIDER/ROTATE 里选
+		Set<String> kb = new HashSet<>();
+		for (int i = 0; i < 3; i++) {
+			kb.add(challenge("keyboard", null).path("type").asText());
+		}
+		assertThat(kb).isSubsetOf("SLIDER", "ROTATE").isNotEmpty();
 	}
 
 	@Test

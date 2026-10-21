@@ -79,7 +79,7 @@ Login, registration, the forgot-password code and the SMS code request require a
 | Key | Default | Notes |
 |---|---|---|
 | `mugsun.captcha.enabled` | `true` | Global switch; `false` turns verification off for every scene (set to true in prod config) |
-| `mugsun.captcha.default-types` | `SLIDER,WORD_CLICK` | Types enabled when a tenant has no own setting: `SLIDER`, `ROTATE`, `WORD_CLICK`, `ICON_CLICK`, `JIGSAW` (case-insensitive). `ROTATE` / `ICON_CLICK` are auxiliary and off by default. Invalid values fail startup |
+| `mugsun.captcha.default-types` | `SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW` | Types enabled when a tenant has no own setting: `SLIDER`, `ROTATE`, `WORD_CLICK`, `ICON_CLICK`, `JIGSAW` (case-insensitive). All five are on by default and one is picked at random per challenge. Invalid values fail startup |
 | `mugsun.captcha.type` | unset | Deprecated: only `SLIDER` is accepted (no effect, WARN at startup). The legacy digit captcha `IMAGE` was removed in v0.6.3; `IMAGE` or any other value fails startup |
 | `mugsun.captcha.store` | `redis` | `redis` or `memory`; `memory` is single-node dev only and fails to start under the `prod` profile |
 | `mugsun.captcha.slider.width` / `height` | `320` / `180` | Native background size |

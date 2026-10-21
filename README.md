@@ -79,7 +79,7 @@ OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
 | 配置键 | 默认 | 说明 |
 |---|---|---|
 | `mugsun.captcha.enabled` | `true` | 全局开关；`false` 时所有场景都不要验证码（prod 配置为 true） |
-| `mugsun.captcha.default-types` | `SLIDER,WORD_CLICK` | 租户未单独设置时启用的题型：`SLIDER`、`ROTATE`、`WORD_CLICK`、`ICON_CLICK`、`JIGSAW`（不区分大小写）。`ROTATE` / `ICON_CLICK` 为辅助题型，默认关。非法值启动失败 |
+| `mugsun.captcha.default-types` | `SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW` | 租户未单独设置时启用的题型：`SLIDER`、`ROTATE`、`WORD_CLICK`、`ICON_CLICK`、`JIGSAW`（不区分大小写）。默认五种全开、随机出题。非法值启动失败 |
 | `mugsun.captcha.type` | 不设 | 已废弃：只认 `SLIDER`（不起作用，启动打 WARN）。旧数字码 `IMAGE` 已在 v0.6.3 移除，写 `IMAGE` 或其它值启动失败 |
 | `mugsun.captcha.store` | `redis` | `redis` 或 `memory`；`memory` 仅单机开发，`prod` profile 下启动失败 |
 | `mugsun.captcha.slider.width` / `height` | `320` / `180` | 底图原始尺寸 |

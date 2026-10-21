@@ -14,20 +14,19 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 平台默认题型三处一致：CaptchaProperties 代码默认、application.yml、application-demo.yml 都是 SLIDER,WORD_CLICK
- * （多题型 = 每次随机出一种，config 返回 RANDOM）；ROTATE / ICON_CLICK 不在默认里。
+ * 平台默认题型三处一致：CaptchaProperties 代码默认、application.yml、application-demo.yml 都是五种全开 SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW
+ * （多题型 = 每次随机出一种，config 返回 RANDOM）。
  */
 class CaptchaDefaultTypesTest {
 
-	private static final List<String> EXPECTED = List.of("SLIDER", "WORD_CLICK");
+	private static final List<String> EXPECTED = List.of("SLIDER", "WORD_CLICK", "ROTATE", "ICON_CLICK", "JIGSAW");
 
 	@Test
 	void codeDefault() {
 		assertThat(CaptchaProperties.PLATFORM_DEFAULT_TYPES).containsExactlyElementsOf(EXPECTED);
 		CaptchaProperties p = new CaptchaProperties();
 		assertThat(p.getDefaultTypes()).containsExactlyElementsOf(EXPECTED);
-		assertThat(p.validate()).isEqualTo(EnumSet.of(CaptchaType.SLIDER, CaptchaType.WORD_CLICK))
-			.doesNotContain(CaptchaType.ROTATE, CaptchaType.ICON_CLICK).hasSizeGreaterThan(1);
+		assertThat(p.validate()).isEqualTo(EnumSet.allOf(CaptchaType.class)).hasSizeGreaterThan(1);
 	}
 
 	@Test

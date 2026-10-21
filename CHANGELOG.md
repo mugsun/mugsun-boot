@@ -17,10 +17,10 @@
 - **破坏性变更：旧的数字图形验证码已移除，改为行为验证码**（行为验证码由 mugsun-boot#17、#35 引入，本次移除旧数字码；验证码契约 v0.6.3）。登录、注册、忘记密码发码、发送短信验证码改用行为验证码：`GET /auth/captcha/config` 提示是否需要 → `POST /auth/captcha/challenge` 取题 → `POST /auth/captcha/verify` 换一次性 `captchaToken` → 业务接口请求体带 `captchaToken`。题型 `SLIDER`（滑块拼图）、`ROTATE`（旋转）、`WORD_CLICK`（词语点选）、`ICON_CLICK`（图标点选）、`JIGSAW`（拼图还原），由服务端在启用集合里随机选一种。
   - 移除的接口与字段：`GET /auth/captcha`（返回 `captchaUuid`、`captchaImage`、`expireSeconds`、`captchaCode`）不再存在；`POST /auth/login`、`/auth/register`、`/auth/forget-code`、`/auth/sms-login` 不再读请求体里的 `captchaUuid`、`captchaCode`（传了也忽略）。`/auth/sms-login` 不再校验验证码，验证码前移到 `/auth/sms-code`（带 `captchaToken`）
   - 移除的配置：`mugsun.captcha.type=IMAGE`（`SLIDER` / `IMAGE` 切换）、`mugsun.captcha.expire-seconds`（旧数字码有效期，已无作用）。`mugsun.captcha.type` 只认 `SLIDER`（不起作用，启动打 WARN，请删掉）；写 `IMAGE` 或其它值启动失败，报错写明「IMAGE 已移除」
-  - 新配置 `mugsun.captcha.default-types`，平台默认 `SLIDER,WORD_CLICK`（`application-demo.yml` 相同）：默认就是多题型随机，每次取题从这两种里随机出一种，`GET /auth/captcha/config` 返回 `type: RANDOM`；`ROTATE`、`ICON_CLICK` 为辅助题型，默认关。只接受上面五个题型名（不区分大小写），空值、未知值、`IMAGE` 一律启动失败，报错写出配置项、环境变量名（`MUGSUN_CAPTCHA_DEFAULT_TYPES`）和转义后的原值。租户可单独设置题型（`POST /system/tenant/captcha` 的 `types`，仅平台超管）
+  - 新配置 `mugsun.captcha.default-types`，平台默认 `SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW`（五种全开；`application-demo.yml` 相同）：默认就是多题型随机，每次取题从这五种里随机出一种，`GET /auth/captcha/config` 返回 `type: RANDOM`；键盘模式只出 `SLIDER` / `ROTATE`。只接受上面五个题型名（不区分大小写），空值、未知值、`IMAGE` 一律启动失败，报错写出配置项、环境变量名（`MUGSUN_CAPTCHA_DEFAULT_TYPES`）和转义后的原值。租户可单独设置题型（`POST /system/tenant/captcha` 的 `types`，仅平台超管）
   - 总开关不变：`mugsun.captcha.enabled=false` 时所有场景都不要验证码。租户开关 `sys_tenant.captcha_enabled` 照旧；客户端开关 `sys_client.captcha_enabled` 不再参与判定（列与字段暂留）。`mugsun.captcha.show-code` 现在只控制双因子登录验证码回显
   - 演示环境只读白名单放行 `POST /auth/captcha/challenge`、`POST /auth/captcha/verify`（只写 Redis 挑战记录与日志库），否则演示账号无法登录
-  - 数据库：本次没有新迁移。租户开关与题型列来自已发布的 `V9__tenant_captcha.sql`、`V10__tenant_captcha_types.sql`（`captcha_types` 为 NULL 时用平台默认 `mugsun.captcha.default-types`，所以默认题型改成 `SLIDER,WORD_CLICK` 不用改库）；旧数字码没有菜单或系统参数，不需要清理。Redis 里旧数字码的 `mugsun:captcha:<uuid>` 键最多 5 分钟后自然过期
+  - 数据库：本次没有新迁移。租户开关与题型列来自已发布的 `V9__tenant_captcha.sql`、`V10__tenant_captcha_types.sql`（`captcha_types` 为 NULL 时用平台默认 `mugsun.captcha.default-types`，所以默认题型改成五种随机不用改库）；旧数字码没有菜单或系统参数，不需要清理。Redis 里旧数字码的 `mugsun:captcha:<uuid>` 键最多 5 分钟后自然过期
 
   迁移步骤：
   1. 前端（管理端、App、自建登录页）改走上面的行为验证码流程，请求体带 `captchaToken`，不要再调用 `GET /auth/captcha`。旧前端连上新后端时登录会返回 `40013`（缺少有效令牌）

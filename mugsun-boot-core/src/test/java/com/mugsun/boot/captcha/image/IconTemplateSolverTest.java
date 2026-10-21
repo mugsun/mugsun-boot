@@ -118,8 +118,9 @@ class IconTemplateSolverTest {
 	}
 
 	@Test
-	void iconClickOffByDefault() {
-		assertThat(new CaptchaProperties().getDefaultTypes()).containsExactly("SLIDER", "WORD_CLICK").doesNotContain("ICON_CLICK");
+	void iconClickIsInDefaultMixNotAlone() {
+		// 2026-10-21 起图标点选进平台默认随机集，但从不单独出现在默认里
+		assertThat(new CaptchaProperties().getDefaultTypes()).contains("ICON_CLICK").contains("SLIDER", "WORD_CLICK");
 	}
 
 	@Test
