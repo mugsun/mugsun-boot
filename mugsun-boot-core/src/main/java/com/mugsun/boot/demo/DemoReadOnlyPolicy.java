@@ -62,8 +62,13 @@ public final class DemoReadOnlyPolicy {
 	 * ALWAYS_BLOCKED_PREFIXES 下例外放行的只读端点（仅 GET/HEAD/OPTIONS，精确匹配）。
 	 * GET /auth/social/sources 只返回已配置的社交登录源名称（不写任何状态），登录页加载即调用；
 	 * 被拒会让登录页一打开就弹「演示环境只读」。社交登录本身（render/login/bind/mock-authorize）仍整体关闭。
+	 * <p>只认原始路径的逐字相等（不经规范化）和 GET/HEAD：尾部斜杠、{@code ;jsessionid=} 矩阵参数、URL 编码、大小写变体都不算例外，
+	 * 回落到 {@code /auth/social} 前缀整段拒绝。
 	 */
 	public static final Set<String> SAFE_EXCEPTIONS_IN_BLOCKED = Set.of("/auth/social/sources");
+
+	/** 例外只放行的方法 */
+	public static final Set<String> SAFE_EXCEPTION_METHODS = Set.of("GET", "HEAD");
 
 	/** 方法覆盖头：存在即拒绝 */
 	public static final List<String> METHOD_OVERRIDE_HEADERS = List.of(
@@ -104,7 +109,8 @@ public final class DemoReadOnlyPolicy {
 		}
 		String lower = normalized.toLowerCase(Locale.ROOT);
 		String m = method.toUpperCase(Locale.ROOT);
-		if (SAFE_METHODS.contains(m) && SAFE_EXCEPTIONS_IN_BLOCKED.contains(normalized)) {
+		// 例外按原始路径逐字匹配：规范化会把尾斜杠/矩阵参数/编码变体折叠成同一路径，这里不给变体开口子
+		if (SAFE_EXCEPTION_METHODS.contains(m) && SAFE_EXCEPTIONS_IN_BLOCKED.contains(path)) {
 			return true;
 		}
 		for (String prefix : ALWAYS_BLOCKED_PREFIXES) {

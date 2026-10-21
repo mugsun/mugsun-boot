@@ -32,8 +32,10 @@ public class LogDataSourceRouter {
 			// 操作日志的链头锁与「读最后一条哈希」走日志连接：日志库必须就是主库，指向只读副本/别的库会断链或读到旧哈希
 			String logUrl = env.getProperty("mybatis-flex.datasource." + LOG_DS_KEY + ".url");
 			String primaryUrl = env.getProperty("mybatis-flex.datasource.primary.url");
-			if (!java.util.Objects.equals(logUrl, primaryUrl)) {
-				throw new IllegalStateException("[demo] 日志数据源必须连主库：mybatis-flex.datasource.log.url 须与 primary.url 相同"
+			if (!sameDatabase(logUrl, primaryUrl)) {
+				throw new IllegalStateException("[demo] 日志数据源必须连主库：mybatis-flex.datasource.log.url（"
+					+ com.mugsun.boot.datasource.JdbcUrlMasker.mask(logUrl) + "）与 primary.url（"
+					+ com.mugsun.boot.datasource.JdbcUrlMasker.mask(primaryUrl) + "）的主机、端口、库名须一致"
 					+ "（MUGSUN_DEMO_LOG_DB_URL 不要指向只读副本或其它库）");
 			}
 		}
@@ -44,6 +46,49 @@ public class LogDataSourceRouter {
 				log.warn("[demo] 未配置 mybatis-flex.datasource.log，日志写入将落到业务（只读）账号并失败");
 			}
 		}
+	}
+
+	/**
+	 * 两个 JDBC URL 是否指向同一个库：比较主机（小写）、端口（缺省按方言默认端口）、库名，忽略查询参数。
+	 * 解析不了的写法（多主机等）退回整串相等。
+	 */
+	static boolean sameDatabase(String a, String b) {
+		String[] x = parse(a);
+		String[] y = parse(b);
+		if (x == null || y == null) {
+			return a != null && a.equals(b);
+		}
+		return java.util.Arrays.equals(x, y);
+	}
+
+	/** jdbc:subprotocol://host[:port]/db[?params] → {subprotocol, host, port, db}；不认识返回 null */
+	static String[] parse(String url) {
+		if (url == null || !url.startsWith("jdbc:")) {
+			return null;
+		}
+		try {
+			java.net.URI u = java.net.URI.create(url.substring(5));
+			String scheme = u.getScheme();
+			String host = u.getHost();
+			String path = u.getPath();
+			if (scheme == null || host == null || path == null || path.length() < 2) {
+				return null;
+			}
+			int port = u.getPort() > 0 ? u.getPort() : defaultPort(scheme);
+			return new String[]{scheme.toLowerCase(java.util.Locale.ROOT), host.toLowerCase(java.util.Locale.ROOT),
+				String.valueOf(port), path.substring(1)};
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
+	}
+
+	private static int defaultPort(String scheme) {
+		return switch (scheme.toLowerCase(java.util.Locale.ROOT)) {
+			case "postgresql", "kingbase8", "opengauss", "gaussdb" -> 5432;
+			case "mysql" -> 3306;
+			case "dm" -> 5236;
+			default -> -1;
+		};
 	}
 
 	public boolean routed() {

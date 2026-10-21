@@ -57,6 +57,10 @@ public class OperationLogService {
 	private final com.mugsun.boot.system.service.ParamService paramService;
 	private final LogDataSourceRouter logRouter;
 	private final TransactionTemplate tx;
+	/** demo：日志账号上的独立事务（REQUIRES_NEW，不并入任何外层事务） */
+	private final TransactionTemplate demoTx;
+	/** demo：等链头锁超过 lock_timeout 而丢弃的操作日志条数 */
+	private final AtomicLong demoLockTimeoutDropped = new AtomicLong();
 	private final Semaphore anonymousPermits;
 	private final AtomicLong anonymousDropped = new AtomicLong();
 	private final SimpleAsyncTaskExecutor executor;
@@ -70,6 +74,8 @@ public class OperationLogService {
 		this.paramService = paramService;
 		this.logRouter = logRouter;
 		this.tx = new TransactionTemplate(txManager);
+		this.demoTx = new TransactionTemplate(txManager);
+		this.demoTx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 		this.anonymousPermits = new Semaphore(Math.max(1, anonymousMaxPending));
 		this.executor = new SimpleAsyncTaskExecutor("mugsun-oper-log-");
 		this.executor.setVirtualThreads(true);
@@ -97,6 +103,11 @@ public class OperationLogService {
 				}
 			}
 		});
+	}
+
+	/** 运维/测试：demo 下等链头锁超时（lock_timeout）丢弃的操作日志条数 */
+	public long demoLockTimeoutDroppedCount() {
+		return demoLockTimeoutDropped.get();
 	}
 
 	/** 运维/测试：累计丢弃的未登录审计条数 */
@@ -159,7 +170,29 @@ public class OperationLogService {
 	 * demo 下记录的是「操作尝试」：业务写请求已被只读过滤器拒绝，日志与业务事务无关。非 demo 走上面原来的路径，行为不变。
 	 */
 	private void appendInDemoLogTx(SysOperLog log) {
-		DataSourceKey.use(LogDataSourceRouter.LOG_DS_KEY, () -> tx.executeWithoutResult(status -> {
+		try {
+			appendInDemoLogTxOnce(log);
+		} catch (RuntimeException e) {
+			if (!isLockTimeout(e)) {
+				throw e;
+			}
+			long n = demoLockTimeoutDropped.incrementAndGet();
+			LOG.warn("[demo] 操作日志等链头锁超时已丢弃（累计 {} 条）uri={}", n, log.getRequestUri());
+		}
+	}
+
+	/** PostgreSQL lock_timeout 触发：SQLSTATE 55P03 lock_not_available */
+	static boolean isLockTimeout(Throwable e) {
+		for (Throwable t = e; t != null; t = t.getCause()) {
+			if (t instanceof java.sql.SQLException se && "55P03".equals(se.getSQLState())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void appendInDemoLogTxOnce(SysOperLog log) {
+		DataSourceKey.use(LogDataSourceRouter.LOG_DS_KEY, () -> demoTx.executeWithoutResult(status -> {
 			TenantContext.ignore(() -> Db.updateBySql(DEMO_LOCK_TIMEOUT));
 			TenantContext.ignore(() -> Db.selectObjectList(LOCK_CHAIN_HEAD));
 			String prevHash = lastRecordHash();
@@ -180,7 +213,10 @@ public class OperationLogService {
 					return null;
 				});
 			}
-			TenantContext.ignore(() -> Db.updateBySql(DEMO_TOUCH_CHAIN_HEAD));
+			int touched = TenantContext.ignore(() -> Db.updateBySql(DEMO_TOUCH_CHAIN_HEAD));
+			if (touched != 1) {
+				throw new IllegalStateException("[demo] 链头行 sys_oper_log_chain(id=1) 更新行数为 " + touched + "，应为 1");
+			}
 		}));
 	}
 

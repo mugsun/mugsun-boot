@@ -256,6 +256,42 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void lockHeldLongerThanTimeoutDropsThatEntryAndCounts() throws Exception {
+		long dropped = operationLogService.demoLockTimeoutDroppedCount();
+		long before = count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout'");
+		// owner 连接持有链头行锁超过 lock_timeout（3s）
+		try (Connection c = DriverManager.getConnection(primaryJdbcUrl(), primaryJdbcUsername(), primaryJdbcPassword())) {
+			c.setAutoCommit(false);
+			try (Statement st = c.createStatement()) {
+				st.execute("SELECT id FROM sys_oper_log_chain WHERE id = 1 FOR UPDATE");
+				SysOperLog l = chainEntry(0);
+				l.setRequestUri("/it/demo-lock-timeout");
+				TenantContext.execute(PLATFORM_TENANT, () -> operationLogService.saveAsync(l));
+				long deadline = System.currentTimeMillis() + 15_000;
+				while (operationLogService.demoLockTimeoutDroppedCount() == dropped && System.currentTimeMillis() < deadline) {
+					Thread.sleep(100);
+				}
+			}
+			c.rollback();
+		}
+		assertThat(operationLogService.demoLockTimeoutDroppedCount()).as("超时计数加一").isEqualTo(dropped + 1);
+		assertThat(count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout'"))
+			.as("超时那条被丢弃").isEqualTo(before);
+		// 锁放开后照常追加，链仍完整
+		SysOperLog after = chainEntry(1);
+		after.setRequestUri("/it/demo-lock-timeout-after");
+		TenantContext.execute(PLATFORM_TENANT, () -> operationLogService.saveAsync(after));
+		long deadline = System.currentTimeMillis() + 15_000;
+		while (count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-after'") == 0
+			&& System.currentTimeMillis() < deadline) {
+			Thread.sleep(100);
+		}
+		assertThat(count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-after'")).isEqualTo(1);
+		Map<String, Object> verified = operationLogService.verify(null);
+		assertThat(verified.get("valid")).as(String.valueOf(verified)).isEqualTo(true);
+	}
+
+	@Test
 	void readOnlyAccountCannotUpdateOrLockOperLogChain() {
 		for (String sql : List.of(
 			"UPDATE sys_oper_log_chain SET update_time = CURRENT_TIMESTAMP WHERE id = 1",
@@ -392,5 +428,32 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 	void socialAndAiPrefixesBlocked() {
 		assertThat(get("/auth/social/render/gitee", null).getStatusCode().value()).isEqualTo(403);
 		assertThat(get("/system/ai/model/list", null).getStatusCode().value()).isEqualTo(403);
+	}
+
+	/** 原样发出请求行（不经 RestTemplate 的 URI 模板编码），看真实 Tomcat + 过滤器链的结果 */
+	private java.net.http.HttpResponse<String> raw(String method, String rawPath) throws Exception {
+		java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+		java.net.http.HttpRequest.Builder b = java.net.http.HttpRequest.newBuilder(
+			java.net.URI.create(rest.getRootUri() + rawPath));
+		b = "POST".equals(method)
+			? b.header("Content-Type", "application/json").POST(java.net.http.HttpRequest.BodyPublishers.ofString("{}"))
+			: b.method(method, java.net.http.HttpRequest.BodyPublishers.noBody());
+		return client.send(b.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+	}
+
+	@Test
+	void socialSourcesOnlyExactGetPassesThroughRealFilterChain() throws Exception {
+		assertThat(raw("GET", "/auth/social/sources").statusCode()).isEqualTo(200);
+		assertThat(raw("HEAD", "/auth/social/sources").statusCode()).isEqualTo(200);
+		for (String[] c : new String[][]{
+			{"GET", "/auth/social/sources/"},
+			{"GET", "/auth/social/sources;jsessionid=ABC123"},
+			{"GET", "/auth/social/%2573ources"},
+			{"GET", "/AUTH/SOCIAL/SOURCES"},
+			{"POST", "/auth/social/sources"}}) {
+			java.net.http.HttpResponse<String> r = raw(c[0], c[1]);
+			assertThat(r.statusCode()).as(c[0] + " " + c[1]).isEqualTo(403);
+			assertThat(r.body()).as(c[0] + " " + c[1]).contains("DEMO_READONLY");
+		}
 	}
 }

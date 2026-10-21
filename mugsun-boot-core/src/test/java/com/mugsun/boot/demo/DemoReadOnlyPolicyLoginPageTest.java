@@ -32,6 +32,35 @@ class DemoReadOnlyPolicyLoginPageTest {
 	}
 
 	@Test
+	void socialSourcesExceptionOnlyMatchesExactPathWithGetOrHead() {
+		assertThat(policy.isAllowed("GET", "/auth/social/sources", false)).isTrue();
+		assertThat(policy.isAllowed("HEAD", "/auth/social/sources", false)).isTrue();
+		for (String variant : new String[]{
+			"/auth/social/sources/",
+			"/auth/social/sources;jsessionid=ABC123",
+			"/auth/social/sources/;jsessionid=ABC123",
+			"/auth/social/%2573ources",
+			"/auth/social/%73ources",
+			"/AUTH/SOCIAL/SOURCES",
+			"/auth/social/Sources",
+			"//auth/social/sources",
+			"/auth/social/./sources",
+			"/auth//social/sources"}) {
+			assertThat(policy.isAllowed("GET", variant, false)).as("GET " + variant + " 必须被拒").isFalse();
+			assertThat(policy.isAllowed("HEAD", variant, false)).as("HEAD " + variant + " 必须被拒").isFalse();
+		}
+		for (String m : new String[]{"POST", "PUT", "DELETE", "PATCH", "OPTIONS"}) {
+			assertThat(policy.isAllowed(m, "/auth/social/sources", false)).as(m + " 必须被拒").isFalse();
+		}
+	}
+
+	@Test
+	void safeExceptionSetIsLockedToExactlyOnePath() {
+		assertThat(DemoReadOnlyPolicy.SAFE_EXCEPTIONS_IN_BLOCKED).containsExactly("/auth/social/sources");
+		assertThat(DemoReadOnlyPolicy.SAFE_EXCEPTION_METHODS).containsExactlyInAnyOrder("GET", "HEAD");
+	}
+
+	@Test
 	void ordinaryWritesStillRejected() {
 		assertThat(policy.isAllowed("POST", "/system/user/submit", false)).isFalse();
 		assertThat(policy.isAllowed("POST", "/auth/update-info", false)).isFalse();
