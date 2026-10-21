@@ -43,7 +43,7 @@ public class PendingObjectCleaner {
 	private final SysAttachMapper attachMapper;
 	private final ObjectMapper om = new ObjectMapper();
 	/** 服务端随机存储名：UploadPolicy.storedName 生成的 32 位十六进制 + 扩展名 */
-	private static final java.util.regex.Pattern RANDOM_NAME = java.util.regex.Pattern.compile("[0-9a-f]{32}\\.[a-z0-9]{1,8}");
+	static final java.util.regex.Pattern RANDOM_NAME = java.util.regex.Pattern.compile("[0-9a-f]{32}\\.[a-z0-9]{1,8}");
 	/** 先比较 token 再删，避免锁过期后误删别的节点刚拿到的锁 */
 	static final org.springframework.data.redis.core.script.RedisScript<Long> UNLOCK =
 		new org.springframework.data.redis.core.script.DefaultRedisScript<>(
@@ -72,6 +72,11 @@ public class PendingObjectCleaner {
 		if (v == Verdict.UNKNOWN || !tryDelete(info)) {
 			enqueue(info, 0, 0L, fresh);
 		}
+	}
+
+	/** 排一条延迟删除的 fresh key：到期后由 check 查登记表决定删不删 */
+	public void enqueueFreshAfter(FileInfo info, long notBefore) {
+		enqueue(info, 0, notBefore, true);
 	}
 
 	/** 排一条不早于 notBefore 才执行的暂存 key 删除 */
@@ -194,7 +199,12 @@ public class PendingObjectCleaner {
 			if (v == Verdict.REFUSE) {
 				continue;
 			}
-			if (v == Verdict.ALLOW && tryDelete(info)) {
+			if (v == Verdict.UNKNOWN) {
+				// 查登记表失败不是删除失败：原样放回，不加失败次数
+				enqueue(info, attempts, 0L, fresh);
+				continue;
+			}
+			if (tryDelete(info)) {
 				ok++;
 			} else if (attempts + 1 >= MAX_ATTEMPTS) {
 				log.error("存储对象重删 {} 次仍失败，已放弃，需人工删除：{}/{}{}", MAX_ATTEMPTS, info.getPlatform(),

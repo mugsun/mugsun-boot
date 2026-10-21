@@ -457,8 +457,9 @@ public class FileController {
 				throw new IllegalStateException("recorder returned false");
 			}
 		} catch (Exception e) {
-			log.warn("直传对象登记失败，新 key 进待清理队列：{}", newName);
-			pendingObjectCleaner.deleteOrEnqueue(dest, true);
+			// 登记抛异常时可能已经落库（如提交后才报错），不能立即删：60 秒后由 check 查登记表再决定
+			log.warn("直传对象登记失败，新 key 延迟 60 秒进待清理队列：{}", newName);
+			pendingObjectCleaner.enqueueFreshAfter(dest, System.currentTimeMillis() + 60_000L);
 			throw new ServiceException("文件登记没有成功。请重新选择文件再上传");
 		}
 		return dest;

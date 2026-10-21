@@ -129,4 +129,49 @@ class PendingObjectCleanerTest {
 		org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).delete(any());
 		assertThat(queue).hasSize(1);
 	}
+
+	@Test
+	void drainRequeuesRegistryFailureWithoutCountingAttempt() {
+		when(attachMapper.selectCountByQuery(any(com.mybatisflex.core.query.QueryWrapper.class)))
+			.thenThrow(new RuntimeException("db down"));
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		c.enqueue(obj(), 3);
+		assertThat(c.drain()).isZero();
+		assertThat(queue).hasSize(1).first().asString().contains("\"attempts\":3");
+		c.enqueue(obj(), PendingObjectCleaner.MAX_ATTEMPTS - 1);
+		queue.pollFirst();
+		c.drain();
+		assertThat(queue).as("查表失败不算失败次数，满次数的项也不会被放弃").hasSize(1);
+	}
+
+	@Test
+	void delayedFreshItemIsCheckedAgainstRegistryBeforeDelete() {
+		when(storage.delete(any())).thenReturn(true);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		FileInfo fresh = new FileInfo().setPlatform("minio-1").setPath("private/")
+			.setFilename("0123456789abcdef0123456789abcdef.png");
+		c.enqueueFreshAfter(fresh, System.currentTimeMillis() + 60_000);
+		assertThat(queue).hasSize(1).first().asString().contains("\"fresh\":true").contains("notBefore");
+		assertThat(c.drain()).as("没到时间不删").isZero();
+		// 到期时已登记（登记其实成功了）：不删并丢弃
+		queue.clear();
+		when(attachMapper.selectCountByQuery(any(com.mybatisflex.core.query.QueryWrapper.class))).thenReturn(1L);
+		c.enqueueFreshAfter(fresh, System.currentTimeMillis() - 1);
+		assertThat(c.drain()).isZero();
+		org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).delete(any());
+		assertThat(queue).isEmpty();
+		// 到期时未登记：删
+		when(attachMapper.selectCountByQuery(any(com.mybatisflex.core.query.QueryWrapper.class))).thenReturn(0L);
+		c.enqueueFreshAfter(fresh, System.currentTimeMillis() - 1);
+		assertThat(c.drain()).isEqualTo(1);
+	}
+
+	@Test
+	void storedNameAlwaysMatchesRandomNamePattern() {
+		for (String ext : UploadPolicy.ALLOWED_EXT) {
+			for (int i = 0; i < 20; i++) {
+				assertThat(PendingObjectCleaner.RANDOM_NAME.matcher(UploadPolicy.storedName(ext)).matches()).as(ext).isTrue();
+			}
+		}
+	}
 }
