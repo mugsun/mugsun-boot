@@ -30,6 +30,10 @@ jobs:
         run: |
           import sys
           from pathlib import Path
+          def esc(v):
+              # ::error 属性值转义：% 先转，再转换行、逗号、冒号
+              return (str(v).replace('%', '%25').replace('\r', '%0D')
+                      .replace('\n', '%0A').replace(',', '%2C').replace(':', '%3A'))
           bad = []
           files = []
           for f in sorted(Path('.').rglob('CHANGELOG.md')):
@@ -39,7 +43,7 @@ jobs:
               for i, line in enumerate(f.read_text(encoding='utf-8').splitlines(), 1):
                   if len(line) > 80:
                       bad.append(f'{f}:{i} 超过 80 字符（{len(line)}）')
-                      print(f'::error file={f},line={i}::超过 80 字符（{len(line)}）')
+                      print(f'::error file={esc(f)},line={i}::超过 80 字符（{len(line)}）')
           if bad:
               print('\n'.join(bad))
               sys.exit(1)
@@ -105,9 +109,13 @@ jobs:
           [ -f "$report" ] || { echo "::error::gitleaks 没有生成报告（退出码 $rc）"; exit 1; }
           python3 - "$report" <<'PY'
           import json, sys
+          def esc(v):
+              # ::error 属性值转义：% 先转，再转换行、逗号、冒号
+              return (str(v).replace('%', '%25').replace('\r', '%0D')
+                      .replace('\n', '%0A').replace(',', '%2C').replace(':', '%3A'))
           items = json.load(open(sys.argv[1])) or []
           for x in items:
-              loc = f"file={x.get('File')},line={x.get('StartLine')}"
+              loc = f"file={esc(x.get('File'))},line={x.get('StartLine')}"
               rule = x.get('RuleID')
               short = (x.get('Commit') or '')[:7]
               print(f"::error {loc}::gitleaks {rule} commit={short}")
