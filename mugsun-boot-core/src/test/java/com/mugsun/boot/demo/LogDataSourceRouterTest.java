@@ -58,6 +58,24 @@ class LogDataSourceRouterTest {
 	}
 
 	@Test
+	void explicitInvalidPortIsNotDefaulted() {
+		assertThat(LogDataSourceRouter.parse("jdbc:postgresql://[::1]:0/mugsun")).isNull();
+		assertThat(LogDataSourceRouter.parse("jdbc:postgresql://db:0/mugsun")).isNull();
+		assertThat(LogDataSourceRouter.sameDatabase("jdbc:postgresql://[::1]:0/mugsun",
+			"jdbc:postgresql://[::1]:5432/mugsun")).isFalse();
+		assertThat(LogDataSourceRouter.parse("jdbc:postgresql://[::1]/mugsun"))
+			.containsExactly("postgresql", "[::1]", "5432", "mugsun");
+	}
+
+	@Test
+	void ipv6HostComparisonIgnoresCase() {
+		assertThat(LogDataSourceRouter.sameDatabase("jdbc:postgresql://[FE80::ABCD]:5432/mugsun",
+			"jdbc:postgresql://[fe80::abcd]/mugsun?sslmode=disable")).isTrue();
+		assertThat(LogDataSourceRouter.sameDatabase("jdbc:postgresql://[FE80::ABCD]:5432/mugsun",
+			"jdbc:postgresql://[fe80::abce]:5432/mugsun")).isFalse();
+	}
+
+	@Test
 	void unparsableUrlsFallBackToExactMatch() {
 		String multi = "jdbc:postgresql://a:5432,b:5432/mugsun";
 		assertThat(LogDataSourceRouter.sameDatabase(multi, multi)).isTrue();

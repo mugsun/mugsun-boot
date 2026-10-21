@@ -101,8 +101,12 @@ public class LogDataSourceRouter {
 			if (host.isEmpty()) {
 				return null;
 			}
-			if (port <= 0) {
+			if (port == -1) {
+				// 省略端口才补方言默认端口
 				port = defaultPort(scheme);
+			} else if (port <= 0 || port > 65535) {
+				// 显式写出的非法端口（如 :0）不当作默认端口
+				return null;
 			}
 			return new String[]{scheme.toLowerCase(java.util.Locale.ROOT), host.toLowerCase(java.util.Locale.ROOT),
 				String.valueOf(port), path.substring(1)};
