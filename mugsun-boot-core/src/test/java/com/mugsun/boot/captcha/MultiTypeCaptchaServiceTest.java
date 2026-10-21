@@ -47,7 +47,30 @@ class MultiTypeCaptchaServiceTest {
 			new MultiTypeRenderer(props, lib), (ip, mode, tenant, sec) -> { }, now::get);
 	}
 
+	private long issuedSecond = -1;
+	private int issuedInSecond;
+
+	/**
+	 * 假时钟不走时，连续取题会撞上全局每秒取题上限（global-challenge-per-second，默认 200）。
+	 * 上限保持开启；同一秒内经 issue() 取题数离上限只剩 10 次时（留余量给直接调 svc.challenge 的用例）把假时钟拨到下一秒开头，计数键随秒换新。
+	 */
+	private void stayUnderGlobalLimit() {
+		int cap = props.getRateLimit().getGlobalChallengePerSecond();
+		long sec = now.get() / 1000;
+		if (sec != issuedSecond) {
+			issuedSecond = sec;
+			issuedInSecond = 0;
+		}
+		if (cap > 0 && issuedInSecond >= cap - 10) {
+			now.addAndGet(1000 - now.get() % 1000);
+			issuedSecond = now.get() / 1000;
+			issuedInSecond = 0;
+		}
+		issuedInSecond++;
+	}
+
 	private ChallengeVO issue(CaptchaType t, String mode) {
+		stayUnderGlobalLimit();
 		ChallengeVO c = svc.challenge("login", "web", "000000", mode, IP, EnumSet.of(t));
 		assertThat(c.type()).isEqualTo(t.name());
 		return c;
