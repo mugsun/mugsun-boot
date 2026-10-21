@@ -2,9 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # '**' 只匹配分支，不匹配 tag；tag 推送不会触发本 workflow
+    branches: ['**']
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -105,18 +111,31 @@ jobs:
         with:
           repository: mugsun/mugsun-core
           path: mugsun-core
+          persist-credentials: false
 
       - name: Checkout mugsun-boot
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: mugsun-boot
           fetch-depth: 0
+          persist-credentials: false
 
+      # 基线按事件确定（见 resolve-migration-base.sh），拿不到基线即失败
       - name: Guard released migrations
         working-directory: mugsun-boot
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: scripts/check-released-migrations.sh
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          BASE_SHA=$(scripts/ci/resolve-migration-base.sh)
+          export BASE_SHA
+          scripts/check-released-migrations.sh
+
+      - name: Test migration guard
+        working-directory: mugsun-boot
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
 
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
