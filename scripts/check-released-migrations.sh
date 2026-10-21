@@ -8,11 +8,16 @@ if [[ "${1:-}" == "--print" ]]; then
   shift; for f in "$@"; do shasum -a 256 "$f"; done; exit 0
 fi
 fail=0
-# PR 时清单本身只能追加：与目标分支比，有删改行即失败（BASE_SHA 由 CI 传入）
-if [[ -n "${BASE_SHA:-}" ]]; then
-  removed=$(git diff "$BASE_SHA" -- "${MANIFEST}" | grep -E '^-[^-]' || true)
-  if [[ -n "$removed" ]]; then echo "::error file=${MANIFEST}::已发布清单只能追加，不能删改："; echo "$removed"; fail=1; fi
+# 清单本身只能追加：与基线比，有删改行即失败。BASE_SHA 由 CI 传入
+# （scripts/ci/resolve-migration-base.sh 求出）；为空或不可达一律失败，不跳过
+if [[ -z "${BASE_SHA:-}" ]]; then
+  echo "::error::BASE_SHA 为空，无法比对已发布清单"; exit 1
 fi
+if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+  echo "::error::BASE_SHA ${BASE_SHA} 在仓库里不可达"; exit 1
+fi
+removed=$(git diff "$BASE_SHA" -- "${MANIFEST}" | grep -E '^-[^-]' || true)
+if [[ -n "$removed" ]]; then echo "::error file=${MANIFEST}::已发布清单只能追加，不能删改："; echo "$removed"; fail=1; fi
 while read -r sum path; do
   [[ -z "${sum}" || "${sum}" == \#* ]] && continue
   if [[ ! -f "${path}" ]]; then echo "::error file=${path}::已发布迁移被删除或改名：${path}"; fail=1; continue; fi

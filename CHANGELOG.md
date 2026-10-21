@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### 修复
+
+- openGauss V8 改为兼容 openGauss-lite 5.1 的写法
+  - lite 5.1 不支持 `ADD COLUMN IF NOT EXISTS`，原 V8 在 lite 上会中止
+  - 改为 DO 块加 information_schema 判断，和 V2、V9、V10 写法一致
+  - 企业版上跑过旧 V8 的库校验和会变，升级前执行一次 flyway repair
+  - lite 上 V8 失败过的库直接升级；若 history 留有失败记录，先 repair
+
 ### 安全
 
 - 自助注册改为可配置，生产默认关闭（不兼容变更）
@@ -60,6 +68,18 @@
   - 新增 `LabSeedProdGuard`，判定方式与 `InitPasswordHardeningGuard` 一致
 
 ### CI
+
+- CI 改为推送任意分支即运行，分支先绿再快进 main
+  - `ci.yml` 触发改为 push `**`，新增 `workflow_dispatch`
+  - 加 concurrency：同一分支新推送取消旧运行
+  - main 上不取消正在跑的运行
+  - main 按 SHA 单独分组，排队中的运行不被后来的推送顶掉
+  - `'**'` 只匹配分支，不匹配 tag
+  - compose-full 只在 main 按路径跑，另加手动触发和每周定时
+- 已发布迁移守卫按事件取基线，拿不到基线即失败
+  - 其他分支和手动触发用 merge-base(origin/main, HEAD)
+  - main 用 event.before，全零或不可达即失败；PR 用 base.sha
+  - 新增 `scripts/ci/test_migration_guard.py` 反例测试
 
 - 收紧 workflow 权限并把 Actions 钉到 commit SHA
   - 每个 workflow 顶层 `permissions: contents: read`，禁用 `pull_request_target`
