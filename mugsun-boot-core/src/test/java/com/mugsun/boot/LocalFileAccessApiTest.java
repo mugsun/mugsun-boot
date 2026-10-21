@@ -109,7 +109,7 @@ class LocalFileAccessApiTest extends AbstractIntegrationTest {
 	private static String tamperSign(String query) {
 		int amp = query.indexOf("&s=");
 		if (!query.startsWith("s=") && amp < 0) {
-			throw new IllegalStateException("签名链接里没有 s= 参数：" + query);
+			throw new IllegalStateException("签名链接里没有 s 参数");
 		}
 		int at = query.startsWith("s=") ? 2 : amp + 3;
 		char c = query.charAt(at);
