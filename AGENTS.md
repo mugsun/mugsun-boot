@@ -108,7 +108,7 @@ scripts/check-banned-dependencies.sh
 
 - `java -jar` 启动时要显式传 `--spring.profiles.active=...`：没配 profile 按生产处理，缺密钥会拒绝启动。
 - 多租户列名由 `mybatis-flex.global-config.tenant-column` 指定（`mugsun-boot-core/src/main/resources/application.yml`，当前为 `tenant_id`）。
-- `.gitleaks.toml` 的任何改动（新增放行规则、改 `paths`/`regexTarget`）都要安全官审查后再合。
+- 接口加密的跨端向量在 mugsun-core 的 `mugsun-starter-web/src/test/resources/crypto/api-crypto-vectors.json`；`.gitleaks.toml` 的任何改动（新增放行规则、改 `paths`/`regexTarget`）都要安全官审查后再合。
 
 > 请始终在仓库根目录、带 `-am` 构建。只编 `mugsun-boot-server` 且不带 `-am` 时，会从 `~/.m2` 取上次 install 的 `mugsun-boot-core`，可能是别的分支的旧代码。
 
@@ -129,5 +129,6 @@ scripts/check-banned-dependencies.sh
 - `CHANGELOG.md` 写在 `## [Unreleased]` 下，**每行不超过 80 字**。
 - 不用 `git stash`；切换工作用 `git worktree`。
 - 提交的作者和提交者一律用 `mugsun <bydongxin@gmail.com>`：只在仓库级配置（`git config --local`）里设，或用 `git -c user.name=… -c user.email=…` 传入，不改全局配置。已推送的历史不改；未推送的提交推送前用 `git rebase --exec 'git commit --amend --no-edit --reset-author'` 重做，并确认提交者也是 bydongxin@gmail.com。这条 rebase 只用于未推送的提交；已推送的提交改身份要从 origin/main 新开分支 cherry-pick 后 `commit --amend --reset-author`，旧分支不动。
+- 合入 main 后，作者自己删掉远端分支（`git push origin --delete <分支>`）。
 - **只有分支最新的 commit 已经在分支上跑过同名必需检查、并且全绿，才可以快进推入 main。推送前用 `gh run list --commit <sha>` 自己确认。不要 force push。**
 - 鉴权、租户、密钥、新依赖、公开 API、CI workflow 属于敏感改动，需安全审查后再合。
