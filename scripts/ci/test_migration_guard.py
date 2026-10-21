@@ -59,7 +59,7 @@ class GuardTest(unittest.TestCase):
         sh(self.repo, "git", "checkout", "-qb", "feat")
         self.write(self.mig, "create table t(id bigint);\n")
         self.commit("edit released")
-        r = self.resolve(EVENT_NAME="push", REF_NAME="feat", PUSH_BEFORE=self.main_sha)
+        r = self.resolve(EVENT_NAME="push", REF_NAME="feat")
         self.assertEqual(r.returncode, 0, r.stderr)
         g = self.guard(r.stdout.strip())
         self.assertNotEqual(g.returncode, 0)

@@ -21,6 +21,7 @@ case "${EVENT_NAME:-}" in
       # 其他分支 / 手动触发：不看 before（新分支、force-push 时全零或不可达），
       # 一律用 merge-base(origin/main, HEAD)
       [[ -n "${REF_NAME:-}" ]] || die "缺少分支名"
+      # checkout 只取当前分支的 ref，不保证有 origin/main，也可能过旧；先 fetch 再求 merge-base
       [[ "${SKIP_FETCH:-}" == 1 ]] || git fetch --quiet origin main || die "git fetch origin main 失败"
       reachable "$main_ref" || die "$main_ref 不可达（需要 fetch-depth: 0）"
       base=$(git merge-base "$main_ref" HEAD) || die "求不出 merge-base $main_ref HEAD"
