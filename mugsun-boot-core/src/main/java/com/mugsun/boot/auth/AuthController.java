@@ -110,12 +110,10 @@ public class AuthController {
 		return R.data(data);
 	}
 
-	/** 传输密码解密：国密开关开启时按 SM2 解密（前端 sm-crypto 公钥加密），否则原样明文 */
+	/** 传输密码解密：国密开关开启时按 SM2 解密（前端 sm-crypto 公钥加密），否则原样明文（生产须 HTTPS） */
 	private String decodePassword(String raw) {
-		if (raw == null || raw.isBlank() || !gmCryptoConfig.isGmEnabled()) {
-			return raw;
-		}
-		return com.mugsun.boot.common.crypto.Sm2Util.decrypt(raw);
+		// 与 AuthLoginService 共用一套：国密关闭时生产只接受 HTTPS（PlaintextPasswordTlsGate）
+		return authLoginService.decodePassword(raw);
 	}
 
 	/** 登录通道统一闸门：停用账号（status≠1）禁止一切方式登录并留痕（停用=封号，与踢会话联动） */
@@ -130,6 +128,8 @@ public class AuthController {
 	private String decodePasswordNormalized(String raw) {
 		try {
 			return decodePassword(raw);
+		} catch (PlaintextPasswordTlsGate.InsecureTransportException e) {
+			throw e;
 		} catch (Exception e) {
 			throw new ServiceException("请求参数无效。请刷新页面后再试");
 		}
@@ -156,6 +156,8 @@ public class AuthController {
 		String rawPassword;
 		try {
 			rawPassword = decodePassword(dto.getPassword());
+		} catch (PlaintextPasswordTlsGate.InsecureTransportException e) {
+			throw e;
 		} catch (Exception e) {
 			// SM2 解密失败与密码错误归一，避免暴露「密文格式/是否加密」的探测预言机
 			rawPassword = null;

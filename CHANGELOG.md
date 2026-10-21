@@ -14,9 +14,24 @@
 
 ### 安全
 
-- prod 下开启 `mugsun.lab.seed-fronttest` 时拒绝启动
-  - 该开关会播种口令 123456 的 fronttest 账号，仅供开发联调
-  - 新增 `LabSeedProdGuard`，判定方式与 `InitPasswordHardeningGuard` 一致
+- 启动守卫改为「非 dev/test/local 一律按生产」，生产误开联调账号时拒绝启动
+  - **行为变更**：没配 profile 也按生产处理，自测请显式加 `--spring.profiles.active=dev`
+  - 只看显式 active：非空、含 dev/test/local 之一且不含生产名才放行
+  - profile 名先 trim 再转小写；含 prod、production、prd、staging 即按生产，
+    即使同时带 dev
+  - 不看 `spring.profiles.default`：只配 `default=dev`、active 为空也按生产
+  - 新增 `DeployProfiles`，`InitPasswordHardeningGuard` 与新守卫共用这套判定
+  - 新增 `LabSeedProdGuard`：生产开启 `mugsun.lab.seed-fronttest` 即拒绝启动
+  - 该开关会播种弱口令联调账号，仅供开发和 e2e
+  - 集成测试统一激活 `test` profile，`spring-boot:run` 默认激活 `dev`
+- 生产关闭开放接口签名或国密时拒绝启动，各留一个显眼的豁免开关
+  - `mugsun.open-api.sign-required=false` 需同时设
+    `mugsun.open-api.i-understand-unsigned-requests-are-insecure=true`
+  - `mugsun.crypto.gm-enabled=false` 需同时设
+    `mugsun.crypto.i-understand-plaintext-passwords-rely-on-tls=true`
+  - 豁免时启动打 WARN；关闭国密后密码明文提交，完全靠 TLS 保护
+  - 国密关闭时生产的登录、注册、改密请求必须 `isSecure()`，否则拒绝
+  - 反向代理后需配 `server.forward-headers-strategy=native`
 
 ### 不兼容变更
 

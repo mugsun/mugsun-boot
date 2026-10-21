@@ -37,6 +37,7 @@ public class AuthLoginService {
 	private final com.mugsun.boot.common.crypto.GmCryptoConfig gmCryptoConfig;
 	private final WsMessageSender wsMessageSender;
 	private final IpRegionService ipRegionService;
+	private final PlaintextPasswordTlsGate plaintextTlsGate;
 
 	public AuthLoginService(SysUserMapper userMapper, PasswordEncoder passwordEncoder,
 							LoginLockService loginLockService, LoginLogService loginLogService,
@@ -45,7 +46,9 @@ public class AuthLoginService {
 							com.mugsun.boot.tenant.TenantValidator tenantValidator,
 							com.mugsun.boot.common.crypto.GmCryptoConfig gmCryptoConfig,
 							WsMessageSender wsMessageSender,
-							IpRegionService ipRegionService) {
+							IpRegionService ipRegionService,
+							PlaintextPasswordTlsGate plaintextTlsGate) {
+		this.plaintextTlsGate = plaintextTlsGate;
 		this.userMapper = userMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.loginLockService = loginLockService;
@@ -75,6 +78,8 @@ public class AuthLoginService {
 		String rawPassword;
 		try {
 			rawPassword = decodePassword(passwordCipher);
+		} catch (PlaintextPasswordTlsGate.InsecureTransportException e) {
+			throw e;
 		} catch (Exception e) {
 			rawPassword = null;
 		}
@@ -135,7 +140,12 @@ public class AuthLoginService {
 	}
 
 	public String decodePassword(String raw) {
-		if (raw == null || raw.isBlank() || !gmCryptoConfig.isGmEnabled()) {
+		if (raw == null || raw.isBlank()) {
+			return raw;
+		}
+		if (!gmCryptoConfig.isGmEnabled()) {
+			// 国密关闭 = 明文口令，生产只接受 HTTPS 请求
+			plaintextTlsGate.requireTls();
 			return raw;
 		}
 		return com.mugsun.boot.common.crypto.Sm2Util.decrypt(raw);
@@ -144,6 +154,8 @@ public class AuthLoginService {
 	public String decodePasswordNormalized(String raw) {
 		try {
 			return decodePassword(raw);
+		} catch (PlaintextPasswordTlsGate.InsecureTransportException e) {
+			throw e;
 		} catch (Exception e) {
 			throw new ServiceException("请求参数无效。请刷新页面后再试");
 		}

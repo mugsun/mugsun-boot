@@ -12,7 +12,6 @@ import org.springframework.boot.diagnostics.FailureAnalysis;
 import org.springframework.boot.diagnostics.FailureAnalyzer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.io.support.SpringFactoriesLoader;
 
@@ -94,7 +93,7 @@ class ModuleSwitchSanitizeTest {
 		}
 	}
 
-	@Configuration(proxyBeanMethods = false)
+	// 不加 @Configuration：否则会被 MugsunApplication 的组件扫描收进集成测试上下文（见 TestComponentScanGuardTest）
 	@ConditionalOnModuleSwitch(PROP)
 	static class DemoModule {
 		@Bean

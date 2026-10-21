@@ -14,7 +14,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.context.annotation.Configuration;
 import org.yaml.snakeyaml.Yaml;
 
 /**
@@ -69,7 +68,7 @@ class LocalConfigImportOrderTest {
 		}
 	}
 
-	@Configuration(proxyBeanMethods = false)
+	// 不加 @Configuration：否则会被 MugsunApplication 的组件扫描收进集成测试上下文（见 TestComponentScanGuardTest）
 	static class Empty {
 	}
 }
