@@ -4,8 +4,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
+
+import com.mugsun.boot.config.DeployProfiles;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -18,25 +20,51 @@ import java.util.Map;
 
 /**
  * 字段加密密钥启动自检：所有单例（含 Flyway 迁移）就绪后、Web 开始监听前，
- * 从 15 个加密字段里各抽一条已有密文，用当前 MUGSUN_SM4_KEY 试解，解不开就拒绝启动。
+ * 每个加密字段最多读 {@value #SAMPLE} 行（SQL 带 LIMIT），其中的密文用当前 MUGSUN_SM4_KEY 试解，解不开就拒绝启动。
  * <p>主要拦两种情况：换了密钥没迁移；旧部署配的是 32 位 hex / 24 位 base64（旧版只取前 16 个字符，
  * 本版按编码解码，等于悄悄换了一把钥）。空库（没有任何密文）直接放行。
  * 报错只写表名、字段和主键，不写密钥、明文或密文。
+ * <p>跳过开关 {@code mugsun.crypto.sm4-self-check=false} 只在非生产生效，
+ * 生产判定与启动守卫共用 {@link DeployProfiles}；生产环境下开关被忽略，照常自检。
  */
 @Component
-@ConditionalOnProperty(name = "mugsun.crypto.sm4-self-check", havingValue = "true", matchIfMissing = true)
 public class Sm4KeySelfCheck implements SmartInitializingSingleton {
 
 	private static final Logger log = LoggerFactory.getLogger(Sm4KeySelfCheck.class);
 
+	/** 每个字段最多读几行 */
+	static final int SAMPLE = 3;
+
+	static final String SKIP_PROPERTY = "mugsun.crypto.sm4-self-check";
+
 	private final ObjectProvider<DataSource> dataSource;
 
-	public Sm4KeySelfCheck(ObjectProvider<DataSource> dataSource) {
+	private final Environment environment;
+
+	public Sm4KeySelfCheck(ObjectProvider<DataSource> dataSource, Environment environment) {
 		this.dataSource = dataSource;
+		this.environment = environment;
+	}
+
+	/** 是否跳过：只有非生产且显式关掉才跳过 */
+	static boolean skip(Environment env) {
+		boolean disabled = !env.getProperty(SKIP_PROPERTY, Boolean.class, true);
+		if (!disabled) {
+			return false;
+		}
+		if (DeployProfiles.isProduction(env)) {
+			log.warn("{}=false 只在非生产环境生效，当前按生产处理，照常自检", SKIP_PROPERTY);
+			return false;
+		}
+		log.warn("{}=false：非生产环境跳过 SM4 字段加密密钥自检", SKIP_PROPERTY);
+		return true;
 	}
 
 	@Override
 	public void afterSingletonsInstantiated() {
+		if (skip(environment)) {
+			return;
+		}
 		DataSource ds = dataSource.getIfAvailable();
 		if (ds == null) {
 			return;
@@ -56,8 +84,8 @@ public class Sm4KeySelfCheck implements SmartInitializingSingleton {
 					}
 					// 表名列名来自常量清单
 					try (PreparedStatement ps = c.prepareStatement("SELECT id, " + col + " FROM " + e.getKey()
-						+ " WHERE " + col + " IS NOT NULL AND " + col + " <> ''")) {
-						ps.setMaxRows(20);
+						+ " WHERE " + col + " IS NOT NULL AND " + col + " <> '' LIMIT " + SAMPLE)) {
+						ps.setMaxRows(SAMPLE);
 						try (ResultSet rs = ps.executeQuery()) {
 							while (rs.next()) {
 								String v = rs.getString(2);
@@ -71,7 +99,6 @@ public class Sm4KeySelfCheck implements SmartInitializingSingleton {
 										+ "24 位 base64（旧版只取前 16 个字符）：请按文档「迁移」设 MUGSUN_SM4_OLD_KEY_LEGACY_PADDED=true "
 										+ "跑 Sm4KeyMigrationTool，或填回原来的密钥");
 								}
-								break;
 							}
 						}
 					}
