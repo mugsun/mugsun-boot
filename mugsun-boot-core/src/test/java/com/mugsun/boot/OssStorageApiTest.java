@@ -118,7 +118,7 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 		enableMinioConfig(token);
 
 		byte[] content = "minio-multipart-端到端字节".getBytes(StandardCharsets.UTF_8);
-		JsonNode data = upload(token, content, "hello-minio.bin", OssConstants.ACCESS_PUBLIC);
+		JsonNode data = upload(token, content, "hello-minio.txt", OssConstants.ACCESS_PUBLIC);
 		assertThat(data.path("platform").asText()).isEqualTo(MINIO_OSS_CODE);
 		String objectKey = data.path("path").asText() + data.path("filename").asText();
 		// MinIO 桶内对象真实存在（domain 未配，url 退化为对象键，与平台 url 组成规则一致）
@@ -152,7 +152,8 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 
 		// 1) 签发
 		Map<String, Object> signReq = new HashMap<>();
-		signReq.put("filename", "direct.bin");
+		signReq.put("filename", "direct.txt");
+		signReq.put("size", content.length);
 		signReq.put("access", OssConstants.ACCESS_PRIVATE);
 		JsonNode sign = readBody(post("/system/file/presigned-put", signReq, token));
 		assertThat(sign.path("code").asInt()).isEqualTo(200);
@@ -200,7 +201,7 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 	void privateDownloadPresignedUrl() throws Exception {
 		String token = loginAdmin();
 		byte[] content = "私有附件-限时签名下载".getBytes(StandardCharsets.UTF_8);
-		JsonNode data = upload(token, content, "private.bin", OssConstants.ACCESS_PRIVATE);
+		JsonNode data = upload(token, content, "private.txt", OssConstants.ACCESS_PRIVATE);
 		assertThat(data.path("url").isNull()).as("私有附件上传回执不暴露 url").isTrue();
 		long id = data.path("id").asLong();
 
@@ -256,7 +257,7 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 
 		// 运行时切回本地：上传/下载恢复本地行为（不重启）
 		byte[] content = "切回本地存储字节".getBytes(StandardCharsets.UTF_8);
-		JsonNode data = upload(token, content, "local.bin", OssConstants.ACCESS_PUBLIC);
+		JsonNode data = upload(token, content, "local.txt", OssConstants.ACCESS_PUBLIC);
 		assertThat(data.path("platform").asText()).isEqualTo(LOCAL_OSS_CODE);
 		java.io.File stored = new java.io.File(
 			LOCAL_STORAGE_PATH + data.path("path").asText() + data.path("filename").asText());

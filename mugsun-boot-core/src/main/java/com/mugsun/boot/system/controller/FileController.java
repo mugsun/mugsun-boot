@@ -73,11 +73,14 @@ public class FileController {
 
 	/** 上传文件并登记附件（access=public 公开直取 / private 私有授权下载；登记由 FileRecorder 统一落库） */
 	@PostMapping("/upload")
+	@SaCheckPermission("sys:file:upload")
 	public R<SysAttach> upload(@RequestParam(value = "file", required = false) MultipartFile file,
 							   @RequestParam(defaultValue = OssConstants.ACCESS_PRIVATE) String access) {
 		if (file == null || file.isEmpty()) {
 			throw new ServiceException("请选择一个有内容的文件再上传");
 		}
+		// 白名单扩展名 + 魔数 + 大小；存储名由服务端生成，原文件名只作展示
+		String ext = com.mugsun.boot.system.file.UploadPolicy.validate(file);
 		// 普通用户强制 private；仅持 sys:file:public 可设公开
 		boolean isPublic = fileAccessService.resolvePublic(access, StpUtil::hasPermission);
 		String folder = isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE;
@@ -86,6 +89,11 @@ public class FileController {
 			info = fileStorageService.of(file)
 				.setPlatform(ossService.activePlatform())
 				.setPath(folder)
+				.setSaveFilename(com.mugsun.boot.system.file.UploadPolicy.storedName(ext))
+				// Content-Type 按白名单扩展名定，不用客户端上报；云存储对象一律带 attachment（本地存储由 LocalFileAccessFilter 加）
+				.setContentType(com.mugsun.boot.system.file.UploadPolicy.mimeOf(ext))
+				.setNotSupportMetadataThrowException(false)
+				.putMetadata("Content-Disposition", "attachment")
 				.putAttr(OssConstants.ATTR_ACCESS, isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE)
 				.upload();
 		} catch (RuntimeException ex) {
@@ -105,12 +113,16 @@ public class FileController {
 	 * 当前平台不支持预签名（如本地存储）时返回 supported=false，前端回退 multipart 上传。
 	 */
 	@PostMapping("/presigned-put")
+	@SaCheckPermission("sys:file:upload")
 	public R<PresignedPutResult> presignedPut(@RequestBody PresignedPutParam param) {
 		String filename = param.filename();
 		if (filename == null || filename.isBlank() || filename.length() > OssConstants.PRESIGNED_FILENAME_MAX_LEN
 			|| filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
 			throw new ServiceException("文件名不能包含斜杠，也不能太长。请换一个文件名后再上传");
 		}
+		String allowedExt = com.mugsun.boot.system.file.UploadPolicy.requireAllowedExt(filename);
+		long size = com.mugsun.boot.system.file.UploadPolicy.requireSize(param.size());
+		String contentType = com.mugsun.boot.system.file.UploadPolicy.mimeOf(allowedExt);
 		boolean isPublic = fileAccessService.resolvePublic(param.access(), StpUtil::hasPermission);
 		String platform = ossService.activePlatform();
 		if (!fileStorageService.isSupportPresignedUrl(platform)) {
@@ -126,6 +138,10 @@ public class FileController {
 			.setFilename(storedFilename)
 			.setMethod(Constant.GeneratePresignedUrl.Method.PUT)
 			.setExpiration(expiration)
+			// 签名绑定大小、类型和下载方式：客户端 PUT 时必须原样带上，改了签名就失效
+			.putHeaders("Content-Length", Long.toString(size))
+			.putHeaders("Content-Type", contentType)
+			.putHeaders("Content-Disposition", "attachment")
 			.generatePresignedUrl();
 		String ticket = UUID.randomUUID().toString().replace("-", "");
 		ObjectNode credential = objectMapper.createObjectNode();
@@ -134,6 +150,8 @@ public class FileController {
 		credential.put("path", result.getPath());
 		credential.put("filename", result.getFilename());
 		credential.put("name", filename);
+		credential.put("size", size);
+		credential.put("contentType", contentType);
 		credential.put("access", isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE);
 		redisTemplate.opsForValue().set(OssConstants.PRESIGNED_TICKET_PREFIX + ticket, credential.toString(),
 			Duration.ofSeconds(OssConstants.PRESIGNED_TICKET_SECONDS));
@@ -146,6 +164,7 @@ public class FileController {
 	 * 伪造/重放/过期凭证一律拒绝。size 为客户端上报的展示值（安全不依赖）。
 	 */
 	@PostMapping("/create")
+	@SaCheckPermission("sys:file:upload")
 	public R<SysAttach> create(@RequestBody CreateParam param) {
 		if (param.ticket() == null || param.ticket().isBlank()) {
 			throw new ServiceException("上传凭证缺失。请重新选择文件再上传");
@@ -171,7 +190,9 @@ public class FileController {
 		info.setFilename(filename);
 		info.setOriginalFilename(credential.path("name").asText(filename));
 		info.setExt(extOf(filename));
-		info.setSize(param.size());
+		// 大小和类型取自签发凭证（已绑定进签名），不用回填时客户端上报的值
+		info.setSize(credential.path("size").asLong());
+		info.setContentType(credential.path("contentType").asText("application/octet-stream"));
 		info.setUrl(ossService.predictUrl(platform, path, filename));
 		info.setAttr(Dict.create().set(OssConstants.ATTR_ACCESS,
 			isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE));
@@ -236,7 +257,13 @@ public class FileController {
 		fileInfo.setFilename(attach.getFilename());
 		String downloadName = java.net.URLEncoder.encode(
 			attach.getName() == null ? attach.getFilename() : attach.getName(), java.nio.charset.StandardCharsets.UTF_8);
-		response.setContentType(attach.getContentType() == null ? "application/octet-stream" : attach.getContentType());
+		String contentType = attach.getContentType();
+		// 可执行脚本类（html/svg/js/xml）一律按二进制下发，配合 attachment + nosniff，不在同域内联执行
+		if (contentType == null || com.mugsun.boot.system.file.UploadPolicy.isActiveContentType(contentType)) {
+			contentType = "application/octet-stream";
+		}
+		response.setContentType(contentType);
+		response.setHeader("X-Content-Type-Options", "nosniff");
 		response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + downloadName);
 		// 不信任客户端上报 size（直传登记值为展示用途）： chunked 传输，防错配 Content-Length 挂起/截断
 		try {
@@ -361,7 +388,7 @@ public class FileController {
 	}
 
 	/** 直传签发请求：filename 原始文件名（展示用），access=public|private */
-	public record PresignedPutParam(String filename, String access) {
+	public record PresignedPutParam(String filename, String access, Long size) {
 	}
 
 	/** 直传签发回执：supported=false 表示当前平台不支持预签名，前端回退 multipart */
