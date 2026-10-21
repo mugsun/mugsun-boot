@@ -32,7 +32,9 @@ import java.util.Set;
  *   <li>multipart 且路径不在白名单：415。</li>
  *   <li>白名单路径但 token 无效：401。具体权限仍由接口上的 Sa-Token 注解校验。</li>
  * </ul>
- * 拒绝时不读请求体，并带 {@code Connection: close}。token 只从请求头和 Cookie 取，不读请求参数
+ * 拒绝时本过滤器不调用 getInputStream / getParts，并带 {@code Connection: close}：未登录的 multipart 不会被解析、
+ * 不会写磁盘。但在 server.tomcat.max-swallow-size 以内，容器仍可能读完请求体再丢弃，所以部署时务必在反代
+ * 设置请求体上限（约 21MB）。token 只从请求头和 Cookie 取，不读请求参数
  * （读参数本身就会触发 multipart 解析）。
  */
 @Component

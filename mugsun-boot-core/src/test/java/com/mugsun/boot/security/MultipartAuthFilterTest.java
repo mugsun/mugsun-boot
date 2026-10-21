@@ -25,7 +25,7 @@ class MultipartAuthFilterTest {
 	private final MultipartAuthFilter filter =
 		new MultipartAuthFilter(new MultipartGuardProperties(), new ObjectMapper());
 
-	/** 一旦读参数、读 parts 或读请求体就直接失败 */
+	/** 一旦读参数、读 parts 或调用 getInputStream / getReader 就直接失败 */
 	static final class NoBodyRequest extends MockHttpServletRequest {
 		NoBodyRequest(String method, String uri) {
 			super(method, uri);
@@ -60,7 +60,7 @@ class MultipartAuthFilterTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"multipart/form-data; boundary=x", "MULTIPART/FORM-DATA; boundary=x",
 		"Multipart/Mixed; boundary=x", "  multipart/related; boundary=x"})
-	@DisplayName("非白名单路径（登录接口）收到 multipart：415 + Connection: close，不读请求体")
+	@DisplayName("非白名单路径（登录接口）收到 multipart：415 + Connection: close，不调用 getInputStream / getParts")
 	void nonWhitelistedIs415(String contentType) throws Exception {
 		MockFilterChain chain = new MockFilterChain();
 		MockHttpServletResponse resp = run(multipart("/auth/login", "/auth/login", contentType), chain);
@@ -72,7 +72,7 @@ class MultipartAuthFilterTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"/system/file/upload", "/auth/avatar/upload", "/system/user/import",
 		"/system/region/import", "/system/track/sourcemap/upload"})
-	@DisplayName("白名单路径未带 token：401 + Connection: close，不读请求体")
+	@DisplayName("白名单路径未带 token：401 + Connection: close，不调用 getInputStream / getParts")
 	void whitelistedWithoutTokenIs401(String path) throws Exception {
 		MockFilterChain chain = new MockFilterChain();
 		MockHttpServletResponse resp = run(multipart(path, path, "multipart/form-data; boundary=x"), chain);

@@ -34,14 +34,16 @@
   - 新参数 `security.register.register-role-code`（V14 播种为 user）
 - V14 播种内置 user 角色，并给注册角色补授 `sys:file:upload`
 - 直传签名有效期由 60 分钟降到 15 分钟
-- 未登录的 multipart 请求在读请求体之前被拒（不兼容变更）
+- 未登录的 multipart 请求在解析之前被拒，不解析、不写磁盘（不兼容变更）
   - 新增 `MultipartAuthFilter`，排在所有过滤器最前（HIGHEST_PRECEDENCE）
   - 只有白名单路径收 multipart，其它路径一律 415
   - 白名单路径要求有效 token，否则 401；具体权限仍看接口注解
   - 默认白名单：附件、头像、用户导入、行政区导入、sourcemap 共 5 个上传接口
   - 按规范化 servletPath 精确比对，末尾斜杠、;参数、编码、双斜杠、大小写都不放行
   - token 只认请求头和 Cookie；用请求参数传 token 的 multipart 会被 401
-  - 拒绝时不读请求体，带 `Connection: close`
+  - 拒绝时带 `Connection: close`；不解析 multipart、不写临时文件
+  - max-swallow-size 以内，容器仍可能读完请求体再丢弃
+  - 部署时务必在反代设请求体上限（约 21MB）
   - 新增上传接口要把路径加进 `mugsun.security.multipart.allowed-paths`
   - 该列表在 yml 里是整体替换，要连默认 5 条一起写
   - 启动时对照接收文件的接口：漏配打 WARN，多配打 INFO
