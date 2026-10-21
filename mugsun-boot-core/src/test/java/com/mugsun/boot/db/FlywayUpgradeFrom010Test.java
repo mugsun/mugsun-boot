@@ -160,6 +160,27 @@ class FlywayUpgradeFrom010Test {
 		});
 	}
 
+	/** V14：全新库也有内置 user 角色，且它和注册角色参数指向的角色都带 sys:file:upload；重跑幂等。 */
+	@Test
+	void v14SeedsUserRoleWithUpload() throws Exception {
+		withTempDb(url -> {
+			Flyway current = current(url);
+			current.migrate();
+			current.validate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				String sql = "SELECT count(*) FROM sys_role r JOIN sys_role_menu rm ON rm.role_id = r.id AND rm.is_deleted = 0 "
+					+ "JOIN sys_menu m ON m.id = rm.menu_id WHERE r.role_code = 'user' AND r.tenant_id = '000000' "
+					+ "AND m.permission = 'sys:file:upload'";
+				assertThat(count(st, sql)).isEqualTo(1);
+				assertThat(count(st, "SELECT count(*) FROM sys_param WHERE param_key = 'security.register.register-role-code' AND param_value = 'user'")).isEqualTo(1);
+				long before = count(st, "SELECT count(*) FROM sys_role_menu");
+				st.execute(readResource("db/migration/V14__register_role_upload.sql"));
+				assertThat(count(st, "SELECT count(*) FROM sys_role_menu")).isEqualTo(before);
+				assertThat(count(st, "SELECT count(*) FROM sys_role WHERE role_code = 'user' AND tenant_id = '000000'")).isEqualTo(1);
+			}
+		});
+	}
+
 	/**
 	 * V7：删除后的行不再占唯一键（与 openGauss / 达梦 V7 同一套场景 SQL，见 db/unique-delete-flag/）。
 	 * 删租户后再建同编号、同一个键删两次、手机号 NULL / 空串可重复；未删除的行仍唯一。

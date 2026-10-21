@@ -29,6 +29,16 @@ class UploadPolicyTest {
 	}
 
 	@Test
+	void whitelistHasNoMarkupTypes() {
+		assertThat(UploadPolicy.ALLOWED_EXT).doesNotContain("svg", "html", "htm", "xml", "xhtml", "js");
+	}
+
+	@Test
+	void presignedTtlAtMostFifteenMinutes() {
+		assertThat(com.mugsun.boot.common.constant.OssConstants.PRESIGNED_TICKET_SECONDS).isLessThanOrEqualTo(900L);
+	}
+
+	@Test
 	void rejectsRenamedFiles() {
 		assertThatThrownBy(() -> UploadPolicy.validate(new MockMultipartFile("file", "x.png", "image/png", "GIF89a".getBytes())))
 			.isInstanceOf(ServiceException.class);

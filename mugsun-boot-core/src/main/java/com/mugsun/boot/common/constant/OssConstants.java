@@ -46,8 +46,8 @@ public interface OssConstants {
 
 	/** 直传一次性凭证 Redis 键前缀（ticket 为随机串，GETDEL 消费） */
 	String PRESIGNED_TICKET_PREFIX = "mugsun:oss:presigned:";
-	/** 直传凭证有效期（秒）：须覆盖大文件直传耗时，逾期须重新签发 */
-	long PRESIGNED_TICKET_SECONDS = 3600L;
+	/** 直传凭证与预签名 PUT 有效期（秒）：不超过 15 分钟，逾期须重新签发 */
+	long PRESIGNED_TICKET_SECONDS = 900L;
 
 	/** 直传文件名长度上限 */
 	int PRESIGNED_FILENAME_MAX_LEN = 128;
