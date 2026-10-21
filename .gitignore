@@ -21,3 +21,6 @@ config/application-*-lab.yml
 .DS_Store
 Thumbs.db
 **/__pycache__/
+
+# 本地开发密钥文件（Sm4CryptoConfig 的 sm4-local-key-file）
+.mugsun/
