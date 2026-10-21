@@ -11,7 +11,7 @@ import java.util.Set;
  * 部署环境判定（启动守卫共用）：只看显式激活的 profile（spring.profiles.active 等），
  * 不看 spring.profiles.default。
  * <ul>
- *   <li>active 非空、含 dev / test / local 之一、且不含 prod 时才算非生产</li>
+ *   <li>active 非空、含 dev / test / local 之一、且不含 prod / production / prd / staging 时才算非生产</li>
  *   <li>profile 名先 trim 再转小写比较（DEV、" Test " 都算）</li>
  *   <li>active 为空（包括只配了 default=dev）、staging、production 等：一律按生产处理</li>
  * </ul>
@@ -22,6 +22,9 @@ public final class DeployProfiles {
 	/** 非生产 profile 白名单（trim + 小写后匹配） */
 	public static final Set<String> NON_PRODUCTION = Set.of("dev", "test", "local");
 
+	/** 只要出现其中之一就按生产处理（即使同时带 dev），常见的生产写法都算 */
+	public static final Set<String> PRODUCTION_VETO = Set.of("prod", "production", "prd", "staging");
+
 	private DeployProfiles() {
 	}
 
@@ -31,7 +34,7 @@ public final class DeployProfiles {
 			.map(p -> p == null ? "" : p.trim().toLowerCase(Locale.ROOT))
 			.filter(p -> !p.isEmpty())
 			.toList();
-		if (active.isEmpty() || active.contains("prod")) {
+		if (active.isEmpty() || active.stream().anyMatch(PRODUCTION_VETO::contains)) {
 			return true;
 		}
 		return active.stream().noneMatch(NON_PRODUCTION::contains);
