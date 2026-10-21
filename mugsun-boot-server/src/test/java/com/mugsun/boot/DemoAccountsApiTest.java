@@ -96,6 +96,7 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		} finally {
 			PROPERTY_OVERRIDES.putAll(overrides);
 		}
+		cmd.add("--spring.profiles.active=test");
 		// 密钥不再有内置回落：与测试上下文用同一组 mugsun.crypto.* 配置（取自 AbstractIntegrationTest 的注解，不重复写值）
 		for (String prop : AbstractIntegrationTest.class
 				.getAnnotation(org.springframework.boot.test.context.SpringBootTest.class).properties()) {

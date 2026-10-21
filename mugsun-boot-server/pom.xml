@@ -113,6 +113,10 @@
 					<skip>false</skip>
 					<!-- 与 java -jar 一致：以仓库根目录为工作目录，读取 ./config/application-local.yml -->
 					<workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+					<!-- 本地 spring-boot:run 默认 dev：启动守卫只对 dev/test/local 放行（见 DeployProfiles） -->
+					<profiles>
+						<profile>dev</profile>
+					</profiles>
 				</configuration>
 			</plugin>
 		</plugins>

@@ -41,7 +41,7 @@ MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 dock
 docker compose up -d
 cp config/application-local.yml.example config/application-local.yml
 mvn -pl mugsun-boot-server -am package -DskipTests
-java -jar mugsun-boot-server/target/mugsun-boot.jar
+java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 ```
 
 须在仓库根目录执行 `java -jar`，否则读不到 `config/application-local.yml`。开发时也可在根目录直接运行（可选）：`mvn -pl mugsun-boot-server -am spring-boot:run`。
