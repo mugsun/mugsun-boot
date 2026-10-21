@@ -26,6 +26,11 @@ public interface OssConstants {
 	String PATH_PUBLIC = "public/";
 	/** 上传对象路径前缀：私有区 */
 	String PATH_PRIVATE = "private/";
+	/**
+	 * 直传暂存前缀：预签名 PUT 只签到这里，登记时服务端再复制到 public/ 或 private/ 下的新 key。
+	 * 部署侧必须保证它不可公开读、不走 CDN，并配 1 天自动删除的 lifecycle 兜底。
+	 */
+	String PATH_STAGING = "tmp/";
 
 	/** FileInfo attr 扩展键：访问级别（recorder 登记时还原 sys_attach.access） */
 	String ATTR_ACCESS = "access";
@@ -46,8 +51,8 @@ public interface OssConstants {
 
 	/** 直传一次性凭证 Redis 键前缀（ticket 为随机串，GETDEL 消费） */
 	String PRESIGNED_TICKET_PREFIX = "mugsun:oss:presigned:";
-	/** 直传凭证有效期（秒）：须覆盖大文件直传耗时，逾期须重新签发 */
-	long PRESIGNED_TICKET_SECONDS = 3600L;
+	/** 直传凭证与预签名 PUT 有效期（秒）：不超过 15 分钟，逾期须重新签发 */
+	long PRESIGNED_TICKET_SECONDS = 900L;
 
 	/** 直传文件名长度上限 */
 	int PRESIGNED_FILENAME_MAX_LEN = 128;

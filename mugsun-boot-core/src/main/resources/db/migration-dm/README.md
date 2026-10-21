@@ -29,3 +29,5 @@ JDBC 不要加 `compatibleMode=oracle`。打包带上 `db-migration-dameng-flywa
 - V7 起：PG 里 `WHERE is_deleted = 0` 的部分唯一索引，在这里写成函数唯一索引，**每个**键列都包 `CASE WHEN is_deleted = 0 THEN 列 END`。达梦按 Oracle 口径：整组键全为 NULL 的行互不冲突，只有部分列为 NULL 仍会冲突，所以不能只包一列；也不要写成 `(列, is_deleted)`（同一个键删两次就撞键）
 - 达梦 DDL 自动提交、不随迁移回滚：需要中止迁移的检查（如 V7 的重复手机号）放在任何 DDL 之前。迁移失败后 `flyway_schema_history` 会留一条 `success = 0` 的记录，处理完要删掉它（或 `flyway repair`）再重跑
 - 保留字列（如 `type`、`domain`）加双引号小写，对齐 Flex DmDialect
+
+版本号只增不补，可能跳号（如没有 V4–V6、V12），属正常。新脚本取合入时 main 上的最大号加 1，不要回填空号：已执行过更高版本的库再遇到低版本新脚本，Flyway 默认校验会拒绝启动。

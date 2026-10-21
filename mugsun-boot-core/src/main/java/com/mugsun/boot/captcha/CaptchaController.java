@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.mugsun.boot.auth.register.RegisterGate;
 
 /** 行为验证码（匿名）：开关提示、取挑战、校验 */
 @RestController
@@ -25,11 +26,14 @@ public class CaptchaController {
 	private final CaptchaGate gate;
 	private final SliderCaptchaService slider;
 	private final CaptchaProperties props;
+	private final RegisterGate registerGate;
 
-	public CaptchaController(CaptchaGate gate, SliderCaptchaService slider, CaptchaProperties props) {
+	public CaptchaController(CaptchaGate gate, SliderCaptchaService slider, CaptchaProperties props,
+							 RegisterGate registerGate) {
 		this.gate = gate;
 		this.slider = slider;
 		this.props = props;
+		this.registerGate = registerGate;
 	}
 
 	@GetMapping("/config")
@@ -41,7 +45,7 @@ public class CaptchaController {
 		boolean on = gate.required(sc, client, CaptchaGate.effectiveTenant(sc, tenantId));
 		java.util.Set<CaptchaType> types = gate.enabledTypes(sc, CaptchaGate.effectiveTenant(sc, tenantId));
 		String type = types.size() > 1 ? "RANDOM" : types.iterator().next().name();
-		return R.data(new CaptchaConfigVO(on, type, sc));
+		return R.data(new CaptchaConfigVO(on, type, sc, registerGate.mode().name()));
 	}
 
 	@PostMapping("/challenge")

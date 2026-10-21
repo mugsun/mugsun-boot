@@ -27,7 +27,6 @@ public final class PermissionModules {
 		"/system/user/submit",
 		"/system/notice/my", "/system/notice/read",
 		"/system/message",
-		"/system/file/upload",
 		"/system/table-column",
 		"/system/dict/batch",
 		"/system/feedback/submit",

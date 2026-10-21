@@ -19,3 +19,5 @@
 - 达梦：见并列目录 `../migration-dm/`（`scripts/pg_to_dm.py` 从本目录转换）。
 - openGauss-lite 5.1：见并列目录 `../migration-og/`（`scripts/pg_to_opengauss.py` 从本目录转换，库须 `DBCOMPATIBILITY 'PG'`）。
 - 埋点库：独立序列 `../track/migration/T1__baseline_0_1.sql`。
+
+版本号只增不补，可能跳号（如没有 V4–V6、V12），属正常。新脚本取合入时 main 上的最大号加 1，不要回填空号：已执行过更高版本的库再遇到低版本新脚本，Flyway 默认校验会拒绝启动。

@@ -26,9 +26,6 @@ public class LocalFileAccessFilter extends OncePerRequestFilter {
 	private static final Set<String> ACTIVE_EXTS = Set.of("html", "htm", "xhtml", "xht", "shtml", "svg", "svgz",
 		"xml", "xsl", "xslt", "js", "mjs", "swf");
 
-	/** 浏览器内置阅读器可能执行脚本/表单的类型：强制下载（不内联打开） */
-	private static final Set<String> DOWNLOAD_EXTS = Set.of("pdf");
-
 	private final LocalFileAccessProperties properties;
 	private final LocalFileUrlSigner signer;
 
@@ -57,11 +54,10 @@ public class LocalFileAccessFilter extends OncePerRequestFilter {
 		if (isPublic(relPath) || signer.verify(relPath, request.getParameter(LocalFileUrlSigner.PARAM_EXPIRE),
 			request.getParameter(LocalFileUrlSigner.PARAM_SIGN))) {
 			response.setHeader("X-Content-Type-Options", "nosniff");
+			// 公开、私有一律 attachment：直出地址与管理台同域，不让任何上传内容内联渲染
+			response.setHeader("Content-Disposition", "attachment");
 			if (isActive(relPath)) {
-				response.setHeader("Content-Disposition", "attachment");
 				response.setHeader("Content-Security-Policy", "sandbox");
-			} else if (isForcedDownload(relPath)) {
-				response.setHeader("Content-Disposition", "attachment");
 			}
 			chain.doFilter(request, response);
 			return;
@@ -90,10 +86,6 @@ public class LocalFileAccessFilter extends OncePerRequestFilter {
 
 	static boolean isActive(String relPath) {
 		return ACTIVE_EXTS.contains(ext(relPath));
-	}
-
-	static boolean isForcedDownload(String relPath) {
-		return DOWNLOAD_EXTS.contains(ext(relPath));
 	}
 
 	private static String ext(String relPath) {

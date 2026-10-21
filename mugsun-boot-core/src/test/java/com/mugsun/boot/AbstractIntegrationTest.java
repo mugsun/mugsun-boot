@@ -49,7 +49,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 		"mugsun.crypto.sm4-key=" + Sm4TestKeys.INTEGRATION_KEY,
 		// 接口加密密钥不写死：测试用进程内临时密钥（strict-keys 由 application.yml 默认 false）
 		"mugsun.crypto.allow-ephemeral-keys=true",
-		"mugsun.web.front-url=http://frontend.test:3006"
+		"mugsun.web.front-url=http://frontend.test:3006",
+		// 测试上下文没有显式 profile，按生产规则注册默认关闭；存量注册用例需要开放。
+		// 关闭场景见 RegisterOffApiTest；IP 限流放宽，避免同 JVM 多个注册用例互相挤占，账号维度保持默认
+		"mugsun.auth.register.enabled=true",
+		"mugsun.auth.register.rate-limit.per-ip=1000"
 	})
 public abstract class AbstractIntegrationTest {
 

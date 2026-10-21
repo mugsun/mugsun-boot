@@ -153,7 +153,7 @@ class LocalFileUrlSignerTest {
 		MockHttpServletResponse png = new MockHttpServletResponse();
 		filter.doFilter(new MockHttpServletRequest("GET", "/file/mugsun/public/avatar/a.png"), png, new MockFilterChain());
 		assertThat(png.getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
-		assertThat(png.getHeader("Content-Disposition")).isNull();
+		assertThat(png.getHeader("Content-Disposition")).as("公开图片也一律 attachment").isEqualTo("attachment");
 		assertThat(LocalFileAccessFilter.isActive("mugsun/public/a.html")).isTrue();
 		assertThat(LocalFileAccessFilter.isActive("mugsun/public.html/a")).isFalse();
 	}
@@ -186,7 +186,5 @@ class LocalFileUrlSignerTest {
 		assertThat(resp.getStatus()).isEqualTo(200);
 		assertThat(resp.getHeader("Content-Disposition")).isEqualTo("attachment");
 		assertThat(resp.getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
-		assertThat(LocalFileAccessFilter.isForcedDownload("mugsun/a.pdf")).isTrue();
-		assertThat(LocalFileAccessFilter.isForcedDownload("mugsun/a.png")).isFalse();
 	}
 }

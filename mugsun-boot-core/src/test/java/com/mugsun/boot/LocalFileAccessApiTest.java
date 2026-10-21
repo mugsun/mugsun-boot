@@ -93,16 +93,29 @@ class LocalFileAccessApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	void privateHtmlIsServedAsDownloadWithNosniff() {
+	void scriptableUploadIsRejected() {
+		// html / svg 等可脚本化类型在上传时就拒绝，不再落盘；存量文件仍由 LocalFileAccessFilter 强制 attachment + nosniff
 		String token = loginAdmin();
-		JsonNode attach = upload(token, "private", "<script>alert(1)</script>", "x.html");
-		JsonNode signed = readBody(get("/system/file/download/" + attach.path("id").asText(), token));
-		URI url = URI.create(signed.path("data").asText());
-		ResponseEntity<String> resp = anonymousGet(url.getPath() + "?" + url.getRawQuery());
-		assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(resp.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
-		assertThat(resp.getHeaders().getFirst("Content-Disposition")).startsWith("attachment");
-		assertThat(resp.getHeaders().getFirst("Content-Security-Policy")).isEqualTo("sandbox");
+		for (String name : new String[]{"x.html", "x.svg", "x.js"}) {
+			HttpHeaders headers = authHeaders(token);
+			headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+			MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+			body.add("file", new ByteArrayResource("<script>alert(1)</script>".getBytes(StandardCharsets.UTF_8)) {
+				@Override
+				public String getFilename() {
+					return name;
+				}
+			});
+			JsonNode json = readBody(rest.exchange("/system/file/upload", HttpMethod.POST,
+				new HttpEntity<>(body, headers), String.class));
+			assertThat(json.path("code").asInt()).as(name).isNotEqualTo(200);
+		}
+	}
+
+	@Test
+	void storedFilenameIsServerGenerated() {
+		JsonNode attach = upload(loginAdmin(), "private", "hello", "../../evil name.txt");
+		assertThat(attach.path("filename").asText()).matches("[0-9a-f]{32}\\.txt");
 	}
 
 	/** 把签名首字符换成一个一定不同的字符；原写法固定换成 Z，签名本身以 Z 开头时（约 1/64）等于没改 */

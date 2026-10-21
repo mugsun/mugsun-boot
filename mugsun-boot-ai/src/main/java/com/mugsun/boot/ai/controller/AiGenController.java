@@ -20,6 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import com.mugsun.boot.log.OperationLog;
 
 @RestController
 @RequestMapping("/system/ai/gen")
@@ -101,6 +102,7 @@ public class AiGenController {
 		return emitter;
 	}
 
+	@OperationLog("导出 AI 生成内容")
 	@PostMapping("/{type}/export")
 	@SaCheckPermission(value = {
 		AiConstants.PERM_GEN_MINDMAP, AiConstants.PERM_GEN_POSTER, AiConstants.PERM_GEN_ARTICLE,

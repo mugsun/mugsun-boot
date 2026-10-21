@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 
 /**
  * 工作流治理：流程定义部署/发起 + 待办工作台 + 审批动作全集（办理/退回/撤回/转办/委派/加减签/作废/抄送）。
@@ -54,6 +55,7 @@ public class FlowController {
 
 	/** 部署：导入请假流程定义 JSON 并发布 */
 	@PostMapping("/deploy")
+	@SaCheckPermission("sys:flow:deploy")
 	public R<Long> deploy() throws Exception {
 		String json = new String(new ClassPathResource("flow/leave.json").getInputStream()
 			.readAllBytes(), StandardCharsets.UTF_8);
@@ -67,6 +69,7 @@ public class FlowController {
 	 * 服务端组装 nodeList（开始→N个审批→结束）与坐标/连线，保证 JSON 合法。
 	 */
 	@PostMapping("/design")
+	@SaCheckPermission("sys:flow:design")
 	public R<Long> design(@RequestBody FlowDesign req) throws Exception {
 		if (req.flowCode() == null || req.flowCode().isBlank() || req.flowName() == null || req.flowName().isBlank()) {
 			throw new ServiceException("流程编码与名称不能为空。请填上编码和名称后再发布");
@@ -85,6 +88,7 @@ public class FlowController {
 	 * 网关为引擎原生（排他 nodeType3 / 并行 nodeType4），条件边编译为 skipCondition。
 	 */
 	@PostMapping("/design-graph")
+	@SaCheckPermission("sys:flow:design-graph")
 	public R<Long> designGraph(@RequestBody FlowGraphService.GraphDesign req) {
 		String json = flowGraphService.buildJson(req);
 		Definition def = FlowEngine.defService().importJson(json);
@@ -96,6 +100,7 @@ public class FlowController {
 
 	/** 发布定义 */
 	@PostMapping("/definition/publish/{id}")
+	@SaCheckPermission("sys:flow:definition")
 	public R<Void> publishDefinition(@PathVariable Long id) {
 		FlowEngine.defService().publish(id);
 		return R.success("已发布");
@@ -103,6 +108,7 @@ public class FlowController {
 
 	/** 取消发布（转未发布） */
 	@PostMapping("/definition/unpublish/{id}")
+	@SaCheckPermission("sys:flow:definition")
 	public R<Void> unpublishDefinition(@PathVariable Long id) {
 		FlowEngine.defService().unPublish(id);
 		return R.success("已取消发布");
@@ -303,7 +309,7 @@ public class FlowController {
 
 	/** 正在办理的流程 */
 	@GetMapping("/running")
-	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:running")
+	@SaCheckPermission("sys:flow:running")
 	public R<List<Row>> running(@RequestParam(required = false) String instanceId,
 								@RequestParam(required = false) String flowCode) {
 		return R.data(flowService.running(instanceId, flowCode));
@@ -312,7 +318,7 @@ public class FlowController {
 	/** 填写原因后终止 */
 	@RepeatSubmit(message = "请勿重复终止。请刷新列表确认流程是否已经停下")
 	@PostMapping("/running/terminate")
-	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:running:terminate")
+	@SaCheckPermission("sys:flow:running:terminate")
 	public R<Void> terminateRunning(@RequestBody Map<String, Object> body) {
 		flowService.terminateRunning(longOf(body.get("instanceId")), textOf(body.get("reason")));
 		return R.success("流程已终止");
@@ -320,7 +326,7 @@ public class FlowController {
 
 	/** 挂起 */
 	@PostMapping("/running/suspend")
-	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:running:active")
+	@SaCheckPermission("sys:flow:running:active")
 	public R<Void> suspendRunning(@RequestBody Map<String, Object> body) {
 		flowService.suspendRunning(longOf(body.get("instanceId")));
 		return R.success("流程已挂起");
@@ -328,7 +334,7 @@ public class FlowController {
 
 	/** 恢复 */
 	@PostMapping("/running/resume")
-	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:running:active")
+	@SaCheckPermission("sys:flow:running:active")
 	public R<Void> resumeRunning(@RequestBody Map<String, Object> body) {
 		flowService.resumeRunning(longOf(body.get("instanceId")));
 		return R.success("流程已恢复");

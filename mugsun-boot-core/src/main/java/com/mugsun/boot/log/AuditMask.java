@@ -15,11 +15,15 @@ public final class AuditMask {
 	private static final int MAX_LEN = 2000;
 	// 名单与 ApiParamMask 同源：密码/密钥/令牌/凭据类 + PII（手机号/身份证）+ 验证码类（一次性码亦不落明文）
 	private static final String SENSITIVE_KEYS = "password|oldPassword|newPassword|dsPassword|pwd|passwd|"
-		+ "secret|clientSecret|client_secret|apiKey|accessToken|access_token|refreshToken|refresh_token|"
+		+ "secret|clientSecret|client_secret|apiKey|api_key|apikey|secretKey|secret_key|appSecret|app_secret|"
+		+ "accessKeySecret|accessToken|access_token|refreshToken|refresh_token|"
 		+ "token|credential|credentials|privateKey|sign|"
 		+ "phone|mobile|idCard|idcard|id_card|code|smsCode|captchaCode|captcha_code";
 	private static final Pattern MASK = Pattern.compile(
 		"(?i)(\"(?:" + SENSITIVE_KEYS + ")\"\\s*:\\s*)\"[^\"]*\"");
+	// 字符串字段里嵌着的 JSON（如 AI 应用导入的 dsl）序列化后引号被转义成 \"，单独再遮一遍
+	private static final Pattern MASK_ESCAPED = Pattern.compile(
+		"(?i)(\\\\\"(?:" + SENSITIVE_KEYS + ")\\\\\"\\s*:\\s*)\\\\\"(?:[^\"\\\\]|\\\\[^\"])*\\\\\"");
 
 	private AuditMask() {
 	}
@@ -39,7 +43,7 @@ public final class AuditMask {
 			raw = Arrays.toString(args);
 		}
 		String masked = json
-			? MASK.matcher(raw).replaceAll("$1\"***\"")
+			? MASK_ESCAPED.matcher(MASK.matcher(raw).replaceAll("$1\"***\"")).replaceAll("$1\\\\\"***\\\\\"")
 			// 降级串形态 password=xxx / password:xxx 也脱敏
 			: raw.replaceAll("(?i)((?:" + SENSITIVE_KEYS + ")\\s*[=:]\\s*)[^,\\s\\]}]+", "$1***");
 		return masked.length() > MAX_LEN ? masked.substring(0, MAX_LEN) + "...(truncated)" : masked;

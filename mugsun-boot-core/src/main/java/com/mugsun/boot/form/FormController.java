@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 
 /**
  * 低代码表单：设计（schema 落库）+ 运行时填报（数据落库）。
@@ -36,7 +37,7 @@ public class FormController {
 	}
 
 	@GetMapping("/page")
-	@cn.dev33.satoken.annotation.SaCheckPermission("sys:form:list")
+	@SaCheckPermission("sys:form:list")
 	public R<Page<SysForm>> page(@RequestParam(defaultValue = "1") long pageNum,
 								 @RequestParam(defaultValue = "10") long pageSize,
 								 @RequestParam(required = false) String name,
@@ -58,7 +59,7 @@ public class FormController {
 	}
 
 	@GetMapping("/detail")
-	@cn.dev33.satoken.annotation.SaCheckPermission("sys:form:list")
+	@SaCheckPermission("sys:form:list")
 	public R<SysForm> detail(@RequestParam Long id) {
 		SysForm form = formMapper.selectOneById(id);
 		if (form == null) {
@@ -82,6 +83,7 @@ public class FormController {
 
 	/** 保存表单设计（schema + option） */
 	@PostMapping("/submit")
+	@SaCheckPermission("sys:form:save")
 	@RepeatSubmit
 	public R<Void> submit(@RequestBody SysForm param) {
 		if (param == null) {
@@ -132,6 +134,7 @@ public class FormController {
 	}
 
 	@PostMapping("/remove")
+	@SaCheckPermission("sys:form:remove")
 	@RepeatSubmit
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {

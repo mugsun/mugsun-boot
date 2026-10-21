@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import com.mugsun.boot.log.OperationLog;
 
 @RestController
 @RequestMapping("/system/ai/conversation")
@@ -47,6 +48,7 @@ public class AiConversationController {
 		return R.data(chatService.messages(real));
 	}
 
+	@OperationLog("导出 AI 对话")
 	@GetMapping("/export")
 	@SaCheckPermission(AiConstants.PERM_CONVERSATION_EXPORT)
 	public void export(@RequestParam(required = false) String keyword, HttpServletResponse response) throws IOException {

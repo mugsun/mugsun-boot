@@ -1,5 +1,11 @@
 package com.mugsun.boot.system.controller;
 
+import com.mugsun.boot.system.file.PendingObjectCleaner;
+import org.dromara.x.file.storage.core.platform.FileStorage;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.dromara.x.file.storage.core.get.RemoteFileInfo;
+import com.mugsun.boot.system.file.UploadPolicy;
+import java.util.Locale;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
@@ -56,6 +62,12 @@ public class FileController {
 	private final FileAccessService fileAccessService;
 	private final com.mugsun.boot.system.file.LocalFileUrlSigner localFileUrlSigner;
 	private final ObjectMapper objectMapper = new ObjectMapper();
+	private PendingObjectCleaner pendingObjectCleaner;
+
+	@Autowired
+	void setPendingObjectCleaner(PendingObjectCleaner pendingObjectCleaner) {
+		this.pendingObjectCleaner = pendingObjectCleaner;
+	}
 
 	public FileController(FileStorageService fileStorageService, FileRecorder fileRecorder,
 						  SysAttachMapper attachMapper, OssService ossService, ParamService paramService,
@@ -73,11 +85,14 @@ public class FileController {
 
 	/** 上传文件并登记附件（access=public 公开直取 / private 私有授权下载；登记由 FileRecorder 统一落库） */
 	@PostMapping("/upload")
+	@SaCheckPermission("sys:file:upload")
 	public R<SysAttach> upload(@RequestParam(value = "file", required = false) MultipartFile file,
 							   @RequestParam(defaultValue = OssConstants.ACCESS_PRIVATE) String access) {
 		if (file == null || file.isEmpty()) {
 			throw new ServiceException("请选择一个有内容的文件再上传");
 		}
+		// 白名单扩展名 + 魔数 + 大小；存储名由服务端生成，原文件名只作展示
+		String ext = UploadPolicy.validate(file);
 		// 普通用户强制 private；仅持 sys:file:public 可设公开
 		boolean isPublic = fileAccessService.resolvePublic(access, StpUtil::hasPermission);
 		String folder = isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE;
@@ -86,6 +101,11 @@ public class FileController {
 			info = fileStorageService.of(file)
 				.setPlatform(ossService.activePlatform())
 				.setPath(folder)
+				.setSaveFilename(UploadPolicy.storedName(ext))
+				// Content-Type 按白名单扩展名定，不用客户端上报；云存储对象一律带 attachment（本地存储由 LocalFileAccessFilter 加）
+				.setContentType(UploadPolicy.mimeOf(ext))
+				.setNotSupportMetadataThrowException(false)
+				.putMetadata("Content-Disposition", "attachment")
 				.putAttr(OssConstants.ATTR_ACCESS, isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE)
 				.upload();
 		} catch (RuntimeException ex) {
@@ -105,12 +125,16 @@ public class FileController {
 	 * 当前平台不支持预签名（如本地存储）时返回 supported=false，前端回退 multipart 上传。
 	 */
 	@PostMapping("/presigned-put")
+	@SaCheckPermission("sys:file:upload")
 	public R<PresignedPutResult> presignedPut(@RequestBody PresignedPutParam param) {
 		String filename = param.filename();
 		if (filename == null || filename.isBlank() || filename.length() > OssConstants.PRESIGNED_FILENAME_MAX_LEN
 			|| filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
 			throw new ServiceException("文件名不能包含斜杠，也不能太长。请换一个文件名后再上传");
 		}
+		String allowedExt = UploadPolicy.requireAllowedExt(filename);
+		long size = UploadPolicy.requireSize(param.size());
+		String contentType = UploadPolicy.mimeOf(allowedExt);
 		boolean isPublic = fileAccessService.resolvePublic(param.access(), StpUtil::hasPermission);
 		String platform = ossService.activePlatform();
 		if (!fileStorageService.isSupportPresignedUrl(platform)) {
@@ -122,10 +146,15 @@ public class FileController {
 		Date expiration = new Date(System.currentTimeMillis() + OssConstants.PRESIGNED_TICKET_SECONDS * 1000);
 		GeneratePresignedUrlResult result = fileStorageService.generatePresignedUrl()
 			.setPlatform(platform)
-			.setPath(isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE)
+			// 原 key 只签到私有暂存前缀：即便有效期内被再次 PUT，也不会出现在公开区
+			.setPath(OssConstants.PATH_STAGING)
 			.setFilename(storedFilename)
 			.setMethod(Constant.GeneratePresignedUrl.Method.PUT)
 			.setExpiration(expiration)
+			// 签名绑定大小、类型和下载方式：客户端 PUT 时必须原样带上，改了签名就失效
+			.putHeaders("Content-Length", Long.toString(size))
+			.putHeaders("Content-Type", contentType)
+			.putHeaders("Content-Disposition", "attachment")
 			.generatePresignedUrl();
 		String ticket = UUID.randomUUID().toString().replace("-", "");
 		ObjectNode credential = objectMapper.createObjectNode();
@@ -134,6 +163,8 @@ public class FileController {
 		credential.put("path", result.getPath());
 		credential.put("filename", result.getFilename());
 		credential.put("name", filename);
+		credential.put("size", size);
+		credential.put("contentType", contentType);
 		credential.put("access", isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE);
 		redisTemplate.opsForValue().set(OssConstants.PRESIGNED_TICKET_PREFIX + ticket, credential.toString(),
 			Duration.ofSeconds(OssConstants.PRESIGNED_TICKET_SECONDS));
@@ -146,6 +177,7 @@ public class FileController {
 	 * 伪造/重放/过期凭证一律拒绝。size 为客户端上报的展示值（安全不依赖）。
 	 */
 	@PostMapping("/create")
+	@SaCheckPermission("sys:file:upload")
 	public R<SysAttach> create(@RequestBody CreateParam param) {
 		if (param.ticket() == null || param.ticket().isBlank()) {
 			throw new ServiceException("上传凭证缺失。请重新选择文件再上传");
@@ -171,12 +203,15 @@ public class FileController {
 		info.setFilename(filename);
 		info.setOriginalFilename(credential.path("name").asText(filename));
 		info.setExt(extOf(filename));
-		info.setSize(param.size());
-		info.setUrl(ossService.predictUrl(platform, path, filename));
+		// 大小和类型取自签发凭证（已绑定进签名），不用回填时客户端上报的值
+		info.setSize(credential.path("size").asLong());
+		info.setContentType(credential.path("contentType").asText("application/octet-stream"));
 		info.setAttr(Dict.create().set(OssConstants.ATTR_ACCESS,
 			isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE));
-		fileRecorder.save(info);
-		SysAttach attach = toAttach(info, isPublic);
+		// 先在服务端复制到客户端不知道的新 key，再对新 key 回验并登记：校验的就是最终登记的那份字节，
+		// 不存在「校验完原 key 后又被覆盖」的竞态。原 key 在暂存前缀，复制后立即删，签名过期后再删一次
+		FileInfo stored = relocateAndVerify(info, isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE);
+		SysAttach attach = toAttach(stored, isPublic);
 		if (!isPublic) {
 			attach.setUrl(null);
 		}
@@ -236,7 +271,13 @@ public class FileController {
 		fileInfo.setFilename(attach.getFilename());
 		String downloadName = java.net.URLEncoder.encode(
 			attach.getName() == null ? attach.getFilename() : attach.getName(), java.nio.charset.StandardCharsets.UTF_8);
-		response.setContentType(attach.getContentType() == null ? "application/octet-stream" : attach.getContentType());
+		String contentType = attach.getContentType();
+		// 可执行脚本类（html/svg/js/xml）一律按二进制下发，配合 attachment + nosniff，不在同域内联执行
+		if (contentType == null || UploadPolicy.isActiveContentType(contentType)) {
+			contentType = "application/octet-stream";
+		}
+		response.setContentType(contentType);
+		response.setHeader("X-Content-Type-Options", "nosniff");
 		response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + downloadName);
 		// 不信任客户端上报 size（直传登记值为展示用途）： chunked 传输，防错配 Content-Length 挂起/截断
 		try {
@@ -361,7 +402,7 @@ public class FileController {
 	}
 
 	/** 直传签发请求：filename 原始文件名（展示用），access=public|private */
-	public record PresignedPutParam(String filename, String access) {
+	public record PresignedPutParam(String filename, String access, Long size) {
 	}
 
 	/** 直传签发回执：supported=false 表示当前平台不支持预签名，前端回退 multipart */
@@ -372,4 +413,97 @@ public class FileController {
 	/** 直传回填请求：ticket 一次性凭证；size 客户端上报展示值（可空） */
 	public record CreateParam(String ticket, Long size) {
 	}
+
+	/**
+	 * 暂存 key → 新 key：复制（不经 FileRecorder）→ 对新 key 回验 → 登记。
+	 * 回验不通过新旧两个 key 都删（删不掉进待清理队列）；登记失败新 key 也进队列。
+	 * 原 key 复制后立即删一次，并排一条签名过期后才执行的延迟删除，防止有效期内被再次 PUT 后遗留。
+	 */
+	private FileInfo relocateAndVerify(FileInfo staged, String targetPath) {
+		long notBefore = System.currentTimeMillis() + (OssConstants.PRESIGNED_TICKET_SECONDS + 60) * 1000;
+		FileStorage storage = fileStorageService.getFileStorageVerify(staged);
+		if (!storage.isSupportSameCopy()) {
+			cleanStaged(staged, notBefore);
+			throw new ServiceException("当前存储不支持直传登记。请改用普通上传");
+		}
+		String newName = UploadPolicy.storedName(staged.getExt());
+		FileInfo dest = new FileInfo()
+			.setPlatform(staged.getPlatform())
+			.setBasePath(staged.getBasePath())
+			.setPath(targetPath)
+			.setFilename(newName)
+			.setOriginalFilename(staged.getOriginalFilename())
+			.setExt(staged.getExt())
+			.setSize(staged.getSize())
+			.setContentType(staged.getContentType())
+			.setAttr(staged.getAttr())
+			.setCreateTime(new java.util.Date());
+		try {
+			storage.sameCopy(staged, dest, fileStorageService.copy(staged).setPath(targetPath).setFilename(newName));
+		} catch (Exception e) {
+			log.warn("直传对象复制到新 key 失败：{}", staged.getFilename());
+			pendingObjectCleaner.deleteOrEnqueue(dest, true);
+			cleanStaged(staged, notBefore);
+			throw new ServiceException("文件登记没有成功。请重新选择文件再上传");
+		}
+		cleanStaged(staged, notBefore);
+		if (!verifyObject(dest)) {
+			pendingObjectCleaner.deleteOrEnqueue(dest, true);
+			throw new ServiceException("上传的文件和申请时登记的大小或类型对不上。请重新选择文件再上传");
+		}
+		dest.setUrl(ossService.predictUrl(dest.getPlatform(), targetPath, newName));
+		try {
+			if (!fileRecorder.save(dest)) {
+				throw new IllegalStateException("recorder returned false");
+			}
+		} catch (Exception e) {
+			// 登记抛异常时可能已经落库（如提交后才报错），不能立即删：60 秒后由 check 查登记表再决定
+			log.warn("直传对象登记失败，新 key 延迟 60 秒进待清理队列：{}", newName);
+			pendingObjectCleaner.enqueueFreshAfter(dest, System.currentTimeMillis() + 60_000L);
+			throw new ServiceException("文件登记没有成功。请重新选择文件再上传");
+		}
+		return dest;
+	}
+
+	private void cleanStaged(FileInfo staged, long notBefore) {
+		pendingObjectCleaner.deleteOrEnqueue(staged);
+		pendingObjectCleaner.enqueueAfter(staged, notBefore);
+	}
+
+	private static String baseType(String contentType) {
+		return contentType == null ? "" : contentType.split(";")[0].trim().toLowerCase(Locale.ROOT);
+	}
+
+	/**
+	 * 直传回验（对复制后的新 key）：HEAD 核对实际大小、Content-Type 与凭证一致，再读文件头跑魔数校验。
+	 * 任一不符返回 false，由调用方删对象并拒绝登记，避免绕过签名约束的 PUT 落成附件。
+	 */
+	private boolean verifyObject(FileInfo info) {
+		RemoteFileInfo remote;
+		try {
+			remote = fileStorageService.getFile(info);
+		} catch (Exception e) {
+			return false;
+		}
+		if (remote == null || remote.getSize() == null || !remote.getSize().equals(info.getSize())
+			|| !baseType(info.getContentType()).equals(baseType(remote.getContentType()))) {
+			return false;
+		}
+		byte[] head = new byte[UploadPolicy.HEAD_BYTES];
+		int[] n = {0};
+		try {
+			fileStorageService.download(info).inputStream(in -> {
+				try {
+					n[0] = in.readNBytes(head, 0, head.length);
+				} catch (java.io.IOException e) {
+					n[0] = -1;
+				}
+			});
+		} catch (Exception e) {
+			return false;
+		}
+		return n[0] > 0 && UploadPolicy.magicMatches(info.getExt(), head, n[0]);
+	}
+
+
 }

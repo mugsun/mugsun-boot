@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import com.mugsun.boot.log.OperationLog;
 
 @RestController
 @RequestMapping("/system/ai/session")
@@ -96,6 +97,7 @@ public class AiSessionController {
 		return R.success("已清空。这条会话里的消息不会再出现");
 	}
 
+	@OperationLog("导出 AI 会话")
 	@GetMapping("/export")
 	@SaCheckPermission(AiConstants.PERM_ASSISTANT_EXPORT)
 	public R<Map<String, Object>> export(@RequestParam(required = false) String id) {

@@ -33,6 +33,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
+import com.mugsun.boot.tenant.TenantContext;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 用户管理
@@ -450,10 +452,12 @@ public class SysUserController {
 
 	/**
 	 * 导出用户（与 page 同查询条件，受 @DataScope 行级范围约束）。
+	 * 独立导出码 sys:user:export：只有列表读权（sys:user:list）不能整表导出。
 	 * 手机号导出形态由字段级权限裁决（@ColumnMask 读管线自动生效）：无查看权→空、无明文权→脱敏、有明文权→明文。
 	 */
+	@OperationLog("导出用户")
 	@GetMapping("/export")
-	@SaCheckPermission("sys:user:list")
+	@SaCheckPermission("sys:user:export")
 	@DataScope
 	public void export(HttpServletResponse response,
 					   @RequestParam(required = false) String username,
@@ -478,9 +482,9 @@ public class SysUserController {
 		ExcelUtil.export(response, "用户数据", "用户", rows, SysUserExportExcel.class);
 	}
 
-	/** 导入模板下载：表头 + 一行示例（权限码与导入一致） */
+	/** 导入模板下载：表头 + 一行示例（权限码与导入一致：sys:user:import） */
 	@GetMapping("/import-template")
-	@SaCheckPermission("sys:user:add")
+	@SaCheckPermission("sys:user:import")
 	public void importTemplate(HttpServletResponse response) {
 		SysUserExcel example = new SysUserExcel();
 		example.setUsername("zhangsan");
@@ -499,14 +503,14 @@ public class SysUserController {
 	 * 已存在账号：updateSupport=false 记失败「已存在」，=true 覆盖更新 昵称/状态/邮箱/部门/岗位（不更新密码与手机号）。
 	 */
 	@PostMapping("/import")
-	@SaCheckPermission("sys:user:add")
+	@SaCheckPermission("sys:user:import")
 	@OperationLog("导入用户")
 	public R<UserImportResult> importUser(@RequestParam(value = "file", required = false) MultipartFile file,
 										  @RequestParam(required = false, defaultValue = "false") boolean updateSupport) {
 		List<SysUserExcel> rows = com.mugsun.boot.common.excel.ImportFiles.requireRows(
 			com.mugsun.boot.common.excel.ImportFiles.readExcel(file, SysUserExcel.class),
 			MSG_IMPORT_NO_ROWS);
-		String tenant = com.mugsun.boot.tenant.TenantContext.current();
+		String tenant = TenantContext.current();
 		int success = 0;
 		List<UserImportResult.FailRow> failList = new java.util.ArrayList<>();
 		for (int i = 0; i < rows.size(); i++) {
@@ -637,7 +641,7 @@ public class SysUserController {
 	@PostMapping("/reset-password")
 	@SaCheckPermission("sys:user:reset")
 	@OperationLog("重置密码")
-	@org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
 	public R<Void> resetPassword(@RequestBody List<Long> ids) {
 		for (Long id : ids) {
 			assertTargetOperable(id, true);
@@ -656,7 +660,7 @@ public class SysUserController {
 	@GetMapping("/locks")
 	@SaCheckPermission("sys:user:edit")
 	public R<List<Map<String, Object>>> locks() {
-		return R.data(loginLockService.list(com.mugsun.boot.tenant.TenantContext.current()));
+		return R.data(loginLockService.list(TenantContext.current()));
 	}
 
 	/** 管理员锁定。不填分钟数则一直锁定，直到解锁。锁定后踢下线。 */
@@ -702,13 +706,13 @@ public class SysUserController {
 				throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再解锁");
 			}
 			lockKey = loginLockService.keyOf(user.getTenantId(), user.getUsername());
-		} else if (!lockKey.startsWith(com.mugsun.boot.tenant.TenantContext.current() + ":")) {
+		} else if (!lockKey.startsWith(TenantContext.current() + ":")) {
 			throw new com.mugsun.core.tool.exception.ServiceException("这是其他租户的账号，不能在这里解锁。请切到对应租户后再试");
 		}
 		loginLockService.clear(lockKey);
 		int colon = lockKey.indexOf(':');
 		String username = colon < 0 ? lockKey : lockKey.substring(colon + 1);
-		String tenant = colon < 0 ? com.mugsun.boot.tenant.TenantContext.current() : lockKey.substring(0, colon);
+		String tenant = colon < 0 ? TenantContext.current() : lockKey.substring(0, colon);
 		usualLogService.record("info", username, "已解锁账号", tenant);
 		return R.success("账号已解锁");
 	}
@@ -776,7 +780,7 @@ public class SysUserController {
 	@PostMapping("/grant")
 	@SaCheckPermission("sys:user:grant")
 	@OperationLog("用户授权")
-	@org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
 	public R<Void> grant(@RequestBody UserGrantParam param) {
 		assertUserInScope(param.userId());
 		if (param.roleIds() != null) {
@@ -787,7 +791,7 @@ public class SysUserController {
 				}
 				// 内置 admin 角色仅平台超管或同为 admin 角色持有者可授（防低权角色自助升格）
 				if (com.mugsun.boot.common.constant.RoleConstants.ADMIN.equals(role.getRoleCode())
-					&& !com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()
+					&& !TenantContext.isPlatformSuperAdmin()
 					&& !StpUtil.getRoleList().contains(com.mugsun.boot.common.constant.RoleConstants.ADMIN)) {
 					throw new com.mugsun.core.tool.exception.ServiceException("内置管理员角色仅管理员可授予");
 				}
@@ -822,7 +826,7 @@ public class SysUserController {
 		if (!allowSelf && StpUtil.getLoginIdAsLong() == userId) {
 			throw new com.mugsun.core.tool.exception.ServiceException("不能对当前登录账号执行这个操作。请换一个账号登录后再试，或改其他用户");
 		}
-		if (!com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin() && holdsAdminRole(userId)) {
+		if (!TenantContext.isPlatformSuperAdmin() && holdsAdminRole(userId)) {
 			throw new com.mugsun.core.tool.exception.ServiceException("这是内置管理员账号，当前身份不能修改。请使用平台超管，或改其他用户");
 		}
 	}

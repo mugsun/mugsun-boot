@@ -15,6 +15,56 @@
 
 ### 安全
 
+- 自助注册改为可配置，生产默认关闭（不兼容变更）
+  - 主配置 `mugsun.auth.register.mode`：OFF、OPEN、APPROVAL
+  - 简写 `mugsun.auth.register.enabled=true/false`，等于 OPEN/OFF
+  - 两者都设且含义冲突，或设成 APPROVAL（尚未实现），拒绝启动
+  - 默认：生产 OFF；显式 active 含 dev/test/local 且不含 prod 才是 OPEN
+  - 关闭时 `POST /auth/register` 返回 404
+  - 生产要开放注册，请设 `mugsun.auth.register.enabled=true`
+  - `GET /auth/captcha/config` 新增 `registerMode`，前端据此隐藏注册入口
+  - 注册按 IP（默认 10 次/时）、账号和手机号（各 5 次/时）限流，超限 429
+  - 反代后面须设 `MUGSUN_OPENAPI_TRUSTED_PROXIES`，否则全站算一个 IP
+  - 新参数 `security.register.register-role-code`（V14 播种为 user）
+- V14 播种内置 user 角色，并给注册角色补授 `sys:file:upload`
+- 直传签名有效期由 60 分钟降到 15 分钟
+- 直传登记前回查对象：大小、类型或文件头不符就删对象并拒绝
+- 直传只签到私有暂存前缀 tmp/，登记时先复制到新 key 再对新 key 回验
+  - 不通过则新旧 key 都删；登记失败新 key 进待清理队列
+  - 暂存 key 复制后立即删，签名过期后再删一次
+  - 部署须保证 tmp/ 不公开、不走 CDN，并配 1 天过期的 lifecycle
+- 删不掉的存储对象进 Redis 待清理队列，每 10 分钟重删，失败 20 次后报错
+  - 删前再校验：只删 tmp/ 下或本次新生成未登记的随机 key
+  - 已登记的对象一律不删，打告警并丢弃该项
+  - 升级前已在队列、不在 tmp/ 下的旧项会被丢弃，需人工清理对应对象
+  - 登记表查不了时原样重排，不计失败；登记异常的新 key 延迟 60 秒复查再删
+  - 登记表连续查不了超过 144 轮（约 1 天）时，当轮越线的条目汇总打一条 error，条目仍保留
+- 上传上限 20MB 改由容器在接收阶段截断，超限返回 400
+- 文本附件跳过开头空白后再查 HTML 标签；mp3 帧头判断收紧
+- 操作日志脱敏补上 api_key、secretKey、appSecret 及字符串里嵌的 JSON
+
+- 导出导入改用独立权限码，只有列表读权不能导出
+  - `GET /system/user/export` 由 `sys:user:list` 改为 `sys:user:export`
+  - 用户导入及导入模板由 `sys:user:add` 改为 `sys:user:import`
+  - `GET /system/region/export` 改为 `sys:region:export`
+  - V13 新增两个用户按钮权限，按旧码给已有角色补授，升级不掉权限
+  - 导出导入接口写操作日志；用户导出仍按数据权限过滤，手机号按字段权限脱敏
+  - 前端按钮需改用新码（pc 用户页导出、导入按钮）
+
+- 附件上传需要 `sys:file:upload`，并收紧文件类型
+  - `upload`、`presigned-put`、`create` 三个上传入口都校验新码
+  - V13 把 `sys:file:upload` 补授给全部现有角色；之后新建的角色要手动勾选
+  - 扩展名白名单 + 文件头校验 + 20MB 上限，拒绝 html、svg、js 等
+  - 存储文件名、Content-Type 由服务端定，不用客户端上报值
+  - 直传签发须带 `size`，签名绑定大小、类型和 `attachment`
+  - 本地直出与授权下载一律 `attachment` + `nosniff`
+
+- 表单、流程、规则、租户写接口加方法级权限校验
+  - 表单 `sys:form:save/remove`，流程 `sys:flow:deploy/design/design-graph`
+  - 流程发布、下线 `sys:flow:definition`；V13 补授给各租户 admin 角色
+  - `/system/rule/tenant-init` 只允许平台超管（`sys:rule:tenant-init`）
+  - 租户、套餐、租户数据源写接口加注解，并在方法内再校验平台超管
+
 - 启动守卫改为「非 dev/test/local 一律按生产」，生产误开联调账号时拒绝启动
   - **行为变更**：没配 profile 也按生产处理，自测请显式加 `--spring.profiles.active=dev`
   - 只看显式 active：非空、含 dev/test/local 之一且不含生产名才放行

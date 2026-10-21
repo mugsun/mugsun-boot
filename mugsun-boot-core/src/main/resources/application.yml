@@ -22,9 +22,9 @@ spring:
       enabled: true
   servlet:
     multipart:
-      # G101 sourcemap 上限 20MB（服务端校验 400 先于容器截断）：默认 1MB/10MB 不够，放宽到 25MB
-      max-file-size: 25MB
-      max-request-size: 25MB
+      # 附件与 G101 sourcemap 上限都是 20MB：容器在流式阶段截断，超限由 UploadSizeExceptionAdvice 给 400
+      max-file-size: 20MB
+      max-request-size: 21MB
   task:
     scheduling:
       pool:

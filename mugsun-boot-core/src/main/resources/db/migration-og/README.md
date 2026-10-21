@@ -21,3 +21,5 @@ CREATE DATABASE mugsun DBCOMPATIBILITY 'PG';
 - lite 没有 PostGIS / pgvector：不建 `gis_feature`，向量表没有 embedding 列
 
 镜像：`enmotech/opengauss-lite:5.1.0`，`--privileged`，宿主机端口 15432。不要用企业版 `enmotech/opengauss:5.0.0`。
+
+版本号只增不补，可能跳号（如没有 V4–V6、V12），属正常。新脚本取合入时 main 上的最大号加 1，不要回填空号：已执行过更高版本的库再遇到低版本新脚本，Flyway 默认校验会拒绝启动。
