@@ -27,7 +27,10 @@ public class RuleController {
 
 	/** 执行租户初始化编排链 */
 	@PostMapping("/tenant-init")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:rule:tenant-init")
 	public R<List<String>> tenantInit() {
+		// 只允许平台超管（平台租户 000000 + admin 角色）；租户管理员即使持码也拒
+		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
 		LiteflowResponse response = flowExecutor.execute2Resp("tenantInitChain", null, RuleContext.class);
 		if (!response.isSuccess()) {
 			throw new ServiceException("规则链执行失败：" + response.getMessage());

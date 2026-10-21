@@ -54,6 +54,7 @@ public class FlowController {
 
 	/** 部署：导入请假流程定义 JSON 并发布 */
 	@PostMapping("/deploy")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:deploy")
 	public R<Long> deploy() throws Exception {
 		String json = new String(new ClassPathResource("flow/leave.json").getInputStream()
 			.readAllBytes(), StandardCharsets.UTF_8);
@@ -67,6 +68,7 @@ public class FlowController {
 	 * 服务端组装 nodeList（开始→N个审批→结束）与坐标/连线，保证 JSON 合法。
 	 */
 	@PostMapping("/design")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:design")
 	public R<Long> design(@RequestBody FlowDesign req) throws Exception {
 		if (req.flowCode() == null || req.flowCode().isBlank() || req.flowName() == null || req.flowName().isBlank()) {
 			throw new ServiceException("流程编码与名称不能为空。请填上编码和名称后再发布");
@@ -85,6 +87,7 @@ public class FlowController {
 	 * 网关为引擎原生（排他 nodeType3 / 并行 nodeType4），条件边编译为 skipCondition。
 	 */
 	@PostMapping("/design-graph")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:design-graph")
 	public R<Long> designGraph(@RequestBody FlowGraphService.GraphDesign req) {
 		String json = flowGraphService.buildJson(req);
 		Definition def = FlowEngine.defService().importJson(json);
@@ -96,6 +99,7 @@ public class FlowController {
 
 	/** 发布定义 */
 	@PostMapping("/definition/publish/{id}")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:definition")
 	public R<Void> publishDefinition(@PathVariable Long id) {
 		FlowEngine.defService().publish(id);
 		return R.success("已发布");
@@ -103,6 +107,7 @@ public class FlowController {
 
 	/** 取消发布（转未发布） */
 	@PostMapping("/definition/unpublish/{id}")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:flow:definition")
 	public R<Void> unpublishDefinition(@PathVariable Long id) {
 		FlowEngine.defService().unPublish(id);
 		return R.success("已取消发布");

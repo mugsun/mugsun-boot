@@ -83,6 +83,13 @@ public final class TenantContext {
 	 * 仅凭租户归属会把其误判为超管；而 {@code admin} 角色每租户各有一个，仅凭角色又会把各租户管理员误判为平台超管。
 	 * 二者取交集方为唯一平台超管（平台租户下的内置管理员），用于平台专属路径与跨租户切换的门控。
 	 */
+	public static void requirePlatformSuperAdmin() {
+		if (!isPlatformSuperAdmin()) {
+			throw new cn.dev33.satoken.exception.NotPermissionException("platform-super-admin");
+		}
+	}
+
+	/** 平台超管判定，见 {@link #requirePlatformSuperAdmin()} 的纵深防御用法 */
 	public static boolean isPlatformSuperAdmin() {
 		try {
 			if (!StpUtil.isLogin()) {

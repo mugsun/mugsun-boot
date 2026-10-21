@@ -51,8 +51,10 @@ public class TenantDatasourceController {
 
 	@RepeatSubmit
 	@PostMapping("/submit")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant-datasource:save")
 	@org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
 	public R<Void> submit(@RequestBody SysTenantDatasource param) {
+		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
 		if (param == null) {
 			throw new ServiceException("请填写租户编号、数据库地址和账号后再保存");
 		}
@@ -103,7 +105,9 @@ public class TenantDatasourceController {
 
 	@RepeatSubmit
 	@PostMapping("/remove")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant-datasource:remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
+		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
 		if (ids == null || ids.isEmpty()) {
 			throw new ServiceException("请先选择要删除的数据源");
 		}

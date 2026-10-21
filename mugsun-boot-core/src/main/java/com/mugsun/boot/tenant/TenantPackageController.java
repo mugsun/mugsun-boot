@@ -72,7 +72,9 @@ public class TenantPackageController {
 
 	@RepeatSubmit
 	@PostMapping("/submit")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant-package:save")
 	public R<Void> submit(@RequestBody SysTenantPackage param) {
+		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
 		if (param == null) {
 			throw new ServiceException("请填写套餐名称后再保存");
 		}
@@ -96,7 +98,9 @@ public class TenantPackageController {
 
 	@RepeatSubmit
 	@PostMapping("/remove")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant-package:remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
+		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
 		if (ids == null || ids.isEmpty()) {
 			throw new ServiceException("请先选择要删除的套餐");
 		}

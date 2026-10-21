@@ -82,6 +82,7 @@ public class FormController {
 
 	/** 保存表单设计（schema + option） */
 	@PostMapping("/submit")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:form:save")
 	@RepeatSubmit
 	public R<Void> submit(@RequestBody SysForm param) {
 		if (param == null) {
@@ -132,6 +133,7 @@ public class FormController {
 	}
 
 	@PostMapping("/remove")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:form:remove")
 	@RepeatSubmit
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {

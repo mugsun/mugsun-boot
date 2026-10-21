@@ -139,7 +139,9 @@ public class SysTenantController {
 	/** 创建租户并初始化默认数据，返回租户编号 */
 	@RepeatSubmit
 	@PostMapping("/create")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant:save")
 	public R<String> create(@RequestBody SysTenant tenant) {
+		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
 		String code = tenantService.create(tenant);
 		R<String> result = R.data(code);
 		result.setMsg("已创建。编号 " + code + "。默认部门、岗位、角色和管理员已准备好，把编号交给对方即可登录");
@@ -149,14 +151,18 @@ public class SysTenantController {
 	/** 更新租户信息（含状态/期限/配额/套餐分配），不重新初始化默认数据 */
 	@RepeatSubmit
 	@PostMapping("/update")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant:save")
 	public R<Void> update(@RequestBody SysTenant tenant) {
+		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
 		tenantService.update(tenant);
 		return R.success("已保存。列表里可以查看这名租户的状态和到期时间");
 	}
 
 	@RepeatSubmit
 	@PostMapping("/remove")
+	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant:remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
+		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
 		int count = tenantService.remove(ids);
 		return R.success("已删除 " + count + " 个租户。他们的部门、岗位、角色和用户也已清掉，列表里不会再出现");
 	}
