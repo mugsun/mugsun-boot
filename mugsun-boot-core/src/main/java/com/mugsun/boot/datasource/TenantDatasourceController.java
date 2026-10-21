@@ -27,8 +27,11 @@ public class TenantDatasourceController {
 
 	private final SysTenantDatasourceMapper datasourceMapper;
 	private final TenantDataSourceRegistry registry;
+	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 
-	public TenantDatasourceController(SysTenantDatasourceMapper datasourceMapper, TenantDataSourceRegistry registry) {
+	public TenantDatasourceController(SysTenantDatasourceMapper datasourceMapper, TenantDataSourceRegistry registry,
+									  com.mugsun.boot.tenant.TenantValidator tenantValidator) {
+		this.tenantValidator = tenantValidator;
 		this.datasourceMapper = datasourceMapper;
 		this.registry = registry;
 	}
@@ -55,6 +58,10 @@ public class TenantDatasourceController {
 		}
 		normalize(param);
 		if (param.getId() == null) {
+			// 只能给现存（未删除）的租户建数据源：已删除或不存在的编号不能预占路由
+			if (!tenantValidator.activeTenantExists(param.getTenantCode())) {
+				throw new ServiceException("租户编号「" + param.getTenantCode() + "」不存在或已删除。请先在「租户管理」里确认编号");
+			}
 			if (param.getStatus() == null) {
 				param.setStatus(1);
 			}

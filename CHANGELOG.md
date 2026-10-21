@@ -12,6 +12,8 @@
 
 ### 升级须知
 
+- **租户编号永不复用**（V11，boot#100 复核 B1）。`uk_tenant_code` 在 PostgreSQL / 金仓 / openGauss / 达梦上都改回全量唯一（含已删除行），建租户时查重也包含已删除租户；`uk_tenant_ds_code` 仍只约束未删除行，租户可以删掉数据源配置后用同一编号重建。新建租户数据源时，租户编号必须对应一个未删除的租户，否则接口拒绝并提示编号不存在或已删除。库里已有同一编号被复用的多行时，V11 会中止并提示查重 SQL，此时还没有改任何索引；核对数据归属并处理后再重新迁移
+
 - **破坏性变更：旧的数字图形验证码已移除，改为行为验证码**（行为验证码由 mugsun-boot#17、#35 引入，本次移除旧数字码；验证码契约 v0.6.3）。登录、注册、忘记密码发码、发送短信验证码改用行为验证码：`GET /auth/captcha/config` 提示是否需要 → `POST /auth/captcha/challenge` 取题 → `POST /auth/captcha/verify` 换一次性 `captchaToken` → 业务接口请求体带 `captchaToken`。题型 `SLIDER`（滑块拼图）、`ROTATE`（旋转）、`WORD_CLICK`（词语点选）、`ICON_CLICK`（图标点选）、`JIGSAW`（拼图还原），由服务端在启用集合里随机选一种。
   - 移除的接口与字段：`GET /auth/captcha`（返回 `captchaUuid`、`captchaImage`、`expireSeconds`、`captchaCode`）不再存在；`POST /auth/login`、`/auth/register`、`/auth/forget-code`、`/auth/sms-login` 不再读请求体里的 `captchaUuid`、`captchaCode`（传了也忽略）。`/auth/sms-login` 不再校验验证码，验证码前移到 `/auth/sms-code`（带 `captchaToken`）
   - 移除的配置：`mugsun.captcha.type=IMAGE`（`SLIDER` / `IMAGE` 切换）、`mugsun.captcha.expire-seconds`（旧数字码有效期，已无作用）。`mugsun.captcha.type` 只认 `SLIDER`（不起作用，启动打 WARN，请删掉）；写 `IMAGE` 或其它值启动失败，报错写明「IMAGE 已移除」

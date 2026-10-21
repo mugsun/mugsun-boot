@@ -19,16 +19,22 @@ import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
 import com.mugsun.boot.tenant.TenantPackageService;
 import com.mugsun.core.tool.exception.ServiceException;
+import com.mybatisflex.core.logicdelete.LogicDeleteManager;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Random;
+import java.security.SecureRandom;
+import java.util.random.RandomGenerator;
 
 /**
  * 租户服务：创建租户并一键初始化其默认部门/岗位/角色/管理员。
@@ -49,7 +55,31 @@ public class TenantService {
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
 	private final TenantPackageService packageService;
-	private final Random random = new Random();
+	/** 候选编号的随机源，构造注入（测试用固定序列验证已删除编号不会被复用） */
+	private final RandomGenerator random;
+	/**
+	 * 建租户每次尝试一个独立事务（REQUIRES_NEW）：撞键后只回滚这次尝试，换号重来（PG 系撞键后事务不能继续用）；
+	 * 外层即使已有事务，也不会被撞键标记为只能回滚。txManager 为 null（单测）时直接执行。
+	 */
+	private final TransactionTemplate txTemplate;
+
+	/** genCode 最多抽几次候选编号 */
+	static final int GEN_CODE_MAX_ATTEMPTS = 10;
+	/** 租户行插入撞唯一键（并发建租户抽到同一编号）后，换号重试的次数 */
+	static final int INSERT_DUPLICATE_RETRIES = 2;
+
+	@org.springframework.beans.factory.annotation.Autowired
+	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
+						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
+						 SysRoleMenuMapper roleMenuMapper, SysRoleDeptMapper roleDeptMapper,
+						 TenantDatasourceService datasourceService,
+						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
+						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
+						 TenantPackageService packageService, PlatformTransactionManager txManager) {
+		this(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper, roleMenuMapper, roleDeptMapper,
+			datasourceService, passwordEncoder, tenantValidator, securityPolicyService, packageService, new SecureRandom(),
+			txManager);
+	}
 
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
 						 SysRoleMapper roleMapper, SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
@@ -57,7 +87,9 @@ public class TenantService {
 						 TenantDatasourceService datasourceService,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
 						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
-						 TenantPackageService packageService) {
+						 TenantPackageService packageService, RandomGenerator random, PlatformTransactionManager txManager) {
+		this.random = random;
+		this.txTemplate = newAttemptTemplate(txManager);
 		this.tenantMapper = tenantMapper;
 		this.deptMapper = deptMapper;
 		this.postMapper = postMapper;
@@ -74,7 +106,6 @@ public class TenantService {
 	}
 
 	/** 创建租户并初始化默认数据，返回租户编号 */
-	@Transactional(rollbackFor = Exception.class)
 	public String create(SysTenant tenant) {
 		if (tenant == null) {
 			throw new ServiceException("请填写租户名称后再创建");
@@ -82,12 +113,47 @@ public class TenantService {
 		normalize(tenant, false);
 		// 验证码开关只能由平台超管经 /system/tenant/captcha 关闭，创建时一律开启
 		tenant.setCaptchaEnabled(1);
-		String code = genCode();
-		tenant.setTenantCode(code);
-		tenantMapper.insertSelective(tenant);
-		// 忽略当前会话租户条件，按新租户编号写入默认数据
-		TenantContext.ignore(() -> initDefaults(code, tenant.getTenantName()));
-		return code;
+		for (int attempt = 0; ; attempt++) {
+			boolean[] tenantRowDuplicate = {false};
+			try {
+				return inTransaction(() -> {
+					String code = genCode();
+					tenant.setTenantCode(code);
+					try {
+						tenantMapper.insertSelective(tenant);
+					} catch (DuplicateKeyException e) {
+						tenantRowDuplicate[0] = true;
+						throw e;
+					}
+					// 忽略当前会话租户条件，按新租户编号写入默认数据
+					TenantContext.ignore(() -> initDefaults(code, tenant.getTenantName()));
+					return code;
+				});
+			} catch (DuplicateKeyException e) {
+				// 只对租户行撞键（并发建租户抽到同一编号）换号重试；默认数据撞键照常抛出
+				tenant.setId(null);
+				tenant.setTenantCode(null);
+				if (!tenantRowDuplicate[0]) {
+					throw e;
+				}
+				if (attempt >= INSERT_DUPLICATE_RETRIES) {
+					throw new ServiceException("同时创建的租户较多，请稍后重试");
+				}
+			}
+		}
+	}
+
+	private static TransactionTemplate newAttemptTemplate(PlatformTransactionManager txManager) {
+		if (txManager == null) {
+			return null;
+		}
+		TransactionTemplate t = new TransactionTemplate(txManager);
+		t.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		return t;
+	}
+
+	private <T> T inTransaction(java.util.function.Supplier<T> action) {
+		return txTemplate == null ? action.get() : txTemplate.execute(status -> action.get());
 	}
 
 	/**
@@ -316,12 +382,25 @@ public class TenantService {
 		userRoleMapper.insertSelective(userRole);
 	}
 
-	/** 生成 6 位租户编号，规避超管保留号 000000 且不重复 */
+	/**
+	 * 生成 6 位租户编号，规避超管保留号 000000 且永不复用。
+	 * 查重绕过逻辑删除过滤，已删除租户的编号也算占用：级联只清组织数据，业务表、凭据、会话和数据源路由仍按编号关联，
+	 * 复用编号会让新租户接手旧租户的残留数据。
+	 */
 	private String genCode() {
-		String code;
-		do {
-			code = String.valueOf(100000 + random.nextInt(900000));
-		} while (tenantMapper.selectCountByQuery(QueryWrapper.create().eq("tenant_code", code)) > 0);
-		return code;
+		for (int i = 0; i < GEN_CODE_MAX_ATTEMPTS; i++) {
+			String code = String.valueOf(100000 + random.nextInt(900000));
+			if (!tenantCodeTaken(code)) {
+				return code;
+			}
+		}
+		throw new ServiceException("没能生成可用的租户编号，请稍后重试");
+	}
+
+
+	private boolean tenantCodeTaken(String code) {
+		Long n = LogicDeleteManager.execWithoutLogicDelete(
+			() -> tenantMapper.selectCountByQuery(QueryWrapper.create().eq("tenant_code", code)));
+		return n != null && n > 0;
 	}
 }

@@ -63,6 +63,16 @@ public class TenantValidator {
 		return tenant;
 	}
 
+	/** 是否存在未删除的该编号租户。不走缓存：用于写入前校验（如新建租户数据源），删除后立即生效 */
+	public boolean activeTenantExists(String code) {
+		if (code == null || code.isBlank()) {
+			return false;
+		}
+		Long n = TenantContext.ignore(() ->
+			tenantMapper.selectCountByQuery(QueryWrapper.create().eq("tenant_code", code)));
+		return n != null && n > 0;
+	}
+
 	public void evict(String code) {
 		tenantCache.remove(code);
 	}

@@ -129,7 +129,7 @@ public class TenantDataSourceRegistry {
 		removeQuietly(flex, key);
 		flex.addDataSource(key, ds);
 		activeTenants.add(cfg.getTenantCode());
-		log.info("注册租户数据源 {} -> {} ({})", key, cfg.getDsUrl(),
+		log.info("注册租户数据源 {} -> {} ({})", key, JdbcUrlMasker.mask(cfg.getDsUrl()),
 			isSchema(cfg) ? "schema:" + cfg.getSchemaName() : "database");
 	}
 
