@@ -10,7 +10,7 @@ import java.util.Arrays;
 
 /**
  * SM4 国密对称加解密工具（字段加密用，ECB 确定性密文以支持等值查询、兼容历史数据）。
- * 密钥由 {@link Sm4CryptoConfig} 启动时注入。接口/传输加密（CBC + 随机 IV）见 mugsun-core 的 ApiCryptoService。
+ * 密钥由 {@link Sm4CryptoConfig} 启动时注入。接口/传输加密（SM4-GCM）见 mugsun-core 的 ApiCryptoService。
  */
 public final class Sm4Util {
 
@@ -25,6 +25,14 @@ public final class Sm4Util {
 	static void init(String key) {
 		byte[] raw = key.getBytes(StandardCharsets.UTF_8);
 		sm4 = SmUtil.sm4(Arrays.copyOf(raw, 16));
+	}
+
+	/** 以 16 字节原始密钥初始化（本地开发密钥文件用） */
+	static void initRaw(byte[] key) {
+		if (key == null || key.length != 16) {
+			throw new IllegalStateException("SM4 密钥须正好 16 字节");
+		}
+		sm4 = SmUtil.sm4(key.clone());
 	}
 
 	/** 加密为 Base64 密文；null 原样返回 */
