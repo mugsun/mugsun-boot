@@ -28,8 +28,13 @@
     - 业务只读池 5（`MUGSUN_DEMO_DB_POOL_MAX`）、日志池 4（`MUGSUN_DEMO_LOG_POOL_MAX`）
     - 埋点池 4（`MUGSUN_DEMO_TRACK_POOL_MAX`），合计 13
     - 此前三个池都是 Hikari 默认 10，会占满全部非 superuser 连接
-  - 只读白名单：`GET /auth/social/sources`（只返回已配置的社交登录源名称）从 `/auth/social` 整段拒绝里精确放行（只认 GET/HEAD 和原样路径，尾斜杠、矩阵参数、编码或大小写变体仍拒绝），登录页加载不再被拒；社交登录本身仍关闭。
-  - 锁超时：等链头锁超过 3 秒的操作日志被丢弃，打 WARN 并计数（`OperationLogService#demoLockTimeoutDroppedCount`），链不受影响；链头 UPDATE 影响行数不是 1 时报错。
+  - 只读白名单：精确放行 `GET /auth/social/sources`，登录页不再被拒：
+    - 只返回已配置的社交登录源名称
+    - 只认 GET/HEAD 和原样路径；尾斜杠、矩阵参数、编码或大小写变体仍拒绝
+    - 社交登录本身仍关闭
+  - 锁超时：等链头锁超过 3 秒的日志被丢弃，链不受影响：
+    - 打 WARN 并计数（`demoLockTimeoutDroppedCount`）
+    - 链头 UPDATE 影响行数不是 1 时报错
 
 - **租户编号永不复用**（V11，boot#100 复核 B1）。`uk_tenant_code` 在 PostgreSQL / 金仓 / openGauss / 达梦上都改回全量唯一（含已删除行），建租户时查重也包含已删除租户；`uk_tenant_ds_code` 仍只约束未删除行，租户可以删掉数据源配置后用同一编号重建。新建租户数据源时，租户编号必须对应一个未删除的租户，否则接口拒绝并提示编号不存在或已删除。库里已有同一编号被复用的多行时，V11 会中止并提示查重 SQL，此时还没有改任何索引；核对数据归属并处理后再重新迁移
 

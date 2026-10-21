@@ -85,8 +85,11 @@ public class LogDataSourceRouter {
 				}
 				host = authority.substring(0, end + 1);
 				String rest = authority.substring(end + 1);
-				if (rest.startsWith(":") && rest.length() > 1) {
-					port = Integer.parseInt(rest.substring(1));
+				if (!rest.isEmpty()) {
+					if (!rest.startsWith(":")) {
+						return null;
+					}
+					port = rest.length() > 1 ? Integer.parseInt(rest.substring(1)) : -1;
 				}
 			} else {
 				int colon = authority.lastIndexOf(':');

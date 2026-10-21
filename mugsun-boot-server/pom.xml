@@ -8,6 +8,11 @@
 		<artifactId>mugsun-boot</artifactId>
 		<version>0.1.0</version>
 	</parent>
+
+	<properties>
+		<!-- DemoAccountsApiTest 默认走 Testcontainers，见 demo-accounts-it -->
+		<demo.it.use.services>false</demo.it.use.services>
+	</properties>
 	<artifactId>mugsun-boot-server</artifactId>
 	<name>mugsun-boot-server</name>
 	<description>Mugsun 装配壳：默认全量（core+gis+track+ai）；-Pbasic 仅核心；-Pgis-only / -Ptrack-only / -Pai-only 单模块</description>
@@ -91,6 +96,11 @@
 							<includes>
 								<include>**/DemoAccountsApiTest.java</include>
 							</includes>
+							<!-- 日志链用例要隔离的库：CI 的外部服务库里留着别的运行（别的 SM2 密钥）签的旧日志，这里固定走 Testcontainers；
+							     -Ddemo.it.use.services=true 可改回外部服务（用于复现） -->
+							<environmentVariables>
+								<MUGSUN_TEST_USE_SERVICES>${demo.it.use.services}</MUGSUN_TEST_USE_SERVICES>
+							</environmentVariables>
 						</configuration>
 					</execution>
 				</executions>

@@ -46,6 +46,18 @@ class LogDataSourceRouterTest {
 	}
 
 	@Test
+	void ipv6WithPortAndUserInfo() {
+		assertThat(LogDataSourceRouter.parse("jdbc:postgresql://[::1]:5433/mugsun"))
+			.containsExactly("postgresql", "[::1]", "5433", "mugsun");
+		assertThat(LogDataSourceRouter.sameDatabase("jdbc:postgresql://[::1]/mugsun",
+			"jdbc:postgresql://[::1]:5432/mugsun?sslmode=disable")).isTrue();
+		assertThat(LogDataSourceRouter.parse("jdbc:postgresql://[::1]x/mugsun")).isNull();
+		assertThat(LogDataSourceRouter.parse("jdbc:postgresql://user@db:5432/mugsun")).as("user@host 不解析").isNull();
+		assertThat(LogDataSourceRouter.sameDatabase("jdbc:postgresql://user@db:5432/mugsun",
+			"jdbc:postgresql://db:5432/mugsun")).isFalse();
+	}
+
+	@Test
 	void unparsableUrlsFallBackToExactMatch() {
 		String multi = "jdbc:postgresql://a:5432,b:5432/mugsun";
 		assertThat(LogDataSourceRouter.sameDatabase(multi, multi)).isTrue();

@@ -255,6 +255,8 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		Map<String, Object> verified = operationLogService.verify(n);
 		assertThat(verified.get("valid")).as(String.valueOf(verified)).isEqualTo(true);
 		assertThat(verified.get("verified")).as(String.valueOf(verified)).isEqualTo(n);
+		assertThat(count("SELECT COUNT(*) FROM (SELECT request_uri FROM sys_oper_log ORDER BY id DESC LIMIT " + n
+			+ ") t WHERE request_uri LIKE '/it/demo-chain/%'")).as("验签窗口里都是本用例写的").isEqualTo(n);
 	}
 
 	@Test
@@ -269,6 +271,8 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 			&& System.currentTimeMillis() < anchorDeadline) {
 			Thread.sleep(100);
 		}
+		assertThat(count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-before'"))
+			.as("锚点已落库").isEqualTo(anchorBefore + 1);
 		long dropped = operationLogService.demoLockTimeoutDroppedCount();
 		long before = count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout'");
 		// owner 连接持有链头行锁超过 lock_timeout（3s）
@@ -290,18 +294,22 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		assertThat(count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout'"))
 			.as("超时那条被丢弃").isEqualTo(before);
 		// 锁放开后照常追加，链仍完整
+		long afterBefore = count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-after'");
 		SysOperLog after = chainEntry(1);
 		after.setRequestUri("/it/demo-lock-timeout-after");
 		TenantContext.execute(PLATFORM_TENANT, () -> operationLogService.saveAsync(after));
 		long deadline = System.currentTimeMillis() + 15_000;
-		while (count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-after'") == 0
+		while (count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-after'") == afterBefore
 			&& System.currentTimeMillis() < deadline) {
 			Thread.sleep(100);
 		}
-		assertThat(count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-after'")).isEqualTo(1);
+		assertThat(count("SELECT COUNT(*) FROM sys_oper_log WHERE request_uri = '/it/demo-lock-timeout-after'")).isEqualTo(afterBefore + 1);
 		Map<String, Object> verified = operationLogService.verify(2);
 		assertThat(verified.get("valid")).as(String.valueOf(verified)).isEqualTo(true);
 		assertThat(verified.get("verified")).as(String.valueOf(verified)).isEqualTo(2);
+		assertThat(count("SELECT COUNT(*) FROM (SELECT request_uri FROM sys_oper_log ORDER BY id DESC LIMIT 2) t "
+			+ "WHERE request_uri IN ('/it/demo-lock-timeout-before', '/it/demo-lock-timeout-after')"))
+			.as("验签窗口就是锚点和 after 两条").isEqualTo(2);
 	}
 
 	@Test
