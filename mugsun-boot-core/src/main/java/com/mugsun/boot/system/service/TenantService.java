@@ -26,6 +26,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,7 +57,10 @@ public class TenantService {
 	private final TenantPackageService packageService;
 	/** 候选编号的随机源，构造注入（测试用固定序列验证已删除编号不会被复用） */
 	private final RandomGenerator random;
-	/** 建租户每次尝试一个独立事务：撞键后整个事务回滚，换号重来（PG 系撞键后事务不能继续用）。单测可传 null，直接执行 */
+	/**
+	 * 建租户每次尝试一个独立事务（REQUIRES_NEW）：撞键后只回滚这次尝试，换号重来（PG 系撞键后事务不能继续用）；
+	 * 外层即使已有事务，也不会被撞键标记为只能回滚。txManager 为 null（单测）时直接执行。
+	 */
 	private final TransactionTemplate txTemplate;
 
 	/** genCode 最多抽几次候选编号 */
@@ -74,7 +78,7 @@ public class TenantService {
 						 TenantPackageService packageService, PlatformTransactionManager txManager) {
 		this(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper, roleMenuMapper, roleDeptMapper,
 			datasourceService, passwordEncoder, tenantValidator, securityPolicyService, packageService, new SecureRandom(),
-			new TransactionTemplate(txManager));
+			txManager);
 	}
 
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
@@ -83,9 +87,9 @@ public class TenantService {
 						 TenantDatasourceService datasourceService,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
 						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
-						 TenantPackageService packageService, RandomGenerator random, TransactionTemplate txTemplate) {
+						 TenantPackageService packageService, RandomGenerator random, PlatformTransactionManager txManager) {
 		this.random = random;
-		this.txTemplate = txTemplate;
+		this.txTemplate = newAttemptTemplate(txManager);
 		this.tenantMapper = tenantMapper;
 		this.deptMapper = deptMapper;
 		this.postMapper = postMapper;
@@ -129,11 +133,23 @@ public class TenantService {
 				// 只对租户行撞键（并发建租户抽到同一编号）换号重试；默认数据撞键照常抛出
 				tenant.setId(null);
 				tenant.setTenantCode(null);
-				if (!tenantRowDuplicate[0] || attempt >= INSERT_DUPLICATE_RETRIES) {
+				if (!tenantRowDuplicate[0]) {
 					throw e;
+				}
+				if (attempt >= INSERT_DUPLICATE_RETRIES) {
+					throw new ServiceException("同时创建的租户较多，请稍后重试");
 				}
 			}
 		}
+	}
+
+	private static TransactionTemplate newAttemptTemplate(PlatformTransactionManager txManager) {
+		if (txManager == null) {
+			return null;
+		}
+		TransactionTemplate t = new TransactionTemplate(txManager);
+		t.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		return t;
 	}
 
 	private <T> T inTransaction(java.util.function.Supplier<T> action) {

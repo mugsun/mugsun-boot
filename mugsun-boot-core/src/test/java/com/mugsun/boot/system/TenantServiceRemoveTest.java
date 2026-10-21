@@ -214,10 +214,69 @@ class TenantServiceRemoveTest {
 	}
 
 	private TenantService serviceWith(java.util.random.RandomGenerator random) {
+		return serviceWith(random, null);
+	}
+
+	@SuppressWarnings("unchecked")
+	private TenantService serviceWith(java.util.random.RandomGenerator random,
+									  org.springframework.transaction.PlatformTransactionManager tm) {
 		ObjectProvider<TenantDataSourceRegistry> provider = mock(ObjectProvider.class);
 		return new TenantService(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper,
 			roleMenuMapper, roleDeptMapper, new TenantDatasourceService(datasourceMapper, provider),
-			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null, random, null);
+			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null, random, tm);
+	}
+
+	/** 内存事务管理器：记录开启 / 挂起 / 提交 / 回滚，栈顶是当前事务，支持 REQUIRES_NEW 挂起外层 */
+	static final class RecordingTxManager extends org.springframework.transaction.support.AbstractPlatformTransactionManager {
+		final java.util.Deque<Object> active = new java.util.ArrayDeque<>();
+		final List<Integer> propagations = new java.util.ArrayList<>();
+		int begins;
+		int suspends;
+		int commits;
+		int rollbacks;
+
+		@Override
+		protected Object doGetTransaction() {
+			return new Object[]{active.peek()};
+		}
+
+		@Override
+		protected boolean isExistingTransaction(Object tx) {
+			return ((Object[]) tx)[0] != null;
+		}
+
+		@Override
+		protected void doBegin(Object tx, org.springframework.transaction.TransactionDefinition def) {
+			Object token = new Object();
+			((Object[]) tx)[0] = token;
+			active.push(token);
+			propagations.add(def.getPropagationBehavior());
+			begins++;
+		}
+
+		@Override
+		protected Object doSuspend(Object tx) {
+			suspends++;
+			((Object[]) tx)[0] = null;
+			return active.pop();
+		}
+
+		@Override
+		protected void doResume(Object tx, Object suspended) {
+			active.push(suspended);
+		}
+
+		@Override
+		protected void doCommit(org.springframework.transaction.support.DefaultTransactionStatus status) {
+			commits++;
+			active.pop();
+		}
+
+		@Override
+		protected void doRollback(org.springframework.transaction.support.DefaultTransactionStatus status) {
+			rollbacks++;
+			active.pop();
+		}
 	}
 
 	private static Object invoke(Object target, String name, Class<?>[] types, Object... args) throws Throwable {
@@ -278,7 +337,39 @@ class TenantServiceRemoveTest {
 		TenantService always = serviceWith(sequence(700011, 700012, 700013, 700014));
 		SysTenant t2 = new SysTenant();
 		t2.setTenantName("并发2");
-		assertThatThrownBy(() -> always.create(t2)).isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
+		assertThatThrownBy(() -> always.create(t2)).isInstanceOf(ServiceException.class)
+			.hasMessage("同时创建的租户较多，请稍后重试");
 		verify(tenantMapper, org.mockito.Mockito.times(3)).insertSelective(any(SysTenant.class));
+	}
+
+	@Test
+	@DisplayName("外层已有事务时：每次尝试 REQUIRES_NEW 独立提交/回滚，撞键换号仍生效，外层不被标记只回滚")
+	void createRetryWorksInsideOuterTransaction() {
+		RecordingTxManager tm = new RecordingTxManager();
+		when(tenantMapper.selectCountByQuery(any(QueryWrapper.class))).thenReturn(0L);
+		when(tenantMapper.insertSelective(any(SysTenant.class)))
+			.thenThrow(new org.springframework.dao.DuplicateKeyException("dup"))
+			.thenReturn(1);
+		when(deptMapper.insertSelective(any(SysDept.class))).thenThrow(new IllegalStateException("stop-after-tenant-row"));
+		TenantService svc = serviceWith(sequence(700001, 700002), tm);
+
+		org.springframework.transaction.TransactionStatus outer =
+			tm.getTransaction(new org.springframework.transaction.support.DefaultTransactionDefinition());
+		Object outerToken = tm.active.peek();
+		SysTenant t = new SysTenant();
+		t.setTenantName("外层事务");
+		assertThatThrownBy(() -> svc.create(t)).hasMessage("stop-after-tenant-row");
+
+		assertThat(t.getTenantCode()).isEqualTo("700002");
+		assertThat(tm.propagations).containsExactly(
+			org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRED,
+			org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW,
+			org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		assertThat(tm.suspends).as("两次尝试都挂起了外层").isEqualTo(2);
+		assertThat(tm.rollbacks).as("两次尝试各自回滚").isEqualTo(2);
+		assertThat(tm.active).containsExactly(outerToken);
+		assertThat(outer.isRollbackOnly()).isFalse();
+		tm.commit(outer);
+		assertThat(tm.commits).isEqualTo(1);
 	}
 }

@@ -145,4 +145,55 @@ class TenantRemoveCascadeApiTest extends AbstractIntegrationTest {
 			org.springframework.test.util.ReflectionTestUtils.setField(target, "random", original);
 		}
 	}
+
+	@Test
+	void createSkipsCodeAlreadyTakenAndInitialisesDefaults() throws Exception {
+		String adminToken = loginAdmin();
+		int taken = 600000 + (int) (System.nanoTime() % 300000);
+		String takenCode = String.valueOf(taken);
+		try (Connection c = db()) {
+			exec(c, "INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (?, ?, '预占编号', 0)",
+				9_200_000_000_000_000_000L + taken, takenCode);
+		}
+		Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(tenantService);
+		Object original = org.springframework.test.util.ReflectionTestUtils.getField(target, "random");
+		org.springframework.test.util.ReflectionTestUtils.setField(target, "random", new java.util.random.RandomGenerator() {
+			private boolean first = true;
+
+			@Override
+			public long nextLong() {
+				return ((java.util.random.RandomGenerator) original).nextLong();
+			}
+
+			@Override
+			public int nextInt(int bound) {
+				if (first) {
+					first = false;
+					return taken - 100000;
+				}
+				return ((java.util.random.RandomGenerator) original).nextInt(bound);
+			}
+		});
+		String code;
+		try {
+			code = createTenant(adminToken, "编号已被占用");
+		} finally {
+			org.springframework.test.util.ReflectionTestUtils.setField(target, "random", original);
+		}
+		assertThat(code).as("先抽到的编号已被占用，换了一个").isNotEqualTo(takenCode);
+		try (Connection c = db()) {
+			// 新租户的默认数据完整
+			assertThat(scalar(c, "SELECT count(*) FROM sys_tenant WHERE tenant_code = ? AND is_deleted = 0", code)).isEqualTo(1);
+			for (String t : new String[]{"sys_dept", "sys_post", "sys_role", "sys_user"}) {
+				assertThat(scalar(c, "SELECT count(*) FROM " + t + " WHERE tenant_id = ? AND is_deleted = 0", code)).as(t).isEqualTo(1);
+			}
+			assertThat(scalar(c, "SELECT count(*) FROM sys_user_role ur JOIN sys_user u ON u.id = ur.user_id "
+				+ "JOIN sys_role r ON r.id = ur.role_id WHERE u.tenant_id = ? AND r.tenant_id = ?", code, code)).isEqualTo(1);
+			// 被占用的编号下没有孤儿默认数据，预占的租户行原样保留
+			assertThat(scalar(c, "SELECT count(*) FROM sys_tenant WHERE tenant_code = ?", takenCode)).isEqualTo(1);
+			for (String t : new String[]{"sys_dept", "sys_post", "sys_role", "sys_user"}) {
+				assertThat(scalar(c, "SELECT count(*) FROM " + t + " WHERE tenant_id = ?", takenCode)).as(t + " 无孤儿").isZero();
+			}
+		}
+	}
 }

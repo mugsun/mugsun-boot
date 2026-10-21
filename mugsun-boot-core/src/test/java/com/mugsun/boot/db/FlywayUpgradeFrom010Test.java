@@ -199,13 +199,16 @@ class FlywayUpgradeFrom010Test {
 			current.validate();
 			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
 				int run = 0;
+				int skipped = 0;
 				for (String sql : statements(readResource("db/unique-delete-flag/verify.sql"))) {
 					if (sql.matches("(?s).*\\bsys_tenant\\b(?!_).*")) {
+						skipped++;
 						continue;
 					}
 					st.execute(sql);
 					run++;
 				}
+				assertThat(skipped).as("只跳过租户段的 4 条").isEqualTo(4);
 				assertThat(run).isPositive();
 				assertThat(count(st, "SELECT count(*) FROM sys_tenant WHERE tenant_code = '700001'")).isEqualTo(1);
 				assertThat(count(st, "SELECT count(*) FROM sys_user WHERE username = 'u1'")).isEqualTo(3);
