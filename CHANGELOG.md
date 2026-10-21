@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### 修复
+
+- openGauss V8 改为兼容 openGauss-lite 5.1 的写法
+  - lite 5.1 不支持 `ADD COLUMN IF NOT EXISTS`，原 V8 在 lite 上会中止
+  - 改为 DO 块加 information_schema 判断，和 V2、V9、V10 写法一致
+  - 跑过旧 V8 的 openGauss 库校验和会变，升级前执行一次 `flyway repair`
+
 ### 安全
 
 - prod 下开启 `mugsun.lab.seed-fronttest` 时拒绝启动
