@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 安全
+
+- prod 下开启 `mugsun.lab.seed-fronttest` 时拒绝启动
+  - 该开关会播种口令 123456 的 fronttest 账号，仅供开发联调
+  - 新增 `LabSeedProdGuard`，判定方式与 `InitPasswordHardeningGuard` 一致
+
 ### CI
 
 - 收紧 workflow 权限并把 Actions 钉到 commit SHA
