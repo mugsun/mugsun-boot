@@ -96,6 +96,7 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 		} finally {
 			PROPERTY_OVERRIDES.putAll(overrides);
 		}
+		cmd.add("--spring.profiles.active=test");
 		cmd.add("--server.port=0");
 		cmd.add("--" + DemoConstants.MIGRATE_ONLY_PROPERTY + "=true");
 		java.io.File log = new java.io.File("target/demo-migrate-only.log");

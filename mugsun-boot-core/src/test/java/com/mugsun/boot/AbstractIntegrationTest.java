@@ -9,6 +9,7 @@ import org.bouncycastle.crypto.engines.SM2Engine;
 import org.junit.jupiter.api.BeforeAll;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
@@ -33,6 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>数据全部落在容器随机端口，绝不触达本机 5432/6379 的开发环境。
  * <p>复刻前端真实登录链路（验证码总开关关闭）：取 SM2 公钥 → sm-crypto 同构加密（C1C3C2、无 04 前缀）→ 登录换 token。
  */
+// 启动守卫只对 dev/test/local 放行（DeployProfiles），集成测试显式激活 test
+@ActiveProfiles("test")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 	properties = {
 		// 双因子码/短信码回显仅测试环境开启（生产配置恒 false）

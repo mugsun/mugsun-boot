@@ -14,9 +14,14 @@
 
 ### 安全
 
-- prod 下开启 `mugsun.lab.seed-fronttest` 时拒绝启动
-  - 该开关会播种口令 123456 的 fronttest 账号，仅供开发联调
-  - 新增 `LabSeedProdGuard`，判定方式与 `InitPasswordHardeningGuard` 一致
+- 启动守卫改为「非 dev/test/local 一律按生产」，生产误开联调账号时拒绝启动
+  - **行为变更**：没配 profile 也按生产处理，自测请显式加 `--spring.profiles.active=dev`
+  - 白名单为常量，严格匹配小写；staging、PROD、production 都按生产，prod 优先于 dev
+  - 用 `acceptsProfiles` 判定，没激活 profile 时按 `spring.profiles.default` 算
+  - 新增 `DeployProfiles`，`InitPasswordHardeningGuard` 与新守卫共用这套判定
+  - 新增 `LabSeedProdGuard`：生产开启 `mugsun.lab.seed-fronttest` 即拒绝启动
+  - 该开关会播种弱口令联调账号，仅供开发和 e2e
+  - 集成测试统一激活 `test` profile，`spring-boot:run` 默认激活 `dev`
 
 ### CI
 
