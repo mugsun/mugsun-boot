@@ -62,4 +62,23 @@ class PendingObjectCleanerTest {
 		c.drain();
 		assertThat(queue).isEmpty();
 	}
+
+	@Test
+	void delayedItemWaitsUntilNotBefore() {
+		when(storage.delete(any())).thenReturn(true);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss);
+		c.enqueueAfter(obj(), System.currentTimeMillis() + 60_000);
+		assertThat(c.drain()).isZero();
+		assertThat(queue).hasSize(1).first().asString().contains("\"attempts\":0");
+		queue.clear();
+		c.enqueueAfter(obj(), System.currentTimeMillis() - 1);
+		assertThat(c.drain()).isEqualTo(1);
+		assertThat(queue).isEmpty();
+	}
+
+	@Test
+	void unlockScriptComparesTokenBeforeDelete() {
+		assertThat(PendingObjectCleaner.UNLOCK.getScriptAsString())
+			.contains("redis.call('get', KEYS[1]) == ARGV[1]").contains("redis.call('del', KEYS[1])");
+	}
 }

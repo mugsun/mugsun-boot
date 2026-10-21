@@ -26,6 +26,11 @@ public interface OssConstants {
 	String PATH_PUBLIC = "public/";
 	/** 上传对象路径前缀：私有区 */
 	String PATH_PRIVATE = "private/";
+	/**
+	 * 直传暂存前缀：预签名 PUT 只签到这里，登记时服务端再复制到 public/ 或 private/ 下的新 key。
+	 * 部署侧必须保证它不可公开读、不走 CDN，并配 1 天自动删除的 lifecycle 兜底。
+	 */
+	String PATH_STAGING = "tmp/";
 
 	/** FileInfo attr 扩展键：访问级别（recorder 登记时还原 sys_attach.access） */
 	String ATTR_ACCESS = "access";

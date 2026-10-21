@@ -1,6 +1,7 @@
 package com.mugsun.boot.system.controller;
 
 import com.mugsun.boot.system.file.PendingObjectCleaner;
+import org.dromara.x.file.storage.core.platform.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.dromara.x.file.storage.core.get.RemoteFileInfo;
 import com.mugsun.boot.system.file.UploadPolicy;
@@ -145,7 +146,8 @@ public class FileController {
 		Date expiration = new Date(System.currentTimeMillis() + OssConstants.PRESIGNED_TICKET_SECONDS * 1000);
 		GeneratePresignedUrlResult result = fileStorageService.generatePresignedUrl()
 			.setPlatform(platform)
-			.setPath(isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE)
+			// 原 key 只签到私有暂存前缀：即便有效期内被再次 PUT，也不会出现在公开区
+			.setPath(OssConstants.PATH_STAGING)
 			.setFilename(storedFilename)
 			.setMethod(Constant.GeneratePresignedUrl.Method.PUT)
 			.setExpiration(expiration)
@@ -204,14 +206,11 @@ public class FileController {
 		// 大小和类型取自签发凭证（已绑定进签名），不用回填时客户端上报的值
 		info.setSize(credential.path("size").asLong());
 		info.setContentType(credential.path("contentType").asText("application/octet-stream"));
-		// 签名是否真的绑定了这些头取决于存储平台实现，登记前回查对象，不符就删对象并拒绝
-		verifyUploadedObject(info);
-		info.setUrl(ossService.predictUrl(platform, path, filename));
 		info.setAttr(Dict.create().set(OssConstants.ATTR_ACCESS,
 			isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE));
-		// 预签名 URL 在有效期内还能再 PUT：回验通过后在服务端复制到客户端不知道的新 key，删掉原 key，
-		// 只登记新 key（copy 内部经 FileRecorder 落库）。之后再用原 URL 覆盖，也碰不到已登记的对象
-		FileInfo stored = relocate(info);
+		// 先在服务端复制到客户端不知道的新 key，再对新 key 回验并登记：校验的就是最终登记的那份字节，
+		// 不存在「校验完原 key 后又被覆盖」的竞态。原 key 在暂存前缀，复制后立即删，签名过期后再删一次
+		FileInfo stored = relocateAndVerify(info, isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE);
 		SysAttach attach = toAttach(stored, isPublic);
 		if (!isPublic) {
 			attach.setUrl(null);
@@ -416,59 +415,94 @@ public class FileController {
 	}
 
 	/**
-	 * 直传回验：HEAD 对象核对实际大小、Content-Type 与凭证一致，再读文件头跑魔数校验。
-	 * 任一不符就删掉对象并拒绝登记，避免绕过签名约束的 PUT 落成附件。
+	 * 暂存 key → 新 key：复制（不经 FileRecorder）→ 对新 key 回验 → 登记。
+	 * 回验不通过新旧两个 key 都删（删不掉进待清理队列）；登记失败新 key 也进队列。
+	 * 原 key 复制后立即删一次，并排一条签名过期后才执行的延迟删除，防止有效期内被再次 PUT 后遗留。
 	 */
-	private FileInfo relocate(FileInfo info) {
-		String newName = UploadPolicy.storedName(info.getExt());
-		FileInfo stored;
+	private FileInfo relocateAndVerify(FileInfo staged, String targetPath) {
+		long notBefore = System.currentTimeMillis() + (OssConstants.PRESIGNED_TICKET_SECONDS + 60) * 1000;
+		FileStorage storage = fileStorageService.getFileStorageVerify(staged);
+		if (!storage.isSupportSameCopy()) {
+			cleanStaged(staged, notBefore);
+			throw new ServiceException("当前存储不支持直传登记。请改用普通上传");
+		}
+		String newName = UploadPolicy.storedName(staged.getExt());
+		FileInfo dest = new FileInfo()
+			.setPlatform(staged.getPlatform())
+			.setBasePath(staged.getBasePath())
+			.setPath(targetPath)
+			.setFilename(newName)
+			.setOriginalFilename(staged.getOriginalFilename())
+			.setExt(staged.getExt())
+			.setSize(staged.getSize())
+			.setContentType(staged.getContentType())
+			.setAttr(staged.getAttr())
+			.setCreateTime(new java.util.Date());
 		try {
-			stored = fileStorageService.copy(info).setFilename(newName).copy();
+			storage.sameCopy(staged, dest, fileStorageService.copy(staged).setPath(targetPath).setFilename(newName));
 		} catch (Exception e) {
-			log.warn("直传对象搬到新 key 失败：{}", info.getFilename());
-			pendingObjectCleaner.deleteOrEnqueue(info);
+			log.warn("直传对象复制到新 key 失败：{}", staged.getFilename());
+			pendingObjectCleaner.deleteOrEnqueue(dest);
+			cleanStaged(staged, notBefore);
 			throw new ServiceException("文件登记没有成功。请重新选择文件再上传");
 		}
-		pendingObjectCleaner.deleteOrEnqueue(info);
-		return stored;
+		cleanStaged(staged, notBefore);
+		if (!verifyObject(dest)) {
+			pendingObjectCleaner.deleteOrEnqueue(dest);
+			throw new ServiceException("上传的文件和申请时登记的大小或类型对不上。请重新选择文件再上传");
+		}
+		dest.setUrl(ossService.predictUrl(dest.getPlatform(), targetPath, newName));
+		try {
+			if (!fileRecorder.save(dest)) {
+				throw new IllegalStateException("recorder returned false");
+			}
+		} catch (Exception e) {
+			log.warn("直传对象登记失败，新 key 进待清理队列：{}", newName);
+			pendingObjectCleaner.deleteOrEnqueue(dest);
+			throw new ServiceException("文件登记没有成功。请重新选择文件再上传");
+		}
+		return dest;
+	}
+
+	private void cleanStaged(FileInfo staged, long notBefore) {
+		pendingObjectCleaner.deleteOrEnqueue(staged);
+		pendingObjectCleaner.enqueueAfter(staged, notBefore);
 	}
 
 	private static String baseType(String contentType) {
 		return contentType == null ? "" : contentType.split(";")[0].trim().toLowerCase(Locale.ROOT);
 	}
 
-	private void verifyUploadedObject(FileInfo info) {
+	/**
+	 * 直传回验（对复制后的新 key）：HEAD 核对实际大小、Content-Type 与凭证一致，再读文件头跑魔数校验。
+	 * 任一不符返回 false，由调用方删对象并拒绝登记，避免绕过签名约束的 PUT 落成附件。
+	 */
+	private boolean verifyObject(FileInfo info) {
 		RemoteFileInfo remote;
 		try {
 			remote = fileStorageService.getFile(info);
 		} catch (Exception e) {
-			remote = null;
+			return false;
 		}
-		if (remote == null) {
-			throw new ServiceException("没找到上传的文件。请重新选择文件再上传");
+		if (remote == null || remote.getSize() == null || !remote.getSize().equals(info.getSize())
+			|| !baseType(info.getContentType()).equals(baseType(remote.getContentType()))) {
+			return false;
 		}
-		boolean ok = remote.getSize() != null && remote.getSize().equals(info.getSize())
-			&& baseType(info.getContentType()).equals(baseType(remote.getContentType()));
-		if (ok) {
-			byte[] head = new byte[UploadPolicy.HEAD_BYTES];
-			int[] n = {0};
-			try {
-				fileStorageService.download(info).inputStream(in -> {
-					try {
-						n[0] = in.readNBytes(head, 0, head.length);
-					} catch (java.io.IOException e) {
-						n[0] = -1;
-					}
-				});
-			} catch (Exception e) {
-				n[0] = -1;
-			}
-			ok = n[0] > 0 && UploadPolicy.magicMatches(info.getExt(), head, n[0]);
+		byte[] head = new byte[UploadPolicy.HEAD_BYTES];
+		int[] n = {0};
+		try {
+			fileStorageService.download(info).inputStream(in -> {
+				try {
+					n[0] = in.readNBytes(head, 0, head.length);
+				} catch (java.io.IOException e) {
+					n[0] = -1;
+				}
+			});
+		} catch (Exception e) {
+			return false;
 		}
-		if (!ok) {
-			pendingObjectCleaner.deleteOrEnqueue(info);
-			throw new ServiceException("上传的文件和申请时登记的大小或类型对不上。请重新选择文件再上传");
-		}
+		return n[0] > 0 && UploadPolicy.magicMatches(info.getExt(), head, n[0]);
 	}
+
 
 }

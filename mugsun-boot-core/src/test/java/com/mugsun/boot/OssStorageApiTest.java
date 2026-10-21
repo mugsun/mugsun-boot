@@ -79,6 +79,9 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 	private static MinioClient minioClient;
 
 	@Autowired
+	private org.springframework.data.redis.core.StringRedisTemplate redis;
+
+	@Autowired
 	private SysOssMapper ossMapper;
 	@Autowired
 	private FileRecorder fileRecorder;
@@ -183,6 +186,16 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 			GetObjectArgs.builder().bucket(BUCKET).object(objectKey).build()).readAllBytes();
 		assertThat(stored).isEqualTo(content);
 		assertThat(objectKey).as("登记的是服务端新 key，不是签发给客户端的 key").isNotEqualTo(objectKeyOf(uploadUrl));
+		assertThat(objectKeyOf(uploadUrl)).as("直传只签到暂存前缀").contains(OssConstants.PATH_STAGING)
+			.doesNotContain(OssConstants.PATH_PUBLIC);
+		assertThatThrownBy(() -> minioClient.statObject(StatObjectArgs.builder().bucket(BUCKET).object(objectKeyOf(uploadUrl)).build()))
+			.as("登记成功后暂存 key 已删").isInstanceOf(ErrorResponseException.class);
+		io.minio.StatObjectResponse st = minioClient.statObject(StatObjectArgs.builder().bucket(BUCKET).object(objectKey).build());
+		assertThat(st.headers().get("Content-Disposition")).as("复制后仍是 attachment").isEqualTo("attachment");
+		String stagedName = objectKeyOf(uploadUrl).substring(objectKeyOf(uploadUrl).lastIndexOf('/') + 1);
+		assertThat(redis.opsForList().range(com.mugsun.boot.system.file.PendingObjectCleaner.QUEUE_KEY, 0, -1))
+			.as("签名过期后再删一次暂存 key 的延迟项")
+			.anyMatch(j -> j.contains(stagedName) && j.contains("notBefore"));
 
 		// 2b) 预签名 URL 还没过期：用它再 PUT 一份等长的篡改内容，已登记的对象不受影响
 		byte[] tampered = content.clone();
@@ -362,10 +375,12 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 		byte[] wrong = "twenty-bytes-not-ten".getBytes(StandardCharsets.UTF_8);
 		minioClient.putObject(io.minio.PutObjectArgs.builder().bucket(BUCKET).object(objectKey)
 			.stream(new java.io.ByteArrayInputStream(wrong), wrong.length, -1).contentType("text/plain").build());
+		long before = countObjects("private/");
 		JsonNode rejected = readBody(post("/system/file/create", Map.of("ticket", sign.path("ticket").asText()), token));
 		assertThat(rejected.path("code").asInt()).as("大小不符应被拒：" + rejected).isNotEqualTo(200);
 		assertThatThrownBy(() -> minioClient.statObject(StatObjectArgs.builder().bucket(BUCKET).object(objectKey).build()))
-			.as("回验不通过的对象已删除").isInstanceOf(ErrorResponseException.class);
+			.as("回验不通过的暂存对象已删除").isInstanceOf(ErrorResponseException.class);
+		assertThat(countObjects("private/")).as("校验在复制后的新 key 上做，不通过时新 key 也删掉").isEqualTo(before);
 
 		// 3) 大小、类型都对但内容不是 PNG：魔数回验拒绝
 		byte[] fake = "not a png at all".getBytes(StandardCharsets.UTF_8);
@@ -377,6 +392,19 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 		assertThat(rejectedPng.path("code").asInt()).as("魔数不符应被拒：" + rejectedPng).isNotEqualTo(200);
 		assertThatThrownBy(() -> minioClient.statObject(StatObjectArgs.builder().bucket(BUCKET).object(pngKey).build()))
 			.as("魔数不符的对象已删除").isInstanceOf(ErrorResponseException.class);
+		assertThat(countObjects("private/")).as("魔数不符时新 key 也删掉").isEqualTo(before);
+	}
+
+	/** 桶内 key 含某一段前缀（如 private/）的对象数；basePath 可能在前面 */
+	private long countObjects(String segment) throws Exception {
+		long n = 0;
+		for (var r : minioClient.listObjects(io.minio.ListObjectsArgs.builder().bucket(BUCKET).recursive(true).build())) {
+			String k = r.get().objectName();
+			if (k.startsWith(segment) || k.contains("/" + segment)) {
+				n++;
+			}
+		}
+		return n;
 	}
 
 	private JsonNode signPut(String token, String filename, int size) {
