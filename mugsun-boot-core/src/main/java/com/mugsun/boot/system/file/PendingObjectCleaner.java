@@ -39,6 +39,7 @@ public class PendingObjectCleaner {
 	static final int MAX_ATTEMPTS = 20;
 	/** 查登记表连续失败的告警轮数：144 轮 × 10 分钟 ≈ 1 天 */
 	static final int MAX_UNKNOWN_ROUNDS = 144;
+	private static final int ALERT_SAMPLE = 5;
 	private static final int BATCH = 200;
 
 	private final StringRedisTemplate redis;
@@ -179,6 +180,8 @@ public class PendingObjectCleaner {
 	/** 处理当前队列里的条目（每轮最多 BATCH 条），返回删除成功的条数 */
 	int drain() {
 		int ok = 0;
+		int alerted = 0;
+		java.util.List<String> alertSample = new java.util.ArrayList<>();
 		Long size = redis.opsForList().size(QUEUE_KEY);
 		long n = Math.min(size == null ? 0 : size, BATCH);
 		for (long i = 0; i < n; i++) {
@@ -215,8 +218,10 @@ public class PendingObjectCleaner {
 				// 查登记表失败不是删除失败：原样放回，不加失败次数；只记轮数，超限告警一次，仍不删
 				int rounds = unknownRounds + 1;
 				if (rounds == MAX_UNKNOWN_ROUNDS + 1) {
-					log.error("连续 {} 轮查不了附件登记表，待删对象仍保留在队列，请检查数据库：{}/{}{}",
-						MAX_UNKNOWN_ROUNDS, info.getPlatform(), info.getPath(), info.getFilename());
+					alerted++;
+					if (alertSample.size() < ALERT_SAMPLE) {
+						alertSample.add(info.getPlatform() + "/" + info.getPath() + info.getFilename());
+					}
 				}
 				enqueue(info, attempts, 0L, fresh, rounds);
 				continue;
@@ -229,6 +234,11 @@ public class PendingObjectCleaner {
 			} else {
 				enqueue(info, attempts + 1, 0L, fresh);
 			}
+		}
+		if (alerted > 0) {
+			// 一轮只汇总打一条，库长时间不可用时不会按条目刷屏
+			log.error("{} 个待删对象已连续 {} 轮查不了附件登记表，仍保留在队列，请检查数据库；前几个：{}",
+				alerted, MAX_UNKNOWN_ROUNDS, alertSample);
 		}
 		return ok;
 	}

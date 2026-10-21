@@ -176,6 +176,34 @@ class PendingObjectCleanerTest {
 	}
 
 	@Test
+	void registryFailureAlertIsSummarizedOncePerRound() {
+		when(attachMapper.selectCountByQuery(any(com.mybatisflex.core.query.QueryWrapper.class)))
+			.thenThrow(new RuntimeException("db down"));
+		ch.qos.logback.classic.Logger lg = (ch.qos.logback.classic.Logger)
+			org.slf4j.LoggerFactory.getLogger(PendingObjectCleaner.class);
+		ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> app =
+			new ch.qos.logback.core.read.ListAppender<>();
+		app.start();
+		lg.addAppender(app);
+		try {
+			PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+			for (int i = 0; i < 8; i++) {
+				c.enqueue(new FileInfo().setPlatform("minio-1").setPath("tmp/").setFilename("f" + i + ".png"),
+					0, 0L, false, PendingObjectCleaner.MAX_UNKNOWN_ROUNDS);
+			}
+			c.drain();
+			java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> errors = app.list.stream()
+				.filter(e -> e.getLevel() == ch.qos.logback.classic.Level.ERROR).toList();
+			assertThat(errors).as("8 个条目同一轮越线，只汇总一条").hasSize(1);
+			assertThat(errors.get(0).getFormattedMessage()).startsWith("8 个待删对象")
+				.contains("tmp/f0.png").contains("tmp/f4.png").doesNotContain("tmp/f5.png");
+			assertThat(queue).as("仍不删不丢").hasSize(8);
+		} finally {
+			lg.detachAppender(app);
+		}
+	}
+
+	@Test
 	void delayedFreshItemIsCheckedAgainstRegistryBeforeDelete() {
 		when(storage.delete(any())).thenReturn(true);
 		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
