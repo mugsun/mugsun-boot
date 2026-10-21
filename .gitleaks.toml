@@ -1,6 +1,7 @@
 # gitleaks 配置：在默认规则上追加 allowlist。
 # 新增或修改 allowlist 条目必须安全官审；只写位置和规则名，不写密钥值。
-# 条目按「commit + 文件」同时匹配才放行，之后改到这些行仍会重新报出。
+# 条目按「commit + 文件」或「规则 + 文件 + 精确值」同时匹配才放行（AND），
+# 之后改到这些行或写入其他值仍会重新报出。
 
 [extend]
 useDefault = true
@@ -49,4 +50,18 @@ condition = "AND"
 paths = ['''^src/main/resources/application\.yml$''']
 commits = [
   "26411ac118b5f12d3c0242638ca2d7aa1ca76527",
+]
+
+[[allowlists]]
+# 1cbe7c0（test/sm4-selfcheck-followups，已推送，历史不能改）里的
+# `APP_KEY = Sm4TestKeys.INTEGRATION_KEY`：命中值是常量引用的标识符，不是密钥字面量。
+# 规则、文件、值三者同时匹配才放行（AND）；同文件里出现任何真实字面量仍会报。
+# 不按 commit 放行，也不只按路径放行。
+description = "Sm4KeyMigrationToolTest 的常量引用 Sm4TestKeys.INTEGRATION_KEY，非密钥（generic-api-key）"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^mugsun-boot-core/src/test/java/com/mugsun/boot/common/crypto/Sm4KeyMigrationToolTest\.java$''']
+regexTarget = "secret"
+regexes = [
+  '''^Sm4TestKeys\.INTEGRATION_KEY$''',
 ]
