@@ -39,6 +39,11 @@
   - 新增上传接口要把路径加进 `mugsun.security.multipart.allowed-paths`
   - 该列表在 yml 里是整体替换，要连默认 5 条一起写
   - 启动时对照接收文件的接口，漏配会打 WARN
+  - 条目为空、不以 / 开头、含 * 或 **、含 .. 或 ; 时拒绝启动
+  - 被踢下线、被顶下线或已过期的 token 在白名单路径上同样 401
+  - 调用方：控制台 mugsun-pc 用 `Authorization` 请求头传 token，不受影响
+  - mugsun-app 暂无 `uni.uploadFile` 头像上传代码，接入时须用请求头传 token
+  - mugsun-track 与 boot/scripts 暂无 sourcemap 上传 CLI，接入时同样用请求头
   - `CaptchaBodyLimitFilter` 顺序由 HIGHEST_PRECEDENCE 改为 +10
 - 直传登记前回查对象：大小、类型或文件头不符就删对象并拒绝
 - 直传只签到私有暂存前缀 tmp/，登记时先复制到新 key 再对新 key 回验

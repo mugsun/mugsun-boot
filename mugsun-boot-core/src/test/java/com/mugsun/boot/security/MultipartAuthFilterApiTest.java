@@ -1,6 +1,8 @@
 package com.mugsun.boot.security;
 
 import com.mugsun.boot.AbstractIntegrationTest;
+import cn.dev33.satoken.SaManager;
+import cn.dev33.satoken.stp.StpUtil;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -153,6 +155,47 @@ class MultipartAuthFilterApiTest extends AbstractIntegrationTest {
 		assertThat(send("/auth/login", "MULTIPART/MIXED", null).statusCode()).isEqualTo(415);
 		assertThat(send("/auth/login", "Multipart/Form-Data", null).statusCode()).isEqualTo(415);
 		assertNotParsed();
+	}
+
+	@Test
+	@DisplayName("白名单路径：被踢下线的 token 返回 401，不解析")
+	void kickedOutTokenIs401() throws Exception {
+		String token = loginAdmin();
+		assertThat(send("/system/file/upload", "multipart/form-data", token).statusCode()).as("踢前可用").isEqualTo(200);
+		reset();
+		StpUtil.kickoutByTokenValue(token);
+		HttpResponse<String> r = send("/system/file/upload", "multipart/form-data", token);
+		assertNotParsed();
+		assertThat(r.statusCode()).isEqualTo(401);
+	}
+
+	@Test
+	@DisplayName("白名单路径：被顶下线的 token 返回 401，不解析")
+	void replacedTokenIs401() throws Exception {
+		String token = loginAdmin();
+		StpUtil.replacedByTokenValue(token);
+		HttpResponse<String> r = send("/system/file/upload", "multipart/form-data", token);
+		assertNotParsed();
+		assertThat(r.statusCode()).isEqualTo(401);
+	}
+
+	@Test
+	@DisplayName("白名单路径：已过期的 token 返回 401，不解析")
+	void expiredTokenIs401() throws Exception {
+		String token = loginAdmin();
+		// 把 token 映射的剩余有效期压到 1 秒，等 Redis 过期
+		String key = StpUtil.getStpLogic().splicingKeyTokenValue(token);
+		SaManager.getSaTokenDao().updateTimeout(key, 1);
+		Thread.sleep(2000);
+		HttpResponse<String> r = send("/system/file/upload", "multipart/form-data", token);
+		assertNotParsed();
+		assertThat(r.statusCode()).isEqualTo(401);
+	}
+
+	private void reset() {
+		REACHED.set(0);
+		GET_PARTS.set(0);
+		TMP_FILES_SEEN.set(0);
 	}
 
 	@ParameterizedTest
