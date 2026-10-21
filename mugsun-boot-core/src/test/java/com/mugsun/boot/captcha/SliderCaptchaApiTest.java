@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 滑块验证码 HTTP 链路（运行期切到 mugsun.captcha.type=SLIDER，Redis 存储） */
+/** 滑块验证码 HTTP 链路（运行期打开总开关、平台默认题型只留 SLIDER，Redis 存储） */
 class SliderCaptchaApiTest extends AbstractIntegrationTest {
 
 	@Autowired
@@ -35,15 +35,17 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 	@Autowired
 	private CaptchaProperties props;
 
-	/** 复用基座 Spring 上下文（新开上下文会与 warm-flow/Sa-Token 静态状态冲突），运行期切到 SLIDER */
+	/** 复用基座 Spring 上下文（新开上下文会与 warm-flow/Sa-Token 静态状态冲突），运行期打开验证码、只出 SLIDER */
 	@BeforeEach
 	void sliderMode() {
-		props.setType("SLIDER");
+		props.setEnabled(true);
+		props.setDefaultTypes(new ArrayList<>(List.of("SLIDER")));
 	}
 
 	@AfterEach
 	void cleanCaptchaKeys() {
-		props.setType("IMAGE");
+		props.setEnabled(false);
+		props.setDefaultTypes(new ArrayList<>(CaptchaProperties.PLATFORM_DEFAULT_TYPES));
 		Set<String> keys = redis.keys(SliderCaptchaService.PREFIX + "*");
 		if (keys != null && !keys.isEmpty()) {
 			redis.delete(keys);
@@ -114,9 +116,9 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 			body.put("captchaToken", captchaToken);
 		}
 		if (legacyFields) {
-			JsonNode img = readBody(get("/auth/captcha", null)).path("data");
-			body.put("captchaUuid", img.path("captchaUuid").asText());
-			body.put("captchaCode", img.path("captchaCode").asText());
+			// v0.6.3 前旧数字码的字段：已移除，服务端不再认
+			body.put("captchaUuid", "legacy-uuid");
+			body.put("captchaCode", "1234");
 		}
 		return readBody(post("/auth/login", body, null));
 	}
@@ -156,6 +158,28 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 	void legacyImageFieldsCannotDowngrade() {
 		JsonNode r = login(PLATFORM_TENANT, null, true);
 		assertThat(r.path("code").asInt()).isEqualTo(CaptchaCodes.REQUIRED);
+	}
+
+	@Test
+	void legacyImageCaptchaEndpointIsGone() {
+		// v0.6.3 移除旧数字码：GET /auth/captcha 不再出题
+		org.springframework.http.ResponseEntity<String> resp = get("/auth/captcha", null);
+		JsonNode r = readBody(resp);
+		assertThat(resp.getStatusCode().value() == 200 && r.path("code").asInt() == 200).as(resp.getBody()).isFalse();
+		assertThat(r.path("data").has("captchaUuid")).isFalse();
+		assertThat(r.path("data").has("captchaImage")).isFalse();
+	}
+
+	@Test
+	void masterSwitchOffDisablesEveryScene() {
+		props.setEnabled(false);
+		for (String scene : List.of("login", "register", "sms", "forget")) {
+			JsonNode cfg = readBody(get("/auth/captcha/config?scene=" + scene + "&clientId=web&tenantId=000000", null)).path("data");
+			assertThat(cfg.path("enabled").asBoolean()).as(scene).isFalse();
+			assertThat(challenge(scene, PLATFORM_TENANT).path("code").asInt()).as(scene).isEqualTo(CaptchaCodes.DISABLED);
+		}
+		JsonNode r = login(PLATFORM_TENANT, null, false);
+		assertThat(r.path("code").asInt()).as(r.path("msg").asText()).isEqualTo(200);
 	}
 
 	@Test
@@ -366,7 +390,7 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		assertThat(captchaTypesOf(admin, t[0])).isEqualTo("ROTATE,JIGSAW");
 
 		// 非法值 / 混入非法值 → 拒绝且不改
-		for (Object bad : List.of(List.of("FOO"), List.of("SLIDER", "FOO"), "SLIDER")) {
+		for (Object bad : List.of(List.of("FOO"), List.of("SLIDER", "FOO"), "SLIDER", List.of("IMAGE"), List.of("SLIDER", "IMAGE"))) {
 			JsonNode r = readBody(post("/system/tenant/captcha", Map.of("id", id, "enabled", true, "types", bad), admin));
 			assertThat(r.path("code").asInt()).isNotEqualTo(200);
 		}

@@ -152,7 +152,8 @@ class DemoReadOnlyEndpointsTest {
 
 	@Test
 	void allowedReadsAndLogin() {
-		for (String s : List.of("GET /auth/info", "GET /auth/captcha", "GET /app/captcha/generate", "HEAD /system/user/list",
+		for (String s : List.of("GET /auth/info", "GET /auth/captcha/config", "POST /auth/captcha/challenge",
+			"POST /auth/captcha/verify", "GET /app/captcha/generate", "HEAD /system/user/list",
 			"OPTIONS /system/user/submit", "GET /track/config", "POST /auth/login", "POST /auth/logout",
 			"POST /app/captcha/check", "POST /track/collect", "POST /track/replay", "POST /track/api-body")) {
 			String[] mp = s.split(" ");

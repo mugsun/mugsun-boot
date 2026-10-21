@@ -34,7 +34,6 @@ public class AuthController {
 	private final PasswordEncoder passwordEncoder;
 	private final LoginLockService loginLockService;
 	private final AuthLoginService authLoginService;
-	private final CaptchaService captchaService;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
 	private final TwoFactorService twoFactorService;
 	private final com.mugsun.boot.system.service.SmsService smsService;
@@ -57,7 +56,6 @@ public class AuthController {
 
 	public AuthController(SysUserMapper userMapper, PasswordEncoder passwordEncoder,
 						  LoginLockService loginLockService, AuthLoginService authLoginService,
-						  CaptchaService captchaService,
 						  com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
 						  TwoFactorService twoFactorService,
 						  com.mugsun.boot.system.service.SmsService smsService,
@@ -82,7 +80,6 @@ public class AuthController {
 		this.passwordEncoder = passwordEncoder;
 		this.loginLockService = loginLockService;
 		this.authLoginService = authLoginService;
-		this.captchaService = captchaService;
 		this.securityPolicyService = securityPolicyService;
 		this.twoFactorService = twoFactorService;
 		this.smsService = smsService;
@@ -138,28 +135,17 @@ public class AuthController {
 		}
 	}
 
-	/** 图形验证码：生成一张，答案入 Redis */
-	@GetMapping("/captcha")
-	public R<CaptchaVO> captcha() {
-		return R.data(captchaService.generate());
-	}
-
 	@PostMapping("/login")
 	public R<Map<String, Object>> login(@RequestBody LoginDTO dto, HttpServletRequest request) {
 		String username = dto.getUsername();
-		String ip = request.getRemoteAddr();
+		String ip = com.mugsun.boot.common.web.ClientIpResolver.clientIp(request);
 		if (username == null || username.isBlank()) {
 			throw new ServiceException("账号或密码错误。请核对账号和密码后再登录");
 		}
 		com.mugsun.boot.client.entity.SysClient client = clientService.loadClient(dto.getClientId());
-		if (captchaGate.isSlider()) {
-			// 滑块：按服务端解析的租户/客户端判定（滑块模式：全局开关 AND 租户开关，客户端开关不参与；旧数字码模式才看客户端开关），需要时核销一次性 captchaToken
-			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_LOGIN, client,
-				com.mugsun.boot.captcha.CaptchaGate.normalizeTenant(dto.getTenantId()), dto.getCaptchaToken(), request);
-		} else if (Integer.valueOf(1).equals(client.getCaptchaEnabled())) {
-			// 旧数字码（仅 mugsun.captcha.type=IMAGE 时生效，保留一个版本）
-			captchaService.verify(dto.getCaptchaUuid(), dto.getCaptchaCode());
-		}
+		// 行为验证码：按服务端解析的租户/客户端判定（全局开关 AND 租户开关，客户端开关不参与），需要时核销一次性 captchaToken
+		captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_LOGIN, client,
+			com.mugsun.boot.captcha.CaptchaGate.normalizeTenant(dto.getTenantId()), dto.getCaptchaToken(), request);
 		// 与验证码判定使用同一规范化结果（trim），避免判定租户与登录租户不一致
 		String tenantId = com.mugsun.boot.captcha.CaptchaGate.normalizeTenant(dto.getTenantId());
 		// 锁定按「租户+账号」维度：多租户同名账号（各租户 admin）独立计数，防跨租户连锁锁死
@@ -234,7 +220,7 @@ public class AuthController {
 		SysUser user = TenantContext.ignore(() -> userMapper.selectOneById(userId));
 		assertUserLoginable(user, user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID);
 		StpUtil.login(userId, new cn.dev33.satoken.stp.parameter.SaLoginParameter()
-			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, request.getRemoteAddr())
+			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, com.mugsun.boot.common.web.ClientIpResolver.clientIp(request))
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
 		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "双因子登录成功", "password");
@@ -258,12 +244,8 @@ public class AuthController {
 			throw new ServiceException("用户名和密码不能为空。请填上用户名和密码后再注册");
 		}
 		// 验证码前置（防批量注册/手机号冒注）
-		if (captchaGate.isSlider()) {
-			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_REGISTER, captchaGate.resolveClient(null),
-				TenantConstants.DEFAULT_TENANT_ID, dto.getCaptchaToken(), request);
-		} else {
-			captchaService.verify(dto.getCaptchaUuid(), dto.getCaptchaCode());
-		}
+		captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_REGISTER, captchaGate.resolveClient(null),
+			TenantConstants.DEFAULT_TENANT_ID, dto.getCaptchaToken(), request);
 		// 手机号格式校验（短信登录按号取人，脏号即冒注/混淆面）
 		if (dto.getPhone() != null && !dto.getPhone().isBlank() && !dto.getPhone().matches("^1\\d{10}$")) {
 			throw new ServiceException("手机号格式不正确。请改成 11 位、以 1 开头的手机号后再注册");
@@ -312,7 +294,7 @@ public class AuthController {
 		TenantContext.ignore(() -> userRoleMapper.insert(userRole));
 	}
 
-	/** 忘记密码：发送邮箱重置验证码（图形验证码防爆破；账号不存在同样返回成功防枚举，仅日志留痕） */
+	/** 忘记密码：发送邮箱重置验证码（行为验证码防爆破；账号不存在同样返回成功防枚举，仅日志留痕） */
 	@PostMapping("/forget-code")
 	public R<Void> forgetCode(@RequestBody ForgetCodeDTO dto, HttpServletRequest request) {
 		if (dto.username() == null || dto.username().isBlank()) {
@@ -320,12 +302,8 @@ public class AuthController {
 		}
 		String tenantId = (dto.tenantId() == null || dto.tenantId().isBlank())
 			? TenantConstants.DEFAULT_TENANT_ID : dto.tenantId().trim();
-		if (captchaGate.isSlider()) {
-			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_FORGET, captchaGate.resolveClient(null),
-				tenantId, dto.captchaToken(), request);
-		} else {
-			captchaService.verify(dto.captchaUuid(), dto.captchaCode());
-		}
+		captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_FORGET, captchaGate.resolveClient(null),
+			tenantId, dto.captchaToken(), request);
 		forgetPasswordService.sendCode(dto.username().trim(), tenantId);
 		return R.success("如账号存在，验证码已发送至绑定邮箱");
 	}
@@ -357,11 +335,9 @@ public class AuthController {
 		captchaGate.hitSmsBurstIp(request);
 		// ① 只读查配额（不计数）：已超额时不消耗 captchaToken
 		captchaGate.checkSmsQuota(phone, request);
-		// ② 滑块模式：原子核销 captchaToken（防短信轰炸）；是否需要只看全局开关，不采信请求里的 tenantId。无/无效 token 不计数
-		if (captchaGate.isSlider()) {
-			captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_SMS, captchaGate.resolveClient(body.get("clientId")),
-				com.mugsun.boot.captcha.CaptchaGate.NO_TENANT, body.get("captchaToken"), request);
-		}
+		// ② 原子核销 captchaToken（防短信轰炸）；是否需要只看全局开关，不采信请求里的 tenantId。无/无效 token 不计数
+		captchaGate.check(com.mugsun.boot.captcha.CaptchaGate.SCENE_SMS, captchaGate.resolveClient(body.get("clientId")),
+			com.mugsun.boot.captcha.CaptchaGate.NO_TENANT, body.get("captchaToken"), request);
 		// ②' 手机号短窗口：仅在 token 核销成功后计数（无/无效 token 不计入，防止锁住受害号码）
 		captchaGate.hitSmsBurstPhone(phone);
 		// ③ 原子「未超上限才计数」（单手机号每天、单 IP 每小时；叠加 SmsService 同号 60s 节流）
@@ -388,10 +364,7 @@ public class AuthController {
 		if (phone == null) {
 			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
-		// 旧数字码模式：短信登录也需图形码（滑块模式已前移到 /auth/sms-code）
-		if (!captchaGate.isSlider()) {
-			captchaService.verify(body.get("captchaUuid"), body.get("captchaCode"));
-		}
+		// 验证码已前移到 /auth/sms-code（发短信前核销 captchaToken），这里不再校验
 		// 纳入失败锁定（按手机号维度）
 		String lockKey = loginLockService.keyOf("phone", phone);
 		loginLockService.assertNotLocked(lockKey);
@@ -417,7 +390,7 @@ public class AuthController {
 		assertUserLoginable(user, user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID);
 		loginLockService.clear(lockKey);
 		StpUtil.login(user.getId(), new cn.dev33.satoken.stp.parameter.SaLoginParameter()
-			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, request.getRemoteAddr())
+			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, com.mugsun.boot.common.web.ClientIpResolver.clientIp(request))
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
 		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "短信登录成功", "sms");
@@ -670,9 +643,8 @@ public class AuthController {
 	public record UpdatePasswordDTO(String oldPassword, String newPassword) {
 	}
 
-	/** 忘记密码发码参数（图形验证码防爆破；tenantId 留空为平台租户） */
-	public record ForgetCodeDTO(String username, String tenantId, String captchaUuid, String captchaCode,
-								String captchaToken) {
+	/** 忘记密码发码参数（行为验证码防爆破；tenantId 留空为平台租户） */
+	public record ForgetCodeDTO(String username, String tenantId, String captchaToken) {
 	}
 
 	/** 忘记密码重置参数（新密码 SM2 传输） */

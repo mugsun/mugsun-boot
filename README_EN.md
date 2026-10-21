@@ -72,14 +72,15 @@ Local configuration path: `optional:file:./config/application-local.yml` (gitign
 
 OpenAPI: http://localhost:8080/swagger-ui/index.html (disabled under `prod`).
 
-## Human verification (slider captcha)
+## Human verification (behavioural captcha)
 
-Login, registration, the forgot-password code and the SMS code request require a slider puzzle by default (built in, no third-party dependency). Flow: `GET /auth/captcha/config` (hint) → `POST /auth/captcha/challenge` → `POST /auth/captcha/verify` returns a one-time `captchaToken` → send `captchaToken` in the business request. The server re-checks tenant and client itself; `config` is only a hint. Error codes (HTTP 200 + `R.code`): `40010` expired, `40011` failed, `40012` rate limited (`data.retryAfter` seconds), `40013` token required, `40014` not required.
+Login, registration, the forgot-password code and the SMS code request require a behavioural captcha by default (built in, no third-party dependency; the platform default types are the slider puzzle and word click, and the server picks one at random). Flow: `GET /auth/captcha/config` (hint) → `POST /auth/captcha/challenge` → `POST /auth/captcha/verify` returns a one-time `captchaToken` → send `captchaToken` in the business request. The server re-checks tenant and client itself; `config` is only a hint. Error codes (HTTP 200 + `R.code`): `40010` expired, `40011` failed, `40012` rate limited (`data.retryAfter` seconds), `40013` token required, `40014` not required.
 
 | Key | Default | Notes |
 |---|---|---|
-| `mugsun.captcha.enabled` | `true` | Global switch (set to true in prod config) |
-| `mugsun.captcha.type` | `SLIDER` | `SLIDER` or `IMAGE` (legacy digits, kept for one release); server-side only |
+| `mugsun.captcha.enabled` | `true` | Global switch; `false` turns verification off for every scene (set to true in prod config) |
+| `mugsun.captcha.default-types` | `SLIDER,WORD_CLICK` | Types enabled when a tenant has no own setting: `SLIDER`, `ROTATE`, `WORD_CLICK`, `ICON_CLICK`, `JIGSAW` (case-insensitive). `ROTATE` / `ICON_CLICK` are auxiliary and off by default. Invalid values fail startup |
+| `mugsun.captcha.type` | unset | Deprecated: only `SLIDER` is accepted (no effect, WARN at startup). The legacy digit captcha `IMAGE` was removed in v0.6.3; `IMAGE` or any other value fails startup |
 | `mugsun.captcha.store` | `redis` | `redis` or `memory`; `memory` is single-node dev only and fails to start under the `prod` profile |
 | `mugsun.captcha.slider.width` / `height` | `320` / `180` | Native background size |
 | `mugsun.captcha.slider.tolerance-px` | `6` | Tolerance for drop position and track travel (native px) |
@@ -94,7 +95,7 @@ Login, registration, the forgot-password code and the SMS code request require a
 | `mugsun.captcha.rate-limit.*` | see `application.yml` | Per-IP challenge rate, global per-second cap (shared across nodes via Redis), failure lockout (stricter for keyboard mode) |
 | `mugsun.captcha.rate-limit.sms-phone-per-day` / `sms-ip-per-hour` | `10` / `20` | Limits on sending SMS codes (on top of the 60-second per-number throttle), independent of the captcha switch |
 
-Tenant switch: `sys_tenant.captcha_enabled` (`V9__tenant_captcha.sql`, default 1, always on for new tenants); only the platform super admin can change it via `POST /system/tenant/captcha`, and every change is audited. Other nodes pick it up within 60 seconds. Sending SMS codes does not depend on the tenant; only the global switch applies. In slider mode the client switch `sys_client.captcha_enabled` can no longer turn verification off (the caller picks the clientId); it only applies to login in legacy IMAGE mode. The input mode (`inputMode`) is declared when fetching the challenge and must match at verify. The app endpoints `/app/captcha/*` keep their shape and share the same engine.
+Tenant switch: `sys_tenant.captcha_enabled` (`V9__tenant_captcha.sql`, default 1, always on for new tenants); only the platform super admin can change it via `POST /system/tenant/captcha`, and every change is audited. Other nodes pick it up within 60 seconds. Sending SMS codes does not depend on the tenant; only the global switch applies. The client switch `sys_client.captcha_enabled` is not consulted (the caller picks the clientId). The input mode (`inputMode`) is declared when fetching the challenge and must match at verify. The app endpoints `/app/captcha/*` keep their shape and share the same engine.
 
 ## Composition
 

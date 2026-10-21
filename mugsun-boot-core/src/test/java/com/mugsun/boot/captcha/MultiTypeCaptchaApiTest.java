@@ -27,15 +27,21 @@ class MultiTypeCaptchaApiTest extends AbstractIntegrationTest {
 	@Autowired
 	private CaptchaProperties props;
 
+	private int savedPerMinute;
+
 	@BeforeEach
 	void multiMode() {
-		props.setType("SLIDER");
+		props.setEnabled(true);
+		// 本类要连续取几十道题验证随机分布，临时放宽单 IP 每分钟取题上限（限流另有专门测试）
+		savedPerMinute = props.getRateLimit().getChallengePerMinute();
+		props.getRateLimit().setChallengePerMinute(1000);
 	}
 
 	@AfterEach
 	void restore() {
-		props.setType("IMAGE");
-		props.setDefaultTypes(new ArrayList<>(List.of("SLIDER")));
+		props.setEnabled(false);
+		props.getRateLimit().setChallengePerMinute(savedPerMinute);
+		props.setDefaultTypes(new ArrayList<>(CaptchaProperties.PLATFORM_DEFAULT_TYPES));
 		Set<String> keys = redis.keys(SliderCaptchaService.PREFIX + "*");
 		if (keys != null && !keys.isEmpty()) {
 			redis.delete(keys);
@@ -52,6 +58,40 @@ class MultiTypeCaptchaApiTest extends AbstractIntegrationTest {
 		JsonNode r = readBody(post("/auth/captcha/challenge", body, null));
 		assertThat(r.path("code").asInt()).as(r.path("msg").asText()).isEqualTo(200);
 		return r.path("data");
+	}
+
+	@Test
+	void platformDefaultIsSliderPlusWordClick() {
+		// application.yml 的平台默认：SLIDER,WORD_CLICK；旋转 / 图标点选默认关
+		assertThat(props.getDefaultTypes()).containsExactly("SLIDER", "WORD_CLICK");
+		JsonNode cfg = readBody(get("/auth/captcha/config?scene=login&clientId=web&tenantId=000000", null)).path("data");
+		assertThat(cfg.path("enabled").asBoolean()).isTrue();
+		assertThat(cfg.path("type").asText()).isEqualTo("RANDOM");
+		Set<String> seen = new HashSet<>();
+		// 默认就是多题型随机（RANDOM）：40 次里两种都要出现（漏掉一种的概率约 2^-39），且客户端点名 ROTATE 无效
+		for (int i = 0; i < 40; i++) {
+			seen.add(challenge("pointer", "ROTATE").path("type").asText());
+		}
+		assertThat(seen).containsExactlyInAnyOrder("SLIDER", "WORD_CLICK");
+		// 键盘只从 SLIDER/ROTATE 里选：平台默认下就是 SLIDER
+		assertThat(challenge("keyboard", null).path("type").asText()).isEqualTo("SLIDER");
+	}
+
+	@Test
+	void configNeverReturnsRemovedImageType() {
+		// 旧数字码 IMAGE 已移除：开关开 / 关、单题型 / 多题型，config.type 都只会是启用的题型或 RANDOM
+		for (boolean on : new boolean[] {true, false}) {
+			props.setEnabled(on);
+			for (List<String> types : List.of(List.of("SLIDER"), List.of("JIGSAW"), List.of("SLIDER", "WORD_CLICK"))) {
+				props.setDefaultTypes(new ArrayList<>(types));
+				for (String scene : List.of("login", "register", "sms")) {
+					JsonNode cfg = readBody(get("/auth/captcha/config?scene=" + scene + "&clientId=web&tenantId=000000", null)).path("data");
+					String t = cfg.path("type").asText();
+					assertThat(t).as(on + " " + types + " " + scene).isNotEqualTo("IMAGE")
+						.isEqualTo(types.size() > 1 ? "RANDOM" : types.get(0));
+				}
+			}
+		}
 	}
 
 	@Test

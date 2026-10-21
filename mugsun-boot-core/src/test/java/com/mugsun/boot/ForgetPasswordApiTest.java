@@ -46,11 +46,8 @@ class ForgetPasswordApiTest extends AbstractIntegrationTest {
 	}
 
 	private JsonNode forgetCode(String username) {
-		JsonNode captcha = readBody(get("/auth/captcha", null));
 		Map<String, Object> body = new HashMap<>();
 		body.put("username", username);
-		body.put("captchaUuid", captcha.path("data").path("captchaUuid").asText());
-		body.put("captchaCode", captcha.path("data").path("captchaCode").asText());
 		return readBody(post("/auth/forget-code", body, null));
 	}
 

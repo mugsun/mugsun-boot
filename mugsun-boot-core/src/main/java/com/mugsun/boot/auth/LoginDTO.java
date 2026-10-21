@@ -8,11 +8,9 @@ public class LoginDTO {
 	private String tenantId;
 	private String username;
 	private String password;
-	private String captchaUuid;
-	private String captchaCode;
-	/** 滑块验证通过后签发的一次性令牌（mugsun.captcha.type=SLIDER） */
+	/** 行为验证码校验通过后签发的一次性令牌（POST /auth/captcha/verify） */
 	private String captchaToken;
-	/** 登录客户端码（web/app…），决定验证码开关/令牌有效期/并发在线数等差异化策略；缺省 web */
+	/** 登录客户端码（web/app…），决定令牌有效期/并发在线数等差异化策略；缺省 web */
 	private String clientId;
 
 	public String getTenantId() {
@@ -45,22 +43,6 @@ public class LoginDTO {
 
 	public void setPassword(String password) {
 		this.password = password;
-	}
-
-	public String getCaptchaUuid() {
-		return captchaUuid;
-	}
-
-	public void setCaptchaUuid(String captchaUuid) {
-		this.captchaUuid = captchaUuid;
-	}
-
-	public String getCaptchaCode() {
-		return captchaCode;
-	}
-
-	public void setCaptchaCode(String captchaCode) {
-		this.captchaCode = captchaCode;
 	}
 
 	public String getCaptchaToken() {

@@ -9,10 +9,7 @@ public class RegisterDTO {
 	private String password;
 	private String nickname;
 	private String phone;
-	/** 图形验证码（防批量注册，与登录同机制） */
-	private String captchaUuid;
-	private String captchaCode;
-	/** 滑块验证通过后签发的一次性令牌（mugsun.captcha.type=SLIDER） */
+	/** 行为验证码（防批量注册，与登录同机制）校验通过后签发的一次性令牌（POST /auth/captcha/verify） */
 	private String captchaToken;
 
 	public String getUsername() {
@@ -45,22 +42,6 @@ public class RegisterDTO {
 
 	public void setPhone(String phone) {
 		this.phone = phone;
-	}
-
-	public String getCaptchaUuid() {
-		return captchaUuid;
-	}
-
-	public void setCaptchaUuid(String captchaUuid) {
-		this.captchaUuid = captchaUuid;
-	}
-
-	public String getCaptchaCode() {
-		return captchaCode;
-	}
-
-	public void setCaptchaCode(String captchaCode) {
-		this.captchaCode = captchaCode;
 	}
 
 	public String getCaptchaToken() {

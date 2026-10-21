@@ -141,8 +141,6 @@ class MonitorApiTest extends AbstractIntegrationTest {
 		body.put("tenantId", PLATFORM_TENANT);
 		body.put("username", "it-mask-nonexist");
 		body.put("password", "it-secret-123");
-		body.put("captchaUuid", "x");
-		body.put("captchaCode", "x");
 		body.put("clientId", CLIENT_WEB);
 		ResponseEntity<String> resp = post("/auth/login", body, null);
 		String traceId = resp.getHeaders().getFirst(MonitorConstants.TRACE_HEADER);
@@ -164,7 +162,7 @@ class MonitorApiTest extends AbstractIntegrationTest {
 		updateParam(MonitorConstants.PARAM_SLOW_MS, "50");
 		try {
 			// rate=0：普通 GET 不记（等待足够长时间覆盖异步落库窗口后断言缺失）
-			ResponseEntity<String> captcha = get("/auth/captcha", null);
+			ResponseEntity<String> captcha = get("/auth/captcha/config", null);
 			String sampledOut = captcha.getHeaders().getFirst(MonitorConstants.TRACE_HEADER);
 			sleep(2000);
 			assertThat(apiRows(sampledOut)).as("采样率 0 时 GET 不应产生访问日志").isEmpty();

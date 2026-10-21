@@ -11,7 +11,10 @@ public class SysClient extends BaseEntity {
 
 	private String clientId;
 	private String clientName;
-	/** 图形验证码开关：1 开 / 0 关 */
+	/**
+	 * 原图形验证码开关（1 开 / 0 关）。v0.6.3 移除数字图形验证码后不再参与任何判定（行为验证码只看全局开关与租户开关），
+	 * 列与字段暂保留以兼容客户端管理页与已有数据，后续版本再删。
+	 */
 	private Integer captchaEnabled;
 	/** 单账号最大在线终端数（0=不限） */
 	private Integer maxOnline;

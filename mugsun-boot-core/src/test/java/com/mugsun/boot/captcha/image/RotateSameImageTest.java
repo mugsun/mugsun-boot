@@ -167,8 +167,8 @@ class RotateSameImageTest {
 	}
 
 	@Test
-	void platformDefaultTypesStaySliderOnly() {
-		assertThat(new CaptchaProperties().getDefaultTypes()).containsExactly("SLIDER").doesNotContain("ROTATE");
+	void platformDefaultTypesAreSliderAndWordClick() {
+		assertThat(new CaptchaProperties().getDefaultTypes()).containsExactly("SLIDER", "WORD_CLICK").doesNotContain("ROTATE");
 	}
 
 	/** Hole-interior NCC only: returns {best angle, best score, second-best score more than 15° away} */

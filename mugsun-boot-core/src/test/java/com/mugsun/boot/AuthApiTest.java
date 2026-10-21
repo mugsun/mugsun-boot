@@ -10,21 +10,18 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 认证链路回归：真实 HTTP 走验证码 + SM2 加密登录全链路。
+ * 认证链路回归：真实 HTTP 走 SM2 加密登录全链路（验证码总开关关闭；行为验证码见 captcha 包）。
  */
 class AuthApiTest extends AbstractIntegrationTest {
 
 	@Test
 	void wrongPasswordIsRejected() {
-		// 取验证码后按真实链路提交错误密码（SM2 密文可正常解密，落 BCrypt 比对失败分支）
-		JsonNode captcha = readBody(get("/auth/captcha", null));
+		// 按真实链路提交错误密码（SM2 密文可正常解密，落 BCrypt 比对失败分支）
 		String publicKey = readBody(get("/auth/sm2-public-key", null)).path("data").path("publicKey").asText();
 		Map<String, Object> body = new HashMap<>();
 		body.put("tenantId", PLATFORM_TENANT);
 		body.put("username", ADMIN_USERNAME);
 		body.put("password", sm2Encrypt("wrong-password-1", publicKey));
-		body.put("captchaUuid", captcha.path("data").path("captchaUuid").asText());
-		body.put("captchaCode", captcha.path("data").path("captchaCode").asText());
 		body.put("clientId", CLIENT_WEB);
 
 		ResponseEntity<String> response = post("/auth/login", body, null);
@@ -73,16 +70,13 @@ class AuthApiTest extends AbstractIntegrationTest {
 
 	@Test
 	void registerAssignsDefaultRole() {
-		// 自助注册（验证码 + SM2 密文密码同真实链路）→ 自动挂内置普通用户角色 user，登录可见工作台
+		// 自助注册（SM2 密文密码同真实链路）→ 自动挂内置普通用户角色 user，登录可见工作台
 		String username = "it_reg_" + System.currentTimeMillis() % 100000;
-		JsonNode captcha = readBody(get("/auth/captcha", null));
 		String publicKey = readBody(get("/auth/sm2-public-key", null)).path("data").path("publicKey").asText();
 		Map<String, Object> body = new HashMap<>();
 		body.put("username", username);
 		body.put("nickname", "集成测试注册用户");
 		body.put("password", sm2Encrypt("ItReg@12345", publicKey));
-		body.put("captchaUuid", captcha.path("data").path("captchaUuid").asText());
-		body.put("captchaCode", captcha.path("data").path("captchaCode").asText());
 		ResponseEntity<String> regResp = post("/auth/register", body, null);
 		JsonNode reg = readBody(regResp);
 		assertThat(reg.path("code").asInt()).as("注册应成功：" + reg.path("msg").asText()).isEqualTo(200);

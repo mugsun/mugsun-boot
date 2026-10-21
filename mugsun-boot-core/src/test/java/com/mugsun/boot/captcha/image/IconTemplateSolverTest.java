@@ -119,7 +119,7 @@ class IconTemplateSolverTest {
 
 	@Test
 	void iconClickOffByDefault() {
-		assertThat(new CaptchaProperties().getDefaultTypes()).containsExactly("SLIDER").doesNotContain("ICON_CLICK");
+		assertThat(new CaptchaProperties().getDefaultTypes()).containsExactly("SLIDER", "WORD_CLICK").doesNotContain("ICON_CLICK");
 	}
 
 	@Test

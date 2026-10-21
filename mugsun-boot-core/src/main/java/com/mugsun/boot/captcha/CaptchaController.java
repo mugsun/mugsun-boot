@@ -39,11 +39,8 @@ public class CaptchaController {
 		String sc = requireScene(scene);
 		SysClient client = gate.resolveClient(clientId);
 		boolean on = gate.required(sc, client, CaptchaGate.effectiveTenant(sc, tenantId));
-		String type = "IMAGE";
-		if (gate.isSlider()) {
-			java.util.Set<CaptchaType> types = gate.enabledTypes(sc, CaptchaGate.effectiveTenant(sc, tenantId));
-			type = types.size() > 1 ? "RANDOM" : types.iterator().next().name();
-		}
+		java.util.Set<CaptchaType> types = gate.enabledTypes(sc, CaptchaGate.effectiveTenant(sc, tenantId));
+		String type = types.size() > 1 ? "RANDOM" : types.iterator().next().name();
 		return R.data(new CaptchaConfigVO(on, type, sc));
 	}
 
@@ -52,7 +49,7 @@ public class CaptchaController {
 		String sc = requireScene(req == null ? null : req.scene());
 		SysClient client = gate.resolveClient(req == null ? null : req.clientId());
 		String tenant = CaptchaGate.effectiveTenant(sc, req == null ? null : req.tenantId());
-		if (!gate.isSlider() || !gate.required(sc, client, tenant)) {
+		if (!gate.required(sc, client, tenant)) {
 			throw CaptchaException.disabled();
 		}
 		return R.data(slider.challenge(sc, client.getClientId(), tenant, req == null ? null : req.inputMode(),
@@ -62,9 +59,6 @@ public class CaptchaController {
 
 	@PostMapping("/verify")
 	public R<TokenVO> verify(@RequestBody(required = false) VerifyRequest req, HttpServletRequest request) {
-		if (!gate.isSlider()) {
-			throw CaptchaException.disabled();
-		}
 		return R.data(slider.verify(req, ClientIpResolver.clientIp(request), request.getHeader("User-Agent")));
 	}
 

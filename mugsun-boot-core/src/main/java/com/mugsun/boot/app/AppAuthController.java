@@ -22,7 +22,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * App 认证：滑块 ticket + SM2 密码；不接受 PC 图形验证码。
+ * App 认证：滑块 ticket + SM2 密码；不接受 PC 端 captchaToken。
  */
 @RestController
 @RequestMapping("/app/auth")

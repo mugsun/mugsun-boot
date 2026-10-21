@@ -73,7 +73,7 @@ public class SysClientController {
 			}
 			clientMapper.update(client);
 		}
-		return R.success("已保存。这个客户端登录时会按这里的验证码、在线数和令牌有效期执行");
+		return R.success("已保存。这个客户端登录时会按这里的在线数和令牌有效期执行");
 	}
 
 	@RepeatSubmit
@@ -112,8 +112,8 @@ public class SysClientController {
 		}
 		UpdateChain.of(SysClient.class).set(SysClient::getStatus, status).where(SysClient::getId).eq(id).update();
 		return R.success(status == 1
-			? "已启用。这个客户端会按已保存的验证码、在线数和令牌有效期登录"
-			: "已停用。这个客户端会改用默认策略：验证码开启、不限在线、令牌 30 天");
+			? "已启用。这个客户端会按已保存的在线数和令牌有效期登录"
+			: "已停用。这个客户端会改用默认策略：不限在线、令牌 30 天");
 	}
 
 	private List<SysClient> requireRows(List<Long> ids) {
@@ -155,7 +155,7 @@ public class SysClientController {
 		if (client.getCaptchaEnabled() == null) {
 			client.setCaptchaEnabled(1);
 		} else if (client.getCaptchaEnabled() != 0 && client.getCaptchaEnabled() != 1) {
-			throw new ServiceException("图形验证码只能选择开启或关闭");
+			throw new ServiceException("验证码开关只能选择开启或关闭");
 		}
 		if (client.getMaxOnline() == null) {
 			client.setMaxOnline(0);

@@ -42,11 +42,6 @@ public class CaptchaGate {
 		this.tenantValidator = tenantValidator;
 	}
 
-	/** 当前是否滑块模式（类型只看服务端配置） */
-	public boolean isSlider() {
-		return props.isSliderType();
-	}
-
 	/** 与租户无关的场景（发送短信）绑定的固定租户占位 */
 	public static final String NO_TENANT = "-";
 
@@ -67,8 +62,7 @@ public class CaptchaGate {
 	 * 该场景对该租户/客户端是否需要验证码；查询异常时按需要处理（fail-closed）。
 	 * <ul>
 	 *   <li>发送短信：只看全局开关（短信与租户无关，客户端填的 tenantId 不可信）</li>
-	 *   <li>滑块模式：clientId 由请求方自选、无法可信解析，客户端开关不再能关闭验证码，只有租户开关（平台超管）可以</li>
-	 *   <li>旧数字码模式：登录仍沿用客户端开关</li>
+	 *   <li>其它场景：clientId 由请求方自选、无法可信解析，客户端开关（sys_client.captcha_enabled）不参与，只有租户开关（平台超管）可以关</li>
 	 * </ul>
 	 */
 	public boolean required(String scene, SysClient client, String tenantId) {
@@ -77,10 +71,6 @@ public class CaptchaGate {
 		}
 		if (SCENE_SMS.equals(scene)) {
 			return true;
-		}
-		if (!isSlider() && SCENE_LOGIN.equals(scene) && client != null
-			&& !Integer.valueOf(1).equals(client.getCaptchaEnabled())) {
-			return false;
 		}
 		return tenantEnabled(tenantId);
 	}

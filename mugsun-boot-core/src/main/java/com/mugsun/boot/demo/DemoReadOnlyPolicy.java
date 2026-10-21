@@ -31,7 +31,10 @@ public final class DemoReadOnlyPolicy {
 		"/app/auth/login",
 		"/app/auth/logout",
 		"/app/auth/two-factor",
-		"/app/captcha/check");
+		"/app/captcha/check",
+		// 行为验证码（v0.6.3 移除旧的 GET /auth/captcha 数字码后，登录前必须先取题、校验）：只写 Redis 挑战记录与日志库
+		"/auth/captcha/challenge",
+		"/auth/captcha/verify");
 
 	/** 埋点采集（演示环境保持开启，写独立埋点库、独立账号）；mugsun.demo.track-collect=false 时不放行 */
 	public static final Set<String> TRACK_COLLECT_ALLOWLIST = Set.of(

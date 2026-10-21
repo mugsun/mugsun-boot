@@ -1,26 +1,56 @@
 package com.mugsun.boot.captcha;
 
+import com.mugsun.boot.common.setting.InvalidSettingException;
+import com.mugsun.boot.common.setting.StrictEnumSetting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * 行为验证码配置（前缀 {@code mugsun.captcha}）。旧数字码沿用 enabled / show-code / expire-seconds。
+ * 行为验证码配置（前缀 {@code mugsun.captcha}）。
+ * <p>v0.6.3 起旧的数字图形验证码（{@code type=IMAGE}、{@code GET /auth/captcha}）已移除；
+ * {@code default-types} 与旧键 {@code type} 在启动时按 {@link StrictEnumSetting} 严格解析，非法值（含 IMAGE）启动失败。
  */
 @Component
 @ConfigurationProperties(prefix = "mugsun.captcha")
-public class CaptchaProperties {
+public class CaptchaProperties implements InitializingBean {
 
-	/** 全局开关（prod 默认 true） */
+	private static final Logger log = LoggerFactory.getLogger(CaptchaProperties.class);
+
+	public static final String PROP_TYPE = "mugsun.captcha.type";
+	public static final String PROP_DEFAULT_TYPES = "mugsun.captcha.default-types";
+
+	/**
+	 * 平台默认启用的题型：滑块 + 词语点选，多题型时每次随机出一种（config 返回 RANDOM）。
+	 * 旋转 / 图标点选为辅助题型，默认关，可显式启用。拼图还原（JIGSAW）待安全官确认后再加入默认
+	 * （同时改 application.yml、application-demo.yml 的 default-types，CaptchaDefaultTypesTest 校验三处一致）。
+	 */
+	public static final java.util.List<String> PLATFORM_DEFAULT_TYPES = java.util.List.of("SLIDER", "WORD_CLICK");
+
+	/** 已移除的取值 → 改法 */
+	public static final java.util.Map<String, String> REMOVED_TYPES = java.util.Map.of("IMAGE",
+		"旧的数字图形验证码（IMAGE）已在 v0.6.3 移除。请删掉这个取值，改用 SLIDER、WORD_CLICK 等行为验证码题型；"
+			+ "要关闭全部验证码请设 mugsun.captcha.enabled=false");
+
+	/** 旧键 {@code type} 唯一还认的取值：SLIDER（等同于不写） */
+	public enum LegacyType { SLIDER }
+
+	/** 全局开关（关闭 = 所有场景都不要验证码；prod 默认 true） */
 	private boolean enabled = true;
-	/** 验证码类型，仅由服务端配置决定：SLIDER（默认）| IMAGE（旧数字码，保留一个版本） */
-	private String type = "SLIDER";
+	/**
+	 * 已废弃：v0.6.3 前用于在 SLIDER 与旧数字码 IMAGE 之间切换。现在只认 SLIDER（无作用，启动打 WARN），
+	 * IMAGE 与其它值启动失败。题型由 {@link #defaultTypes} 与租户设置决定。
+	 */
+	private String type;
 	/** 存储：redis（默认，集群）| memory（单机/开发；prod profile 禁用） */
 	private String store = "redis";
 	private final Slider slider = new Slider();
 	private final Background background = new Background();
 	private final RateLimit rateLimit = new RateLimit();
-	/** 租户未单独配置启用类型时的默认集合（默认仅 SLIDER，保持升级前行为） */
-	private java.util.List<String> defaultTypes = new java.util.ArrayList<>(java.util.List.of("SLIDER"));
+	/** 租户未单独配置启用类型时的默认集合（默认 SLIDER,WORD_CLICK；ROTATE / ICON_CLICK 默认关） */
+	private java.util.List<String> defaultTypes = new java.util.ArrayList<>(PLATFORM_DEFAULT_TYPES);
 	private final Rotate rotate = new Rotate();
 	private final Click click = new Click();
 	private final Jigsaw jigsaw = new Jigsaw();
@@ -111,8 +141,18 @@ public class CaptchaProperties {
 		public void setCols(int v) { this.cols = Math.max(2, Math.min(4, v)); }
 	}
 
-	public boolean isSliderType() {
-		return !"IMAGE".equalsIgnoreCase(type == null ? "" : type.trim());
+	/** 绑定完成后严格校验 {@code type} 与 {@code default-types}，非法值抛 {@link InvalidSettingException}，启动失败 */
+	@Override
+	public void afterPropertiesSet() {
+		validate();
+	}
+
+	/** 见 {@link #afterPropertiesSet()}；返回解析后的平台默认题型 */
+	public java.util.Set<CaptchaType> validate() {
+		if (StrictEnumSetting.parseOne(PROP_TYPE, type, LegacyType.class, REMOVED_TYPES) != null) {
+			log.warn("配置项 {} 已废弃且不再起作用（题型由 {} 与租户设置决定），请删掉这一项", PROP_TYPE, PROP_DEFAULT_TYPES);
+		}
+		return StrictEnumSetting.parseList(PROP_DEFAULT_TYPES, defaultTypes, CaptchaType.class, REMOVED_TYPES);
 	}
 
 	public static class Slider {

@@ -2,4 +2,5 @@ org.springframework.boot.env.EnvironmentPostProcessor=\
 com.mugsun.boot.monitor.AccessLogRetentionEnvironmentPostProcessor
 
 org.springframework.boot.diagnostics.FailureAnalyzer=\
-com.mugsun.boot.common.module.ModuleSwitchFailureAnalyzer
+com.mugsun.boot.common.module.ModuleSwitchFailureAnalyzer,\
+com.mugsun.boot.common.setting.InvalidSettingFailureAnalyzer

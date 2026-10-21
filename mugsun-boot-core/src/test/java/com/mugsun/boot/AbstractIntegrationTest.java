@@ -31,14 +31,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 集成测试基座：Testcontainers 单例容器（PostgreSQL 16 / Redis 7，JVM 级复用）+ 动态配置覆写。
  * <p>数据全部落在容器随机端口，绝不触达本机 5432/6379 的开发环境。
- * <p>复刻前端真实登录链路：取验证码（开发回显）→ 取 SM2 公钥 → sm-crypto 同构加密（C1C3C2、无 04 前缀）→ 登录换 token。
+ * <p>复刻前端真实登录链路（验证码总开关关闭）：取 SM2 公钥 → sm-crypto 同构加密（C1C3C2、无 04 前缀）→ 登录换 token。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 	properties = {
-		// 测试链路复刻前端真实登录：验证码/短信码回显仅测试环境开启（生产配置恒 false）
+		// 双因子码/短信码回显仅测试环境开启（生产配置恒 false）
 		"mugsun.captcha.show-code=true",
-		// 存量用例走旧数字码链路；滑块链路见 captcha 包下的专项测试（DynamicPropertySource 覆盖为 SLIDER）
-		"mugsun.captcha.type=IMAGE",
+		// 存量用例走验证码总开关关闭（mugsun.captcha.enabled=false）的登录链路；
+		// 行为验证码链路见 captcha 包下的专项测试（运行期 props.setEnabled(true)，用完复原）
+		"mugsun.captcha.enabled=false",
 		"mugsun.sms.show-code=true",
 		"mugsun.crypto.sm4-key=mugsun-test-sm4k16",
 		"mugsun.crypto.api-key=mugsun-test-apk16",
@@ -235,21 +236,11 @@ public abstract class AbstractIntegrationTest {
 	}
 
 	/**
-	 * 完整登录链路（与前端一致）：验证码 → SM2 公钥 → 加密密码 → 登录。
+	 * 完整登录链路（与前端一致，验证码总开关关闭）：SM2 公钥 → 加密密码 → 登录。
 	 * 断言各步 R.code=200，返回 token。
 	 */
 	protected String login(String tenantId, String username, String rawPassword) {
-		// 1) 图形验证码（开发模式回显明文）
-		ResponseEntity<String> captchaResp = get("/auth/captcha", null);
-		assertThat(captchaResp.getStatusCode().value()).as("验证码接口 HTTP 状态").isEqualTo(200);
-		JsonNode captcha = readBody(captchaResp);
-		assertThat(captcha.path("code").asInt()).as("验证码接口 R.code").isEqualTo(200);
-		String captchaUuid = captcha.path("data").path("captchaUuid").asText();
-		String captchaCode = captcha.path("data").path("captchaCode").asText();
-		assertThat(captchaUuid).isNotBlank();
-		assertThat(captchaCode).as("开发模式应回显验证码明文").isNotBlank();
-
-		// 2) SM2 传输公钥（国密开关开启时前端公钥加密密码）
+		// 1) SM2 传输公钥（国密开关开启时前端公钥加密密码）
 		ResponseEntity<String> keyResp = get("/auth/sm2-public-key", null);
 		JsonNode keyData = readBody(keyResp).path("data");
 		String password = rawPassword;
@@ -257,13 +248,11 @@ public abstract class AbstractIntegrationTest {
 			password = sm2Encrypt(rawPassword, keyData.path("publicKey").asText());
 		}
 
-		// 3) 登录
+		// 2) 登录
 		Map<String, Object> body = new HashMap<>();
 		body.put("tenantId", tenantId);
 		body.put("username", username);
 		body.put("password", password);
-		body.put("captchaUuid", captchaUuid);
-		body.put("captchaCode", captchaCode);
 		body.put("clientId", CLIENT_WEB);
 		ResponseEntity<String> loginResp = post("/auth/login", body, null);
 		assertThat(loginResp.getStatusCode().value()).as("登录接口 HTTP 状态").isEqualTo(200);

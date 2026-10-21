@@ -3,9 +3,9 @@
 # 工作目录须为 mugsun-boot（mvn spring-boot:run 或 java -jar target/*.jar）。
 mugsun:
   captcha:
-    show-code: true
+    show-code: true   # 双因子登录验证码回显（本地联调）
   sms:
-    show-code: true
+    show-code: true   # 短信验证码回显（本地联调）
   web:
     # e2e 走 :3007 时改为 http://localhost:3007，或导出 MUGSUN_FRONT_URL
     front-url: http://localhost:3006

@@ -1,4 +1,4 @@
-"""一键全栈自检：登录（取验证码答案于 Redis，仅供自检）→ 上报 1 条埋点 → 管理端查到该事件。
+"""一键全栈自检：登录（行为验证码答案取自 Redis 挑战记录，仅供自检）→ 上报 1 条埋点 → 管理端查到该事件。
 在 compose 内网的一次性容器里运行，由 scripts/compose-full-smoke.sh 调用。"""
 import json, os, sys, time, uuid, urllib.request, subprocess
 from gmssl import sm2
@@ -22,12 +22,24 @@ def call(method, path, body=None, token=None):
 
 import redis
 r = redis.Redis(host="redis", password=rpw, db=3, decode_responses=True)
-cap = call("GET", "/api/auth/captcha")["data"]
-code = r.get("mugsun:captcha:" + cap["captchaUuid"])
-assert code, "Redis 里没有验证码答案"
+# 行为验证码：键盘模式只出 SLIDER/ROTATE，平台默认 SLIDER,WORD_CLICK 下必为 SLIDER；答案从 Redis 挑战记录读（仅供自检）
+cap = call("POST", "/api/auth/captcha/challenge", {"scene": "login", "clientId": "web", "tenantId": "000000",
+                                                 "inputMode": "keyboard"})
+assert cap.get("code") == 200, f"取验证码失败: {cap}"
+cap = cap["data"]
+assert cap["type"] == "SLIDER", f"键盘模式应为 SLIDER: {cap['type']}"
+rec = r.get("mugsun:captcha:v2:challenge:" + cap["captchaId"])
+assert rec, "Redis 里没有验证码答案"
+x = int(rec.split("|")[0]); step = cap.get("keyboardStep") or 4
+time.sleep(1)
+end = int(time.time() * 1000)
+ver = call("POST", "/api/auth/captcha/verify", {"captchaId": cap["captchaId"], "inputMode": "keyboard",
+                                             "bgDisplayWidth": cap["bgWidth"], "startTime": end - 800, "endTime": end,
+                                             "answer": {"x": x}, "keyPresses": round(x / step)})
+assert ver.get("code") == 200, f"验证码校验失败: {ver}"
 enc = sm2.CryptSM2(private_key="", public_key=pub[2:] if pub.startswith("04") else pub, mode=1).encrypt(pw.encode()).hex()
-res = call("POST", "/api/auth/login", {"username": "admin", "password": enc, "tenantId": "000000",
-                                     "captchaUuid": cap["captchaUuid"], "captchaCode": code})
+res = call("POST", "/api/auth/login", {"username": "admin", "password": enc, "tenantId": "000000", "clientId": "web",
+                                     "captchaToken": ver["data"]["captchaToken"]})
 assert res.get("code") == 200, f"登录失败: {res}"
 d = res["data"]
 token = d.get("accessToken") or d.get("token") or d.get("tokenValue")
