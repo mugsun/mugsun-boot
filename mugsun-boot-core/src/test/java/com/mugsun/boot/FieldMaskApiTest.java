@@ -5,6 +5,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.HashMap;
 import java.util.List;
@@ -34,8 +36,8 @@ class FieldMaskApiTest extends AbstractIntegrationTest {
 	private static final String MASKED_PHONE = "138****" + TS.substring(TS.length() - 4);
 	private static final String TARGET_ID_CARD = "11010119900101001X";
 
-	@org.springframework.beans.factory.annotation.Autowired
-	private org.springframework.jdbc.core.JdbcTemplate jdbc;
+	@Autowired
+	private JdbcTemplate jdbc;
 
 	private String adminToken;
 	private long targetId;
@@ -45,9 +47,8 @@ class FieldMaskApiTest extends AbstractIntegrationTest {
 	/** 清掉本类写入的身份证密文：CI 里各模块共用一个库，残留密文会进入后续模块的启动自检 */
 	@AfterAll
 	void clearTargetIdCard() {
-		if (targetId > 0) {
-			jdbc.update("update sys_user set id_card = null where id = ?", targetId);
-		}
+		// 按用户名清：@BeforeAll 建完用户、还没拿到 targetId 就失败时也能清掉
+		jdbc.update("update sys_user set id_card = null where username = ?", TARGET);
 	}
 
 	@BeforeAll

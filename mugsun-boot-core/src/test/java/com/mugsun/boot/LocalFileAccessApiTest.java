@@ -107,7 +107,11 @@ class LocalFileAccessApiTest extends AbstractIntegrationTest {
 
 	/** 把签名首字符换成一个一定不同的字符；原写法固定换成 Z，签名本身以 Z 开头时（约 1/64）等于没改 */
 	private static String tamperSign(String query) {
-		int at = query.startsWith("s=") ? 2 : query.indexOf("&s=") + 3;
+		int amp = query.indexOf("&s=");
+		if (!query.startsWith("s=") && amp < 0) {
+			throw new IllegalStateException("签名链接里没有 s= 参数：" + query);
+		}
+		int at = query.startsWith("s=") ? 2 : amp + 3;
 		char c = query.charAt(at);
 		return query.substring(0, at) + (c == 'A' ? 'B' : 'A') + query.substring(at + 1);
 	}

@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class Sm4KeyMigrationToolTest extends AbstractIntegrationTest {
 
-	private static final String APP_KEY = "6d756773756e2d746573742d736d346b";
+	private static final String APP_KEY = Sm4TestKeys.INTEGRATION_KEY;
 
 	@Test
 	@DisplayName("补零短密钥 → 新密钥：dry-run 只计数，apply 后可解；有解不开时整体回滚")

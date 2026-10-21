@@ -21,7 +21,6 @@ class Sm4KeyFormatTest {
 		Sm4TestKeys.useIntegrationKey();
 	}
 
-
 	@Test
 	@DisplayName("32 位 hex（大小写）、规范 base64、16 字符旧写法都能启动")
 	void threeValidFormats() {

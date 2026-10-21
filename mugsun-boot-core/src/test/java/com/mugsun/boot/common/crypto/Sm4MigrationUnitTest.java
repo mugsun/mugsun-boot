@@ -37,7 +37,6 @@ class Sm4MigrationUnitTest {
 		Sm4TestKeys.useIntegrationKey();
 	}
 
-
 	private static final byte[] OLD = Sm4Util.legacyPaddedKey("old-short");
 	private static final byte[] NEW = Sm4Util.parseKey("00112233445566778899aabbccddeeff");
 	private static final byte[] OTHER = Sm4Util.parseKey("ffeeddccbbaa99887766554433221100");

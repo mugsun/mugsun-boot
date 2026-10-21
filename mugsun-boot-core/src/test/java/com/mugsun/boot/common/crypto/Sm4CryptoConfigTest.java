@@ -23,7 +23,6 @@ class Sm4CryptoConfigTest {
 		Sm4TestKeys.useIntegrationKey();
 	}
 
-
 	private static Sm4CryptoConfig config(String key, boolean strict, String file) {
 		Sm4CryptoConfig c = new Sm4CryptoConfig();
 		ReflectionTestUtils.setField(c, "sm4Key", key);
