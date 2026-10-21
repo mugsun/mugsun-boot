@@ -24,6 +24,7 @@ jobs:
           persist-credentials: false
 
       # 按 Unicode 字符数计（python len），整份文件逐行检查；文件不存在时跳过
+      # 排除 node_modules、.git 和构建产物目录 target、dist
       - name: Check CHANGELOG line width (<= 80 chars)
         shell: python3 {0}
         run: |
@@ -32,7 +33,7 @@ jobs:
           bad = []
           files = []
           for f in sorted(Path('.').rglob('CHANGELOG.md')):
-              if any(p in ('node_modules', '.git') for p in f.parts):
+              if any(p in ('node_modules', '.git', 'target', 'dist') for p in f.parts):
                   continue
               files.append(f)
               for i, line in enumerate(f.read_text(encoding='utf-8').splitlines(), 1):
@@ -106,7 +107,10 @@ jobs:
           import json, sys
           items = json.load(open(sys.argv[1])) or []
           for x in items:
-              print(f"{x.get('File')}:{x.get('StartLine')} rule={x.get('RuleID')} commit={(x.get('Commit') or '')[:7]}")
+              loc = f"file={x.get('File')},line={x.get('StartLine')}"
+              rule = x.get('RuleID')
+              short = (x.get('Commit') or '')[:7]
+              print(f"::error {loc}::gitleaks {rule} commit={short}")
           print(f"gitleaks 命中 {len(items)} 处")
           PY
           exit $rc

@@ -197,6 +197,8 @@
   | `yes`、`on` | 关闭 | 启动失败 | 要开启写 `true`；要关闭写 `false` |
   | `no`、`off` 及其它值 | 关闭 | 启动失败 | `false` |
 
+  空值包括环境变量写成 `MUGSUN_AI_ENABLED=`，以及 yml 里只写 `enabled:` 不给值。
+
   迁移步骤：
   1. 在 compose 文件、`.env`、systemd / k8s 配置和 yml 里找出 `MUGSUN_GIS_ENABLED`、
      `MUGSUN_TRACK_ENABLED`、`MUGSUN_AI_ENABLED`（以及 `mugsun.<模块>.enabled`）
