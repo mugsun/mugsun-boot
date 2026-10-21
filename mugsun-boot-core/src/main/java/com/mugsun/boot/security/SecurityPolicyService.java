@@ -63,6 +63,18 @@ public class SecurityPolicyService {
 			: v.trim();
 	}
 
+	/**
+	 * 自助注册分配的角色编码：security.register.register-role-code（V14 播种为 user）；
+	 * 参数不存在时回落 default-role-code，再回落 user。参数存在但置空则不挂角色。
+	 */
+	public String getRegisterRoleCode() {
+		String v = paramService.getValue("security.register.register-role-code");
+		if (v == null) {
+			return getRegisterDefaultRoleCode();
+		}
+		return v.trim();
+	}
+
 	public int getHistoryCount() {
 		return intParam("security.password.history-count", 3);
 	}

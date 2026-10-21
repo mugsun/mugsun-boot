@@ -236,9 +236,23 @@ public class AuthController {
 		return user.getEmail();
 	}
 
-	/** 自助注册：用户名唯一 + BCrypt + 默认租户，建号后可登录 */
+	private com.mugsun.boot.auth.register.RegisterGate registerGate;
+
+	@org.springframework.beans.factory.annotation.Autowired
+	void setRegisterGate(com.mugsun.boot.auth.register.RegisterGate registerGate) {
+		this.registerGate = registerGate;
+	}
+
+	/** 自助注册：用户名唯一 + BCrypt + 默认租户，建号后可登录。注册模式非 OPEN 时 404（与未映射路径一致）；按 IP、账号、手机号限流 */
 	@PostMapping("/register")
-	public R<Void> register(@RequestBody RegisterDTO dto, HttpServletRequest request) {
+	public R<Void> register(@RequestBody RegisterDTO dto, HttpServletRequest request)
+			throws org.springframework.web.servlet.resource.NoResourceFoundException {
+		if (!registerGate.isOpen()) {
+			throw new org.springframework.web.servlet.resource.NoResourceFoundException(
+				org.springframework.http.HttpMethod.POST, request.getRequestURI());
+		}
+		registerGate.checkRate(com.mugsun.boot.common.web.ClientIpResolver.clientIp(request),
+			dto == null ? null : dto.getUsername(), dto == null ? null : dto.getPhone());
 		if (dto.getUsername() == null || dto.getUsername().isBlank()
 			|| dto.getPassword() == null || dto.getPassword().isBlank()) {
 			throw new ServiceException("用户名和密码不能为空。请填上用户名和密码后再注册");
@@ -275,11 +289,12 @@ public class AuthController {
 	}
 
 	/**
-	 * 自助注册默认角色：角色编码走 sys_param（security.register.default-role-code，缺省 user），
+	 * 自助注册角色：角色编码走 sys_param security.register.register-role-code，
+	 * 未配置时回落 security.register.default-role-code，再回落 user，
 	 * 角色存在才挂（不存在/置空不阻断注册）——注册即可登录见工作台与个人域，但无任何管理权限码。
 	 */
 	private void assignDefaultRole(Long userId, String tenantId) {
-		String roleCode = securityPolicyService.getRegisterDefaultRoleCode();
+		String roleCode = securityPolicyService.getRegisterRoleCode();
 		if (roleCode == null || roleCode.isBlank()) {
 			return;
 		}

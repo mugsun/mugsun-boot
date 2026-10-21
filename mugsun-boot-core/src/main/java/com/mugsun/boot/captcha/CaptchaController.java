@@ -25,11 +25,14 @@ public class CaptchaController {
 	private final CaptchaGate gate;
 	private final SliderCaptchaService slider;
 	private final CaptchaProperties props;
+	private final com.mugsun.boot.auth.register.RegisterGate registerGate;
 
-	public CaptchaController(CaptchaGate gate, SliderCaptchaService slider, CaptchaProperties props) {
+	public CaptchaController(CaptchaGate gate, SliderCaptchaService slider, CaptchaProperties props,
+							 com.mugsun.boot.auth.register.RegisterGate registerGate) {
 		this.gate = gate;
 		this.slider = slider;
 		this.props = props;
+		this.registerGate = registerGate;
 	}
 
 	@GetMapping("/config")
@@ -41,7 +44,7 @@ public class CaptchaController {
 		boolean on = gate.required(sc, client, CaptchaGate.effectiveTenant(sc, tenantId));
 		java.util.Set<CaptchaType> types = gate.enabledTypes(sc, CaptchaGate.effectiveTenant(sc, tenantId));
 		String type = types.size() > 1 ? "RANDOM" : types.iterator().next().name();
-		return R.data(new CaptchaConfigVO(on, type, sc));
+		return R.data(new CaptchaConfigVO(on, type, sc, registerGate.mode().name()));
 	}
 
 	@PostMapping("/challenge")

@@ -6,6 +6,19 @@
 
 ### 安全
 
+- 自助注册改为可配置，生产默认关闭（不兼容变更）
+  - 主配置 `mugsun.auth.register.mode`：OFF、OPEN、APPROVAL
+  - 简写 `mugsun.auth.register.enabled=true/false`，等于 OPEN/OFF
+  - 两者都设且含义冲突，或设成 APPROVAL（尚未实现），拒绝启动
+  - 默认：生产 OFF；显式 active 含 dev/test/local 且不含 prod 才是 OPEN
+  - 关闭时 `POST /auth/register` 返回 404
+  - 生产要开放注册，请设 `mugsun.auth.register.enabled=true`
+  - `GET /auth/captcha/config` 新增 `registerMode`，前端据此隐藏注册入口
+  - 注册按 IP（默认 10 次/时）、账号和手机号（各 5 次/时）限流，超限 429
+  - 新参数 `security.register.register-role-code`（V14 播种为 user）
+- V14 播种内置 user 角色，并给注册角色补授 `sys:file:upload`
+- 直传签名有效期由 60 分钟降到 15 分钟
+
 - 导出导入改用独立权限码，只有列表读权不能导出
   - `GET /system/user/export` 由 `sys:user:list` 改为 `sys:user:export`
   - 用户导入及导入模板由 `sys:user:add` 改为 `sys:user:import`

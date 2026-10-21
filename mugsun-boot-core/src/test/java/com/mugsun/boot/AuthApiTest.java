@@ -88,5 +88,29 @@ class AuthApiTest extends AbstractIntegrationTest {
 		info.path("data").path("roles").forEach(n -> roles.add(n.asText()));
 		assertThat(roles).as("注册用户应挂默认角色").contains("user");
 		assertThat(roles).doesNotContain("admin", "R_SUPER", "R_ADMIN");
+		// V14：注册角色带附件上传权限
+		java.util.List<String> buttons = new java.util.ArrayList<>();
+		info.path("data").path("buttons").forEach(n -> buttons.add(n.asText()));
+		assertThat(buttons).contains("sys:file:upload");
+	}
+
+	@Test
+	void registerRateLimitedPerAccount() {
+		// 同一账号默认每小时 5 次，第 6 次起 429（计数在用户名查重之前，重复注册同名也计数）
+		String username = "it_rl_" + System.nanoTime() % 1_000_000;
+		int last = 0;
+		for (int i = 0; i < 6; i++) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("username", username);
+			body.put("password", "x");
+			last = post("/auth/register", body, null).getStatusCode().value();
+		}
+		assertThat(last).isEqualTo(429);
+	}
+
+	@Test
+	void publicConfigExposesRegisterMode() {
+		JsonNode r = readBody(get("/auth/captcha/config", null));
+		assertThat(r.path("data").path("registerMode").asText()).isEqualTo("OPEN");
 	}
 }
