@@ -19,8 +19,8 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/app/inbox/notices/{id}/read` | AppInboxController#readNotice | 拒绝 |
 | POST | `/app/todos/{taskId}/handle` | AppTodoController#handle | 拒绝 |
 | POST | `/auth/avatar/upload` | AvatarUploadController#upload | 拒绝 |
-| POST | `/auth/captcha/challenge` | CaptchaController#challenge | 拒绝 |
-| POST | `/auth/captcha/verify` | CaptchaController#verify | 拒绝 |
+| POST | `/auth/captcha/challenge` | CaptchaController#challenge | 放行 |
+| POST | `/auth/captcha/verify` | CaptchaController#verify | 放行 |
 | POST | `/auth/forget-code` | AuthController#forgetCode | 拒绝 |
 | POST | `/auth/forget-reset` | AuthController#forgetReset | 拒绝 |
 | POST | `/auth/login` | AuthController#login | 放行 |

@@ -158,6 +158,13 @@ class CaptchaTypeSettingStartupTest {
 		FailureAnalysis a = new InvalidSettingFailureAnalyzer().analyze(failure.get());
 		assertThat(a).isNotNull();
 		assertThat(a.getDescription()).contains("mugsun.captcha.type", "MUGSUN_CAPTCHA_TYPE", "'IMAGE\\u000D\\u000AERROR forged'");
+		// 文案本身也固定：配置项、环境变量、转义后的原值、原因，以及「改 / 删掉这一项」的改法
+		AtomicReference<Throwable> imageOnly = new AtomicReference<>();
+		env(Map.of("MUGSUN_CAPTCHA_TYPE", "IMAGE")).run(ctx -> imageOnly.set(ctx.getStartupFailure()));
+		FailureAnalysis img = new InvalidSettingFailureAnalyzer().analyze(imageOnly.get());
+		assertThat(img.getDescription()).isEqualTo("配置项 mugsun.captcha.type（环境变量 MUGSUN_CAPTCHA_TYPE）的值 'IMAGE' 不合法："
+			+ "取值 IMAGE 已移除。" + CaptchaProperties.REMOVED_TYPES.get("IMAGE"));
+		assertThat(img.getAction()).isEqualTo("改 MUGSUN_CAPTCHA_TYPE（或 yml 里的 mugsun.captcha.type）后再启动；也可以删掉这一项，按默认值启动。");
 		assertThat(a.getAction()).contains("MUGSUN_CAPTCHA_TYPE", "删掉这一项");
 		assertNoControls(a.getDescription());
 		assertNoControls(a.getAction());
