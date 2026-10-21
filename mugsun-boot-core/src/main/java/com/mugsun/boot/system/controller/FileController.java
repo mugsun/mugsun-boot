@@ -1,5 +1,8 @@
 package com.mugsun.boot.system.controller;
 
+import org.dromara.x.file.storage.core.get.RemoteFileInfo;
+import com.mugsun.boot.system.file.UploadPolicy;
+import java.util.Locale;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
@@ -80,7 +83,7 @@ public class FileController {
 			throw new ServiceException("请选择一个有内容的文件再上传");
 		}
 		// 白名单扩展名 + 魔数 + 大小；存储名由服务端生成，原文件名只作展示
-		String ext = com.mugsun.boot.system.file.UploadPolicy.validate(file);
+		String ext = UploadPolicy.validate(file);
 		// 普通用户强制 private；仅持 sys:file:public 可设公开
 		boolean isPublic = fileAccessService.resolvePublic(access, StpUtil::hasPermission);
 		String folder = isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE;
@@ -89,9 +92,9 @@ public class FileController {
 			info = fileStorageService.of(file)
 				.setPlatform(ossService.activePlatform())
 				.setPath(folder)
-				.setSaveFilename(com.mugsun.boot.system.file.UploadPolicy.storedName(ext))
+				.setSaveFilename(UploadPolicy.storedName(ext))
 				// Content-Type 按白名单扩展名定，不用客户端上报；云存储对象一律带 attachment（本地存储由 LocalFileAccessFilter 加）
-				.setContentType(com.mugsun.boot.system.file.UploadPolicy.mimeOf(ext))
+				.setContentType(UploadPolicy.mimeOf(ext))
 				.setNotSupportMetadataThrowException(false)
 				.putMetadata("Content-Disposition", "attachment")
 				.putAttr(OssConstants.ATTR_ACCESS, isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE)
@@ -120,9 +123,9 @@ public class FileController {
 			|| filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
 			throw new ServiceException("文件名不能包含斜杠，也不能太长。请换一个文件名后再上传");
 		}
-		String allowedExt = com.mugsun.boot.system.file.UploadPolicy.requireAllowedExt(filename);
-		long size = com.mugsun.boot.system.file.UploadPolicy.requireSize(param.size());
-		String contentType = com.mugsun.boot.system.file.UploadPolicy.mimeOf(allowedExt);
+		String allowedExt = UploadPolicy.requireAllowedExt(filename);
+		long size = UploadPolicy.requireSize(param.size());
+		String contentType = UploadPolicy.mimeOf(allowedExt);
 		boolean isPublic = fileAccessService.resolvePublic(param.access(), StpUtil::hasPermission);
 		String platform = ossService.activePlatform();
 		if (!fileStorageService.isSupportPresignedUrl(platform)) {
@@ -193,6 +196,8 @@ public class FileController {
 		// 大小和类型取自签发凭证（已绑定进签名），不用回填时客户端上报的值
 		info.setSize(credential.path("size").asLong());
 		info.setContentType(credential.path("contentType").asText("application/octet-stream"));
+		// 签名是否真的绑定了这些头取决于存储平台实现，登记前回查对象，不符就删对象并拒绝
+		verifyUploadedObject(info);
 		info.setUrl(ossService.predictUrl(platform, path, filename));
 		info.setAttr(Dict.create().set(OssConstants.ATTR_ACCESS,
 			isPublic ? OssConstants.ACCESS_PUBLIC : OssConstants.ACCESS_PRIVATE));
@@ -259,7 +264,7 @@ public class FileController {
 			attach.getName() == null ? attach.getFilename() : attach.getName(), java.nio.charset.StandardCharsets.UTF_8);
 		String contentType = attach.getContentType();
 		// 可执行脚本类（html/svg/js/xml）一律按二进制下发，配合 attachment + nosniff，不在同域内联执行
-		if (contentType == null || com.mugsun.boot.system.file.UploadPolicy.isActiveContentType(contentType)) {
+		if (contentType == null || UploadPolicy.isActiveContentType(contentType)) {
 			contentType = "application/octet-stream";
 		}
 		response.setContentType(contentType);
@@ -399,4 +404,51 @@ public class FileController {
 	/** 直传回填请求：ticket 一次性凭证；size 客户端上报展示值（可空） */
 	public record CreateParam(String ticket, Long size) {
 	}
+
+	/**
+	 * 直传回验：HEAD 对象核对实际大小、Content-Type 与凭证一致，再读文件头跑魔数校验。
+	 * 任一不符就删掉对象并拒绝登记，避免绕过签名约束的 PUT 落成附件。
+	 */
+	private static String baseType(String contentType) {
+		return contentType == null ? "" : contentType.split(";")[0].trim().toLowerCase(Locale.ROOT);
+	}
+
+	private void verifyUploadedObject(FileInfo info) {
+		RemoteFileInfo remote;
+		try {
+			remote = fileStorageService.getFile(info);
+		} catch (Exception e) {
+			remote = null;
+		}
+		if (remote == null) {
+			throw new ServiceException("没找到上传的文件。请重新选择文件再上传");
+		}
+		boolean ok = remote.getSize() != null && remote.getSize().equals(info.getSize())
+			&& baseType(info.getContentType()).equals(baseType(remote.getContentType()));
+		if (ok) {
+			byte[] head = new byte[UploadPolicy.HEAD_BYTES];
+			int[] n = {0};
+			try {
+				fileStorageService.download(info).inputStream(in -> {
+					try {
+						n[0] = in.readNBytes(head, 0, head.length);
+					} catch (java.io.IOException e) {
+						n[0] = -1;
+					}
+				});
+			} catch (Exception e) {
+				n[0] = -1;
+			}
+			ok = n[0] > 0 && UploadPolicy.magicMatches(info.getExt(), head, n[0]);
+		}
+		if (!ok) {
+			try {
+				fileStorageService.getFileStorageVerify(info).delete(info);
+			} catch (Exception e) {
+				log.warn("直传回验不通过，删除对象失败：{}", info.getFilename());
+			}
+			throw new ServiceException("上传的文件和申请时登记的大小或类型对不上。请重新选择文件再上传");
+		}
+	}
+
 }

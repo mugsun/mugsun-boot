@@ -13,12 +13,17 @@ import java.util.UUID;
 /**
  * 通用附件上传策略：扩展名白名单 + 文件头魔数 + 大小上限；存储文件名由服务端生成。
  * <p>白名单外的类型（html、svg、js、xml、exe 等可执行或可脚本化内容）一律拒绝。
- * 文本类（txt/csv/md）不能开头就是 HTML/XML 标签，防止改扩展名夹带页面。
+ * 文本类（txt/csv/md）去掉开头的 BOM 和空白后不能是 HTML/XML 标签，防止改扩展名夹带页面。
+ * <p><b>边界</b>：魔数只看文件头，只防改扩展名，不保证文件完整；截断或尾部损坏的文件
+ * 只要头部正确就会通过，不做完整性检测。
  */
 public final class UploadPolicy {
 
-	/** 单个附件上限 20MB（低于 spring.servlet.multipart 的 25MB，超出给友好提示） */
+	/** 单个附件上限 20MB；spring.servlet.multipart.max-file-size 同为 20MB，在流式阶段截断，这里兜底 */
 	public static final long MAX_BYTES = 20L * 1024 * 1024;
+
+	/** 校验时读取的文件头长度：二进制看前几字节，文本类要跳过开头空白，所以多读一段 */
+	public static final int HEAD_BYTES = 1024;
 
 	public static final Set<String> ALLOWED_EXT = Set.of(
 		"png", "jpg", "jpeg", "gif", "webp", "bmp",
@@ -70,7 +75,7 @@ public final class UploadPolicy {
 		if (file.getSize() > MAX_BYTES) {
 			throw new ServiceException("文件超过 20MB。请压缩或拆分后再上传");
 		}
-		byte[] head = new byte[16];
+		byte[] head = new byte[HEAD_BYTES];
 		int n;
 		try (InputStream in = file.getInputStream()) {
 			n = in.readNBytes(head, 0, head.length);
@@ -114,7 +119,8 @@ public final class UploadPolicy {
 			|| t.contains("xml") || t.startsWith("text/") && !t.startsWith("text/plain") && !t.startsWith("text/csv");
 	}
 
-	static boolean magicMatches(String ext, byte[] h, int n) {
+	/** 文件头是否和扩展名对得上；n 为实际读到的字节数 */
+	public static boolean magicMatches(String ext, byte[] h, int n) {
 		return switch (ext) {
 			case "png" -> n >= 8 && (h[0] & 0xFF) == 0x89 && h[1] == 'P' && h[2] == 'N' && h[3] == 'G';
 			case "jpg", "jpeg" -> n >= 3 && (h[0] & 0xFF) == 0xFF && (h[1] & 0xFF) == 0xD8 && (h[2] & 0xFF) == 0xFF;
@@ -127,11 +133,22 @@ public final class UploadPolicy {
 			case "doc", "xls", "ppt" -> n >= 8 && (h[0] & 0xFF) == 0xD0 && (h[1] & 0xFF) == 0xCF
 				&& (h[2] & 0xFF) == 0x11 && (h[3] & 0xFF) == 0xE0;
 			case "mp4" -> n >= 8 && h[4] == 'f' && h[5] == 't' && h[6] == 'y' && h[7] == 'p';
-			case "mp3" -> n >= 3 && (h[0] == 'I' && h[1] == 'D' && h[2] == '3'
-				|| (h[0] & 0xFF) == 0xFF && (h[1] & 0xE0) == 0xE0);
+			case "mp3" -> n >= 3 && (h[0] == 'I' && h[1] == 'D' && h[2] == '3' || isMpegAudioFrame(h));
 			case "txt", "csv", "md" -> !looksLikeMarkup(h, n);
 			default -> false;
 		};
+	}
+
+	/**
+	 * MPEG 音频帧头：11 位同步 + 版本位不是保留值 01 + 层位不是保留值 00，
+	 * 码率索引不是 1111，采样率索引不是 11。
+	 */
+	private static boolean isMpegAudioFrame(byte[] h) {
+		int b1 = h[1] & 0xFF;
+		int b2 = h[2] & 0xFF;
+		return (h[0] & 0xFF) == 0xFF && (b1 & 0xE0) == 0xE0
+			&& ((b1 >> 3) & 0x3) != 0x1 && ((b1 >> 1) & 0x3) != 0x0
+			&& (b2 >> 4) != 0xF && ((b2 >> 2) & 0x3) != 0x3;
 	}
 
 	private static boolean looksLikeMarkup(byte[] h, int n) {

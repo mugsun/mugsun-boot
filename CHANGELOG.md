@@ -18,6 +18,10 @@
   - 新参数 `security.register.register-role-code`（V14 播种为 user）
 - V14 播种内置 user 角色，并给注册角色补授 `sys:file:upload`
 - 直传签名有效期由 60 分钟降到 15 分钟
+- 直传登记前回查对象：大小、类型或文件头不符就删对象并拒绝
+- 上传上限 20MB 改由容器在接收阶段截断，超限返回 400
+- 文本附件跳过开头空白后再查 HTML 标签；mp3 帧头判断收紧
+- 操作日志脱敏补上 api_key、secretKey、appSecret 及字符串里嵌的 JSON
 
 - 导出导入改用独立权限码，只有列表读权不能导出
   - `GET /system/user/export` 由 `sys:user:list` 改为 `sys:user:export`

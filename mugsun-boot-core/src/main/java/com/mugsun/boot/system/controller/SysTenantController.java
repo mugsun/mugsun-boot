@@ -11,6 +11,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import com.mugsun.boot.tenant.TenantContext;
 
 /**
  * 租户管理（仅超管租户可操作）
@@ -40,7 +41,7 @@ public class SysTenantController {
 	@RepeatSubmit
 	@PostMapping("/captcha")
 	public R<java.util.Map<String, Object>> captchaSwitch(@RequestBody CaptchaSwitchDTO dto) {
-		if (!com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()) {
+		if (!TenantContext.isPlatformSuperAdmin()) {
 			throw new ServiceException(com.mugsun.core.tool.api.ResultCode.FORBIDDEN);
 		}
 		if (dto == null || dto.id() == null || dto.enabled() == null) {
@@ -141,7 +142,7 @@ public class SysTenantController {
 	@PostMapping("/create")
 	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant:save")
 	public R<String> create(@RequestBody SysTenant tenant) {
-		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
+		TenantContext.requirePlatformSuperAdmin();
 		String code = tenantService.create(tenant);
 		R<String> result = R.data(code);
 		result.setMsg("已创建。编号 " + code + "。默认部门、岗位、角色和管理员已准备好，把编号交给对方即可登录");
@@ -153,7 +154,7 @@ public class SysTenantController {
 	@PostMapping("/update")
 	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant:save")
 	public R<Void> update(@RequestBody SysTenant tenant) {
-		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
+		TenantContext.requirePlatformSuperAdmin();
 		tenantService.update(tenant);
 		return R.success("已保存。列表里可以查看这名租户的状态和到期时间");
 	}
@@ -162,7 +163,7 @@ public class SysTenantController {
 	@PostMapping("/remove")
 	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant:remove")
 	public R<Void> remove(@RequestBody List<Long> ids) {
-		com.mugsun.boot.tenant.TenantContext.requirePlatformSuperAdmin();
+		TenantContext.requirePlatformSuperAdmin();
 		int count = tenantService.remove(ids);
 		return R.success("已删除 " + count + " 个租户。他们的部门、岗位、角色和用户也已清掉，列表里不会再出现");
 	}

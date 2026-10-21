@@ -334,6 +334,56 @@ class OssStorageApiTest extends AbstractIntegrationTest {
 	}
 
 	/** 预签名 URL 直传 PUT（字节绕过后端，仅携带签发回执的 headers） */
+	@Test
+	@Order(2)
+	void presignedPutBindsHeadersAndCreateRechecksObject() throws Exception {
+		String token = loginAdmin();
+		// 1) 签名里必须带上大小、类型、下载方式三个头
+		JsonNode sign = signPut(token, "bind.txt", 10);
+		String uploadUrl = sign.path("uploadUrl").asText();
+		String signed = java.net.URLDecoder.decode(
+			uploadUrl.replaceAll(".*[?&]X-Amz-SignedHeaders=([^&]*).*", "$1"), StandardCharsets.UTF_8)
+			.toLowerCase(java.util.Locale.ROOT);
+		assertThat(signed.split(";")).as("SignedHeaders=" + signed)
+			.contains("content-length", "content-type", "content-disposition");
+
+		// 2) 绕过签名直接往凭证路径写一个大小不符的对象：create 回验必须拒绝并删掉对象
+		String objectKey = objectKeyOf(uploadUrl);
+		byte[] wrong = "twenty-bytes-not-ten".getBytes(StandardCharsets.UTF_8);
+		minioClient.putObject(io.minio.PutObjectArgs.builder().bucket(BUCKET).object(objectKey)
+			.stream(new java.io.ByteArrayInputStream(wrong), wrong.length, -1).contentType("text/plain").build());
+		JsonNode rejected = readBody(post("/system/file/create", Map.of("ticket", sign.path("ticket").asText()), token));
+		assertThat(rejected.path("code").asInt()).as("大小不符应被拒：" + rejected).isNotEqualTo(200);
+		assertThatThrownBy(() -> minioClient.statObject(StatObjectArgs.builder().bucket(BUCKET).object(objectKey).build()))
+			.as("回验不通过的对象已删除").isInstanceOf(ErrorResponseException.class);
+
+		// 3) 大小、类型都对但内容不是 PNG：魔数回验拒绝
+		byte[] fake = "not a png at all".getBytes(StandardCharsets.UTF_8);
+		JsonNode signPng = signPut(token, "fake.png", fake.length);
+		String pngKey = objectKeyOf(signPng.path("uploadUrl").asText());
+		minioClient.putObject(io.minio.PutObjectArgs.builder().bucket(BUCKET).object(pngKey)
+			.stream(new java.io.ByteArrayInputStream(fake), fake.length, -1).contentType("image/png").build());
+		JsonNode rejectedPng = readBody(post("/system/file/create", Map.of("ticket", signPng.path("ticket").asText()), token));
+		assertThat(rejectedPng.path("code").asInt()).as("魔数不符应被拒：" + rejectedPng).isNotEqualTo(200);
+	}
+
+	private JsonNode signPut(String token, String filename, int size) {
+		Map<String, Object> req = new HashMap<>();
+		req.put("filename", filename);
+		req.put("size", size);
+		req.put("access", OssConstants.ACCESS_PRIVATE);
+		JsonNode sign = readBody(post("/system/file/presigned-put", req, token));
+		assertThat(sign.path("code").asInt()).as("签发：" + sign).isEqualTo(200);
+		assertThat(sign.path("data").path("supported").asBoolean()).isTrue();
+		return sign.path("data");
+	}
+
+	/** 预签名 URL 的路径形如 /bucket/key */
+	private static String objectKeyOf(String uploadUrl) throws Exception {
+		String path = new URL(uploadUrl).getPath();
+		return java.net.URLDecoder.decode(path.substring(path.indexOf('/', 1) + 1), StandardCharsets.UTF_8);
+	}
+
 	private void putBytes(String uploadUrl, JsonNode headers, byte[] content) throws Exception {
 		HttpURLConnection conn = (HttpURLConnection) new URL(uploadUrl).openConnection();
 		conn.setDoOutput(true);

@@ -22,6 +22,8 @@ import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import com.mugsun.boot.auth.register.RegisterGate;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * 认证：登录 / 登出 / 当前用户。登录含失败锁定与登录日志留痕。
@@ -236,10 +238,10 @@ public class AuthController {
 		return user.getEmail();
 	}
 
-	private com.mugsun.boot.auth.register.RegisterGate registerGate;
+	private RegisterGate registerGate;
 
-	@org.springframework.beans.factory.annotation.Autowired
-	void setRegisterGate(com.mugsun.boot.auth.register.RegisterGate registerGate) {
+	@Autowired
+	void setRegisterGate(RegisterGate registerGate) {
 		this.registerGate = registerGate;
 	}
 

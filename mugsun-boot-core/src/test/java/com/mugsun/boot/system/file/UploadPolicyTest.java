@@ -39,6 +39,27 @@ class UploadPolicyTest {
 	}
 
 	@Test
+	void textWithLongLeadingWhitespaceStillCheckedForMarkup() {
+		String padded = " \n\t".repeat(40) + "<html><script>alert(1)</script>";
+		assertThatThrownBy(() -> UploadPolicy.validate(new MockMultipartFile("file", "x.md", null,
+			padded.getBytes(StandardCharsets.UTF_8)))).isInstanceOf(ServiceException.class);
+	}
+
+	@Test
+	void mp3FrameSyncRejectsReservedBits() {
+		byte[] mpeg1Layer3 = {(byte) 0xFF, (byte) 0xFB, (byte) 0x90, 0x00};
+		assertThat(UploadPolicy.magicMatches("mp3", mpeg1Layer3, 4)).isTrue();
+		assertThat(UploadPolicy.magicMatches("mp3", new byte[]{'I', 'D', '3', 4}, 4)).isTrue();
+		byte[] reservedVersion = {(byte) 0xFF, (byte) 0xEB, (byte) 0x90, 0x00};
+		byte[] reservedLayer = {(byte) 0xFF, (byte) 0xF9, (byte) 0x90, 0x00};
+		byte[] badBitrate = {(byte) 0xFF, (byte) 0xFB, (byte) 0xF0, 0x00};
+		byte[] badSampleRate = {(byte) 0xFF, (byte) 0xFB, (byte) 0x9C, 0x00};
+		for (byte[] h : new byte[][]{reservedVersion, reservedLayer, badBitrate, badSampleRate}) {
+			assertThat(UploadPolicy.magicMatches("mp3", h, 4)).isFalse();
+		}
+	}
+
+	@Test
 	void rejectsRenamedFiles() {
 		assertThatThrownBy(() -> UploadPolicy.validate(new MockMultipartFile("file", "x.png", "image/png", "GIF89a".getBytes())))
 			.isInstanceOf(ServiceException.class);

@@ -78,10 +78,8 @@ public final class TenantContext {
 	}
 
 	/**
-	 * 是否平台超管：会话租户为平台租户 {@code 000000} <b>且</b>持内置 {@code admin} 角色。
-	 * <p>刻意不以「会话租户==000000」等价超管——自助注册用户亦落 000000 但无任何角色，
-	 * 仅凭租户归属会把其误判为超管；而 {@code admin} 角色每租户各有一个，仅凭角色又会把各租户管理员误判为平台超管。
-	 * 二者取交集方为唯一平台超管（平台租户下的内置管理员），用于平台专属路径与跨租户切换的门控。
+	 * 要求当前会话是平台超管，否则抛 {@code NotPermissionException}（HTTP 403）。
+	 * 用在平台专属路径（租户、套餐、数据源、规则初始化等）的方法内纵深防御，判定见 {@link #isPlatformSuperAdmin()}。
 	 */
 	public static void requirePlatformSuperAdmin() {
 		if (!isPlatformSuperAdmin()) {
@@ -89,7 +87,12 @@ public final class TenantContext {
 		}
 	}
 
-	/** 平台超管判定，见 {@link #requirePlatformSuperAdmin()} 的纵深防御用法 */
+	/**
+	 * 是否平台超管：会话租户为平台租户 {@code 000000} <b>且</b>持内置 {@code admin} 角色。
+	 * <p>刻意不以「会话租户==000000」等价超管——自助注册用户亦落 000000 但无任何角色，
+	 * 仅凭租户归属会把其误判为超管；而 {@code admin} 角色每租户各有一个，仅凭角色又会把各租户管理员误判为平台超管。
+	 * 二者取交集方为唯一平台超管（平台租户下的内置管理员），用于平台专属路径与跨租户切换的门控。
+	 */
 	public static boolean isPlatformSuperAdmin() {
 		try {
 			if (!StpUtil.isLogin()) {

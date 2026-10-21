@@ -6,7 +6,9 @@
 -- 升级不掉权限：
 -- - 已有 sys:user:list 的角色补授导出码，已有 sys:user:add 的角色补授导入码
 -- - sys:file:upload 补授给全部现有角色（意见反馈等页面也在用上传）
--- - 表单、流程的新按钮只补授给各租户的 admin 角色（原先非管理员本就会被兜底守卫拒绝）
+-- - 表单、流程的新按钮只补授给各租户的 admin 角色（原先非管理员本就会被兜底守卫拒绝）。
+--   admin 现在经 MugsunStpInterface 直接拿到通配 *，这条补授当前是冗余的，
+--   为将来收回通配预留；脚本已在测试库执行过，不再改语句，只改注释
 -- 父级按业务键 path 找（全新库与升级库的主键不同）；父菜单不存在时跳过。
 
 INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)

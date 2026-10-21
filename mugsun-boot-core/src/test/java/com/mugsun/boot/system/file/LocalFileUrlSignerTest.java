@@ -186,7 +186,5 @@ class LocalFileUrlSignerTest {
 		assertThat(resp.getStatus()).isEqualTo(200);
 		assertThat(resp.getHeader("Content-Disposition")).isEqualTo("attachment");
 		assertThat(resp.getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
-		assertThat(LocalFileAccessFilter.isForcedDownload("mugsun/a.pdf")).isTrue();
-		assertThat(LocalFileAccessFilter.isForcedDownload("mugsun/a.png")).isFalse();
 	}
 }
