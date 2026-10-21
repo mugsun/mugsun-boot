@@ -9,11 +9,12 @@ import java.util.List;
 
 /**
  * multipart 白名单（{@link MultipartAuthFilter}）：只有这里列出的 servletPath 允许 multipart，且必须已登录。
- * <p>按规范化后的 servletPath 精确比对（区分大小写，不支持通配）。新增上传接口时把路径追加到
- * {@code mugsun.security.multipart.allowed-paths}；启动时 {@link MultipartEndpointAudit} 会对照
- * 带 MultipartFile 参数的接口，漏配或多配都会打 WARN。
+ * <p>按规范化后的 servletPath 精确比对（区分大小写，不支持通配和路径变量，所以上传接口不能带 {id} 之类的变量）。
+ * 新增上传接口时把路径追加到 {@code mugsun.security.multipart.allowed-paths}；启动时 {@link MultipartEndpointAudit}
+ * 会对照识别出的 multipart 接口：漏配（接口需要 multipart 但不在白名单）打 WARN，多配（白名单里的路径当前没有
+ * 对应接口，例如可选模块未装配）打 INFO。
  * <p>注意：在 yml 里写这个列表是整体替换，要把默认的 5 条一起写上。
- * <p>启动校验（{@link #validate}）：空串、不以 / 开头、含 * 、含 .. 、含 ; 的条目一律拒绝启动，
+ * <p>启动校验（{@link #validate}）：空串、不以 / 开头、含 * 、含 .. 、含 ; 、含 { 或 } 的条目一律拒绝启动，
  * 防止误配成通配或无法精确命中的路径。
  */
 @Component
@@ -72,6 +73,9 @@ public class MultipartGuardProperties implements InitializingBean {
 		}
 		if (path.contains(";")) {
 			return "不能含 ;";
+		}
+		if (path.contains("{") || path.contains("}")) {
+			return "不支持路径变量 { }";
 		}
 		return null;
 	}

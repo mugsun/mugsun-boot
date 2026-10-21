@@ -28,6 +28,8 @@ class MultipartGuardPropertiesTest {
 		"相对上级     | /system/../file/upload  | ..",
 		"末尾 ..      | /system/file/..         | ..",
 		"分号参数     | /system/file/upload;x=1 | ;",
+		"路径变量     | /system/{id}/upload     | 路径变量",
+		"只有右括号   | /system/id}/upload      | 路径变量",
 	})
 	@DisplayName("不合规路径拒绝启动")
 	void invalidPathFailsStartup(String name, String path, String reason) {

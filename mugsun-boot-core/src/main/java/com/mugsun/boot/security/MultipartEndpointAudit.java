@@ -8,7 +8,9 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.ResolvableType;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartRequest;
@@ -20,8 +22,17 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * 启动自检：从 MVC 映射推导「哪些接口需要 multipart」（参数含 MultipartFile / Part / MultipartRequest），
- * 与 {@link MultipartGuardProperties} 白名单对照。白名单仍以配置为准，推导结果只用于发现漏配或多配。
+ * 启动自检：从 MVC 映射推导「哪些接口需要 multipart」，与 {@link MultipartGuardProperties} 白名单对照。
+ * 白名单仍以配置为准，推导结果只用于发现漏配（WARN）或多配（INFO）。
+ * <p>能识别的写法：
+ * <ul>
+ *   <li>参数类型是 MultipartFile、Part、MultipartRequest，或它们的数组、集合；</li>
+ *   <li>参数带 {@code @RequestPart}（含绑定 DTO 的写法）；</li>
+ *   <li>映射的 {@code consumes} 含 {@code multipart/*}，即使没有文件参数。</li>
+ * </ul>
+ * <p>识别不了：在方法体里直接调 {@code HttpServletRequest#getParts()} / {@code getPart()} 的接口——这只能读字节码，
+ * 静态推导做不到。这类接口必须手工加进白名单，否则 multipart 请求会被 415。
+ * <p>带路径变量的模式（如 {@code /x/{id}/upload}）无法配进白名单（启动校验拒绝 { }），这里打 ERROR 说明原因。
  */
 @Component
 public class MultipartEndpointAudit {
@@ -37,11 +48,11 @@ public class MultipartEndpointAudit {
 		this.properties = properties;
 	}
 
-	/** 带 multipart 参数的接口路径（模式原文） */
+	/** 识别出的 multipart 接口路径（模式原文） */
 	public Set<String> multipartEndpoints() {
 		Set<String> paths = new TreeSet<>();
 		for (Map.Entry<RequestMappingInfo, HandlerMethod> e : mapping.getHandlerMethods().entrySet()) {
-			if (takesMultipart(e.getValue())) {
+			if (consumesMultipart(e.getKey()) || takesMultipart(e.getValue())) {
 				paths.addAll(e.getKey().getPatternValues());
 			}
 		}
@@ -53,7 +64,10 @@ public class MultipartEndpointAudit {
 		Set<String> derived = multipartEndpoints();
 		Set<String> allowed = new TreeSet<>(properties.getAllowedPaths());
 		for (String p : derived) {
-			if (!allowed.contains(p)) {
+			if (p.contains("{")) {
+				log.error("接口 {} 接收文件但带路径变量，无法加进 mugsun.security.multipart.allowed-paths（只支持精确路径），"
+					+ "multipart 请求会被 415；请改成不带变量的路径", p);
+			} else if (!allowed.contains(p)) {
 				log.warn("接口 {} 接收文件，但不在 mugsun.security.multipart.allowed-paths 里，multipart 请求会被 415", p);
 			}
 		}
@@ -65,8 +79,20 @@ public class MultipartEndpointAudit {
 		}
 	}
 
+	static boolean consumesMultipart(RequestMappingInfo info) {
+		for (MediaType t : info.getConsumesCondition().getConsumableMediaTypes()) {
+			if ("multipart".equalsIgnoreCase(t.getType())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	static boolean takesMultipart(HandlerMethod method) {
 		for (MethodParameter p : method.getMethodParameters()) {
+			if (p.hasParameterAnnotation(RequestPart.class)) {
+				return true;
+			}
 			Class<?> type = p.getParameterType();
 			if (MultipartRequest.class.isAssignableFrom(type) || isFileType(type)) {
 				return true;

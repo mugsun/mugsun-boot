@@ -44,8 +44,13 @@
   - 拒绝时不读请求体，带 `Connection: close`
   - 新增上传接口要把路径加进 `mugsun.security.multipart.allowed-paths`
   - 该列表在 yml 里是整体替换，要连默认 5 条一起写
-  - 启动时对照接收文件的接口，漏配会打 WARN
+  - 启动时对照接收文件的接口：漏配打 WARN，多配打 INFO
+  - 识别文件参数、`@RequestPart`、`consumes=multipart/*` 三种写法
+  - 方法里直接调 `getParts()` 的接口识别不了，须手工加进白名单
+  - 上传接口不能带路径变量；带变量的上传接口启动时打 ERROR
   - 条目为空、不以 / 开头、含 * 或 **、含 .. 或 ; 时拒绝启动
+  - 条目含 `{` 或 `}`（路径变量）同样拒绝启动
+  - 未登录上传大文件时，客户端可能看到连接被关闭而不是 401
   - 被踢下线、被顶下线或已过期的 token 在白名单路径上同样 401
   - 调用方：控制台 mugsun-pc 用 `Authorization` 请求头传 token，不受影响
   - mugsun-app 暂无 `uni.uploadFile` 头像上传代码，接入时须用请求头传 token

@@ -42,11 +42,12 @@ public class MultipartAuthFilter extends OncePerRequestFilter {
 	/** 全站最先执行（与 Spring Boot 的 CharacterEncodingFilter 并列，后者只设编码、不读参数） */
 	public static final int ORDER = Ordered.HIGHEST_PRECEDENCE;
 
-	private final MultipartGuardProperties properties;
+	/** 启动时固定下来的白名单（配置不支持热更新，不必每个请求复制） */
+	private final Set<String> allowedPaths;
 	private final ObjectMapper objectMapper;
 
 	public MultipartAuthFilter(MultipartGuardProperties properties, ObjectMapper objectMapper) {
-		this.properties = properties;
+		this.allowedPaths = Set.copyOf(properties.getAllowedPaths());
 		this.objectMapper = objectMapper;
 	}
 
@@ -57,7 +58,7 @@ public class MultipartAuthFilter extends OncePerRequestFilter {
 			chain.doFilter(request, response);
 			return;
 		}
-		if (!isAllowedPath(request, Set.copyOf(properties.getAllowedPaths()))) {
+		if (!isAllowedPath(request, allowedPaths)) {
 			reject(response, HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE,
 				R.fail(ResultCode.FAILURE, "该接口不接受 multipart 请求"));
 			return;
