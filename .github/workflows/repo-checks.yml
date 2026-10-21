@@ -1,0 +1,112 @@
+name: repo-checks
+
+# 全仓轻检查：不加 paths 过滤，任何分支推送都跑
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  files:
+    name: CHANGELOG width & AGENTS.md
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # 按 Unicode 字符数计（python len），整份文件逐行检查；文件不存在时跳过
+      - name: Check CHANGELOG line width (<= 80 chars)
+        shell: python3 {0}
+        run: |
+          import sys
+          from pathlib import Path
+          bad = []
+          files = []
+          for f in sorted(Path('.').rglob('CHANGELOG.md')):
+              if any(p in ('node_modules', '.git') for p in f.parts):
+                  continue
+              files.append(f)
+              for i, line in enumerate(f.read_text(encoding='utf-8').splitlines(), 1):
+                  if len(line) > 80:
+                      bad.append(f'{f}:{i} 超过 80 字符（{len(line)}）')
+                      print(f'::error file={f},line={i}::超过 80 字符（{len(line)}）')
+          if bad:
+              print('\n'.join(bad))
+              sys.exit(1)
+          if not files:
+              print('::notice::仓里没有 CHANGELOG.md，跳过行宽检查')
+          else:
+              print(f'OK: {len(files)} 个 CHANGELOG.md 每行不超过 80 字符')
+
+      - name: Check AGENTS.md and CLAUDE.md symlink
+        run: |
+          set -euo pipefail
+          if [ ! -f AGENTS.md ] || [ -L AGENTS.md ]; then
+            echo "::error::AGENTS.md 缺失或不是普通文件"; exit 1
+          fi
+          test -L CLAUDE.md || { echo "::error::CLAUDE.md 不是软链"; exit 1; }
+          target="$(readlink CLAUDE.md)"
+          [ "$target" = "AGENTS.md" ] || { echo "::error::CLAUDE.md 指向 '$target'，应指向 AGENTS.md"; exit 1; }
+          echo "OK: AGENTS.md 存在，CLAUDE.md -> AGENTS.md"
+
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # 工具钉死版本并校验哈希；禁止 curl | sh
+      - name: Install gitleaks (pinned + sha256)
+        env:
+          GITLEAKS_VERSION: '8.30.1'
+          GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tgz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+          sudo install -m 755 "$RUNNER_TEMP/gitleaks" /usr/local/bin/gitleaks
+          gitleaks version
+
+      # 只输出位置与规则名，不打印匹配值；报告写到 RUNNER_TEMP，不上传
+      # 3.19：分支推送扫 HEAD 的祖先；main 推送与手动触发扫 --all
+      # 用仓库自带的 .gitleaks.toml（allowlist 改动须安全官审）
+      - name: Scan git history
+        env:
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/gitleaks.json"
+          opts=HEAD
+          if [ "$REF" = refs/heads/main ] || [ "$EVENT" = workflow_dispatch ]; then
+            opts=--all
+          fi
+          echo "gitleaks --log-opts=$opts"
+          gitleaks detect --source . --config .gitleaks.toml --log-opts="$opts" \
+            --redact --no-banner --log-level error \
+            --report-format json --report-path "$report"
+          rc=$?
+          [ -f "$report" ] || { echo "::error::gitleaks 没有生成报告（退出码 $rc）"; exit 1; }
+          python3 - "$report" <<'PY'
+          import json, sys
+          items = json.load(open(sys.argv[1])) or []
+          for x in items:
+              print(f"{x.get('File')}:{x.get('StartLine')} rule={x.get('RuleID')} commit={(x.get('Commit') or '')[:7]}")
+          print(f"gitleaks 命中 {len(items)} 处")
+          PY
+          exit $rc
