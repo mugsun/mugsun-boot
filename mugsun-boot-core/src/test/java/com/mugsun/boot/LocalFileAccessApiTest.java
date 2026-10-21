@@ -74,7 +74,7 @@ class LocalFileAccessApiTest extends AbstractIntegrationTest {
 		assertThat(ok.getBody()).isEqualTo("top-secret");
 
 		// 篡改签名 → 404
-		assertThat(anonymousGet(url.getPath() + "?" + url.getRawQuery().replaceAll("s=.", "s=Z")).getStatusCode())
+		assertThat(anonymousGet(url.getPath() + "?" + tamperSign(url.getRawQuery())).getStatusCode())
 			.isEqualTo(HttpStatus.NOT_FOUND);
 		// 签名挪用到另一个私有文件 → 404
 		JsonNode other = upload(token, "private", "other");
@@ -116,5 +116,12 @@ class LocalFileAccessApiTest extends AbstractIntegrationTest {
 	void storedFilenameIsServerGenerated() {
 		JsonNode attach = upload(loginAdmin(), "private", "hello", "../../evil name.txt");
 		assertThat(attach.path("filename").asText()).matches("[0-9a-f]{32}\\.txt");
+	}
+
+	/** 把签名首字符换成一个一定不同的字符；原写法固定换成 Z，签名本身以 Z 开头时（约 1/64）等于没改 */
+	private static String tamperSign(String query) {
+		int at = query.startsWith("s=") ? 2 : query.indexOf("&s=") + 3;
+		char c = query.charAt(at);
+		return query.substring(0, at) + (c == 'A' ? 'B' : 'A') + query.substring(at + 1);
 	}
 }
