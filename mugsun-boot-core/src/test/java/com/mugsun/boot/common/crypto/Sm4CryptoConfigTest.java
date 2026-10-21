@@ -1,5 +1,6 @@
 package com.mugsun.boot.common.crypto;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -15,6 +16,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** 字段加密密钥：没有内置回落；dev 用持久化的本地密钥文件，重启后能解开旧数据。 */
 class Sm4CryptoConfigTest {
+
+	/** Sm4Util 的密钥是 JVM 级静态状态：用完恢复成集成测试密钥，避免后面复用缓存上下文的集成测试用错密钥写库 */
+	@AfterEach
+	void restoreIntegrationSm4Key() {
+		Sm4TestKeys.useIntegrationKey();
+	}
+
 
 	private static Sm4CryptoConfig config(String key, boolean strict, String file) {
 		Sm4CryptoConfig c = new Sm4CryptoConfig();
