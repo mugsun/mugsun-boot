@@ -7,6 +7,12 @@
 
 ### 修复
 
+- 超限上传稳定返回 400，不再在请求体未读完时断开连接
+  - 新增 `server.tomcat.max-swallow-size: 32MB`（Tomcat 默认 2MB）
+  - 容器拒绝超限上传时，剩余请求体超过 Tomcat 默认 2MB 吞吐上限会断连
+    （spring-boot#41581），提到 32MB 覆盖 21MB 请求上限
+  - 超过 32MB 的请求仍会断连，属有意的带宽保护
+
 - openGauss V8 改为兼容 openGauss-lite 5.1 的写法
   - lite 5.1 不支持 `ADD COLUMN IF NOT EXISTS`，原 V8 在 lite 上会中止
   - 改为 DO 块加 information_schema 判断，和 V2、V9、V10 写法一致

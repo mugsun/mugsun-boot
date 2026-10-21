@@ -1,5 +1,8 @@
 server:
   port: 8080
+  tomcat:
+    # 超限上传被拒后剩余请求体超默认 2MB 会断连(spring-boot#41581)，32MB 覆盖 21MB 请求上限
+    max-swallow-size: 32MB
   # 优雅停机：停接新请求、等待在途请求处理完毕，滚动发布/重启不硬砍在途请求
   shutdown: graceful
 spring:
