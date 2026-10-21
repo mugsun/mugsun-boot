@@ -34,6 +34,18 @@ class LogDataSourceRouterTest {
 	}
 
 	@Test
+	void hostWithUnderscoreIsParsedFromAuthority() {
+		assertThat(LogDataSourceRouter.parse("jdbc:postgresql://Mugsun_PG:5432/mugsun?sslmode=disable"))
+			.containsExactly("postgresql", "mugsun_pg", "5432", "mugsun");
+		assertThat(LogDataSourceRouter.sameDatabase("jdbc:postgresql://mugsun_pg/mugsun",
+			"jdbc:postgresql://MUGSUN_PG:5432/mugsun?ApplicationName=log")).isTrue();
+		assertThat(LogDataSourceRouter.sameDatabase("jdbc:postgresql://mugsun_pg:5432/mugsun",
+			"jdbc:postgresql://mugsun_pg2:5432/mugsun")).isFalse();
+		assertThat(new LogDataSourceRouter(true, env("jdbc:postgresql://mugsun_pg:5432/mugsun",
+			"jdbc:postgresql://mugsun_pg/mugsun?tcpKeepAlive=true")).routed()).isTrue();
+	}
+
+	@Test
 	void unparsableUrlsFallBackToExactMatch() {
 		String multi = "jdbc:postgresql://a:5432,b:5432/mugsun";
 		assertThat(LogDataSourceRouter.sameDatabase(multi, multi)).isTrue();

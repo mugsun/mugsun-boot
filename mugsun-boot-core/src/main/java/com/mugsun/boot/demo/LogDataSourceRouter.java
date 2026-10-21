@@ -69,15 +69,41 @@ public class LogDataSourceRouter {
 		try {
 			java.net.URI u = java.net.URI.create(url.substring(5));
 			String scheme = u.getScheme();
-			String host = u.getHost();
+			// 主机名带下划线（如 mugsun_pg）时 getHost() 为 null，改从 authority 解析 host:port
+			String authority = u.getRawAuthority();
 			String path = u.getPath();
-			if (scheme == null || host == null || path == null || path.length() < 2) {
+			if (scheme == null || authority == null || authority.isEmpty() || authority.contains(",")
+				|| authority.contains("@") || path == null || path.length() < 2) {
 				return null;
 			}
-			int port = u.getPort() > 0 ? u.getPort() : defaultPort(scheme);
+			String host = authority;
+			int port = -1;
+			if (authority.startsWith("[")) {
+				int end = authority.indexOf(']');
+				if (end < 0) {
+					return null;
+				}
+				host = authority.substring(0, end + 1);
+				String rest = authority.substring(end + 1);
+				if (rest.startsWith(":") && rest.length() > 1) {
+					port = Integer.parseInt(rest.substring(1));
+				}
+			} else {
+				int colon = authority.lastIndexOf(':');
+				if (colon >= 0) {
+					host = authority.substring(0, colon);
+					port = colon + 1 < authority.length() ? Integer.parseInt(authority.substring(colon + 1)) : -1;
+				}
+			}
+			if (host.isEmpty()) {
+				return null;
+			}
+			if (port <= 0) {
+				port = defaultPort(scheme);
+			}
 			return new String[]{scheme.toLowerCase(java.util.Locale.ROOT), host.toLowerCase(java.util.Locale.ROOT),
 				String.valueOf(port), path.substring(1)};
-		} catch (IllegalArgumentException e) {
+		} catch (IllegalArgumentException e) { // 含 NumberFormatException
 			return null;
 		}
 	}
