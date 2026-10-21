@@ -21,7 +21,8 @@ import java.util.Properties;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * B89-0 反向守卫：内置 MCP Server 暂时下线（加鉴权后恢复），Spring AI 随之移出依赖。
+ * B89-0 反向守卫：Spring AI 不得回到依赖里；B2 起 MCP 只允许官方 SDK 的 mcp-core / mcp-json-jackson2 2.1.0（仅 server 端、Streamable HTTP），
+ * 不得用 client、stdio、SSE 传输，也不得用 Spring AI 的 MCP 自动装配。
  * <p>Spring AI 的 MCP Server 自动装配不经过本项目鉴权，jar 一回到 classpath、配置一开就是匿名可调的端点。
  * 这里从四个方向确认它们没有回来：类、自动装配候选、配置项、POM 声明（含 BOM）。
  * 依赖层面另有根 pom 的 maven-enforcer bannedDependencies（{@code scripts/check-banned-dependencies.sh} 证明会触发）。
@@ -40,29 +41,47 @@ class NoSpringAiGuardTest {
 		"org.springframework.ai.chat.client.ChatClient",
 		"org.springframework.ai.vectorstore.VectorStore",
 		"org.springframework.ai.model.ModelOptions",
-		// MCP SDK
-		"io.modelcontextprotocol.server.McpServer",
-		"io.modelcontextprotocol.json.McpJsonMapper",
-		"io.modelcontextprotocol.spec.McpSchema"})
+		// MCP：只放行 jackson2，jackson3 实现不得出现
+		"io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper"})
 	void classAbsent(String className) {
 		assertThat(isPresent(className)).isFalse();
 	}
 
 	@Test
-	@DisplayName("classpath 上没有任何 org.springframework.ai / io.modelcontextprotocol 的 jar 或目录")
+	@DisplayName("classpath 上没有 Spring AI；io.modelcontextprotocol 只来自放行的两个 2.1.0 jar")
 	void noSpringAiOrMcpOnClasspath() {
 		String sep = File.separator;
 		List<String> found = new ArrayList<>();
 		for (String entry : System.getProperty("java.class.path").split(File.pathSeparator)) {
 			String normalized = entry.replace(sep, "/");
-			if (normalized.contains("/org/springframework/ai/") || normalized.contains("/io/modelcontextprotocol/")) {
+			if (normalized.contains("/org/springframework/ai/")) {
+				found.add(entry);
+			}
+			if (normalized.contains("/io/modelcontextprotocol/")
+				&& !normalized.endsWith("/mcp-core-2.1.0.jar") && !normalized.endsWith("/mcp-json-jackson2-2.1.0.jar")) {
 				found.add(entry);
 			}
 		}
 		assertThat(found).isEmpty();
-		ClassLoader loader = getClass().getClassLoader();
-		assertThat(loader.getResource("org/springframework/ai")).isNull();
-		assertThat(loader.getResource("io/modelcontextprotocol")).isNull();
+		assertThat(getClass().getClassLoader().getResource("org/springframework/ai")).isNull();
+	}
+
+	@Test
+	@DisplayName("项目代码不引用 MCP client、stdio 与 SSE 传输（mcp-core 里有这些类，但不得接线）")
+	void noClientStdioOrSseInSources() throws IOException {
+		Path root = Path.of("..").toAbsolutePath().normalize();
+		List<String> hits = new ArrayList<>();
+		try (var files = Files.walk(root)) {
+			for (Path f : files.filter(p -> p.toString().endsWith(".java") && p.toString().contains("/src/main/")).toList()) {
+				String src = Files.readString(f, StandardCharsets.UTF_8);
+				for (String bad : new String[] {"io.modelcontextprotocol.client", "StdioServerTransport", "SseServerTransport"}) {
+					if (src.contains(bad)) {
+						hits.add(root.relativize(f) + " : " + bad);
+					}
+				}
+			}
+		}
+		assertThat(hits).isEmpty();
 	}
 
 	@Test
@@ -86,7 +105,7 @@ class NoSpringAiGuardTest {
 	}
 
 	@Test
-	@DisplayName("各 POM 不再声明 Spring AI / MCP（含根 pom 的 spring-ai-bom 与 spring-ai.version）；只允许出现在 enforcer 的禁用清单里")
+	@DisplayName("各 POM 不声明 Spring AI；MCP 只允许 mcp-core / mcp-json-jackson2，版本只在根 pom 精确锁定")
 	void pomsDoNotDeclareSpringAi() throws IOException {
 		Path root = Path.of("..").toAbsolutePath().normalize();
 		assertThat(root.resolve("pom.xml")).exists();
@@ -100,7 +119,10 @@ class NoSpringAiGuardTest {
 		for (Path pom : poms) {
 			String xml = Files.readString(pom, StandardCharsets.UTF_8)
 				.replaceAll("(?s)<!--.*?-->", "")
-				.replaceAll("(?s)<bannedDependencies>.*?</bannedDependencies>", "");
+				.replaceAll("(?s)<bannedDependencies>.*?</bannedDependencies>", "")
+				.replaceAll("<mcp-sdk.version>2\\.1\\.0</mcp-sdk.version>", "")
+				.replaceAll("<dependency>\\s*<groupId>io\\.modelcontextprotocol\\.sdk</groupId>\\s*<artifactId>(mcp-core|mcp-json-jackson2)</artifactId>"
+					+ "(\\s*<version>\\$\\{mcp-sdk\\.version}</version>)?\\s*</dependency>", "");
 			for (String bad : new String[] {"org.springframework.ai", "spring-ai", "modelcontextprotocol"}) {
 				if (xml.contains(bad)) {
 					hits.add(root.relativize(pom) + " : " + bad);
@@ -110,7 +132,9 @@ class NoSpringAiGuardTest {
 		assertThat(hits).isEmpty();
 		String rootPom = Files.readString(root.resolve("pom.xml"), StandardCharsets.UTF_8);
 		assertThat(rootPom).as("enforcer 禁用清单仍在").contains("<exclude>org.springframework.ai</exclude>")
-			.contains("<exclude>io.modelcontextprotocol*</exclude>");
+			.contains("<exclude>io.modelcontextprotocol*</exclude>")
+			.contains("<include>io.modelcontextprotocol.sdk:mcp-core:[2.1.0]</include>")
+			.contains("<include>io.modelcontextprotocol.sdk:mcp-json-jackson2:[2.1.0]</include>");
 	}
 
 	private static boolean isPresent(String className) {

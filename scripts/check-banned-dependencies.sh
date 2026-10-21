@@ -130,6 +130,11 @@ probe spring-ai-direct fail "$(dep org.springframework.ai spring-ai-model 1.1.2 
 probe spring-ai-mcp-server-starter fail "$(dep org.springframework.ai spring-ai-starter-mcp-server-webmvc 1.1.2)" "${shift_args[@]}"
 probe mcp-sdk fail "$(dep io.modelcontextprotocol.sdk mcp 0.17.0)" "${shift_args[@]}"
 probe mcp-json-only fail "$(dep io.modelcontextprotocol.sdk mcp-json 0.17.0)" "${shift_args[@]}"
+probe mcp-core-allowed pass "$(dep io.modelcontextprotocol.sdk mcp-core 2.1.0)" "${shift_args[@]}"
+probe mcp-json-jackson2-allowed pass "$(dep io.modelcontextprotocol.sdk mcp-json-jackson2 2.1.0)" "${shift_args[@]}"
+probe mcp-core-other-version fail "$(dep io.modelcontextprotocol.sdk mcp-core 2.0.0)" "${shift_args[@]}"
+probe mcp-aggregate fail "$(dep io.modelcontextprotocol.sdk mcp 2.1.0)" "${shift_args[@]}"
+probe mcp-json-jackson3 fail "$(dep io.modelcontextprotocol.sdk mcp-json-jackson3 2.1.0)" "${shift_args[@]}"
 probe_transitive "${shift_args[@]}"
 
 if [ $failures -ne 0 ]; then

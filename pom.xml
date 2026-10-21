@@ -45,6 +45,8 @@
 		<bucket4j.version>8.21.0</bucket4j.version>
 		<!-- 与已导入的 spring-cloud-circuitbreaker BOM 中的 resilience4j 一致 -->
 		<resilience4j.version>2.2.0</resilience4j.version>
+		<!-- B2：官方 MCP Java SDK，仅 server + Streamable HTTP；精确锁版本，enforcer 按 GAV 放行同一版本 -->
+		<mcp-sdk.version>2.1.0</mcp-sdk.version>
 	</properties>
 
 	<dependencyManagement>
@@ -119,6 +121,17 @@
 				<artifactId>greenmail</artifactId>
 				<version>2.1.11</version>
 			</dependency>
+			<!-- B2 MCP Server（MIT）。只放行 mcp-core 与 mcp-json-jackson2；不引 mcp 聚合包（会带 jackson3）、Spring AI starter -->
+			<dependency>
+				<groupId>io.modelcontextprotocol.sdk</groupId>
+				<artifactId>mcp-core</artifactId>
+				<version>${mcp-sdk.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>io.modelcontextprotocol.sdk</groupId>
+				<artifactId>mcp-json-jackson2</artifactId>
+				<version>${mcp-sdk.version}</version>
+			</dependency>
 		</dependencies>
 	</dependencyManagement>
 	<!-- 仅 mugsun-boot-server 可启动；其余模块跳过 spring-boot:run / repackage -->
@@ -154,7 +167,12 @@
 										<exclude>org.springframework.ai</exclude>
 										<exclude>io.modelcontextprotocol*</exclude>
 									</excludes>
-									<message>B89-0：禁止引入 Spring AI（org.springframework.ai:*）与 MCP SDK（io.modelcontextprotocol*）。内置 MCP Server 暂时下线、正在加鉴权后恢复；恢复前不得引入，恢复时须连同鉴权方案一起过安全评审。</message>
+									<!-- B2：仅按 GAV 精确放行这两个构件的 2.1.0（[x] 为精确版本）；其他版本、其他 io.modelcontextprotocol 构件、Spring AI 仍拦下 -->
+									<includes>
+										<include>io.modelcontextprotocol.sdk:mcp-core:[2.1.0]</include>
+										<include>io.modelcontextprotocol.sdk:mcp-json-jackson2:[2.1.0]</include>
+									</includes>
+									<message>B89-0：禁止引入 Spring AI（org.springframework.ai:*）与 MCP SDK（io.modelcontextprotocol*）。内置 MCP Server 暂时下线、正在加鉴权后恢复；仅放行 io.modelcontextprotocol.sdk:mcp-core / mcp-json-jackson2 的 2.1.0（B2，已过安全评审）；升级须同时改 includes 并重新评审。</message>
 								</bannedDependencies>
 							</rules>
 							<fail>true</fail>
