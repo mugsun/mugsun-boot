@@ -1,27 +1,48 @@
 package com.mugsun.boot.common.crypto;
 
 import com.mugsun.core.web.config.MugsunWebAutoConfiguration;
+import com.mugsun.core.web.crypto.ApiCryptoService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 
+import java.nio.file.Path;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 证明 boot 用的是 core 0.2.0-SNAPSHOT 的接口加密：不配 api-key、也不开临时密钥就拒绝启动
- * （旧 0.1.0 会静默回落内置密钥，这条在 0.1.0 上会失败）。
+ * 证明 boot 用的是开箱即用版 core：不配 api-key 也能启动（自动生成并持久化），
+ * 生产 strict-keys=true 也不因缺 api-key 拒绝启动；格式非法仍拒绝。
  */
 class ApiCryptoKeyStartupTest {
 
-	private final WebApplicationContextRunner runner = new WebApplicationContextRunner()
-		.withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class, MugsunWebAutoConfiguration.class));
+	@TempDir
+	Path home;
+
+	private WebApplicationContextRunner runner() {
+		return new WebApplicationContextRunner()
+			.withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class, MugsunWebAutoConfiguration.class))
+			.withPropertyValues("mugsun.home=" + home);
+	}
 
 	@Test
-	@DisplayName("不配 api-key、不开 allow-ephemeral-keys：启动失败，报错点名 MUGSUN_API_KEY")
-	void missingKeyWithoutEphemeralFails() {
-		runner.run(ctx -> {
+	@DisplayName("不配 api-key（含 strict-keys=true）：能启动，密钥文件落在 mugsun.home")
+	void missingKeyStarts() {
+		runner().withPropertyValues("mugsun.crypto.strict-keys=true").run(ctx -> {
+			assertThat(ctx).hasNotFailed();
+			ApiCryptoService s = ctx.getBean(ApiCryptoService.class);
+			assertThat(s.keySource()).isEqualTo(ApiCryptoService.KeySource.AUTO_GENERATED);
+			assertThat(s.localKeyFile()).isEqualTo(home.resolve(ApiCryptoService.LOCAL_KEY_FILE));
+		});
+	}
+
+	@Test
+	@DisplayName("api-key 格式非法：仍拒绝启动")
+	void malformedKeyFails() {
+		runner().withPropertyValues("mugsun.crypto.api-key=short").run(ctx -> {
 			assertThat(ctx).hasFailed();
 			Throwable t = ctx.getStartupFailure();
 			while (t.getCause() != null) {
@@ -29,12 +50,5 @@ class ApiCryptoKeyStartupTest {
 			}
 			assertThat(t).isInstanceOf(IllegalStateException.class).hasMessageContaining("MUGSUN_API_KEY");
 		});
-	}
-
-	@Test
-	@DisplayName("开了 allow-ephemeral-keys：能启动")
-	void ephemeralStarts() {
-		runner.withPropertyValues("mugsun.crypto.allow-ephemeral-keys=true")
-			.run(ctx -> assertThat(ctx).hasNotFailed());
 	}
 }

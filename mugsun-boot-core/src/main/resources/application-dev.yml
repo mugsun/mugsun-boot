@@ -2,8 +2,7 @@
 # 只放「没配密钥也能起」的开关；任何环境都不要在这里写密钥值。
 mugsun:
   crypto:
-    # 接口传输加密：没配 MUGSUN_API_KEY 时用进程内临时密钥（重启即变，多实例不互通）
-    allow-ephemeral-keys: true
+    # 接口传输加密、审计签名：没配时在所有环境都自动生成并持久化到 ~/.mugsun（mugsun.home），这里不用再配
     # 字段落库加密：没配 MUGSUN_SM4_KEY 时用本地密钥文件，首次启动生成，之后复用
     # 默认放在用户目录（文件 600、目录 700），不落进仓库；删掉文件后，用它加密的本地数据将无法解开
     sm4-local-key-file: ${MUGSUN_SM4_LOCAL_KEY_FILE:${user.home}/.mugsun/dev-sm4.key}

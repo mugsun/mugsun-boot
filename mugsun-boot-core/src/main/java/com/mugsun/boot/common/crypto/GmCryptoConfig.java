@@ -37,7 +37,20 @@ public class GmCryptoConfig {
 	@Value("${mugsun.crypto.sign-public-key:}")
 	private String signPublicKey;
 
-	/** 生产严格模式：开启后密钥缺失即拒绝启动（防静默临时密钥致历史签名/密文作废） */
+	/** 本地密钥目录（mugsun.home / MUGSUN_HOME，默认 ~/.mugsun）；审计签名密钥没配时自动生成到这里 */
+	@Value("${mugsun.home:}")
+	private String home;
+
+	/** 自动生成的审计签名密钥文件名；与接口传输密钥（api-transport.key）分两个文件存，任何接口都不下发 */
+	public static final String SIGN_KEY_FILE = "audit-sign-sm2.key";
+
+	private static final java.util.regex.Pattern SIGN_FILE_FORMAT =
+		java.util.regex.Pattern.compile("(?s)^[0-9a-fA-F]{1,64}\\s+04[0-9a-fA-F]{128}$");
+
+	/** 审计签名密钥文件（自动生成时）；配置注入时为 null */
+	private java.nio.file.Path signKeyFile;
+
+	/** 生产严格模式：开启后 SM2 传输密钥缺失即拒绝启动；审计签名密钥缺失改为自动生成并持久化，不再拒绝 */
 	@Value("${mugsun.crypto.strict-keys:false}")
 	private boolean strictKeys;
 
@@ -56,17 +69,39 @@ public class GmCryptoConfig {
 			log.warn("未注入 SM2 传输密钥，已临时生成一对（生产请配置 MUGSUN_SM2_PRIVATE_KEY/MUGSUN_SM2_PUBLIC_KEY，"
 				+ "否则重启后历史密文不可解）。当前公钥={}", pair[1]);
 		}
-		// 审计签名密钥：独立注入优先；缺省回退传输密钥（同一持久密钥则签名链稳定）；
-		// 二者皆无则随传输侧临时生成（重启后历史签名不可验——本地起步容忍，生产必须注入）
+		// 审计签名密钥：配置注入优先；没配就自动生成并持久化到 <mugsun.home>/audit-sign-sm2.key，重启复用（不再拒绝启动）
 		if (signPrivateKey != null && !signPrivateKey.isBlank()
 			&& signPublicKey != null && !signPublicKey.isBlank()) {
 			Sm2Util.initSign(signPrivateKey.trim(), signPublicKey.trim());
 			log.info("审计签名密钥已从外部配置注入（独立于传输密钥）");
-		} else if (strictKeys) {
-			throw new IllegalStateException("strict-keys 模式：未注入审计签名密钥（MUGSUN_SIGN_PRIVATE_KEY/MUGSUN_SIGN_PUBLIC_KEY），拒绝启动");
 		} else {
-			log.warn("未注入审计签名密钥，审计验签跟随传输密钥（生产请配置 MUGSUN_SIGN_PRIVATE_KEY/MUGSUN_SIGN_PUBLIC_KEY）");
+			initSignFromLocalFile();
 		}
+	}
+
+	private void initSignFromLocalFile() {
+		java.nio.file.Path file = com.mugsun.core.web.crypto.LocalKeyFiles.resolveHome(home).resolve(SIGN_KEY_FILE);
+		var loaded = com.mugsun.core.web.crypto.LocalKeyFiles.loadOrCreate(file, () -> {
+			String[] pair = Sm2Util.generateKeyPair();
+			return pair[0] + "\n" + pair[1];
+		}, v -> SIGN_FILE_FORMAT.matcher(v).matches(), "审计签名密钥");
+		String[] parts = loaded.content().split("\\s+");
+		Sm2Util.initSign(parts[0], parts[1]);
+		signKeyFile = loaded.file();
+		if (loaded.created()) {
+			log.info("未配置 MUGSUN_SIGN_PRIVATE_KEY/MUGSUN_SIGN_PUBLIC_KEY，已自动生成审计签名密钥并保存到 {}", loaded.file());
+		}
+		log.warn("审计签名当前使用自动生成的密钥（文件 {}）。Docker 不给该目录挂卷时每次重启都会换新密钥、历史签名验不过；"
+			+ "多实例各自生成会互相验不过：这两种部署请配置 MUGSUN_SIGN_PRIVATE_KEY/MUGSUN_SIGN_PUBLIC_KEY 或挂共享卷", loaded.file());
+		if (com.mugsun.core.web.crypto.LocalKeyFiles.inContainer()) {
+			log.warn("检测到容器环境且没配审计签名密钥：请配置 MUGSUN_SIGN_PRIVATE_KEY/MUGSUN_SIGN_PUBLIC_KEY，或给 {} 挂持久卷",
+				loaded.file().getParent());
+		}
+	}
+
+	/** 自动生成时的审计签名密钥文件；配置注入时为 null */
+	public java.nio.file.Path signKeyFile() {
+		return signKeyFile;
 	}
 
 	public boolean isGmEnabled() {

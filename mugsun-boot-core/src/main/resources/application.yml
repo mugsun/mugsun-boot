@@ -207,11 +207,11 @@ mugsun:
   crypto:
     gm-enabled: ${MUGSUN_GM_ENABLED:true}          # 国密总开关（传输 SM2 / 摘要 SM3 一处切）
     sm4-key: ${MUGSUN_SM4_KEY:}                     # SM4 字段加密密钥（生产必须环境变量注入，缺省拒绝启动明文提示）
-    api-key: ${MUGSUN_API_KEY:}                     # 接口传输 SM4-GCM 密钥：32 位 hex（openssl rand -hex 16）
-    strict-keys: ${MUGSUN_STRICT_KEYS:false}        # 生产 true：密钥缺失即拒绝启动
+    api-key: ${MUGSUN_API_KEY:}                     # 接口传输 SM4-GCM 密钥（可选）：没配自动生成到 ${MUGSUN_HOME:~/.mugsun}/api-transport.key
+    strict-keys: ${MUGSUN_STRICT_KEYS:false}        # 生产 true：SM4 字段/SM2 传输密钥缺失即拒绝启动
     sm2-private-key: ${MUGSUN_SM2_PRIVATE_KEY:}     # SM2 传输私钥 hex（留空则启动生成并告警）
     sm2-public-key: ${MUGSUN_SM2_PUBLIC_KEY:}       # SM2 传输公钥 hex（04+128）
-    sign-private-key: ${MUGSUN_SIGN_PRIVATE_KEY:}   # 审计签名 SM2 私钥（与传输分离，生产必须固定注入）
+    sign-private-key: ${MUGSUN_SIGN_PRIVATE_KEY:}   # 审计签名 SM2 私钥（可选）：没配自动生成到 audit-sign-sm2.key，与接口密钥分文件
     sign-public-key: ${MUGSUN_SIGN_PUBLIC_KEY:}     # 审计签名 SM2 公钥
   serial-number:
     provider: redis          # redis 自增（默认）/ db 行锁

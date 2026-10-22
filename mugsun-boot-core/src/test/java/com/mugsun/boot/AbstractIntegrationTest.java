@@ -51,8 +51,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 		"mugsun.captcha.enabled=false",
 		"mugsun.sms.show-code=true",
 		"mugsun.crypto.sm4-key=" + Sm4TestKeys.INTEGRATION_KEY,
-		// 接口加密密钥不写死：测试用进程内临时密钥（strict-keys 由 application.yml 默认 false）
-		"mugsun.crypto.allow-ephemeral-keys=true",
+		// 接口/签名密钥不写死：没配时自动生成，密钥目录指到 target 下，绝不碰 ~/.mugsun
+		"mugsun.home=target/it-mugsun-home",
+		// 不往本机 mugsun-pc 写 .env.local
+		"mugsun.crypto.pc-env-local.enabled=false",
 		"mugsun.web.front-url=http://frontend.test:3006",
 		// 测试上下文没有显式 profile，按生产规则注册默认关闭；存量注册用例需要开放。
 		// 关闭场景见 RegisterOffApiTest；IP 限流放宽，避免同 JVM 多个注册用例互相挤占，账号维度保持默认

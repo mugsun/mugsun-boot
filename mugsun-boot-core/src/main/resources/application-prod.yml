@@ -72,6 +72,6 @@ mugsun:
   sms:
     show-code: false
   crypto:
-    strict-keys: true            # 密钥缺失即拒绝启动（SM4/api-key/SM2/审计签名 全部必须注入）
+    strict-keys: true            # SM4 字段/SM2 传输密钥缺失即拒绝启动；api-key、审计签名没配时自动生成并持久化（打 WARN）
   social:
     mock-enabled: false          # mock 来源身份固定=后门，生产永不开启
