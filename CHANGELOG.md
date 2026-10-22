@@ -126,7 +126,8 @@
   - Docker 不挂卷或多实例部署必须配密钥或挂共享卷，容器内未配打 WARN
   - 移除 `allow-ephemeral-keys`（dev 配置里不再需要）
 - 新增 `GET /crypto/bootstrap`：已登录会话运行时拿接口传输密钥
-  - 不进匿名白名单，会话须带租户；按用户每分钟 30 次（可配）
+  - 不进匿名白名单；未登录 401，会话无租户 403
+  - 按用户每分钟 30 次（可配），超限 429；计数与过期用 Lua 原子设置
   - 响应 `Cache-Control: no-store`；只下发传输密钥，从不下发签名密钥
   - 日志只记谁调了，不记密钥；传输加密不能替代 HTTPS
 - dev/test/local 启动时把传输密钥写进 mugsun-pc 的 `.env.local`
@@ -134,16 +135,16 @@
   - pc 的 .gitignore 没忽略 .env.local 就拒绝写入
   - pc 目录用 `MUGSUN_PC_DIR` 指定，或自动找 `../mugsun-pc`
 
-- 去掉接口加密和字段加密的内置回落密钥；非 dev 环境必须显式配置密钥
+- 去掉接口加密和字段加密的内置回落密钥；非 dev 缺字段密钥拒绝启动
   - 依赖 mugsun-core `0.2.0-SNAPSHOT`（Central 没有，须先装 core；core 先合）
-  - `MUGSUN_API_KEY` 须为 32 位 hex 或带填充的 16 字节 base64
-  - 接口加密改 SM4-GCM，只是传输混淆，不能代替 TLS；前端须同步升级
+  - `MUGSUN_API_KEY` 可选；配了须为 32 位 hex 或带填充的 16 字节 base64
+  - 接口加密改 SM4-GCM，只是传输混淆，不能代替 HTTPS；前端须同步升级
   - `Sm4CryptoConfig` 不再回落固定密钥；缺 `MUGSUN_SM4_KEY` 拒绝启动
   - 新增 dev profile：字段用 `~/.mugsun/dev-sm4.key`
   - dev 密钥文件创建即 600、目录 700，权限过宽打 WARN
   - `strict-keys` 保留，字段密钥侧只作否决：为 true 时不认本地文件
   - `gen-keys.sh` 的 `MUGSUN_API_KEY` 改为 `openssl rand -hex 16`
-  - 已部署环境的旧 16 字符 `MUGSUN_API_KEY` 要先换成新格式再升级
+  - 配着旧 16 字符 `MUGSUN_API_KEY` 的部署，升级前换成新格式或删掉
   - `MUGSUN_SM4_KEY` 只认 32 位 hex、16 字节标准 base64、16 字符旧写法
   - 16 字符旧写法本版仍兼容并打 WARN，下一版只认 32 位 hex
   - 其他长度拒绝启动，不再补零、截断，没有 legacy 开关
