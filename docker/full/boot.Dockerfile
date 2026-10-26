@@ -6,7 +6,7 @@
 # 带 -Pfull,kingbase,dameng（显式 -P 会关掉默认激活的 full，所以 full 要写上）：镜像内置人大金仓 / 达梦驱动，换库只改 JDBC_URL，不必重建。
 # 基础镜像固定 digest（多架构 index；升级时同步更新 tag 与 digest）
 FROM scratch AS mugsun-core
-ARG MUGSUN_CORE_REF=9b05105d042a777764d5df1c4a202493d044d1ff
+ARG MUGSUN_CORE_REF=50c5843684c2f297f6aa37193fcc4e0c48ff12c6
 ADD https://github.com/mugsun/mugsun-core.git#${MUGSUN_CORE_REF} /
 
 FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320 AS build
