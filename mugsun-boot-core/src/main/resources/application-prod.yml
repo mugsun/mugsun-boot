@@ -20,12 +20,8 @@ mybatis-flex:
       username: ${JDBC_USERNAME}
       password: ${JDBC_PASSWORD}
 
-jetcache:
-  remote:
-    default:
-      # JetCache lettuce 只认 uri。口令勿裸拼：由 JetCacheRedisUriEnvironmentPostProcessor
-      # 按 spring.data.redis（host/port/password/database）合成并 URL 编码；空口令不 AUTH。
-      # 一键部署 gen-secrets 口令仅 A-Za-z0-9，自建部署仍可能含 @:/?#% 等，必须走编码。
+# jetcache.remote.default 不在 prod 覆盖（避免空 map 冲掉 application.yml 的 type）；
+# uri 仍由 JetCacheRedisUriEnvironmentPostProcessor 按 spring.data.redis 合成。
 
 # 对象存储：生产禁用本地 /file/** 匿名直出（私有附件全走授权流式/预签名），启用云平台由 sys_oss 配置驱动
 dromara:

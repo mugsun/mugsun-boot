@@ -62,6 +62,13 @@
 
 ### 修复
 
+- prod/demo 空 `jetcache.remote.default` 冲掉 type，JetCacheCondition 崩
+  - 删掉两处注释空 map；继承 application.yml 的 `type: redis.lettuce`
+  - 裸键 `jetcache.remote.default=` 会让 Condition 对无点号键做
+    `substring(0, indexOf('.'))` → StringIndexOutOfBounds Range [0,-1)
+  - 回归测覆盖 prod/demo 继承 type，并复现裸键崩溃；修 CI DemoAccounts /
+    compose-full boot unhealthy
+
 - JetCache Redis uri 口令 URL 编码，避免特殊字符连错（#70）
   - lettuce 只认 uri：按 spring.data.redis host/port/password/database 合成
   - 口令百分号编码（含 `@` `%` `/` 等）；回解析不一致则启动失败
