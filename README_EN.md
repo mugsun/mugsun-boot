@@ -52,15 +52,18 @@ Prerequisites: JDK 21, Maven 3.9+, Docker. `mugsun-core` 0.1.0 is on Maven Centr
 
 ```bash
 docker compose up -d
-mvn -pl mugsun-boot-server -am package -DskipTests
+./mvnw -pl mugsun-boot-server -am package -DskipTests
 java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 ```
 
-`config/application-local.yml` is an optional override (`optional:file:./config/application-local.yml`, gitignored). Create it from `config/application-local.yml.example` only when you need overrides; the example has no required fields. Run `java -jar` from the repository root, otherwise that file is not picked up. You can also run `mvn -pl mugsun-boot-server -am spring-boot:run`.
+This repository ships a Maven Wrapper (`./mvnw`, Maven 3.9.16); a system Maven 3.9+ works too.
 
-> **Always build from the repository root with `-am`** (or build the whole project with `mvn clean package -DskipTests`). If you build only the server module (`-pl mugsun-boot-server` without `-am`, `mvn package` inside `mugsun-boot-server`, or an IDE building just that module), `mugsun-boot-core` comes from the local Maven repository at `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/`. Every branch and worktree shares that one 0.1.0 version, which holds whichever branch ran `mvn install` last, so the jar can carry another branch's old code (such as an old captcha response shape) whether or not you add `clean`. When in doubt, run `mvn -B install -DskipTests` from the root first.
 
-**Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, run `cd ../mugsun-core && mvn clean install -DskipTests`, then return to this repository to build.
+`config/application-local.yml` is an optional override (`optional:file:./config/application-local.yml`, gitignored). Create it from `config/application-local.yml.example` only when you need overrides; the example has no required fields. Run `java -jar` from the repository root, otherwise that file is not picked up. You can also run `./mvnw -pl mugsun-boot-server -am spring-boot:run`.
+
+> **Always build from the repository root with `-am`** (or build the whole project with `./mvnw clean package -DskipTests`). If you build only the server module (`-pl mugsun-boot-server` without `-am`, `./mvnw package` (or system `mvn package`) inside `mugsun-boot-server`, or an IDE building just that module), `mugsun-boot-core` comes from the local Maven repository at `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/`. Every branch and worktree shares that one 0.1.0 version, which holds whichever branch ran `./mvnw install` last, so the jar can carry another branch's old code (such as an old captcha response shape) whether or not you add `clean`. When in doubt, run `./mvnw -B install -DskipTests` from the root first.
+
+**Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, run `cd ../mugsun-core && ./mvnw clean install -DskipTests`, then return to this repository to build.
 
 Health check: http://localhost:8080/ping
 

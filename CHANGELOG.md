@@ -7,6 +7,8 @@
 
 ### 变更
 
+- 仓库根目录新增 Maven Wrapper（`./mvnw` / `mvnw.cmd`，Maven 3.9.16）
+  - README 构建与 `spring-boot:run` 示例改为 `./mvnw`；本机 Maven 3.9+ 仍可用
 - 零配置：README 快速开始改为 full compose 一条命令
   - 去掉复制 `application-local.yml` 步骤；local 仅为可选覆盖
   - 写明登录地址与 `init show` 查口令；口令不进 README
