@@ -37,13 +37,14 @@ public final class JetCacheRedisUri {
 			throw new IllegalArgumentException("Redis database 非法: " + database);
 		}
 		String h = host.trim();
+		String pw = (password == null || password.isBlank()) ? "" : password;
 		String uri;
-		if (password == null || password.isBlank()) {
+		if (pw.isEmpty()) {
 			uri = "redis://" + h + ":" + port + "/" + database;
 		} else {
-			uri = "redis://:" + encodeUserInfo(password) + "@" + h + ":" + port + "/" + database;
+			uri = "redis://:" + encodeUserInfo(pw) + "@" + h + ":" + port + "/" + database;
 		}
-		assertRoundTrip(uri, h, port, password == null ? "" : password, database);
+		assertRoundTrip(uri, h, port, pw, database);
 		return uri;
 	}
 

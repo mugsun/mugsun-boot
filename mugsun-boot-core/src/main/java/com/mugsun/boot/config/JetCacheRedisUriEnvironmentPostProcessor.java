@@ -19,6 +19,7 @@ import java.util.Map;
  * <p>插在 systemEnvironment 之后：覆盖 application-*.yml 里可能存在的裸拼口令 uri，
  * 但不压过命令行 / 系统属性 / 环境变量里显式的 {@code jetcache.remote.default.uri}。
  * remote 已是 mock（开发态降级）时跳过。
+ * <p>host 占位未解析且口令非空、或口令键占位未解析时 fail-fast，禁止静默降级到无口令 localhost。
  */
 public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPostProcessor {
 
@@ -44,45 +45,53 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 		if ("mock".equalsIgnoreCase(type)) {
 			return;
 		}
-		// prod 的 host=${REDIS_HOST} 未注入时 getProperty 会抛 PlaceholderResolutionException；
-		// 此时跳过合成，让后续组件按原语义失败，勿抢在 LabSeed 等守卫之前炸。
-		String host = firstNonBlank(
-			optional(env, "spring.data.redis.host"),
-			optional(env, "MUGSUN_REDIS_HOST"),
-			optional(env, "REDIS_HOST"));
-		if (!StringUtils.hasText(host)) {
+
+		Resolved host = firstResolved(env,
+			"spring.data.redis.host", "MUGSUN_REDIS_HOST", "REDIS_HOST");
+		Resolved password = firstResolved(env,
+			"spring.data.redis.password", "REDIS_PASSWORD");
+
+		// P0-2：口令键占位未解析 → 禁止当空口令合成无 AUTH URI
+		if (password.unresolved) {
+			throw new IllegalStateException(
+				"Redis 口令占位符未解析（spring.data.redis.password / REDIS_PASSWORD），"
+					+ "已拒绝合成 jetcache uri（禁止按空口令降级）");
+		}
+
+		String passwordValue = password.value != null ? password.value : "";
+		boolean hasPassword = StringUtils.hasText(passwordValue);
+
+		// host 未配置或占位未解析
+		if (!host.hasText()) {
+			// P0-1：口令已在、host 缺/未解析 → 禁止跳过
+			if (hasPassword) {
+				throw new IllegalStateException(
+					"Redis host 未配置或占位符未解析，但口令非空，已拒绝启动"
+						+ "（禁止 JetCache 静默落到无口令默认 uri）");
+			}
+			// LabSeed / 双端空口令：跳过，不合成、不覆盖
+			log.warn("跳过 jetcache uri 合成：Redis host 未配置或占位未解析，且口令为空");
 			return;
 		}
+
 		int port = parsePort(firstNonBlank(
 			optional(env, "spring.data.redis.port"),
 			optional(env, "MUGSUN_REDIS_PORT"),
 			optional(env, "REDIS_PORT"),
 			"6379"));
-		String password = firstNonBlank(
-			optional(env, "spring.data.redis.password"),
-			optional(env, "REDIS_PASSWORD"));
-		if (password == null) {
-			password = "";
-		}
 		int database = parseDatabase(firstNonBlank(
 			optional(env, "spring.data.redis.database"),
 			optional(env, "REDIS_DB"),
 			"0"));
 
-		String uri;
-		try {
-			uri = JetCacheRedisUri.build(host.trim(), port, password, database);
-		} catch (RuntimeException e) {
-			// fail fast：不要吞掉，让启动失败
-			throw e;
-		}
+		String uri = JetCacheRedisUri.build(host.value.trim(), port, passwordValue, database);
 
 		Map<String, Object> map = new LinkedHashMap<>();
 		map.put(URI_KEY, uri);
 		insertBelowSystemSources(env.getPropertySources(), new MapPropertySource(SOURCE, map));
-		if (StringUtils.hasText(password)) {
+		if (hasPassword) {
 			log.debug("已按 spring.data.redis 合成 jetcache uri（口令已 URL 编码，长度="
-				+ password.length() + "）");
+				+ passwordValue.length() + "）");
 		}
 	}
 
@@ -100,14 +109,43 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 		}
 	}
 
+	/** 单键解析：区分缺省、有值、占位未解析。 */
+	static Resolved resolve(ConfigurableEnvironment env, String key) {
+		try {
+			String v = env.getProperty(key);
+			return new Resolved(v, false);
+		} catch (PlaceholderResolutionException e) {
+			return Resolved.UNRESOLVED;
+		}
+	}
+
+	/**
+	 * 按优先级取第一个有文本的值；若途中遇占位未解析且其后也无有文本值，则整体视为 unresolved。
+	 */
+	static Resolved firstResolved(ConfigurableEnvironment env, String... keys) {
+		boolean sawUnresolved = false;
+		if (keys == null) {
+			return Resolved.ABSENT;
+		}
+		for (String key : keys) {
+			Resolved r = resolve(env, key);
+			if (r.unresolved) {
+				sawUnresolved = true;
+				continue;
+			}
+			if (StringUtils.hasText(r.value)) {
+				return r;
+			}
+		}
+		if (sawUnresolved) {
+			return Resolved.UNRESOLVED;
+		}
+		return Resolved.ABSENT;
+	}
 
 	/** 占位符无法解析时视为未配置（返回 null / 默认），不抛。 */
 	static String optional(ConfigurableEnvironment env, String key) {
-		try {
-			return env.getProperty(key);
-		} catch (PlaceholderResolutionException e) {
-			return null;
-		}
+		return resolve(env, key).value;
 	}
 
 	static String optional(ConfigurableEnvironment env, String key, String defaultValue) {
@@ -116,7 +154,6 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 	}
 
 	private static String firstNonBlank(String... values) {
-
 		if (values == null) {
 			return null;
 		}
@@ -149,6 +186,24 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 			return db;
 		} catch (NumberFormatException e) {
 			throw new IllegalStateException("Redis database 非法: " + raw, e);
+		}
+	}
+
+	/** 属性解析结果：value 可为 null；unresolved 表示占位未解析。 */
+	static final class Resolved {
+		static final Resolved ABSENT = new Resolved(null, false);
+		static final Resolved UNRESOLVED = new Resolved(null, true);
+
+		final String value;
+		final boolean unresolved;
+
+		Resolved(String value, boolean unresolved) {
+			this.value = value;
+			this.unresolved = unresolved;
+		}
+
+		boolean hasText() {
+			return StringUtils.hasText(value);
 		}
 	}
 }

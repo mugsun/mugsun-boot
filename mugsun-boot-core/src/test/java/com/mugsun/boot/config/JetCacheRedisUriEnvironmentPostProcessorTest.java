@@ -7,6 +7,7 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.ClassPathResource;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -78,13 +79,46 @@ class JetCacheRedisUriEnvironmentPostProcessorTest {
 			.hasMessageContaining("port");
 	}
 
-
 	@Test
-	void skipsWhenHostPlaceholderUnresolved() throws Exception {
-		// 模拟 prod：host=${REDIS_HOST} 且未注入 —— 不得抛，也不合成 uri
+	void skipsWhenHostPlaceholderUnresolvedAndPasswordEmpty() throws Exception {
+		// LabSeed / 双端空：host=${REDIS_HOST} 未注入，password 默认空 —— 跳过，不合成
 		StandardEnvironment env = prodDemo(Map.of());
 		processor.postProcessEnvironment(env, null);
 		assertThat(env.getPropertySources().contains(JetCacheRedisUriEnvironmentPostProcessor.SOURCE)).isFalse();
+	}
+
+	/** CASE_A：口令已在、host 占位未解析 → 必须 fail-fast，禁止静默跳过。 */
+	@Test
+	void failsFastWhenPasswordSetButHostUnresolved() throws Exception {
+		StandardEnvironment env = prodDemo(Map.of("REDIS_PASSWORD", "s3cret@x"));
+		assertThatThrownBy(() -> processor.postProcessEnvironment(env, null))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("host")
+			.hasMessageNotContaining("s3cret");
+		assertThat(env.getPropertySources().contains(JetCacheRedisUriEnvironmentPostProcessor.SOURCE)).isFalse();
+	}
+
+	/** CASE_C：口令键占位未解析 → 禁止按空口令合成无 AUTH URI，且不覆盖已有 uri。 */
+	@Test
+	void failsFastWhenPasswordPlaceholderUnresolved() {
+		StandardEnvironment env = new StandardEnvironment();
+		env.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+		env.getPropertySources().remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
+		Map<String, Object> cfg = new HashMap<>();
+		cfg.put("spring.data.redis.host", "redis.local");
+		cfg.put("spring.data.redis.port", "6379");
+		cfg.put("spring.data.redis.database", "3");
+		cfg.put("spring.data.redis.password", "${REDIS_PASSWORD}");
+		cfg.put("jetcache.remote.default.type", "redis.lettuce");
+		cfg.put("jetcache.remote.default.uri", "redis://keep-existing:6379/3");
+		env.getPropertySources().addFirst(new MapPropertySource("cfg", cfg));
+		assertThatThrownBy(() -> processor.postProcessEnvironment(env, null))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("口令");
+		assertThat(env.getPropertySources().contains(JetCacheRedisUriEnvironmentPostProcessor.SOURCE)).isFalse();
+		// 未合成覆盖：仍是原字面（getProperty 会解析 host 侧，uri 字面无占位）
+		assertThat(env.getProperty("jetcache.remote.default.uri"))
+			.isEqualTo("redis://keep-existing:6379/3");
 	}
 
 	private static StandardEnvironment prodDemo(Map<String, Object> deploy) throws Exception {
