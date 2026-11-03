@@ -7,6 +7,17 @@
 
 ### 变更
 
+- Actions 可发布多架构 PostGIS+pgvector 至 GHCR（compose 暂仍本机构建）
+  - workflow `publish-postgis-pgvector`：buildx amd64+arm64 推
+    `ghcr.io/mugsun/postgis-pgvector:16-3.4`（另打 `:16`，不打 latest）
+  - 触发：`workflow_dispatch`；main 上改 postgres/compose/本 workflow 也可
+  - `docker/postgres/Dockerfile` 两 base 钉 `@sha256`：amd64 官方
+    `postgis/postgis:16-3.4`；arm64 用 `imresamu/postgis:16-3.4`（官方仅
+    amd64）。更新：`docker buildx imagetools inspect <image:tag>`，官方取
+    Digest，imresamu 取 Manifests 中 `linux/arm64` 的 Digest，改 FROM 后
+    本地 `docker compose build postgres`
+  - compose 默认镜像仍为本机构建；GHCR 包 Public 后再切默认拉取
+
 - 仓库根目录新增 Maven Wrapper（`./mvnw` / `mvnw.cmd`，Maven 3.9.16）
   - README 构建与 `spring-boot:run` 示例改为 `./mvnw`；本机 Maven 3.9+ 仍可用
   - 离线回退安装 mugsun-core 仍用本机 `mvn`（core 无 Wrapper）
@@ -19,7 +30,7 @@
   - 去掉复制 `application-local.yml` 步骤；local 仅为可选覆盖
   - 写明登录地址与 `init show` 查口令；口令不进 README
   - compose 增加 ready 一次性提示服务（不打印口令）
-  - 弱化首屏 `MUGSUN_PG_*`；注明后续提供多架构预构建镜像
+  - 弱化首屏 `MUGSUN_PG_*`；多架构预构建改由 GHCR workflow 推进
   - 本地开发补未注入口令说明：非 prod 有内置缺省；prod 必须注入
 
 ### 修复

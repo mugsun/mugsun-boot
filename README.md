@@ -44,7 +44,7 @@ docker compose -f docker-compose.full.yml run --rm init show
 
 也可看 `docker compose -f docker-compose.full.yml logs ready` 里的登录提示。管理台默认只绑 `127.0.0.1`；局域网访问先设 `MUGSUN_HTTP_BIND=0.0.0.0`。清空重来：`docker compose -f docker-compose.full.yml down -v`（会删数据与密钥）。
 
-> 首次会在本地构建 PostGIS+pgvector 镜像。官方 PostGIS 仅 amd64，Apple Silicon 默认走仿真、偏慢；**后续将提供多架构预构建镜像**。当前若要原生跑，可临时设 `MUGSUN_PG_BASE_IMAGE` / `MUGSUN_PG_PLATFORM`（见 `docker-compose.full.yml` 注释），不必记进日常流程。
+> 首次会在本地构建 PostGIS+pgvector 镜像。官方 PostGIS 仅 amd64，Apple Silicon 默认走仿真、偏慢。仓库已有 Actions `publish-postgis-pgvector`，可推多架构镜像到 GHCR；包改为 Public 后才会把 compose 默认切过去。当前若要原生跑，可临时设 `MUGSUN_PG_PLATFORM=linux/arm64`（见 `docker-compose.yml` 注释），不必记进日常流程。
 
 ## 本地开发
 
