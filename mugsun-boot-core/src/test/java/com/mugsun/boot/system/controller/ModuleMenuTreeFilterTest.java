@@ -1,28 +1,36 @@
 package com.mugsun.boot.system.controller;
 
+import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.common.module.ModuleMenuFilter;
 import com.mugsun.boot.common.module.ModuleMenuFilterTest;
 import com.mugsun.boot.system.entity.SysMenu;
 import com.mugsun.boot.system.entity.SysRole;
 import com.mugsun.boot.system.entity.SysRoleMenu;
+import com.mugsun.boot.system.entity.SysUserRole;
 import com.mugsun.boot.system.mapper.SysMenuMapper;
 import com.mugsun.boot.system.mapper.SysRoleDeptMapper;
 import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysRoleMenuMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
 import com.mugsun.boot.system.payload.GrantParam;
+import com.mugsun.boot.tenant.TenantValidator;
+import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -59,6 +67,13 @@ class ModuleMenuTreeFilterTest {
 			}
 		}
 		return ids;
+	}
+
+	private static SysRoleController roleController(SysRoleMapper roleMapper, SysRoleMenuMapper roleMenuMapper,
+													SysMenuMapper menuMapper, ModuleMenuFilter moduleFilter,
+													SysUserRoleMapper userRoleMapper) {
+		return new SysRoleController(roleMapper, roleMenuMapper, mock(SysRoleDeptMapper.class),
+			userRoleMapper, menuMapper, moduleFilter, mock(TenantValidator.class));
 	}
 
 	@Test
@@ -112,11 +127,14 @@ class ModuleMenuTreeFilterTest {
 			roleMenu(7L, 2L), roleMenu(7L, 30L), roleMenu(7L, 31L)));
 		SysMenuMapper menuMapper = mock(SysMenuMapper.class);
 		when(menuMapper.selectListByQuery(any(QueryWrapper.class))).thenAnswer(inv -> sample());
-		SysRoleController controller = new SysRoleController(roleMapper, roleMenuMapper,
-			mock(SysRoleDeptMapper.class), mock(SysUserRoleMapper.class), menuMapper, filter(true, true, false));
+		SysRoleController controller = roleController(roleMapper, roleMenuMapper, menuMapper,
+			filter(true, true, false), mock(SysUserRoleMapper.class));
 
-		// 用户在树里取消了 /system/user（2），勾选了 /gis/layer（11）
-		controller.grant(new GrantParam(7L, List.of(11L)));
+		try (MockedStatic<cn.dev33.satoken.stp.StpUtil> stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			stp.when(cn.dev33.satoken.stp.StpUtil::getRoleList).thenReturn(List.of(RoleConstants.ADMIN));
+			// 用户在树里取消了 /system/user（2），勾选了 /gis/layer（11）
+			controller.grant(new GrantParam(7L, List.of(11L)));
+		}
 
 		ArgumentCaptor<SysRoleMenu> inserted = ArgumentCaptor.forClass(SysRoleMenu.class);
 		verify(roleMenuMapper, atLeastOnce()).insert(inserted.capture());
@@ -133,17 +151,141 @@ class ModuleMenuTreeFilterTest {
 		when(roleMenuMapper.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(roleMenu(7L, 30L)));
 		SysMenuMapper menuMapper = mock(SysMenuMapper.class);
 		when(menuMapper.selectListByQuery(any(QueryWrapper.class))).thenAnswer(inv -> sample());
-		SysRoleController controller = new SysRoleController(roleMapper, roleMenuMapper,
-			mock(SysRoleDeptMapper.class), mock(SysUserRoleMapper.class), menuMapper, filter(true, true, true));
+		SysRoleController controller = roleController(roleMapper, roleMenuMapper, menuMapper,
+			filter(true, true, true), mock(SysUserRoleMapper.class));
 
-		controller.grant(new GrantParam(7L, List.of(2L)));
+		try (MockedStatic<cn.dev33.satoken.stp.StpUtil> stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			stp.when(cn.dev33.satoken.stp.StpUtil::getRoleList).thenReturn(List.of(RoleConstants.ADMIN));
+			controller.grant(new GrantParam(7L, List.of(2L)));
+		}
 
 		ArgumentCaptor<SysRoleMenu> inserted = ArgumentCaptor.forClass(SysRoleMenu.class);
 		verify(roleMenuMapper).insert(inserted.capture());
 		assertThat(inserted.getAllValues()).extracting(SysRoleMenu::getMenuId).containsExactly(2L);
 	}
 
+	@Test
+	@DisplayName("角色授权：不存在的 menuId 拒绝，sys_role_menu 不改")
+	void grantRejectsMissingMenuId() {
+		SysRoleMapper roleMapper = mock(SysRoleMapper.class);
+		when(roleMapper.selectOneById(7L)).thenReturn(new SysRole());
+		SysRoleMenuMapper roleMenuMapper = mock(SysRoleMenuMapper.class);
+		SysMenuMapper menuMapper = mock(SysMenuMapper.class);
+		when(menuMapper.selectListByQuery(any(QueryWrapper.class))).thenAnswer(inv -> sample());
+		SysRoleController controller = roleController(roleMapper, roleMenuMapper, menuMapper,
+			filter(true, true, true), mock(SysUserRoleMapper.class));
+
+		try (MockedStatic<cn.dev33.satoken.stp.StpUtil> stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			stp.when(cn.dev33.satoken.stp.StpUtil::getRoleList).thenReturn(List.of(RoleConstants.ADMIN));
+			assertThatThrownBy(() -> controller.grant(new GrantParam(7L, List.of(2L, 999L))))
+				.isInstanceOf(ServiceException.class)
+				.hasMessageContaining("不存在或已删除");
+		}
+		verify(roleMenuMapper, never()).deleteByQuery(any());
+		verify(roleMenuMapper, never()).insert(any());
+	}
+
+	@Test
+	@DisplayName("角色授权：非管理员提交自身菜单外的 id 拒绝，既有授权不变")
+	void grantRejectsOutsideOperatorMenus() {
+		SysRoleMapper roleMapper = mock(SysRoleMapper.class);
+		when(roleMapper.selectOneById(7L)).thenReturn(new SysRole());
+		SysRoleMenuMapper roleMenuMapper = mock(SysRoleMenuMapper.class);
+		when(roleMenuMapper.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(
+			roleMenu(9L, 2L), roleMenu(9L, 3L)));
+		SysMenuMapper menuMapper = mock(SysMenuMapper.class);
+		when(menuMapper.selectListByQuery(any(QueryWrapper.class))).thenAnswer(inv -> sample());
+		SysUserRoleMapper userRoleMapper = mock(SysUserRoleMapper.class);
+		SysUserRole ur = new SysUserRole();
+		ur.setUserId(100L);
+		ur.setRoleId(9L);
+		when(userRoleMapper.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(ur));
+		SysRoleController controller = roleController(roleMapper, roleMenuMapper, menuMapper,
+			filter(true, true, true), userRoleMapper);
+
+		try (MockedStatic<cn.dev33.satoken.stp.StpUtil> stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			stp.when(cn.dev33.satoken.stp.StpUtil::getRoleList).thenReturn(List.of("it-granter"));
+			stp.when(cn.dev33.satoken.stp.StpUtil::getLoginIdAsLong).thenReturn(100L);
+			// 自身只有 2/3，提交越权的 /gis/layer（11）
+			assertThatThrownBy(() -> controller.grant(new GrantParam(7L, List.of(2L, 11L))))
+				.isInstanceOf(ServiceException.class)
+				.hasMessageContaining("超出你的权限或租户套餐");
+		}
+		verify(roleMenuMapper, never()).deleteByQuery(any());
+		verify(roleMenuMapper, never()).insert(any());
+	}
+
+	@Test
+	@DisplayName("角色授权：非管理员只提交自身菜单内的 id 成功")
+	void grantAllowsWithinOperatorMenus() {
+		SysRoleMapper roleMapper = mock(SysRoleMapper.class);
+		when(roleMapper.selectOneById(7L)).thenReturn(new SysRole());
+		SysRoleMenuMapper roleMenuMapper = mock(SysRoleMenuMapper.class);
+		when(roleMenuMapper.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(
+			roleMenu(9L, 2L), roleMenu(9L, 3L), roleMenu(7L, 2L)));
+		SysMenuMapper menuMapper = mock(SysMenuMapper.class);
+		when(menuMapper.selectListByQuery(any(QueryWrapper.class))).thenAnswer(inv -> sample());
+		SysUserRoleMapper userRoleMapper = mock(SysUserRoleMapper.class);
+		SysUserRole ur = new SysUserRole();
+		ur.setUserId(100L);
+		ur.setRoleId(9L);
+		when(userRoleMapper.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(ur));
+		SysRoleController controller = roleController(roleMapper, roleMenuMapper, menuMapper,
+			filter(true, true, true), userRoleMapper);
+
+		try (MockedStatic<cn.dev33.satoken.stp.StpUtil> stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			stp.when(cn.dev33.satoken.stp.StpUtil::getRoleList).thenReturn(List.of("it-granter"));
+			stp.when(cn.dev33.satoken.stp.StpUtil::getLoginIdAsLong).thenReturn(100L);
+			controller.grant(new GrantParam(7L, List.of(3L)));
+		}
+
+		ArgumentCaptor<SysRoleMenu> inserted = ArgumentCaptor.forClass(SysRoleMenu.class);
+		verify(roleMenuMapper).insert(inserted.capture());
+		assertThat(inserted.getAllValues()).extracting(SysRoleMenu::getMenuId).containsExactly(3L);
+	}
+
+	@Test
+	@DisplayName("角色授权：套餐外菜单拒绝（与 TenantGuard 同口径）")
+	void grantRejectsOutsideTenantPackage() {
+		SysRoleMapper roleMapper = mock(SysRoleMapper.class);
+		when(roleMapper.selectOneById(7L)).thenReturn(new SysRole());
+		SysRoleMenuMapper roleMenuMapper = mock(SysRoleMenuMapper.class);
+		SysMenuMapper menuMapper = mock(SysMenuMapper.class);
+		when(menuMapper.selectListByQuery(any(QueryWrapper.class))).thenAnswer(inv -> sample());
+		TenantValidator tenantValidator = mock(TenantValidator.class);
+		com.mugsun.boot.system.entity.SysTenant tenant = new com.mugsun.boot.system.entity.SysTenant();
+		tenant.setPackageId(88L);
+		when(tenantValidator.loadTenant("acme")).thenReturn(tenant);
+		when(tenantValidator.loadPackageKeys(88L)).thenReturn(java.util.Set.of("User"));
+		SysRoleController controller = new SysRoleController(roleMapper, roleMenuMapper, mock(SysRoleDeptMapper.class),
+			mock(SysUserRoleMapper.class), menuMapper, filter(true, true, true), tenantValidator);
+
+		com.mugsun.boot.tenant.TenantContext.set("acme");
+		try (MockedStatic<cn.dev33.satoken.stp.StpUtil> stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			stp.when(cn.dev33.satoken.stp.StpUtil::getRoleList).thenReturn(List.of(RoleConstants.ADMIN));
+			// /system/user(2) 在套餐内；样本无 /system/role，用未门控 /gist(40) 仍放行——改授需门控路径。
+			// 样本 /gis/layer(11) 不在 TenantPackageModules.GATED，改用额外菜单 /system/dept
+			List<SysMenu> menus = new ArrayList<>(sample());
+			SysMenu dept = new SysMenu();
+			dept.setId(50L);
+			dept.setParentId(1L);
+			dept.setPath("/system/dept");
+			dept.setMenuType("C");
+			dept.setMenuName("部门");
+			menus.add(dept);
+			when(menuMapper.selectListByQuery(any(QueryWrapper.class))).thenAnswer(inv -> menus);
+			assertThatThrownBy(() -> controller.grant(new GrantParam(7L, List.of(2L, 50L))))
+				.isInstanceOf(ServiceException.class)
+				.hasMessageContaining("超出你的权限或租户套餐");
+		} finally {
+			com.mugsun.boot.tenant.TenantContext.clear();
+		}
+		verify(roleMenuMapper, never()).deleteByQuery(any());
+		verify(roleMenuMapper, never()).insert(any());
+	}
+
 	private static SysRoleMenu roleMenu(Long roleId, Long menuId) {
+
 		SysRoleMenu rm = new SysRoleMenu();
 		rm.setRoleId(roleId);
 		rm.setMenuId(menuId);

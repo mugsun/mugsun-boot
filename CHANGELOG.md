@@ -38,6 +38,11 @@
 
 ### 修复
 
+- 角色授权保存校验 menuIds，防越权授出不可见菜单（#86）
+  - 提交 id 须存在且未删除；超管可授全量（减停用模块），其他人仅自身角色菜单
+  - 套餐外菜单拒绝（与 TenantGuard 同口径）；不静默丢弃
+  - 保留 #85：停用模块上既有授权保存后仍保留
+
 - 删/停租户后开放凭据仍可用（#101）
   - `/oauth2/token` 与 OpenAPI 验签经 `loadEnabledClient` 校验租户；`/open/**` 与 AI
     `authenticate` 请求路径 `TenantValidator.validate`
