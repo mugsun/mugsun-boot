@@ -383,7 +383,7 @@ public class SysUserController {
 	@PostMapping("/submit")
 	@RepeatSubmit
 	@OperationLog("保存用户")
-	public R<Void> submit(@RequestBody SysUser user) {
+	public R<java.util.Map<String, Object>> submit(@RequestBody SysUser user) {
 		// 新增走 sys:user:add，编辑走 sys:user:edit（与前端按钮门控码对齐，避免"可见却越权失败"）
 		StpUtil.checkPermission(user.getId() == null ? "sys:user:add" : "sys:user:edit");
 		// 字段级写门控（新建/编辑一致，读写权对称）：无字段明文权则不得写该敏感字段——
@@ -404,12 +404,12 @@ public class SysUserController {
 			user.setIdCard(null);
 		}
 		boolean creating = user.getId() == null;
-		boolean defaultPassword = creating && (user.getPassword() == null || user.getPassword().isBlank());
 		normalizeUser(user);
 		// 部门/岗位归属校验（建档挂组织，防跨租户）
 		assertOrgValid(user);
+		String oneTimePassword = null;
 		if (creating) {
-			userManageService.create(user);
+			oneTimePassword = userManageService.create(user);
 		} else {
 			// 审计前镜像恒脱敏读：与操作者角色无关，敏感字段永不落明文入审计
 			SysUser before = com.mugsun.boot.common.mask.FieldMaskContext.maskedRead(() -> userMapper.selectOneById(user.getId()));
@@ -420,11 +420,17 @@ public class SysUserController {
 			// 更新+审计+角色同步在同一事务内（任一步失败整体回滚）
 			userManageService.update(user, before);
 		}
-		return R.success(creating
-			? (defaultPassword
-				? "已创建。初始密码已设置，请把账号和初始密码交给对方登录"
-				: "已创建。请把账号和刚设置的密码交给对方登录")
+		if (creating && oneTimePassword != null) {
+			java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+			data.put("initialPassword", oneTimePassword);
+			R<java.util.Map<String, Object>> r = R.data(data);
+			r.setMsg("已创建。一次性口令仅此一次返回，请立刻交给对方；首次登录须改密");
+			return r;
+		}
+		R<java.util.Map<String, Object>> r = R.success(creating
+			? "已创建。请把账号和刚设置的密码交给对方登录"
 			: "已保存。列表里可以查看这名用户的部门和状态");
+		return r;
 	}
 
 	@PostMapping("/remove")
@@ -513,6 +519,7 @@ public class SysUserController {
 		String tenant = TenantContext.current();
 		int success = 0;
 		List<UserImportResult.FailRow> failList = new java.util.ArrayList<>();
+		List<UserImportResult.CreatedRow> created = new java.util.ArrayList<>();
 		for (int i = 0; i < rows.size(); i++) {
 			SysUserExcel row = rows.get(i);
 			String username = row.getUsername() == null ? null : row.getUsername().trim();
@@ -520,8 +527,11 @@ public class SysUserController {
 				continue;
 			}
 			try {
-				importRow(row, username, updateSupport, tenant);
+				String otp = importRow(row, username, updateSupport, tenant);
 				success++;
+				if (otp != null) {
+					created.add(new UserImportResult.CreatedRow(i + 2, username, otp));
+				}
 			} catch (com.mugsun.core.tool.exception.ServiceException e) {
 				// rowIndex 为 Excel 物理行号：表头占第 1 行，首条数据为第 2 行
 				failList.add(new UserImportResult.FailRow(i + 2, username, e.getMessage()));
@@ -530,7 +540,7 @@ public class SysUserController {
 				failList.add(new UserImportResult.FailRow(i + 2, username, "与已有账号数据冲突（用户名或手机号重复）。请改一个还没用过的用户名或手机号后再导入"));
 			}
 		}
-		UserImportResult result = new UserImportResult(success, failList.size(), failList);
+		UserImportResult result = new UserImportResult(success, failList.size(), failList, created);
 		if (success == 0) {
 			// 导入 0 条不算成功：有失败行时带回明细便于逐行修改；全是空行时同「没有数据」
 			if (failList.isEmpty()) {
@@ -548,7 +558,7 @@ public class SysUserController {
 	static final String MSG_IMPORT_NO_ROWS = "这份表格里没有用户。请先下载模板，至少填好用户名后再导入";
 
 	/** 导入单行：格式校验 → 部门/岗位名解析 → 新增或按 updateSupport 覆盖 */
-	private void importRow(SysUserExcel row, String username, boolean updateSupport, String tenant) {
+	private String importRow(SysUserExcel row, String username, boolean updateSupport, String tenant) {
 		String phone = trimToNull(row.getPhone());
 		// 手机号格式校验（与 submit 同规：短信登录按号取人，脏号即冒注面）
 		if (phone != null && !phone.matches("^1\\d{10}$")) {
@@ -576,7 +586,7 @@ public class SysUserController {
 			update.setPostId(postId);
 			update.sanitizeForUpdate();
 			userMapper.update(update);
-			return;
+			return null;
 		}
 		// 新增：初始密码入库（与 submit 同款收尾：审计字段服务端清洗 + 配额锁内检查+插入防并发超额）
 		SysUser user = new SysUser();
@@ -587,7 +597,9 @@ public class SysUserController {
 		user.setPhone(phone);
 		user.setDeptId(deptId);
 		user.setPostId(postId);
-		user.setPassword(passwordEncoder.encode(securityPolicyService.getInitPassword()));
+		String raw = securityPolicyService.generateOneTimePassword();
+		user.setPassword(passwordEncoder.encode(raw));
+		user.setMustChangePassword(1);
 		// 模板不承载「是否负责人」，须显式给默认值：不给则 ORM 写入显式 NULL，撞 is_leader 非空约束整批 500
 		user.setIsLeader(0);
 		user.sanitizeForInsert();
@@ -598,6 +610,7 @@ public class SysUserController {
 			return null;
 		});
 		securityPolicyService.logPassword(user.getId(), user.getPassword());
+		return raw;
 	}
 
 	/** 部门名 → id（空名不挂；无匹配记失败行；重名取首条） */
@@ -637,23 +650,37 @@ public class SysUserController {
 		return trimmed.isEmpty() ? null : trimmed;
 	}
 
-	/** 重置密码为初始密码（批量；事务原子，重置即踢全部在线端强制重登） */
+	/** 重置为一次性随机口令（批量；事务原子，重置即踢全部在线端；口令仅响应返回一次） */
 	@PostMapping("/reset-password")
 	@SaCheckPermission("sys:user:reset")
 	@OperationLog("重置密码")
 	@Transactional(rollbackFor = Exception.class)
-	public R<Void> resetPassword(@RequestBody List<Long> ids) {
+	public R<List<java.util.Map<String, Object>>> resetPassword(@RequestBody List<Long> ids) {
+		List<java.util.Map<String, Object>> issued = new java.util.ArrayList<>();
 		for (Long id : ids) {
 			assertTargetOperable(id, true);
+			SysUser existing = userMapper.selectOneById(id);
+			if (existing == null) {
+				throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再重置");
+			}
+			String raw = securityPolicyService.generateOneTimePassword();
 			SysUser user = new SysUser();
 			user.setId(id);
-			String encoded = passwordEncoder.encode(securityPolicyService.getInitPassword());
+			String encoded = passwordEncoder.encode(raw);
 			user.setPassword(encoded);
+			user.setMustChangePassword(1);
 			userMapper.update(user);
 			securityPolicyService.logPassword(id, encoded);
 			StpUtil.kickout(id);
+			java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+			row.put("id", id);
+			row.put("username", existing.getUsername());
+			row.put("initialPassword", raw);
+			issued.add(row);
 		}
-		return R.success("密码已重置为初始密码");
+		R<List<java.util.Map<String, Object>>> r = R.data(issued);
+		r.setMsg("已重置为一次性口令，请立刻交给对方；首次登录须改密");
+		return r;
 	}
 
 	/** 当前租户仍被锁定的账号，含失败锁定和管理员锁定。 */

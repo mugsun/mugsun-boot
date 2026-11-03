@@ -16,9 +16,9 @@ BOOT_UID=10001 PG_UID=999 REDIS_UID=999
 
 # init show：管理员改过口令后不再打印初始口令。
 # 判断依据是库里 admin 当前的口令哈希还能不能用初始口令验证通过（bcrypt），而不是另存一个「已改密」标记：
-#   - 任何改密途径（个人中心、找回密码、管理员重置、以后首次登录强制改密）都会换哈希，这里不用跟着改；
-#   - 被管理员重置回初始口令时，初始口令确实又能登录了，这时照常显示。
-# 不清掉 secrets 卷里的 MUGSUN_INIT_PASSWORD：后端 prod 启动守卫要求它存在，重置口令和新建租户管理员也用它。
+#   - 个人中心改密、找回密码、首次登录强制改密都会换哈希；
+#   - 管理员重置改为随机一次性口令（#81），不再把口令重置回 MUGSUN_INIT_PASSWORD，故重置后 show 仍提示已失效。
+# 不清掉 secrets 卷里的 MUGSUN_INIT_PASSWORD：后端 prod 启动守卫与平台种子 admin 仍要用它。
 # 连不上库（postgres 没起、口令不对）时照常显示，但提示「无法确认」。
 show_admin_password() {
   INIT_PW=$(sed -n 's/^export MUGSUN_INIT_PASSWORD=//p' "$BOOT")

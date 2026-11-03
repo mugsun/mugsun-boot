@@ -71,6 +71,10 @@ public class TenantService {
 	 */
 	private final TransactionTemplate txTemplate;
 
+	/** 创建租户结果：编号 + 管理员一次性口令（仅 API 响应返回一次） */
+	public record TenantCreateResult(String tenantCode, String adminPassword) {
+	}
+
 	/** genCode 最多抽几次候选编号 */
 	static final int GEN_CODE_MAX_ATTEMPTS = 10;
 	/** 租户行插入撞唯一键（并发建租户抽到同一编号）后，换号重试的次数 */
@@ -119,8 +123,8 @@ public class TenantService {
 		this.credentialPurgers = credentialPurgers;
 	}
 
-	/** 创建租户并初始化默认数据，返回租户编号 */
-	public String create(SysTenant tenant) {
+	/** 创建租户并初始化默认数据，返回编号与管理员一次性口令 */
+	public TenantCreateResult create(SysTenant tenant) {
 		if (tenant == null) {
 			throw new ServiceException("请填写租户名称后再创建");
 		}
@@ -140,8 +144,9 @@ public class TenantService {
 						throw e;
 					}
 					// 忽略当前会话租户条件，按新租户编号写入默认数据
-					TenantContext.ignore(() -> initDefaults(code, tenant.getTenantName()));
-					return code;
+					String[] pwd = {null};
+					TenantContext.ignore(() -> pwd[0] = initDefaults(code, tenant.getTenantName()));
+					return new TenantCreateResult(code, pwd[0]);
 				});
 			} catch (DuplicateKeyException e) {
 				// 只对租户行撞键（并发建租户抽到同一编号）换号重试；默认数据撞键照常抛出
@@ -386,7 +391,7 @@ public class TenantService {
 		});
 	}
 
-	private void initDefaults(String code, String tenantName) {
+	private String initDefaults(String code, String tenantName) {
 		SysDept dept = new SysDept();
 		dept.setDeptName(tenantName);
 		dept.setParentId(0L);
@@ -409,9 +414,11 @@ public class TenantService {
 		role.setTenantId(code);
 		roleMapper.insertSelective(role);
 
+		String raw = securityPolicyService.generateOneTimePassword();
 		SysUser admin = new SysUser();
 		admin.setUsername(UserConstants.ADMIN_USERNAME);
-		admin.setPassword(passwordEncoder.encode(securityPolicyService.getInitPassword()));
+		admin.setPassword(passwordEncoder.encode(raw));
+		admin.setMustChangePassword(1);
 		admin.setNickname(tenantName + "管理员");
 		admin.setStatus(1);
 		admin.setDeptId(dept.getId());
@@ -423,6 +430,7 @@ public class TenantService {
 		userRole.setUserId(admin.getId());
 		userRole.setRoleId(role.getId());
 		userRoleMapper.insertSelective(userRole);
+		return raw;
 	}
 
 	/**

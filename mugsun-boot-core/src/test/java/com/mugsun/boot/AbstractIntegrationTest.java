@@ -10,6 +10,8 @@ import com.mugsun.boot.common.crypto.Sm4TestKeys;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
@@ -200,6 +202,24 @@ public abstract class AbstractIntegrationTest {
 	@Autowired
 	protected TestRestTemplate rest;
 
+	@Autowired
+	protected JdbcTemplate jdbc;
+
+	@Autowired
+	protected PasswordEncoder passwordEncoder;
+
+	/**
+	 * #81：种子 admin / 新租户 admin 可能带 must_change_password=1；
+	 * 集成测试沿用固定 ADMIN_PASSWORD，开测前清平台标记，建租户后把租户 admin 口令归一为 ADMIN_PASSWORD。
+	 */
+	@BeforeEach
+	void releasePlatformAdminMustChangeFlag() {
+		jdbc.update(
+			"UPDATE sys_user SET must_change_password = 0 WHERE username = ? AND tenant_id = ? AND is_deleted = 0",
+			ADMIN_USERNAME, PLATFORM_TENANT);
+	}
+
+
 	protected final ObjectMapper om = new ObjectMapper();
 
 	/**
@@ -300,6 +320,30 @@ public abstract class AbstractIntegrationTest {
 		sm2.setMode(SM2Engine.Mode.C1C3C2);
 		String hex = sm2.encryptHex(plain, KeyType.PublicKey);
 		return hex.startsWith("04") ? hex.substring(2) : hex;
+	}
+
+	/** 解析建租户响应：#81 起 data 为 {tenantCode, initialPassword}，兼容旧版纯字符串 */
+	protected static String tenantCodeOf(JsonNode resp) {
+		JsonNode data = resp.path("data");
+		if (data.isTextual()) {
+			return data.asText();
+		}
+		return data.path("tenantCode").asText();
+	}
+
+	protected static String initialPasswordOf(JsonNode resp) {
+		return resp.path("data").path("initialPassword").asText();
+	}
+
+	/**
+	 * 将租户 admin 口令写成测试固定口令并清 must_change，避免 #81 一次性口令打爆存量用例。
+	 */
+	protected void normalizeTenantAdminPassword(String tenantCode) {
+		String hash = passwordEncoder.encode(ADMIN_PASSWORD);
+		int n = jdbc.update(
+			"UPDATE sys_user SET password = ?, must_change_password = 0 WHERE username = ? AND tenant_id = ? AND is_deleted = 0",
+			hash, ADMIN_USERNAME, tenantCode);
+		assertThat(n).as("租户 %s 应有 admin 可归一口令", tenantCode).isEqualTo(1);
 	}
 
 	/** 以平台超管身份登录 */

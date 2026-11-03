@@ -60,18 +60,26 @@ public class SysUserManageService {
 		this.notifySendApi = notifySendApi;
 	}
 
-	/** 新建用户：配额锁内查重+插入、记密码历史、提交后欢迎通知、挂角色（同一事务） */
+	/**
+	 * 新建用户：配额锁内查重+插入、记密码历史、提交后欢迎通知、挂角色（同一事务）。
+	 * @return 服务端生成的一次性口令明文（调用方仅通过 API 响应交给管理员；勿打日志）；用户自带口令时返回 null
+	 */
 	@Transactional(rollbackFor = Exception.class)
-	public void create(SysUser user) {
+	public String create(SysUser user) {
 		// 服务端清洗：审计字段与租户归属一律服务端裁定（Flex 仅对 null tenantId 才填充当前租户）
 		user.sanitizeForInsert();
 		user.setTenantId(null);
 		if (user.getIsLeader() == null) {
 			user.setIsLeader(0);
 		}
-		String raw = (user.getPassword() == null || user.getPassword().isBlank())
-			? securityPolicyService.getInitPassword() : user.getPassword();
+		boolean generated = user.getPassword() == null || user.getPassword().isBlank();
+		String raw = generated ? securityPolicyService.generateOneTimePassword() : user.getPassword();
 		user.setPassword(passwordEncoder.encode(raw));
+		if (generated) {
+			user.setMustChangePassword(1);
+		} else if (user.getMustChangePassword() == null) {
+			user.setMustChangePassword(0);
+		}
 		// 账号配额检查+插入在租户级 Redis 锁内串行（防并发 TOCTOU 超额；集群安全）
 		tenantValidator.quotaLocked(TenantContext.current(), () -> {
 			tenantValidator.assertAccountQuota(TenantContext.current());
@@ -86,6 +94,7 @@ public class SysUserManageService {
 		securityPolicyService.logPassword(user.getId(), user.getPassword());
 		notifyWelcome(user);
 		syncUserRoles(user.getId(), user.getRoleIds());
+		return generated ? raw : null;
 	}
 
 	/**

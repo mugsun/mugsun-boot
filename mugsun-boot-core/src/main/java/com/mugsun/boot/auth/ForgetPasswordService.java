@@ -103,6 +103,7 @@ public class ForgetPasswordService {
 		securityPolicyService.checkHistory(user.getId(), rawPassword);
 		String encoded = passwordEncoder.encode(rawPassword);
 		user.setPassword(encoded);
+		user.setMustChangePassword(0);
 		TenantContext.ignore(() -> userMapper.update(user));
 		securityPolicyService.logPassword(user.getId(), encoded);
 		// 重置即全端下线（与改密同口径：旧密码签发的会话一律作废）

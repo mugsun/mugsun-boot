@@ -21,4 +21,7 @@ public interface AuthConstants {
 
 	/** 忘记密码邮件模板码（V61 种子，sys_mail_template） */
 	String FORGET_MAIL_TEMPLATE = "forget_password";
+
+	/** Sa-Token 会话：须首次改密（Boolean）；登录时写入，改密成功后清 false */
+	String MUST_CHANGE_PASSWORD_SESSION_KEY = "mustChangePassword";
 }

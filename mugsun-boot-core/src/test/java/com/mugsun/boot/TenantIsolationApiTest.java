@@ -30,8 +30,9 @@ class TenantIsolationApiTest extends AbstractIntegrationTest {
 		tenant.put("contactUser", "集成测试");
 		JsonNode createResp = readBody(post("/system/tenant/create", tenant, adminToken));
 		assertThat(createResp.path("code").asInt()).as("建租户：" + createResp.path("msg").asText()).isEqualTo(200);
-		tenantCode = createResp.path("data").asText();
+		tenantCode = tenantCodeOf(createResp);
 		assertThat(tenantCode).isNotBlank().isNotEqualTo(PLATFORM_TENANT);
+		normalizeTenantAdminPassword(tenantCode);
 
 		// 该租户管理员真实登录
 		tenantAdminToken = login(tenantCode, ADMIN_USERNAME, ADMIN_PASSWORD);

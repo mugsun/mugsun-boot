@@ -2,6 +2,7 @@ package com.mugsun.boot.auth;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.client.entity.SysClient;
+import com.mugsun.boot.common.constant.AuthConstants;
 import com.mugsun.boot.common.constant.MonitorConstants;
 import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.log.entity.SysLoginLog;
@@ -126,6 +127,8 @@ public class AuthLoginService {
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, ip)
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
+		StpUtil.getSession().set(AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY,
+			com.mugsun.boot.security.SecurityPolicyService.isMustChangePassword(user.getMustChangePassword()));
 		enforceMaxOnline(user.getId(), client.getMaxOnline());
 		saveLoginLog(user.getUsername(), request, client.getClientId(), user.getTenantId(), 1, logMsg, "password");
 		return Map.of("token", StpUtil.getTokenValue());

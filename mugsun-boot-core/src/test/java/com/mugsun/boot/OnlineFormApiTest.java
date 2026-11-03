@@ -135,8 +135,9 @@ class OnlineFormApiTest extends AbstractIntegrationTest {
 		tenant.put("contactUser", "集成测试");
 		JsonNode r = readBody(post("/system/tenant/create", tenant, platformAdmin));
 		assertThat(r.path("code").asInt()).as("建租户：" + r.path("msg").asText()).isEqualTo(200);
-		String code = r.path("data").asText();
+		String code = tenantCodeOf(r);
 		assertThat(code).isNotBlank().isNotEqualTo(PLATFORM_TENANT);
+		normalizeTenantAdminPassword(code);
 		return code;
 	}
 

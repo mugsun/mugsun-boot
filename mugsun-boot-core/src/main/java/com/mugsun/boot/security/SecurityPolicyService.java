@@ -8,6 +8,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -101,14 +102,41 @@ public class SecurityPolicyService {
 	}
 
 	/**
-	 * 初始密码（种子 admin/新租户管理员/重置密码/导入用户共用）：
-	 * 环境变量 MUGSUN_INIT_PASSWORD 注入，缺省 123456——生产部署必须改（等保：默认口令须换）。
+	 * 平台种子 admin 的启动口令（仅 DataInitializer / init show / prod 守卫）：
+	 * 环境变量 MUGSUN_INIT_PASSWORD 注入，缺省 123456——生产必须注入。
+	 * 重置口令、新建租户管理员、导入/建用户默认口令改走 {@link #generateOneTimePassword()}，不再复用本值。
 	 */
 	@org.springframework.beans.factory.annotation.Value("${mugsun.security.init-password:${MUGSUN_INIT_PASSWORD:123456}}")
 	private String initPassword;
 
+	private final SecureRandom oneTimeRandom = new SecureRandom();
+
+	private static final char[] OTP_ALNUM =
+		"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789".toCharArray();
+
 	public String getInitPassword() {
 		return initPassword;
+	}
+
+	/**
+	 * 生成一次性口令：格式对齐 compose init（Mgxxxx-xxxxxxxxxx9a，19 位），
+	 * 含大小写、数字与特殊字符，满足默认复杂度；每次调用独立随机，勿落日志明文。
+	 */
+	public String generateOneTimePassword() {
+		return "Mg" + randomAlnum(4) + "-" + randomAlnum(10) + "9a";
+	}
+
+	private String randomAlnum(int len) {
+		char[] buf = new char[len];
+		for (int i = 0; i < len; i++) {
+			buf[i] = OTP_ALNUM[oneTimeRandom.nextInt(OTP_ALNUM.length)];
+		}
+		return new String(buf);
+	}
+
+	/** 用户是否标记为须改密（一次性口令未换） */
+	public static boolean isMustChangePassword(Integer flag) {
+		return flag != null && flag == 1;
 	}
 
 	public boolean isWatermarkEnabled() {

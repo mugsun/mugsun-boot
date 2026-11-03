@@ -54,6 +54,9 @@ public class SysUser extends BaseEntity {
 	@ColumnMask(FieldMaskConstants.TYPE_USER_ID_CARD)
 	private String idCard;
 
+	/** 首次登录须改密：1 是 / 0 否（发放一次性口令时置 1，用户改密后清 0）；默认 0 避免 insert 显式 null 撞 NOT NULL */
+	private Integer mustChangePassword = 0;
+
 	/** 部门名（展示用，非表列，page/detail 富化填充） */
 	@Column(ignore = true)
 	private String deptName;
@@ -204,6 +207,14 @@ public class SysUser extends BaseEntity {
 
 	public void setIdCard(String idCard) {
 		this.idCard = idCard;
+	}
+
+	public Integer getMustChangePassword() {
+		return mustChangePassword;
+	}
+
+	public void setMustChangePassword(Integer mustChangePassword) {
+		this.mustChangePassword = mustChangePassword;
 	}
 
 	public String getDeptName() {

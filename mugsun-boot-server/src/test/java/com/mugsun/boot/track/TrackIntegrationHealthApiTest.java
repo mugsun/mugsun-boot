@@ -46,7 +46,8 @@ class TrackIntegrationHealthApiTest extends AbstractTrackIntegrationTest {
 		tenantBody.put("contactUser", "自检");
 		JsonNode tenantResp = readBody(post("/system/tenant/create", tenantBody, adminToken));
 		assertThat(tenantResp.path("code").asInt()).as("建租户：" + tenantResp.path("msg").asText()).isEqualTo(200);
-		String tenantB = tenantResp.path("data").asText();
+		String tenantB = tenantCodeOf(tenantResp);
+		normalizeTenantAdminPassword(tenantB);
 		tenantBToken = login(tenantB, ADMIN_USERNAME, ADMIN_PASSWORD);
 		seedApp(APP_H, PLATFORM_TENANT, 1);
 		seedApp(APP_DIS, PLATFORM_TENANT, 0);

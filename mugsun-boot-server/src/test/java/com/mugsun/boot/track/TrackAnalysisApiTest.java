@@ -81,7 +81,8 @@ class TrackAnalysisApiTest extends AbstractTrackIntegrationTest {
 		tenantBody.put("contactUser", "埋点测试");
 		JsonNode tenantResp = readBody(post("/system/tenant/create", tenantBody, adminToken));
 		assertThat(tenantResp.path("code").asInt()).as("建租户：" + tenantResp.path("msg").asText()).isEqualTo(200);
-		tenantBCode = tenantResp.path("data").asText();
+		tenantBCode = tenantCodeOf(tenantResp);
+		normalizeTenantAdminPassword(tenantBCode);
 		tenantBToken = login(tenantBCode, ADMIN_USERNAME, ADMIN_PASSWORD);
 
 		// 低权用户（零权限角色；真实登录）

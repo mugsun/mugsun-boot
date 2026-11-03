@@ -137,15 +137,19 @@ public class SysTenantController {
 		return R.data(tenant);
 	}
 
-	/** 创建租户并初始化默认数据，返回租户编号 */
+	/** 创建租户并初始化默认数据，返回编号与管理员一次性口令 */
 	@RepeatSubmit
 	@PostMapping("/create")
 	@cn.dev33.satoken.annotation.SaCheckPermission("sys:tenant:save")
-	public R<String> create(@RequestBody SysTenant tenant) {
+	public R<java.util.Map<String, Object>> create(@RequestBody SysTenant tenant) {
 		TenantContext.requirePlatformSuperAdmin();
-		String code = tenantService.create(tenant);
-		R<String> result = R.data(code);
-		result.setMsg("已创建。编号 " + code + "。默认部门、岗位、角色和管理员已准备好，把编号交给对方即可登录");
+		var created = tenantService.create(tenant);
+		java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+		data.put("tenantCode", created.tenantCode());
+		data.put("initialPassword", created.adminPassword());
+		R<java.util.Map<String, Object>> result = R.data(data);
+		result.setMsg("已创建。编号 " + created.tenantCode()
+			+ "。管理员账号 admin，一次性口令仅此一次返回；首次登录须改密");
 		return result;
 	}
 

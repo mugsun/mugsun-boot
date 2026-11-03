@@ -66,7 +66,9 @@ class TenantOpenCredentialApiTest extends AbstractIntegrationTest {
 		tenant.put("tenantName", name);
 		JsonNode resp = readBody(post("/system/tenant/create", tenant, adminToken));
 		assertThat(resp.path("code").asInt()).as("建租户：" + resp.path("msg").asText()).isEqualTo(200);
-		return resp.path("data").asText();
+		String code = tenantCodeOf(resp);
+		normalizeTenantAdminPassword(code);
+		return code;
 	}
 
 	private long tenantRowId(String code) throws Exception {

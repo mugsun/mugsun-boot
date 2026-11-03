@@ -35,7 +35,9 @@ class TenantDatasourceApiTest extends AbstractIntegrationTest {
 	private String createTenant(String name) {
 		JsonNode resp = readBody(post("/system/tenant/create", Map.of("tenantName", name), adminToken));
 		assertThat(resp.path("code").asInt()).as("建租户：" + resp.path("msg").asText()).isEqualTo(200);
-		return resp.path("data").asText();
+		String code = tenantCodeOf(resp);
+		normalizeTenantAdminPassword(code);
+		return code;
 	}
 
 	private Map<String, Object> body(String code) {

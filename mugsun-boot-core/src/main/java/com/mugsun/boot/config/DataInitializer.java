@@ -563,6 +563,7 @@ public class DataInitializer implements CommandLineRunner {
 		SysUser admin = new SysUser();
 		admin.setUsername(UserConstants.ADMIN_USERNAME);
 		admin.setPassword(passwordEncoder.encode(securityPolicyService.getInitPassword()));
+		admin.setMustChangePassword(1);
 		admin.setNickname("超级管理员");
 		admin.setStatus(1);
 		admin.setIsLeader(0);

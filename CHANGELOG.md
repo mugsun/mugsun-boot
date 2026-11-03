@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### 安全
+
+- 初始口令不再长期复用 `MUGSUN_INIT_PASSWORD`（#81）
+  - 重置/新建租户管理员/导入默认口令改为各自随机一次性口令
+  - 首次登录强制改密；改密前仅允许改密/登出/身份相关接口
+  - `MUGSUN_INIT_PASSWORD` 仍只用于平台种子 admin 与 init show
+  - 建租户/建用户/重置响应返回 `initialPassword`（勿落日志明文）
+
 ### 变更
 
 - 数据库默认拉取 GHCR 多架构 PostGIS+pgvector 镜像

@@ -344,7 +344,7 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		tenant.put("tenantName", "验证码关闭测试" + System.nanoTime() % 100000);
 		JsonNode created = readBody(post("/system/tenant/create", tenant, admin));
 		assertThat(created.path("code").asInt()).as(created.path("msg").asText()).isEqualTo(200);
-		String code = created.path("data").asText();
+		String code = tenantCodeOf(created);
 		JsonNode list = readBody(get("/system/tenant/list?tenantCode=" + code, admin)).path("data");
 		long id = list.get(0).path("id").asLong();
 
@@ -442,7 +442,8 @@ class SliderCaptchaApiTest extends AbstractIntegrationTest {
 		tenant.put("tenantName", "验证码测试" + System.nanoTime() % 1000000);
 		JsonNode created = readBody(post("/system/tenant/create", tenant, admin));
 		assertThat(created.path("code").asInt()).as(created.path("msg").asText()).isEqualTo(200);
-		String code = created.path("data").asText();
+		String code = tenantCodeOf(created);
+		normalizeTenantAdminPassword(code);
 		long id = readBody(get("/system/tenant/list?tenantCode=" + code, admin)).path("data").get(0).path("id").asLong();
 		return new String[]{code, String.valueOf(id)};
 	}
