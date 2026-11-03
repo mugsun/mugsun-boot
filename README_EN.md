@@ -63,7 +63,7 @@ This repository ships a Maven Wrapper (`./mvnw`, Maven 3.9.16); a system Maven 3
 
 > **Always build from the repository root with `-am`** (or build the whole project with `./mvnw clean package -DskipTests`). If you build only the server module (`-pl mugsun-boot-server` without `-am`, `./mvnw package` (or system `mvn package`) inside `mugsun-boot-server`, or an IDE building just that module), `mugsun-boot-core` comes from the local Maven repository at `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/`. Every branch and worktree shares that one 0.1.0 version, which holds whichever branch ran `./mvnw install` last, so the jar can carry another branch's old code (such as an old captcha response shape) whether or not you add `clean`. When in doubt, run `./mvnw -B install -DskipTests` from the root first.
 
-**Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, run `cd ../mugsun-core && ./mvnw clean install -DskipTests`, then return to this repository to build.
+**Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, then in that repo run `cd ../mugsun-core && mvn clean install -DskipTests` with a system Maven 3.9+ (core has no Maven Wrapper), and return here to build with `./mvnw`.
 
 Health check: http://localhost:8080/ping
 
