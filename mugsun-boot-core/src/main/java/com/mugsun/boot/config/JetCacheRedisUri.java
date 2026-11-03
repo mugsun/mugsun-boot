@@ -23,7 +23,7 @@ public final class JetCacheRedisUri {
 	 * 合成 {@code redis://[ :encodedPassword@]host:port/db}。
 	 * @param host 非空
 	 * @param port 1–65535
-	 * @param password 可空；空或空白视为无口令
+	 * @param password 可空；{@code null} / {@code ""} / 仅空白字符一律视为无口令（不写 userinfo）
 	 * @param database ≥0
 	 */
 	public static String build(String host, int port, String password, int database) {

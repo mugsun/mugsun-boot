@@ -43,6 +43,7 @@ spring:
     redis:
       # 本机已有 Redis 占 6379 时：导出 MUGSUN_REDIS_PORT（compose 映射端口同一变量）
       host: ${MUGSUN_REDIS_HOST:localhost}
+      # port / database 对 JetCache EPP 可选：未配时合成 uri 默认 6379 / 0；此处显式给本机缺省
       port: ${MUGSUN_REDIS_PORT:6379}
       database: 3
       timeout: 3000ms
@@ -108,6 +109,8 @@ jetcache:
       valueEncoder: bean:jsonValueEncoder
       valueDecoder: bean:jsonValueDecoder
       # 无口令缺省；有 spring.data.redis.password 时由 JetCacheRedisUriEnvironmentPostProcessor 覆盖为编码 uri
+      # 覆盖整个 jetcache.remote.default 时须同级保留 type（空 map 会冲掉继承的 type，见 FAQ）
+      # 显式 jetcache.remote.default.uri（命令行/环境变量）不会被 EPP 覆盖，但须百分号编码且与 spring.data.redis 一致
       uri: redis://${MUGSUN_REDIS_HOST:localhost}:${MUGSUN_REDIS_PORT:6379}/3
 dromara:
   x-file-storage:

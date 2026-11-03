@@ -18,7 +18,10 @@ import java.util.Map;
  * 用 {@code spring.data.redis} 分字段合成 JetCache remote uri（口令 URL 编码）。
  * <p>插在 systemEnvironment 之后：覆盖 application-*.yml 里可能存在的裸拼口令 uri，
  * 但不压过命令行 / 系统属性 / 环境变量里显式的 {@code jetcache.remote.default.uri}。
- * remote 已是 mock（开发态降级）时跳过。
+ * 显式 uri 旁路时仍按 spring.data.redis 回解析核对（host/port/db/口令），不一致则拒绝启动，
+ * 避免未编码口令或连错库静默生效。remote 已是 mock（开发态降级）时跳过。
+ * <p>port / database 可选：缺省分别为 6379 / 0（与 REDIS_PORT、REDIS_DB 同口径）。
+ * 口令 null / 空白（含仅空白字符）归一为无口令，不写 userinfo。
  * <p>host 占位未解析且口令非空、或口令键占位未解析时 fail-fast，禁止静默降级到无口令 localhost。
  */
 public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPostProcessor {
@@ -58,7 +61,8 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 					+ "已拒绝合成 jetcache uri（禁止按空口令降级）");
 		}
 
-		String passwordValue = password.value != null ? password.value : "";
+		// 空白口令归一：null / "" / 仅空白 → 无 AUTH（与 JetCacheRedisUri.build 一致）
+		String passwordValue = normalizePassword(password.value);
 		boolean hasPassword = StringUtils.hasText(passwordValue);
 
 		// host 未配置或占位未解析
@@ -69,11 +73,12 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 					"Redis host 未配置或占位符未解析，但口令非空，已拒绝启动"
 						+ "（禁止 JetCache 静默落到无口令默认 uri）");
 			}
-			// LabSeed / 双端空口令：跳过，不合成、不覆盖
-			log.warn("跳过 jetcache uri 合成：Redis host 未配置或占位未解析，且口令为空");
+			// LabSeed / 双端空口令：跳过，不合成、不覆盖（debug：避免噪音）
+			log.debug("跳过 jetcache uri 合成：Redis host 未配置或占位未解析，且口令为空");
 			return;
 		}
 
+		// port / database 可选：缺省 6379 / 0
 		int port = parsePort(firstNonBlank(
 			optional(env, "spring.data.redis.port"),
 			optional(env, "MUGSUN_REDIS_PORT"),
@@ -89,7 +94,17 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 		Map<String, Object> map = new LinkedHashMap<>();
 		map.put(URI_KEY, uri);
 		insertBelowSystemSources(env.getPropertySources(), new MapPropertySource(SOURCE, map));
-		if (hasPassword) {
+
+		// P2：显式 uri（命令行/系统属性/环境变量）优先级高于本 SOURCE，不会被覆盖；
+		// 对「最终生效」uri 一律按 spring.data.redis 回解析核对，堵住未编码口令旁路。
+		String effective = env.getProperty(URI_KEY);
+		if (!StringUtils.hasText(effective)) {
+			throw new IllegalStateException("jetcache.remote.default.uri 为空，已拒绝启动");
+		}
+		JetCacheRedisUri.assertRoundTrip(effective, host.value.trim(), port, passwordValue, database);
+		if (!uri.equals(effective)) {
+			log.debug("保留显式 jetcache.remote.default.uri，已与 spring.data.redis 回解析核对");
+		} else if (hasPassword) {
 			log.debug("已按 spring.data.redis 合成 jetcache uri（口令已 URL 编码，长度="
 				+ passwordValue.length() + "）");
 		}
@@ -151,6 +166,15 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 	static String optional(ConfigurableEnvironment env, String key, String defaultValue) {
 		String v = optional(env, key);
 		return v != null ? v : defaultValue;
+	}
+
+
+	/** null / 空白 → ""；保留有意义口令原样（不 trim 中间空格，仅整体空白时清空）。 */
+	static String normalizePassword(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return "";
+		}
+		return raw;
 	}
 
 	private static String firstNonBlank(String... values) {

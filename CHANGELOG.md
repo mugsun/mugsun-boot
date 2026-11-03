@@ -25,6 +25,12 @@
 
 ### 变更
 
+- #103 合后跟：JetCache EPP / compose / 注释约定（#70 后）
+  - 空白口令归一；LabSeed 跳过合成日志 WARN→debug
+  - 显式 `jetcache.remote.default.uri` 旁路仍回解析核对（P2）
+  - port/db 可选注释；覆盖 `remote.default` 须同级保留 type
+  - full compose 去掉 `additional_contexts.track`（pc tip 已 npm track-web）
+
 - 一键全栈默认钉新版 mugsun-pc / mugsun-track tip（合集截图对齐行为验证码）
   - pc → `4d6d018f09c9687047c3805bb534d151a5f8a4ef`（#19 行为验证码、去数字码、CSP #63）
   - track → `78a008c26737a832e594eca2e958e7d17dfb215d`（happy-dom 安全升级）

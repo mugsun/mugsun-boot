@@ -53,6 +53,12 @@ class JetCacheRedisUriTest {
 	}
 
 	@Test
+	void blankWhitespacePasswordOmitsAuth() {
+		assertThat(JetCacheRedisUri.build("localhost", 6379, "   ", 3))
+			.isEqualTo("redis://localhost:6379/3");
+	}
+
+	@Test
 	void blankHostRejected() {
 		assertThatThrownBy(() -> JetCacheRedisUri.build("  ", 6379, "x", 0))
 			.isInstanceOf(IllegalArgumentException.class);

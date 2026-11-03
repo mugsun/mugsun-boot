@@ -121,6 +121,66 @@ class JetCacheRedisUriEnvironmentPostProcessorTest {
 			.isEqualTo("redis://keep-existing:6379/3");
 	}
 
+
+	@Test
+	void blankWhitespacePasswordNormalizedAsNoAuth() {
+		StandardEnvironment env = new StandardEnvironment();
+		env.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+		env.getPropertySources().remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
+		Map<String, Object> cfg = new HashMap<>();
+		cfg.put("spring.data.redis.host", "r.local");
+		cfg.put("spring.data.redis.port", "6379");
+		cfg.put("spring.data.redis.password", "   ");
+		cfg.put("spring.data.redis.database", "3");
+		cfg.put("jetcache.remote.default.type", "redis.lettuce");
+		env.getPropertySources().addFirst(new MapPropertySource("cfg", cfg));
+		processor.postProcessEnvironment(env, null);
+		assertThat(env.getProperty("jetcache.remote.default.uri"))
+			.isEqualTo("redis://r.local:6379/3");
+	}
+
+	/** P2：更高优先级显式 uri 不被合成覆盖，但须与 spring.data.redis 回解析一致。 */
+	@Test
+	void explicitUriBypassStillRoundTripChecked() {
+		StandardEnvironment env = new StandardEnvironment();
+		env.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+		env.getPropertySources().remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
+		// systemProperties 模拟更高优先级显式 uri（已编码）
+		env.getPropertySources().addFirst(new MapPropertySource(
+			StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME,
+			Map.of("jetcache.remote.default.uri", "redis://:p%40ss@r.local:6379/3")));
+		env.getPropertySources().addLast(new MapPropertySource("cfg", Map.of(
+			"spring.data.redis.host", "r.local",
+			"spring.data.redis.port", "6379",
+			"spring.data.redis.password", "p@ss",
+			"spring.data.redis.database", "3",
+			"jetcache.remote.default.type", "redis.lettuce")));
+		processor.postProcessEnvironment(env, null);
+		assertThat(env.getProperty("jetcache.remote.default.uri"))
+			.isEqualTo("redis://:p%40ss@r.local:6379/3");
+	}
+
+	@Test
+	void explicitUriBypassMismatchedPasswordFailsFast() {
+		StandardEnvironment env = new StandardEnvironment();
+		env.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+		env.getPropertySources().remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
+		// 显式 uri 口令未编码 / 与 spring.data.redis 不一致 → 拒绝
+		env.getPropertySources().addFirst(new MapPropertySource(
+			StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME,
+			Map.of("jetcache.remote.default.uri", "redis://:p@ss@r.local:6379/3")));
+		env.getPropertySources().addLast(new MapPropertySource("cfg", Map.of(
+			"spring.data.redis.host", "r.local",
+			"spring.data.redis.port", "6379",
+			"spring.data.redis.password", "p@ss",
+			"spring.data.redis.database", "3",
+			"jetcache.remote.default.type", "redis.lettuce")));
+		assertThatThrownBy(() -> processor.postProcessEnvironment(env, null))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("拒绝启动")
+			.hasMessageNotContaining("p@ss");
+	}
+
 	private static StandardEnvironment prodDemo(Map<String, Object> deploy) throws Exception {
 		StandardEnvironment env = new StandardEnvironment();
 		var sources = env.getPropertySources();
