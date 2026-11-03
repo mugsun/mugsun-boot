@@ -1,7 +1,7 @@
 package com.mugsun.boot.demo;
 
 import com.mugsun.boot.config.JetCacheRedisUriEnvironmentPostProcessor;
-import org.apache.commons.logging.LogFactory;
+import org.springframework.boot.logging.DeferredLogs;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.MapPropertySource;
@@ -60,7 +60,7 @@ class DemoJetcacheUriTest {
 	void prodDemoUriKeepsPasswordAndUsesDemoDb() throws Exception {
 		StandardEnvironment env = prodDemo(Map.of(
 			"REDIS_PASSWORD", "s3cret-pw", "REDIS_HOST", "redis", "REDIS_PORT", "6379", "REDIS_DB", "0"));
-		new JetCacheRedisUriEnvironmentPostProcessor(LogFactory.getLog(DemoJetcacheUriTest.class))
+		new JetCacheRedisUriEnvironmentPostProcessor(new DeferredLogs())
 			.postProcessEnvironment(env, null);
 		String uri = env.getProperty("jetcache.remote.default.uri");
 		assertThat(uri).isEqualTo("redis://:s3cret-pw@redis:6379/4");
@@ -70,7 +70,7 @@ class DemoJetcacheUriTest {
 	void prodDemoUriEncodesSpecialPasswordAndUsesDemoDb() throws Exception {
 		StandardEnvironment env = prodDemo(Map.of(
 			"REDIS_PASSWORD", "p@ss/%x", "REDIS_HOST", "redis", "REDIS_PORT", "6379", "REDIS_DB", "0"));
-		new JetCacheRedisUriEnvironmentPostProcessor(LogFactory.getLog(DemoJetcacheUriTest.class))
+		new JetCacheRedisUriEnvironmentPostProcessor(new DeferredLogs())
 			.postProcessEnvironment(env, null);
 		assertThat(env.getProperty("jetcache.remote.default.uri"))
 			.isEqualTo("redis://:p%40ss%2F%25x@redis:6379/4");

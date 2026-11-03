@@ -78,6 +78,15 @@ class JetCacheRedisUriEnvironmentPostProcessorTest {
 			.hasMessageContaining("port");
 	}
 
+
+	@Test
+	void skipsWhenHostPlaceholderUnresolved() throws Exception {
+		// 模拟 prod：host=${REDIS_HOST} 且未注入 —— 不得抛，也不合成 uri
+		StandardEnvironment env = prodDemo(Map.of());
+		processor.postProcessEnvironment(env, null);
+		assertThat(env.getPropertySources().contains(JetCacheRedisUriEnvironmentPostProcessor.SOURCE)).isFalse();
+	}
+
 	private static StandardEnvironment prodDemo(Map<String, Object> deploy) throws Exception {
 		StandardEnvironment env = new StandardEnvironment();
 		var sources = env.getPropertySources();

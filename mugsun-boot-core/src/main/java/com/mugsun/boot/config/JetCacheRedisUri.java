@@ -38,7 +38,7 @@ public final class JetCacheRedisUri {
 		}
 		String h = host.trim();
 		String uri;
-		if (password == null || password.isEmpty()) {
+		if (password == null || password.isBlank()) {
 			uri = "redis://" + h + ":" + port + "/" + database;
 		} else {
 			uri = "redis://:" + encodeUserInfo(password) + "@" + h + ":" + port + "/" + database;

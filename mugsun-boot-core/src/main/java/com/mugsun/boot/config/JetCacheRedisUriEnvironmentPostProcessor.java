@@ -5,6 +5,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.boot.logging.DeferredLogFactory;
 import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.util.PlaceholderResolutionException;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.StandardEnvironment;
@@ -31,34 +32,42 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 		this.log = logFactory.getLog(JetCacheRedisUriEnvironmentPostProcessor.class);
 	}
 
-	/** 单测用。 */
-	public JetCacheRedisUriEnvironmentPostProcessor(Log log) {
+	/** 单测用：包可见，勿 public——SpringFactoriesLoader.FactoryInstantiator
+	 * 要求恰好一个 public 构造器（DeferredLogFactory）。 */
+	JetCacheRedisUriEnvironmentPostProcessor(Log log) {
 		this.log = log;
 	}
 
 	@Override
 	public void postProcessEnvironment(ConfigurableEnvironment env, SpringApplication app) {
-		String type = env.getProperty(TYPE_KEY, "redis.lettuce").trim();
+		String type = optional(env, TYPE_KEY, "redis.lettuce").trim();
 		if ("mock".equalsIgnoreCase(type)) {
 			return;
 		}
+		// prod 的 host=${REDIS_HOST} 未注入时 getProperty 会抛 PlaceholderResolutionException；
+		// 此时跳过合成，让后续组件按原语义失败，勿抢在 LabSeed 等守卫之前炸。
 		String host = firstNonBlank(
-			env.getProperty("spring.data.redis.host"),
-			env.getProperty("MUGSUN_REDIS_HOST"),
-			env.getProperty("REDIS_HOST"));
+			optional(env, "spring.data.redis.host"),
+			optional(env, "MUGSUN_REDIS_HOST"),
+			optional(env, "REDIS_HOST"));
 		if (!StringUtils.hasText(host)) {
 			return;
 		}
-		int port = parsePort(env.getProperty("spring.data.redis.port",
-			env.getProperty("MUGSUN_REDIS_PORT",
-				env.getProperty("REDIS_PORT", "6379"))));
-		String password = env.getProperty("spring.data.redis.password",
-			env.getProperty("REDIS_PASSWORD", ""));
+		int port = parsePort(firstNonBlank(
+			optional(env, "spring.data.redis.port"),
+			optional(env, "MUGSUN_REDIS_PORT"),
+			optional(env, "REDIS_PORT"),
+			"6379"));
+		String password = firstNonBlank(
+			optional(env, "spring.data.redis.password"),
+			optional(env, "REDIS_PASSWORD"));
 		if (password == null) {
 			password = "";
 		}
-		int database = parseDatabase(env.getProperty("spring.data.redis.database",
-			env.getProperty("REDIS_DB", "0")));
+		int database = parseDatabase(firstNonBlank(
+			optional(env, "spring.data.redis.database"),
+			optional(env, "REDIS_DB"),
+			"0"));
 
 		String uri;
 		try {
@@ -91,7 +100,23 @@ public class JetCacheRedisUriEnvironmentPostProcessor implements EnvironmentPost
 		}
 	}
 
+
+	/** 占位符无法解析时视为未配置（返回 null / 默认），不抛。 */
+	static String optional(ConfigurableEnvironment env, String key) {
+		try {
+			return env.getProperty(key);
+		} catch (PlaceholderResolutionException e) {
+			return null;
+		}
+	}
+
+	static String optional(ConfigurableEnvironment env, String key, String defaultValue) {
+		String v = optional(env, key);
+		return v != null ? v : defaultValue;
+	}
+
 	private static String firstNonBlank(String... values) {
+
 		if (values == null) {
 			return null;
 		}
