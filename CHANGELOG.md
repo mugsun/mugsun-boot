@@ -56,6 +56,11 @@
 
 ### 修复
 
+- JetCache Redis uri 口令 URL 编码，避免特殊字符连错（#70）
+  - lettuce 只认 uri：按 spring.data.redis host/port/password/database 合成
+  - 口令百分号编码（含 `@` `%` `/` 等）；回解析不一致则启动失败
+  - 一键部署 gen-secrets 口令仍为 A-Za-z0-9；自建部署不受控须编码
+
 - openGauss-lite 灌库：gsql 专用说明 + V8 lite 脚本 + 禁 IF NOT EXISTS（#102）
   - 明确 og 不用社区 Flyway（SET ROLE denied）；关 spring.flyway，gsql 顺序灌
   - 新增 `scripts/og/V8_oper_log_chain_guard_lite.sql`（DO 块替代）

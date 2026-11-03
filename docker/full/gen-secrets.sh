@@ -70,6 +70,8 @@ need_len MUGSUN_SIGN_PRIVATE_KEY "$(get MUGSUN_SIGN_PRIVATE_KEY)" 64
 need_len MUGSUN_INIT_PASSWORD "$(get MUGSUN_INIT_PASSWORD)" 19
 need_len MUGSUN_FILE_SIGN_SECRET "$(get MUGSUN_FILE_SIGN_SECRET)" 48
 DBPW=$(rnd 32); need_len 数据库口令 "$DBPW" 32
+# Redis 口令仅 A-Za-z0-9（避免历史 jetcache 裸拼 URI 问题）；自建部署仍可能含特殊字符，
+# 后端 JetCacheRedisUriEnvironmentPostProcessor 会编码（#70）。
 REDISPW=$(rnd 32); need_len Redis口令 "$REDISPW" 32
 
 mkdir -p /secrets/boot /secrets/postgres /secrets/redis

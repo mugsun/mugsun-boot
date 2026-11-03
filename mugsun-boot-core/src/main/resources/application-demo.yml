@@ -55,7 +55,8 @@ spring:
 jetcache:
   remote:
     default:
-      uri: redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT:6379}/${MUGSUN_DEMO_REDIS_DB:4}
+      # 同 prod：uri 由 JetCacheRedisUriEnvironmentPostProcessor 按 spring.data.redis 合成
+      #（demo 已把 database 换成 MUGSUN_DEMO_REDIS_DB，默认 4）
 mybatis-flex:
   datasource:
     # 连接池（三个池合计 13）：演示库 PG 的 max_connections=30，扣掉 superuser 保留的 3 个还剩 27；

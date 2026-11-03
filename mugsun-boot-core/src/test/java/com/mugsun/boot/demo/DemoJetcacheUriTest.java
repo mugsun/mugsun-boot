@@ -1,5 +1,7 @@
 package com.mugsun.boot.demo;
 
+import com.mugsun.boot.config.JetCacheRedisUriEnvironmentPostProcessor;
+import org.apache.commons.logging.LogFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.MapPropertySource;
@@ -13,15 +15,19 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 按 prod,demo 叠加后 jetcache 远端 URI 必须沿用 prod 的口令与主机变量，只把 db 换成演示专用库（安全复审 N1）。
+ * 按 prod,demo 叠加后 jetcache 远端 URI 必须沿用 prod 的口令与主机，只把 db 换成演示专用库（安全复审 N1）。
+ * #70：口令经 {@link JetCacheRedisUriEnvironmentPostProcessor} 编码合成。
  */
 class DemoJetcacheUriTest {
 
 	private static StandardEnvironment prodDemo(Map<String, Object> deploy) throws Exception {
 		StandardEnvironment env = new StandardEnvironment();
 		var sources = env.getPropertySources();
+		sources.remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+		sources.remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
 		sources.addFirst(new MapPropertySource("deploy", deploy));
 		YamlPropertySourceLoader loader = new YamlPropertySourceLoader();
+		// 后插入到 deploy 之后的 profile 优先：demo > prod > 默认
 		for (String file : List.of("application.yml", "application-prod.yml", "application-demo.yml")) {
 			for (PropertySource<?> ps : loader.load(file, new ClassPathResource(file))) {
 				sources.addAfter("deploy", ps);
@@ -52,18 +58,21 @@ class DemoJetcacheUriTest {
 
 	@Test
 	void prodDemoUriKeepsPasswordAndUsesDemoDb() throws Exception {
-		StandardEnvironment env = new StandardEnvironment();
-		var sources = env.getPropertySources();
-		sources.addFirst(new MapPropertySource("deploy", Map.of(
-			"REDIS_PASSWORD", "s3cret-pw", "REDIS_HOST", "redis", "REDIS_PORT", "6379", "REDIS_DB", "0")));
-		YamlPropertySourceLoader loader = new YamlPropertySourceLoader();
-		// 后加载的 profile 优先：demo > prod > 默认
-		for (String file : List.of("application.yml", "application-prod.yml", "application-demo.yml")) {
-			for (PropertySource<?> ps : loader.load(file, new ClassPathResource(file))) {
-				sources.addAfter("deploy", ps);
-			}
-		}
+		StandardEnvironment env = prodDemo(Map.of(
+			"REDIS_PASSWORD", "s3cret-pw", "REDIS_HOST", "redis", "REDIS_PORT", "6379", "REDIS_DB", "0"));
+		new JetCacheRedisUriEnvironmentPostProcessor(LogFactory.getLog(DemoJetcacheUriTest.class))
+			.postProcessEnvironment(env, null);
 		String uri = env.getProperty("jetcache.remote.default.uri");
 		assertThat(uri).isEqualTo("redis://:s3cret-pw@redis:6379/4");
+	}
+
+	@Test
+	void prodDemoUriEncodesSpecialPasswordAndUsesDemoDb() throws Exception {
+		StandardEnvironment env = prodDemo(Map.of(
+			"REDIS_PASSWORD", "p@ss/%x", "REDIS_HOST", "redis", "REDIS_PORT", "6379", "REDIS_DB", "0"));
+		new JetCacheRedisUriEnvironmentPostProcessor(LogFactory.getLog(DemoJetcacheUriTest.class))
+			.postProcessEnvironment(env, null);
+		assertThat(env.getProperty("jetcache.remote.default.uri"))
+			.isEqualTo("redis://:p%40ss%2F%25x@redis:6379/4");
 	}
 }

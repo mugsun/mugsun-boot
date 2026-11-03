@@ -107,6 +107,7 @@ jetcache:
       keyConvertor: bean:tenantKeyConvertor
       valueEncoder: bean:jsonValueEncoder
       valueDecoder: bean:jsonValueDecoder
+      # 无口令缺省；有 spring.data.redis.password 时由 JetCacheRedisUriEnvironmentPostProcessor 覆盖为编码 uri
       uri: redis://${MUGSUN_REDIS_HOST:localhost}:${MUGSUN_REDIS_PORT:6379}/3
 dromara:
   x-file-storage:
