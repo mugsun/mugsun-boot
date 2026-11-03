@@ -1,6 +1,6 @@
-"""一键全栈自检：登录（行为验证码答案取自 Redis 挑战记录，仅供自检）→ 上报 1 条埋点 → 管理端查到该事件。
+"""一键全栈自检：登录（行为验证码答案取自 Redis，仅供自检）→ 改密并重登 → 上报埋点 → 管理端查到。
 在 compose 内网的一次性容器里运行，由 scripts/compose-full-smoke.sh 调用。"""
-import json, os, sys, time, uuid, urllib.request, subprocess
+import json, os, sys, time, uuid, urllib.request
 from gmssl import sm2
 
 BASE = os.environ.get("BASE", "http://pc:8080")  # 经 pc 镜像的非 root Nginx（容器内 8080）/api 反代，与浏览器同路径
@@ -22,37 +22,52 @@ def call(method, path, body=None, token=None):
 
 import redis
 r = redis.Redis(host="redis", password=rpw, db=3, decode_responses=True)
-# 行为验证码：键盘模式只出 SLIDER / ROTATE（平台默认五种随机），只取一次题；答案从 Redis 挑战记录读（仅供自检）
-cap = call("POST", "/api/auth/captcha/challenge", {"scene": "login", "clientId": "web", "tenantId": "000000",
-                                                 "inputMode": "keyboard"})
-assert cap.get("code") == 200, f"取验证码失败: {cap}"
-cap = cap["data"]
-print(f"验证码题型: {cap['type']}")
-assert cap["type"] in ("SLIDER", "ROTATE"), f"键盘模式只应出 SLIDER/ROTATE: {cap['type']}"
-rec = r.get("mugsun:captcha:v2:challenge:" + cap["captchaId"])
-assert rec, "Redis 里没有验证码答案"
-expected = int(rec.split("|")[0])
-if cap["type"] == "SLIDER":
-    step = cap.get("keyboardStep") or 4
-    answer, presses = {"x": expected}, round(expected / step)
-else:
-    # ROTATE：记录里的答案是角度；键盘每按一次转 keyboardStep 度
-    step = cap.get("keyboardStep") or 5
-    answer, presses = {"angle": expected}, round(expected / step)
-time.sleep(1)
-end = int(time.time() * 1000)
-ver = call("POST", "/api/auth/captcha/verify", {"captchaId": cap["captchaId"], "inputMode": "keyboard",
-                                             "bgDisplayWidth": cap["bgWidth"], "startTime": end - 800, "endTime": end,
-                                             "answer": answer, "keyPresses": presses})
-assert ver.get("code") == 200, f"验证码校验失败: {ver}"
-enc = sm2.CryptSM2(private_key="", public_key=pub[2:] if pub.startswith("04") else pub, mode=1).encrypt(pw.encode()).hex()
-res = call("POST", "/api/auth/login", {"username": "admin", "password": enc, "tenantId": "000000", "clientId": "web",
-                                     "captchaToken": ver["data"]["captchaToken"]})
-assert res.get("code") == 200, f"登录失败: {res}"
-d = res["data"]
-token = d.get("accessToken") or d.get("token") or d.get("tokenValue")
-assert token, f"登录响应里没有 token: {list(d)}"
+
+def sm2enc(text):
+    return sm2.CryptSM2(private_key="", public_key=pub[2:] if pub.startswith("04") else pub, mode=1).encrypt(text.encode()).hex()
+
+def login_with_password(plain_pw):
+    """行为验证码 + SM2 密码登录；返 access token。"""
+    # 行为验证码：键盘模式只出 SLIDER / ROTATE；答案从 Redis 挑战记录读（仅供自检）
+    cap = call("POST", "/api/auth/captcha/challenge", {"scene": "login", "clientId": "web", "tenantId": "000000",
+                                                     "inputMode": "keyboard"})
+    assert cap.get("code") == 200, f"取验证码失败: {cap}"
+    cap = cap["data"]
+    print(f"验证码题型: {cap['type']}")
+    assert cap["type"] in ("SLIDER", "ROTATE"), f"键盘模式只应出 SLIDER/ROTATE: {cap['type']}"
+    rec = r.get("mugsun:captcha:v2:challenge:" + cap["captchaId"])
+    assert rec, "Redis 里没有验证码答案"
+    expected = int(rec.split("|")[0])
+    if cap["type"] == "SLIDER":
+        step = cap.get("keyboardStep") or 4
+        answer, presses = {"x": expected}, round(expected / step)
+    else:
+        step = cap.get("keyboardStep") or 5
+        answer, presses = {"angle": expected}, round(expected / step)
+    time.sleep(1)
+    end = int(time.time() * 1000)
+    ver = call("POST", "/api/auth/captcha/verify", {"captchaId": cap["captchaId"], "inputMode": "keyboard",
+                                                 "bgDisplayWidth": cap["bgWidth"], "startTime": end - 800, "endTime": end,
+                                                 "answer": answer, "keyPresses": presses})
+    assert ver.get("code") == 200, f"验证码校验失败: {ver}"
+    res = call("POST", "/api/auth/login", {"username": "admin", "password": sm2enc(plain_pw), "tenantId": "000000",
+                                         "clientId": "web", "captchaToken": ver["data"]["captchaToken"]})
+    assert res.get("code") == 200, f"登录失败: {res}"
+    d = res["data"]
+    tok = d.get("accessToken") or d.get("token") or d.get("tokenValue")
+    assert tok, f"登录响应里没有 token: {list(d)}"
+    return tok
+
+token = login_with_password(pw)
 print("OK 登录 admin")
+
+# #81 强制改密：管理端接口在改密前会 400；改密后旧 token 会 401，须用新口令再登（#104）
+new_pw = "Smk-" + uuid.uuid4().hex[:12] + "A9"
+res = call("POST", "/api/auth/update-password", {"oldPassword": sm2enc(pw), "newPassword": sm2enc(new_pw)}, token=token)
+assert res.get("code") == 200, f"改口令失败: {res}"
+print("OK 管理员已改口令")
+token = login_with_password(new_pw)
+print("OK 改密后重新登录")
 
 eid = str(uuid.uuid4())  # event_id 上限 36 位
 now = int(time.time() * 1000)
@@ -79,11 +94,3 @@ for i in range(60):
     time.sleep(2)
 else:
     print(f"FAIL 120 秒内管理端没看到事件（实时流 {seen_rt}，落库 {seen_db}）", file=sys.stderr); sys.exit(1)
-
-# 管理员改口令：之后 init show 不应再显示初始口令（由 compose-full-smoke.sh 检查）
-def sm2enc(text):
-    return sm2.CryptSM2(private_key="", public_key=pub[2:] if pub.startswith("04") else pub, mode=1).encrypt(text.encode()).hex()
-new_pw = "Smk-" + uuid.uuid4().hex[:12] + "A9"
-res = call("POST", "/api/auth/update-password", {"oldPassword": sm2enc(pw), "newPassword": sm2enc(new_pw)}, token=token)
-assert res.get("code") == 200, f"改口令失败: {res}"
-print("OK 管理员已改口令")

@@ -68,6 +68,11 @@
 
 ### 修复
 
+- compose-full smoke：`up --wait` 不再因 oneshot `ready` 误失败（#104）
+  - `ready` 横幅 exit 0 会让 Compose 把整次 `--wait` 判失败
+  - 验收脚本只 wait postgres/redis/boot/pc；失败先 dump 再 cleanup
+  - smoke.py 先改密并重新登录再查埋点（#81 强制改密）
+
 - prod/demo 空 `jetcache.remote.default` 冲掉 type，JetCacheCondition 崩
   - 删掉两处注释空 map；继承 application.yml 的 `type: redis.lettuce`
   - 裸键 `jetcache.remote.default=` 会让 Condition 对无点号键做

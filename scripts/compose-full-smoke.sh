@@ -9,10 +9,22 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-mugsun-full-smoke}"
 export MUGSUN_HTTP_PORT="${MUGSUN_HTTP_PORT:-18088}"
 DC=(docker compose -f docker-compose.full.yml)
 cleanup() { [ "${KEEP:-0}" = 1 ] || "${DC[@]}" down -v --remove-orphans >/dev/null 2>&1 || true; }
+# 失败时先打日志再走 cleanup，避免 CI 后置 KEEP=1 时栈已被 trap down 掉
+dump_logs() {
+  echo ">> FAIL 收集 compose 状态与日志" >&2
+  "${DC[@]}" ps -a >&2 || true
+  "${DC[@]}" logs --tail 300 >&2 || true
+}
+trap dump_logs ERR
 trap cleanup EXIT
 "${DC[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 start=$(date +%s)
-"${DC[@]}" up -d --build --wait --wait-timeout "${WAIT_TIMEOUT:-900}"
+# ready 是 oneshot 横幅：exit 0 后 compose up --wait 仍判失败（docker/compose#10596）。
+# init 已有 postgres/redis 的 service_completed_successfully 依赖，可被 --wait 正确对待；
+# 这里只 wait 长驻服务，不把 ready 拉进 wait 集合（依赖仍会拉起 init/postgres/redis）。
+# 见 #104
+"${DC[@]}" up -d --build --wait --wait-timeout "${WAIT_TIMEOUT:-900}" \
+  postgres redis boot pc
 up=$(date +%s)
 echo ">> 栈已就绪（$((up-start)) 秒）"
 # 先落到变量再匹配：pipefail 下 grep -q 提前退出会让上游吃 SIGPIPE 而误判失败

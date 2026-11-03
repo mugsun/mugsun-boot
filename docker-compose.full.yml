@@ -144,7 +144,9 @@ services:
     restart: unless-stopped
 
   ready:
-    # 一次性提示：等 boot 健康、pc 起来后向 stdout 打印登录地址与查口令命令（不打印口令）
+    # 一次性提示：等 boot 健康、pc 起来后向 stdout 打印登录地址与查口令命令（不打印口令）。
+    # 注意：本服务 exit 0 后 `docker compose up --wait` 会误报失败（无下游
+    # service_completed_successfully 依赖）；交互 up -d 不受影响。验收脚本见 #104。
     image: mugsun-full-init:local
     depends_on:
       boot:
