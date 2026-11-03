@@ -1,6 +1,7 @@
 package com.mugsun.boot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mugsun.boot.common.constant.AuthConstants;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -43,6 +44,8 @@ class ForgetPasswordApiTest extends AbstractIntegrationTest {
 		assertThat(existing.path("msg").asText()).isEqualTo(missing.path("msg").asText());
 		assertThat(existing.path("msg").asText()).doesNotContain("通道");
 		assertThat(existing.path("data")).isEqualTo(missing.path("data"));
+		// 发码成功会留下同账号 60s 节流键；清掉以免后续 CaptchaSceneGate 等共用 admin 的用例偶发撞限
+		redis.delete(AuthConstants.FORGET_THROTTLE_PREFIX + PLATFORM_TENANT + ":" + ADMIN_USERNAME);
 	}
 
 	private JsonNode forgetCode(String username) {

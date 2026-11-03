@@ -2,9 +2,12 @@ package com.mugsun.boot.captcha;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.AbstractIntegrationTest;
+import com.mugsun.boot.common.constant.AuthConstants;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 
 import java.util.HashMap;
@@ -21,6 +24,15 @@ class CaptchaSceneGateApiTest extends AbstractIntegrationTest {
 
 	@Autowired
 	private CaptchaProperties props;
+
+	@Autowired
+	private StringRedisTemplate redis;
+
+	@BeforeEach
+	void clearForgetThrottle() {
+		// ForgetPasswordApiTest 等同进程用例会留下 admin 的 60s 发码节流键；测闸门前清掉，不改生产 60s
+		redis.delete(AuthConstants.FORGET_THROTTLE_PREFIX + PLATFORM_TENANT + ":" + ADMIN_USERNAME);
+	}
 
 	@AfterEach
 	void restore() {
@@ -40,6 +52,8 @@ class CaptchaSceneGateApiTest extends AbstractIntegrationTest {
 	}
 
 	private ResponseEntity<String> forgetCode() {
+		// 类内两个用例都打 admin：每次发码前再清一次，避免用例顺序/重跑撞同号 60s 节流
+		redis.delete(AuthConstants.FORGET_THROTTLE_PREFIX + PLATFORM_TENANT + ":" + ADMIN_USERNAME);
 		Map<String, Object> body = new HashMap<>();
 		body.put("username", ADMIN_USERNAME);
 		body.put("tenantId", PLATFORM_TENANT);
