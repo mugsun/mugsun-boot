@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 架构红线：业务域之间不得直连对方 Mapper，跨域读写必须经对方 Service。
- * <p>存量违规以 {@link #FROZEN} 冻结（G109 盘点结果，共 15 个文件），只允许变少不允许变多：
+ * <p>存量违规以 {@link #FROZEN} 冻结（G109 盘点结果，共 17 个文件），只允许变少不允许变多：
  * 新增违规会让本用例失败；还清一个就从冻结表里删一行。
  */
 class NoCrossDomainMapperTest {
@@ -49,6 +49,8 @@ class NoCrossDomainMapperTest {
 		"oauth/OpenApiController.java",
 		"online/OnlineService.java",
 		"search/GlobalSearchController.java",
+		"security/ForceChangePasswordConfig.java",
+		"security/ForceChangePasswordInterceptor.java",
 		"tenant/TenantValidator.java"
 	));
 

@@ -209,14 +209,19 @@ public abstract class AbstractIntegrationTest {
 	protected PasswordEncoder passwordEncoder;
 
 	/**
-	 * #81：种子 admin / 新租户 admin 可能带 must_change_password=1；
-	 * 集成测试沿用固定 ADMIN_PASSWORD，开测前清平台标记，建租户后把租户 admin 口令归一为 ADMIN_PASSWORD。
+	 * #81：DataInitializer 播种平台 admin 时 must_change_password=1；
+	 * 集成测试沿用固定 ADMIN_PASSWORD，须在登录前清库标记，否则会话写入 true，
+	 * 仅 @BeforeEach 清库拦不住 @BeforeAll 里拿到的 token。
 	 */
-	@BeforeEach
-	void releasePlatformAdminMustChangeFlag() {
+	protected void clearPlatformAdminMustChangeFlag() {
 		jdbc.update(
 			"UPDATE sys_user SET must_change_password = 0 WHERE username = ? AND tenant_id = ? AND is_deleted = 0",
 			ADMIN_USERNAME, PLATFORM_TENANT);
+	}
+
+	@BeforeEach
+	void releasePlatformAdminMustChangeFlag() {
+		clearPlatformAdminMustChangeFlag();
 	}
 
 
@@ -346,8 +351,9 @@ public abstract class AbstractIntegrationTest {
 		assertThat(n).as("租户 %s 应有 admin 可归一口令", tenantCode).isEqualTo(1);
 	}
 
-	/** 以平台超管身份登录 */
+	/** 以平台超管身份登录（登录前清须改密标记，避免 ForceChange 闸拦业务测） */
 	protected String loginAdmin() {
+		clearPlatformAdminMustChangeFlag();
 		return login(PLATFORM_TENANT, ADMIN_USERNAME, ADMIN_PASSWORD);
 	}
 
