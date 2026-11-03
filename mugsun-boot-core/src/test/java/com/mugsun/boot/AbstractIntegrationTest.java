@@ -10,6 +10,7 @@ import com.mugsun.boot.common.crypto.Sm4TestKeys;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -212,11 +213,35 @@ public abstract class AbstractIntegrationTest {
 	 * #81：DataInitializer 播种平台 admin 时 must_change_password=1；
 	 * 集成测试沿用固定 ADMIN_PASSWORD，须在登录前清库标记，否则会话写入 true，
 	 * 仅 @BeforeEach 清库拦不住 @BeforeAll 里拿到的 token。
+	 * <p>demo 只读账号（{@code mugsun_demo_ro}）无权 UPDATE sys_user：捕获权限错误并跳过。
+	 * DemoAccountsApiTest 须在 prepare() 用 owner 连接预先清标记，loginAdmin 才能避开 ForceChange。
 	 */
 	protected void clearPlatformAdminMustChangeFlag() {
-		jdbc.update(
-			"UPDATE sys_user SET must_change_password = 0 WHERE username = ? AND tenant_id = ? AND is_deleted = 0",
-			ADMIN_USERNAME, PLATFORM_TENANT);
+		try {
+			jdbc.update(
+				"UPDATE sys_user SET must_change_password = 0 WHERE username = ? AND tenant_id = ? AND is_deleted = 0",
+				ADMIN_USERNAME, PLATFORM_TENANT);
+		} catch (DataAccessException ex) {
+			if (isSysUserUpdatePermissionDenied(ex)) {
+				return;
+			}
+			throw ex;
+		}
+	}
+
+	/** demo RO / 受限库：UPDATE sys_user 被拒（PostgreSQL 42501 等） */
+	private static boolean isSysUserUpdatePermissionDenied(Throwable ex) {
+		for (Throwable t = ex; t != null; t = t.getCause()) {
+			String msg = t.getMessage();
+			if (msg != null && msg.toLowerCase().contains("permission denied")
+					&& msg.toLowerCase().contains("sys_user")) {
+				return true;
+			}
+			if (t instanceof java.sql.SQLException sql && "42501".equals(sql.getSQLState())) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	@BeforeEach
