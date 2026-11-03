@@ -68,17 +68,12 @@ public class LoginLockService {
 		return demoMode ? key + "@ip:" + (clientIp == null ? "-" : clientIp) : key;
 	}
 
-	/** 记录一次失败，达阈值则锁定；计数窗口 = 锁定时长，滑动刷新 */
+	/** 记录一次失败，达阈值则锁定；计数窗口 = 锁定时长，滑动刷新。落锁路径走 store 原子方法（#68）。 */
 	public void recordFail(String username) {
 		int lockMinutes = securityPolicyService.getLockMinutes();
-		Long count = store.incrementFail(username, Duration.ofMinutes(lockMinutes));
-		if (count != null && count >= securityPolicyService.getLoginFailMax()) {
-			Duration ttl = Duration.ofMinutes(lockMinutes);
-			store.setLock(username, "fail", ttl);
-			store.setMeta(username, "连续登录失败次数过多", ttl);
-			store.addIndex(username);
-			store.deleteFail(username);
-		}
+		Duration ttl = Duration.ofMinutes(lockMinutes);
+		store.recordFailOrLock(username, ttl, securityPolicyService.getLoginFailMax(),
+			"fail", "连续登录失败次数过多", ttl);
 	}
 
 	/**
@@ -92,19 +87,17 @@ public class LoginLockService {
 		if (text.length() > MAX_REASON) {
 			throw new ServiceException("锁定原因请控制在 200 字以内");
 		}
-		String meta = text + "\u001f" + (operator == null ? "" : operator);
+		String meta = text + "" + (operator == null ? "" : operator);
+		Duration ttl = null;
 		if (minutes != null && minutes > 0) {
 			if (minutes > MAX_MINUTES) {
 				throw new ServiceException("锁定时长不能超过 30 天，留空则一直锁定到管理员解锁");
 			}
-			Duration ttl = Duration.ofMinutes(minutes);
-			store.setLock(lockKey, "manual", ttl);
-			store.setMeta(lockKey, meta, ttl);
-		} else {
-			store.setLock(lockKey, "manual", null);
-			store.setMeta(lockKey, meta, null);
+			ttl = Duration.ofMinutes(minutes);
 		}
-		store.addIndex(lockKey);
+		store.setLock(lockKey, "manual", ttl);
+		store.setMeta(lockKey, meta, ttl);
+		store.addIndex(lockKey, ttl);
 	}
 
 	/** 当前租户仍在锁定中的账号。过期项会从索引里清掉。 */
@@ -125,8 +118,8 @@ public class LoginLockService {
 			String raw = store.getMeta(member);
 			String reason = raw;
 			String operator = "";
-			if (raw != null && raw.contains("\u001f")) {
-				int split = raw.indexOf('\u001f');
+			if (raw != null && raw.contains("")) {
+				int split = raw.indexOf('');
 				reason = raw.substring(0, split);
 				operator = raw.substring(split + 1);
 			}
@@ -156,7 +149,7 @@ public class LoginLockService {
 		if (raw == null) {
 			return null;
 		}
-		int split = raw.indexOf('\u001f');
+		int split = raw.indexOf('');
 		return split < 0 ? raw : raw.substring(0, split);
 	}
 
