@@ -35,7 +35,9 @@ public interface MonitorConstants {
 	/** 访问日志排除路径前缀（监控端点/文档/推送/静态与上传下载/埋点采集，与 XssFilter 跳过集合并集；/track 防埋点自埋点刷屏） */
 	List<String> API_LOG_EXCLUDES = List.of(
 		"/actuator", "/v3/api-docs", "/doc.html", "/swagger", "/warm-flow",
-		"/ws", "/file", "/system/oss", "/system/file", "/favicon.ico", "/error", "/track");
+		"/ws", "/file", "/system/oss", "/system/file", "/favicon.ico", "/error", "/track",
+		// CSP 报告原文里的 URL 可能带 token，只由 CspReportController 清洗后写日志
+		"/csp-report");
 
 	/** 公开 actuator 端点前缀（health/info 探活契约，无需鉴权）；/actuator/** 其余全部需登录+监控权限码（fail-closed） */
 	Set<String> ACTUATOR_PUBLIC = Set.of("/actuator/health", "/actuator/info");

@@ -48,10 +48,19 @@ class DemoReadOnlyEndpointsTest {
 	@BeforeAll
 	static void scan() throws Exception {
 		endpoints = new ArrayList<>();
-		ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
-		scanner.addIncludeFilter(new AnnotationTypeFilter(Controller.class));
-		for (BeanDefinition bd : scanner.findCandidateComponents("com.mugsun")) {
-			Class<?> type = Class.forName(bd.getBeanClassName(), false, DemoReadOnlyEndpointsTest.class.getClassLoader());
+		// @Conditional 按 demo 开、关各评估一次取并集：只在 demo 装配的（如 /csp-report）和 demo 下不装配的（如国密演示）都要算进来
+		java.util.Set<String> classNames = new java.util.TreeSet<>();
+		for (String demo : List.of("true", "false")) {
+			org.springframework.mock.env.MockEnvironment env = new org.springframework.mock.env.MockEnvironment()
+				.withProperty(DemoConstants.ENABLED_PROPERTY, demo);
+			ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false, env);
+			scanner.addIncludeFilter(new AnnotationTypeFilter(Controller.class));
+			for (BeanDefinition bd : scanner.findCandidateComponents("com.mugsun")) {
+				classNames.add(bd.getBeanClassName());
+			}
+		}
+		for (String className : classNames) {
+			Class<?> type = Class.forName(className, false, DemoReadOnlyEndpointsTest.class.getClassLoader());
 			RequestMapping classMapping = AnnotatedElementUtils.findMergedAnnotation(type, RequestMapping.class);
 			String[] prefixes = classMapping == null || classMapping.path().length == 0 ? new String[]{""} : classMapping.path();
 			for (Method m : type.getDeclaredMethods()) {

@@ -16,7 +16,7 @@ import java.util.Set;
 /**
  * 写接口自动审计切面：所有 Controller 的写操作（POST/PUT/DELETE）**无需手工注解**自动留痕。
  * <ul><li>已标 {@link OperationLog} 的方法由 {@link OperationLogAspect} 处理，此处排除避免重复；</li>
- * <li>{@code mugsun.oper-log.exclude-paths} 列出的路径（默认埋点上报 /track/collect、/track/replay）不留痕；</li>
+ * <li>{@code mugsun.oper-log.exclude-paths} 列出的路径（默认埋点上报 /track/collect、/track/replay 与 /csp-report）不留痕；</li>
  * <li>密码类字段自动脱敏、超长参数截断、异步落库（并接入哈希链+签名防篡改）。</li></ul>
  */
 @Aspect

@@ -4,6 +4,14 @@
 
 > 以文档站为准：[docs.mugsun.com/demo](https://docs.mugsun.com/demo)。本文件是部署时的速查摘要。
 
+
+## CSP 违规报告
+
+演示叠加 `docker-compose.demo.yml` 会把管理台 CSP 切到 enforce，并把
+`MUGSUN_CSP_REPORT_URI=/api/csp-report`。后端在 demo profile 装配
+`POST /csp-report`（Nginx 反代后即 `/api/csp-report`）：匿名可报、按 IP 限流
+（默认 30 次/分钟），清洗后只写 `*-csp-report.log`，不入库。
+
 ## 部署顺序
 
 1. 用 owner 账号、非 demo profile 跑一次迁移：`--spring.profiles.active=prod --mugsun.demo.migrate-only=true`，跑完进程自己退出。

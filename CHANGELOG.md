@@ -7,6 +7,12 @@
 
 ### 安全
 
+- CSP 违规报告收集端 `POST /csp-report`（经 Nginx 即 `/api/csp-report`）
+  - 仅 demo 装配；匿名可报；consumes 两种类型；错类型回 415（非 500）
+  - URL 去 query/fragment；blocked/source 只留 origin；路径令牌段脱敏；不入库，单独滚动日志
+  - 按 IP 限流（默认 30/分钟，`MUGSUN_DEMO_CSP_PER_IP_PER_MINUTE`）；超限 429，超大 body 413
+  - demo 叠加 `docker-compose.demo.yml`：CSP enforce + `report-uri=/api/csp-report`
+
 - 旋转验证码可配置挖孔偏移 `mugsun.captcha.rotate.hole-offset-px`（#72）
   - 同图挖圆、不透明孔、piece 独立伪装与边缘羽化（已在 main）上叠加
   - 孔相对取圆中心随机偏移（默认 0 关闭）；对抗测双攻击
