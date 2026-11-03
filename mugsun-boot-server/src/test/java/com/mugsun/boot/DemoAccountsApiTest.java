@@ -120,6 +120,9 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 			if (count("SELECT COUNT(*) FROM sys_user WHERE username = ?", ADMIN_USERNAME) == 0) {
 				throw new IllegalStateException("migrate-only 未播种管理员，见 " + log.getAbsolutePath());
 			}
+			// #81：播种后 must_change=1；随后 Spring 用 mugsun_demo_ro 起上下文，无权 UPDATE sys_user。
+			// 这里用 owner 预先清标记，loginAdmin / ForceChange 闸才不会拦只读演示测。
+			clearPlatformAdminMustChangeAsOwner();
 		} catch (java.io.IOException | SQLException e) {
 			throw new IllegalStateException(e);
 		} catch (InterruptedException e) {
@@ -161,6 +164,20 @@ class DemoAccountsApiTest extends AbstractIntegrationTest {
 			st.execute(sql);
 		} catch (SQLException e) {
 			throw new IllegalStateException("执行建账号 SQL 失败：" + e.getMessage(), e);
+		}
+	}
+
+	/** owner 连接清平台 admin 须改密标记（demo RO 应用账号做不到） */
+	private static void clearPlatformAdminMustChangeAsOwner() throws SQLException {
+		try (Connection c = DriverManager.getConnection(primaryJdbcUrl(), primaryJdbcUsername(), primaryJdbcPassword());
+			var ps = c.prepareStatement(
+				"UPDATE sys_user SET must_change_password = 0 WHERE username = ? AND tenant_id = ? AND is_deleted = 0")) {
+			ps.setString(1, ADMIN_USERNAME);
+			ps.setString(2, PLATFORM_TENANT);
+			int n = ps.executeUpdate();
+			if (n != 1) {
+				throw new IllegalStateException("owner 清 must_change 影响行数=" + n);
+			}
 		}
 	}
 
