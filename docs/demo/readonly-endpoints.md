@@ -55,6 +55,7 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/system/ai/channel/remove` | AiChannelController#remove | 拒绝 |
 | POST | `/system/ai/channel/submit` | AiChannelController#submit | 拒绝 |
 | POST | `/system/ai/chat/receive` | AiChatController#receive | 拒绝 |
+| POST | `/system/ai/chat/regenerate` | AiChatController#regenerate | 拒绝 |
 | POST | `/system/ai/chat/stop` | AiChatController#stop | 拒绝 |
 | POST | `/system/ai/chat/stream` | AiChatController#stream | 拒绝 |
 | POST | `/system/ai/dashboard/dsl/save` | AiDashboardController#saveDsl | 拒绝 |

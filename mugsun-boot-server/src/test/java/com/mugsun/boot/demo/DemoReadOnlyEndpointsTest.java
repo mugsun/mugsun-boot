@@ -146,7 +146,7 @@ class DemoReadOnlyEndpointsTest {
 			"POST /auth/sms-code", "POST /auth/sms/send", "POST /auth/social/bind", "POST /auth/switch-tenant/000000",
 			"POST /system/user/import", "POST /system/file/upload", "POST /system/oss/upload",
 			"POST /system/param/submit", "POST /system/job/run/1", "POST /system/gen/syncDdl",
-			"POST /system/ai/chat/stream", "POST /system/ai/weave/trackInsight", "POST /v1/chat/completions",
+			"POST /system/ai/chat/stream", "POST /system/ai/chat/regenerate", "POST /system/ai/weave/trackInsight", "POST /v1/chat/completions",
 			"POST /track/visual/draft", "POST /system/track/visual/rule/submit",
 			"POST /warm-flow/save-xml", "POST /actuator/shutdown", "POST /actuator/loggers/root",
 			"PUT /auth/login", "DELETE /auth/login", "PATCH /track/collect",
