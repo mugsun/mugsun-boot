@@ -21,18 +21,20 @@ CREATE DATABASE mugsun DBCOMPATIBILITY 'PG';
 示例（端口、口令按环境替换；每个文件带 `-1 -v ON_ERROR_STOP=1`）：
 
 ```bash
-# V1 → V2 → V3 → V7 → …；V8 用 lite 替代脚本，不要直接灌本目录 V8 的历史「IF NOT EXISTS」稿
+# V1 → V2 → V3 → V7 → …；目录 V8 已合规（DO 语义），与 scripts/og/V8_*_lite.sql 任选其一
 gsql -d mugsun -U gaussdb -h 127.0.0.1 -p 15432 -f …/V1__baseline_0_1.sql -1 -v ON_ERROR_STOP=1
 # …
 gsql -d mugsun -U gaussdb -h 127.0.0.1 -p 15432 -f scripts/og/V8_oper_log_chain_guard_lite.sql -1 -v ON_ERROR_STOP=1
 # 再继续 V9、V10…
 ```
 
-### V8 替代脚本
+### V8（DO 语义，任选其一）
 
-lite 5.1 不支持 `ADD COLUMN IF NOT EXISTS`。手工灌库时 **V8 请用仓库根下**
-`scripts/og/V8_oper_log_chain_guard_lite.sql`（仓库根相对路径）
-（DO 块查 `information_schema.columns`，与 V9/V10 一致）。本目录当前 `V8__oper_log_chain_guard.sql` 已是同语义的 DO 写法；从 PG 重新转换时转换器也会把 `ADD COLUMN IF NOT EXISTS` 改成 DO 块，且静态测试禁止本目录再出现该语法。
+lite 5.1 不支持 `ADD COLUMN IF NOT EXISTS`。本目录
+`V8__oper_log_chain_guard.sql` **已合规**（DO 块查 `information_schema.columns`，
+与 V9/V10 一致），也可改用仓库根下 `scripts/og/V8_oper_log_chain_guard_lite.sql`
+——二者同语义，任选其一。从 PG 重新转换时转换器会把 `ADD COLUMN IF NOT EXISTS`
+改成 DO 块，静态测试禁止本目录再出现该语法。
 
 `V1__baseline_0_1.sql` 是 0.1.0 发布基线，**已发布，不可修改**；之后每次改库新增 `Vn__*.sql`，与 PG 同号（规则见 [`../migration/README.md`](../migration/README.md)）。5.1 的改写点：
 

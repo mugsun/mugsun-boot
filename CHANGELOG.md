@@ -51,7 +51,8 @@
 - openGauss-lite 灌库：gsql 专用说明 + V8 lite 脚本 + 禁 IF NOT EXISTS（#102）
   - 明确 og 不用社区 Flyway（SET ROLE denied）；关 spring.flyway，gsql 顺序灌
   - 新增 `scripts/og/V8_oper_log_chain_guard_lite.sql`（DO 块替代）
-  - `pg_to_opengauss.py` 将 `ADD COLUMN IF NOT EXISTS` 改写为 information_schema DO 块
+  - `pg_to_opengauss.py` 将 `ADD COLUMN IF NOT EXISTS`
+    改写为 information_schema DO 块
   - 静态测禁止 `migration-og` 再出现该语法
 
 - 登录锁失败计数与索引原子化（#68 / #69）
