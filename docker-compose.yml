@@ -13,15 +13,15 @@ services:
     # GIS 的空间查询下沉、GiST 索引与矢量瓦片全靠 PostGIS 扩展（见 0.1 基线中的 gis_feature 段）。
     # 没有扩展时应用不会报错，而是静默全量回落 Java 侧——查询慢数倍、矢量瓦片直接不可用，
     # 且只留一行 WARN 日志，运维极难发现。所以镜像即交付物，别在本地手工 apt 装扩展了事。
-    # 基于 postgis/postgis:16-3.4 再装 pgvector。官方镜像仅 amd64，Apple Silicon 走仿真。
-    # Apple Silicon 原生构建（免 amd64 仿真）：
-    #   MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 docker compose up -d --build
+    # 默认拉取 GHCR 多架构镜像（linux/amd64 + linux/arm64），Mac/PC 都不用本地构建，
+    # 也不必再设 MUGSUN_PG_PLATFORM / MUGSUN_PG_BASE_IMAGE。
+    # 钉 digest（可复现）：MUGSUN_PG_IMAGE=ghcr.io/mugsun/postgis-pgvector@sha256:...
+    #   查 digest：docker buildx imagetools inspect ghcr.io/mugsun/postgis-pgvector:16-3.4
+    # 改 Dockerfile 本地重建：docker compose build postgres（仍可用下方 build）
+    image: ${MUGSUN_PG_IMAGE:-ghcr.io/mugsun/postgis-pgvector:16-3.4}
+    pull_policy: missing
     build:
       context: ./docker/postgres
-      args:
-        POSTGIS_IMAGE: ${MUGSUN_PG_BASE_IMAGE:-postgis/postgis:16-3.4}
-    image: mugsun-postgis-pgvector:16-3.4
-    platform: ${MUGSUN_PG_PLATFORM:-linux/amd64}
     container_name: mugsun-pg
     environment:
       POSTGRES_USER: postgres

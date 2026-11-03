@@ -44,7 +44,7 @@ docker compose -f docker-compose.full.yml run --rm init show
 
 You can also check `docker compose -f docker-compose.full.yml logs ready` for the login tip. The console binds to `127.0.0.1` by default; set `MUGSUN_HTTP_BIND=0.0.0.0` before starting for LAN access. To wipe and start over: `docker compose -f docker-compose.full.yml down -v` (deletes data and secrets).
 
-> The first run builds a PostGIS+pgvector image locally. The official PostGIS image is amd64 only, so Apple Silicon defaults to emulation and is slower. Actions workflow `publish-postgis-pgvector` can push a multi-arch image to GHCR; compose will switch to that default only after the package is Public. To run natively today, temporarily set `MUGSUN_PG_PLATFORM=linux/arm64` (see comments in `docker-compose.yml`); you do not need it in the daily path.
+> The database image is pulled from GHCR by default: multi-arch `ghcr.io/mugsun/postgis-pgvector:16-3.4` (amd64 + arm64). Plain `docker compose up -d` is enough — no local build, no `MUGSUN_PG_*`. Pin a digest with `MUGSUN_PG_IMAGE=ghcr.io/mugsun/postgis-pgvector@sha256:...` (`docker buildx imagetools inspect` to find it). To change `docker/postgres/Dockerfile`, run `docker compose build postgres` locally.
 
 ## Local development
 

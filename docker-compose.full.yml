@@ -30,12 +30,12 @@ services:
       - secrets-redis:/secrets/redis
 
   postgres:
+    # 默认拉取 GHCR 多架构 PostGIS+pgvector；钉 digest 用 MUGSUN_PG_IMAGE=...@sha256:...
+    # 改 Dockerfile：docker compose -f docker-compose.full.yml build postgres
+    image: ${MUGSUN_PG_IMAGE:-ghcr.io/mugsun/postgis-pgvector:16-3.4}
+    pull_policy: missing
     build:
       context: ./docker/postgres
-      args:
-        # 基础镜像固定到 digest（可复现）；Apple Silicon 想原生 arm64 可设 MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4@sha256:...
-        POSTGIS_IMAGE: ${MUGSUN_PG_BASE_IMAGE:-postgis/postgis:16-3.4@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5}
-    image: mugsun-full-postgres:local
     # 超级用户 postgres 与应用账号 mugsun 用同一随机口令（只挂 postgres 专用的 secrets 卷，里面只有库口令），库只在 compose 内网可达
     entrypoint: ["sh", "-c", ". /secrets/db.env && export POSTGRES_PASSWORD=\"$$MUGSUN_DB_PASSWORD\" && exec docker-entrypoint.sh postgres"]
     environment:

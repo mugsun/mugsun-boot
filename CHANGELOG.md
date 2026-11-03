@@ -7,7 +7,11 @@
 
 ### 变更
 
-- Actions 可发布多架构 PostGIS+pgvector 至 GHCR（compose 暂仍本机构建）
+- 数据库默认拉取 GHCR 多架构 PostGIS+pgvector 镜像
+  - 镜像 `ghcr.io/mugsun/postgis-pgvector:16-3.4`（linux/amd64 + arm64）
+  - compose 不再要求本机构建或设置 `MUGSUN_PG_*`
+  - 可用 `MUGSUN_PG_IMAGE=...@sha256:...` 钉 digest；改 Dockerfile 仍可本地 build
+- Actions 可发布多架构 PostGIS+pgvector 至 GHCR
   - workflow `publish-postgis-pgvector`：buildx amd64+arm64 推
     `ghcr.io/mugsun/postgis-pgvector:16-3.4`（另打 `:16`，不打 latest）
   - 触发：`workflow_dispatch`；main 上改 postgres/compose/本 workflow 也可
@@ -16,7 +20,6 @@
     amd64）。更新：`docker buildx imagetools inspect <image:tag>`，官方取
     Digest，imresamu 取 Manifests 中 `linux/arm64` 的 Digest，改 FROM 后
     本地 `docker compose build postgres`
-  - compose 默认镜像仍为本机构建；GHCR 包 Public 后再切默认拉取
 
 - 仓库根目录新增 Maven Wrapper（`./mvnw` / `mvnw.cmd`，Maven 3.9.16）
   - README 构建与 `spring-boot:run` 示例改为 `./mvnw`；本机 Maven 3.9+ 仍可用
