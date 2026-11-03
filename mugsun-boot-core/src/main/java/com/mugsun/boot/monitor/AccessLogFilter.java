@@ -15,6 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.servlet.HandlerMapping;
 
 import java.io.IOException;
 
@@ -23,10 +24,13 @@ import java.io.IOException;
  * 由 logback-spring.xml 里 demo profile 的 ACCESS 文件通道按天滚动、gzip、默认保留 200 天。
  * <ul>
  *   <li>与 {@link ApiLogFilter} 不同：不采样、不排除路径（埋点、WebSocket 握手、上传都记），不落库，不受 LogCleanJob 影响；</li>
- *   <li>只记 IP、方法、路径、状态、耗时、用户、traceId；<b>不记 query 和 body</b>（WebSocket 等地址的 query 带 token）；</li>
+ *   <li>只记 IP、方法、路由模板、状态、耗时、用户、traceId；<b>不记 query、body 与原始路径</b>
+ *       （路径变量里可能有令牌/签名；WebSocket 等地址的 query 也带 token）；</li>
  *   <li>IP 按 {@link ClientIpResolver}（可信代理才读 X-Forwarded-For），与登录锁定、限流同一口径。</li>
  * </ul>
  * Order -95：在 TraceIdFilter（-200，写 MDC）和 Spring 的 RequestContextFilter（-105）之内，结束时还能取到登录用户。
+ * 日志写在 {@code chain.doFilter} 之后，以便读取 DispatcherServlet 写入的
+ * {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}。
  */
 @Component
 @Order(-95)
@@ -34,6 +38,8 @@ import java.io.IOException;
 public class AccessLogFilter extends OncePerRequestFilter {
 
 	static final String LOGGER = "ACCESS";
+	/** 拿不到路由模板时（404、未匹配的静态资源等）的固定占位，避免把原始路径写进日志 */
+	static final String UNMATCHED = "(unmatched)";
 	private static final Logger ACCESS = LoggerFactory.getLogger(LOGGER);
 
 	@Override
@@ -64,7 +70,7 @@ public class AccessLogFilter extends OncePerRequestFilter {
 	static String line(HttpServletRequest request, int status, long millis, String userId) {
 		return "ip=" + clean(ClientIpResolver.clientIp(request))
 			+ " method=" + clean(request.getMethod())
-			+ " uri=" + clean(redactPath(request.getRequestURI()))
+			+ " uri=" + clean(routeTemplate(request))
 			+ " status=" + status
 			+ " ms=" + millis
 			+ " user=" + clean(userId)
@@ -80,34 +86,19 @@ public class AccessLogFilter extends OncePerRequestFilter {
 		}
 	}
 
-	private static final java.util.regex.Pattern TOKEN_LIKE =
-		java.util.regex.Pattern.compile("(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\\-.~=%]{24,}|(?=.*[0-9])[0-9a-fA-F]{32,}");
-
 	/**
-	 * 路径脱敏：去掉每段 {@code ;} 之后的 matrix 参数（{@code ;jsessionid=} 等）；看起来像令牌或签名的段
-	 * （≥24 位字母数字混合，或 ≥32 位十六进制）换成 {@code :redacted}，签名下载地址只留前缀。
+	 * 访问日志只记 Spring 路由模板（如 {@code /share/{token}}、{@code /system/file/download/{id}}），
+	 * 不记原始路径，避免路径变量里的令牌/签名泄露。
+	 * <p>DispatcherServlet（及 ResourceHttpRequestHandler）匹配成功后写入
+	 * {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}；拿不到时（404、过滤器直接拦截等）
+	 * 返回 {@link #UNMATCHED}，绝不回退到 {@link HttpServletRequest#getRequestURI()}。
 	 */
-	static String redactPath(String uri) {
-		if (uri == null || uri.isEmpty()) {
-			return uri;
+	static String routeTemplate(HttpServletRequest request) {
+		Object pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+		if (pattern instanceof String s && !s.isEmpty()) {
+			return s;
 		}
-		String[] segs = uri.split("/", -1);
-		StringBuilder sb = new StringBuilder(uri.length());
-		for (int i = 0; i < segs.length; i++) {
-			String seg = segs[i];
-			int semi = seg.indexOf(';');
-			if (semi >= 0) {
-				seg = seg.substring(0, semi);
-			}
-			if (TOKEN_LIKE.matcher(seg).matches()) {
-				seg = ":redacted";
-			}
-			if (i > 0) {
-				sb.append('/');
-			}
-			sb.append(seg);
-		}
-		return sb.toString();
+		return UNMATCHED;
 	}
 
 	/** 去掉空白与控制字符（防日志注入），空值记为 - ，单值截到 512 */

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.servlet.HandlerMapping;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,6 +21,7 @@ class AccessLogFilterTest {
 	void lineHasFieldsButNoQueryOrBody() {
 		ClientIpResolver.setTrustedProxies("127.0.0.0/8");
 		MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/ws/message");
+		req.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/api/ws/message");
 		req.setQueryString("token=SECRET");
 		req.setRemoteAddr("127.0.0.1");
 		req.addHeader("X-Forwarded-For", "203.0.113.7");
@@ -38,13 +40,45 @@ class AccessLogFilterTest {
 	}
 
 	@Test
-	void pathDropsMatrixParamsAndTokenSegments() {
-		assertThat(AccessLogFilter.redactPath("/api/file/download;jsessionid=ABC123")).isEqualTo("/api/file/download");
-		assertThat(AccessLogFilter.redactPath("/file/sig/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08/a.png"))
-			.isEqualTo("/file/sig/:redacted/a.png");
-		assertThat(AccessLogFilter.redactPath("/share/aB3dE5fG7hJ9kL1mN3pQ5rS7tU/view")).isEqualTo("/share/:redacted/view");
-		assertThat(AccessLogFilter.redactPath("/system/user/page")).isEqualTo("/system/user/page");
-		assertThat(AccessLogFilter.redactPath("/system/user/1843920012345678901")).isEqualTo("/system/user/1843920012345678901");
+	void pathVariableRouteLogsTemplateNotRawUri() {
+		MockHttpServletRequest req = new MockHttpServletRequest("GET",
+			"/system/file/download/1843920012345678901");
+		req.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/system/file/download/{id}");
+		String line = AccessLogFilter.line(req, 200, 3, null);
+		assertThat(line).contains("uri=/system/file/download/{id}");
+		assertThat(line).doesNotContain("1843920012345678901");
+		assertThat(AccessLogFilter.routeTemplate(req)).isEqualTo("/system/file/download/{id}");
+	}
+
+	@Test
+	void shareAndSignedRoutesLogTemplateNotToken() {
+		String shareToken = "aB3dE5fG7hJ9kL1mN3pQ5rS7tU";
+		MockHttpServletRequest share = new MockHttpServletRequest("GET", "/ai/share/" + shareToken);
+		share.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/ai/share/{token}");
+		assertThat(AccessLogFilter.routeTemplate(share)).isEqualTo("/ai/share/{token}");
+		assertThat(AccessLogFilter.line(share, 200, 1, null))
+			.contains("uri=/ai/share/{token}")
+			.doesNotContain(shareToken);
+
+		String sig = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+		MockHttpServletRequest signed = new MockHttpServletRequest("GET", "/file/sig/" + sig + "/a.png");
+		signed.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/file/sig/{sig}/**");
+		assertThat(AccessLogFilter.routeTemplate(signed)).isEqualTo("/file/sig/{sig}/**");
+		assertThat(AccessLogFilter.line(signed, 200, 1, null))
+			.contains("uri=/file/sig/{sig}/**")
+			.doesNotContain(sig);
+	}
+
+	@Test
+	void unmatchedRouteLogsFixedPlaceholderNotRawPath() {
+		String secretPath = "/leak/token-XYZ9876543210abcdefghijklmnop";
+		MockHttpServletRequest req = new MockHttpServletRequest("GET", secretPath);
+		assertThat(AccessLogFilter.routeTemplate(req)).isEqualTo(AccessLogFilter.UNMATCHED);
+		String line = AccessLogFilter.line(req, 404, 1, null);
+		assertThat(line).contains("uri=(unmatched)");
+		assertThat(line).doesNotContain("leak", "token-XYZ", secretPath);
+		assertThat(AccessLogFilter.routeTemplate(new MockHttpServletRequest("GET", "/")))
+			.isEqualTo(AccessLogFilter.UNMATCHED);
 	}
 
 	@Test

@@ -7,6 +7,12 @@
 
 ### 安全
 
+- 访问日志改记路由模板，去掉路径启发式脱敏（#80）
+  - `uri=` 取 `HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`
+    （如 `/share/{token}`），不再写原始路径
+  - 无匹配（404/静态等）记 `(unmatched)`，不回退 RequestURI
+  - 删除 `redactPath` 与令牌段启发式
+
 - 初始口令不再长期复用 `MUGSUN_INIT_PASSWORD`（#81）
   - 重置/新建租户管理员/导入默认口令改为各自随机一次性口令
   - 首次登录强制改密；改密前仅允许改密/登出/身份相关接口
