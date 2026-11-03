@@ -69,3 +69,13 @@ regexTarget = "secret"
 regexes = [
   '''^Sm4TestKeys\.INTEGRATION_KEY$''',
 ]
+
+[[allowlists]]
+description = "测试假值：#80 AccessLogFilter 路由模板用例历史 shareToken（generic-api-key）"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^mugsun-boot-core/src/test/java/com/mugsun/boot/monitor/AccessLogFilterTest\.java$''']
+regexTarget = "secret"
+regexes = [
+  '''^aB3dE5fG7hJ9kL1mN3pQ5rS7tU$''',
+]

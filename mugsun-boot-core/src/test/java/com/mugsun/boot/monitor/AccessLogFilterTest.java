@@ -52,7 +52,7 @@ class AccessLogFilterTest {
 
 	@Test
 	void shareAndSignedRoutesLogTemplateNotToken() {
-		String shareToken = "aB3dE5fG7hJ9kL1mN3pQ5rS7tU";
+		String shareToken = "share-demo-token-001";
 		MockHttpServletRequest share = new MockHttpServletRequest("GET", "/ai/share/" + shareToken);
 		share.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/ai/share/{token}");
 		assertThat(AccessLogFilter.routeTemplate(share)).isEqualTo("/ai/share/{token}");

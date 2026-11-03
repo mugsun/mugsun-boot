@@ -7,6 +7,8 @@
 
 ### 安全
 
+- gitleaks：#80 测试假值 `shareToken` 触发 generic-api-key
+  - 用例改为 `share-demo-token-001`；历史假值按文件+规则+精确值 allowlist
 - 访问日志改记路由模板，去掉路径启发式脱敏（#80）
   - `uri=` 取 `HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`
     （如 `/share/{token}`），不再写原始路径
