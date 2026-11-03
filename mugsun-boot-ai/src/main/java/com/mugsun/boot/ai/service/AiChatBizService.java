@@ -204,21 +204,8 @@ public class AiChatBizService {
 			throw new ServiceException("内容请控制在 8000 字以内。可以分成几条再发送");
 		}
 		AiSession session = requireSession(sessionId);
-		AiModel model = modelId != null ? modelBizService.requireRaw(modelId) : (
-			session.getModelId() != null ? modelBizService.requireRaw(session.getModelId())
-				: modelBizService.requireDefaultChat());
-		if (!Integer.valueOf(AiConstants.FLAG_YES).equals(model.getActivateFlag())) {
-			throw new ServiceException("「" + model.getModelName() + "」还没激活。请先在大模型配置里探测通过，再用来发送");
-		}
-		if (!AiConstants.MODEL_TYPE_CHAT.equals(model.getModelType())) {
-			throw new ServiceException("请选择对话模型。向量模型不能用来聊天");
-		}
-		String rid = requestId == null || requestId.isBlank() ? IdUtil.fastSimpleUUID() : requestId.trim();
-		if (!rid.matches("[A-Za-z0-9_-]{8,64}")) {
-			throw new ServiceException("请求编号不对。请重新发送");
-		}
-		AtomicBoolean stop = new AtomicBoolean(false);
-		stopFlags.put(rid, stop);
+		AiModel model = resolveChatModel(session, modelId, null);
+		String rid = requireOrCreateRequestId(requestId);
 
 		// user message
 		AiMessage userMsg = new AiMessage();
@@ -245,16 +232,115 @@ public class AiChatBizService {
 		asst.setThinkContent("");
 		messageMapper.insert(asst);
 
+		return openAssistantStream(session, asst, model, text, rid, knowledgeId, 2);
+	}
+
+	/**
+	 * 重新生成：不重复写入用户提问；原地覆盖指定助手消息；第一版仅允许会话内最后一条助手消息。
+	 * SSE 事件与 {@link #stream} 相同，鉴权/权限同 chat 接口。
+	 */
+	public SseEmitter regenerate(Long sessionId, Long messageId, Long modelId, String requestId, Long knowledgeId) {
+		moduleService.requireEnabled();
+		if (messageId == null) {
+			throw new ServiceException("请选择要重新生成的回复");
+		}
+		AiSession session = requireSession(sessionId);
+		AiMessage asst = messageMapper.selectOneById(messageId);
+		if (asst == null || !AiConstants.ROLE_ASSISTANT.equals(asst.getRole())
+			|| asst.getSessionId() == null || !asst.getSessionId().equals(sessionId)) {
+			throw new ServiceException("这条回复不存在。请刷新会话后再试");
+		}
+		AiMessage lastAsst = messageMapper.selectOneByQuery(QueryWrapper.create()
+			.eq("session_id", sessionId)
+			.eq("role", AiConstants.ROLE_ASSISTANT)
+			.orderBy("id", false)
+			.limit(1));
+		if (lastAsst == null || !messageId.equals(lastAsst.getId())) {
+			throw new ServiceException("第一版只能重新生成会话里最后一条助手回复");
+		}
+		if (AiConstants.MSG_STATUS_STREAMING.equals(asst.getStatus())
+			&& asst.getRequestId() != null && stopFlags.containsKey(asst.getRequestId())) {
+			throw new ServiceException("这条回答还在生成。请等它结束或先停止后再重新生成");
+		}
+		AiMessage userMsg = messageMapper.selectOneByQuery(QueryWrapper.create()
+			.eq("session_id", sessionId)
+			.eq("role", AiConstants.ROLE_USER)
+			.lt("id", messageId)
+			.orderBy("id", false)
+			.limit(1));
+		if (userMsg == null || userMsg.getContent() == null || userMsg.getContent().isBlank()) {
+			throw new ServiceException("找不到对应的提问。请重新发送这条消息");
+		}
+		String text = userMsg.getContent().trim();
+		if (text.length() > 8000) {
+			throw new ServiceException("内容请控制在 8000 字以内。可以分成几条再发送");
+		}
+		AiModel model = resolveChatModel(session, modelId, asst.getModelId());
+		String rid = requireOrCreateRequestId(requestId);
+
+		asst.setContent("");
+		asst.setThinkContent("");
+		asst.setStatus(AiConstants.MSG_STATUS_STREAMING);
+		asst.setPromptTokens(0);
+		asst.setCompletionTokens(0);
+		asst.setTotalTokens(0);
+		asst.setAmount(BigDecimal.ZERO);
+		asst.setModelId(model.getId());
+		asst.setRequestId(rid);
+		asst.sanitizeForUpdate();
+		messageMapper.update(asst);
+
+		return openAssistantStream(session, asst, model, text, rid, knowledgeId, 0);
+	}
+
+	private AiModel resolveChatModel(AiSession session, Long modelId, Long fallbackModelId) {
+		AiModel model;
+		if (modelId != null) {
+			model = modelBizService.requireRaw(modelId);
+		} else if (fallbackModelId != null) {
+			model = modelBizService.requireRaw(fallbackModelId);
+		} else if (session.getModelId() != null) {
+			model = modelBizService.requireRaw(session.getModelId());
+		} else {
+			model = modelBizService.requireDefaultChat();
+		}
+		if (!Integer.valueOf(AiConstants.FLAG_YES).equals(model.getActivateFlag())) {
+			throw new ServiceException("「" + model.getModelName() + "」还没激活。请先在大模型配置里探测通过，再用来发送");
+		}
+		if (!AiConstants.MODEL_TYPE_CHAT.equals(model.getModelType())) {
+			throw new ServiceException("请选择对话模型。向量模型不能用来聊天");
+		}
+		return model;
+	}
+
+	private static String requireOrCreateRequestId(String requestId) {
+		String rid = requestId == null || requestId.isBlank() ? IdUtil.fastSimpleUUID() : requestId.trim();
+		if (!rid.matches("[A-Za-z0-9_-]{8,64}")) {
+			throw new ServiceException("请求编号不对。请重新发送");
+		}
+		return rid;
+	}
+
+	/**
+	 * 共用 SSE 流：history 基于当前会话消息（空 streaming 助手行会被跳过）。
+	 * {@code messageCountDelta}：新对话 +2；重新生成 0（不重复计提问/回复条数）。
+	 */
+	private SseEmitter openAssistantStream(AiSession session, AiMessage asst, AiModel model,
+										   String userText, String rid, Long knowledgeId,
+										   int messageCountDelta) {
+		AtomicBoolean stop = new AtomicBoolean(false);
+		stopFlags.put(rid, stop);
+
 		SseEmitter emitter = new SseEmitter(300_000L);
 		StringBuilder contentBuf = new StringBuilder();
 		StringBuilder thinkBuf = new StringBuilder();
 		int[] usageHolder = new int[]{0, 0, 0};
 
-		List<Map<String, String>> history = buildHistory(sessionId);
+		List<Map<String, String>> history = buildHistory(session.getId());
 		List<Map<String, Object>> refs = List.of();
 		if (knowledgeId != null) {
 			try {
-				refs = knowledgeBizService.hitTest(knowledgeId, text, 0);
+				refs = knowledgeBizService.hitTest(knowledgeId, userText, 0);
 				if (!refs.isEmpty()) {
 					StringBuilder ctx = new StringBuilder("以下是相关知识库片段，请优先依据片段回答；若片段不足请明确说明。\n");
 					int i = 1;
@@ -345,7 +431,7 @@ public class AiChatBizService {
 					asst.sanitizeForUpdate();
 					messageMapper.update(asst);
 					saveBill(session, asst, model, amount);
-					touchSession(session, asst.getTotalTokens());
+					touchSession(session, asst.getTotalTokens(), messageCountDelta);
 					send(emitter, AiConstants.SSE_USAGE, Map.of(
 						"promptTokens", asst.getPromptTokens() == null ? 0 : asst.getPromptTokens(),
 						"completionTokens", asst.getCompletionTokens() == null ? 0 : asst.getCompletionTokens(),
@@ -544,8 +630,11 @@ public class AiChatBizService {
 		return history;
 	}
 
-	private void touchSession(AiSession session, Integer tokens) {
-		session.setMessageCount((session.getMessageCount() == null ? 0 : session.getMessageCount()) + 2);
+	private void touchSession(AiSession session, Integer tokens, int messageCountDelta) {
+		if (messageCountDelta != 0) {
+			session.setMessageCount((session.getMessageCount() == null ? 0 : session.getMessageCount())
+				+ messageCountDelta);
+		}
 		session.setTotalTokens((session.getTotalTokens() == null ? 0 : session.getTotalTokens())
 			+ (tokens == null ? 0 : tokens));
 		session.setLastTime(LocalDateTime.now());

@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 新增
+
+- AI 聊天 `POST /system/ai/chat/regenerate`（#71）
+  - 复用上一条用户提问，不重复落库；原地覆盖助手消息
+  - 第一版仅允许本人会话内最后一条助手回复；SSE 与 stream 同形
+  - 鉴权权限同 stream（`ai:assistant:chat`）；会话归属校验同现有 chat
+
 ### 安全
 
 - CSP 违规报告收集端 `POST /csp-report`（经 Nginx 即 `/api/csp-report`）

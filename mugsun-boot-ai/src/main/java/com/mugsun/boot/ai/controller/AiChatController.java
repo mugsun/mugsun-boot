@@ -39,6 +39,22 @@ public class AiChatController {
 		return chatService.stream(sessionId, modelId, content, requestId, knowledgeId);
 	}
 
+	@PostMapping(value = "/regenerate", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	@SaCheckPermission(AiConstants.PERM_ASSISTANT_CHAT)
+	public SseEmitter regenerate(@RequestBody(required = false) JsonNode body) {
+		if (body == null || !body.isObject()) {
+			throw new ServiceException("请选择要重新生成的回复");
+		}
+		Long sessionId = requiredId(body, "sessionId", "请先在列表里选择会话，或新建一个再发送",
+			"会话编号请填写数字，可以从列表里复制");
+		Long messageId = requiredId(body, "messageId", "请选择要重新生成的回复",
+			"回复编号请填写数字，可以从会话消息里复制");
+		Long modelId = optionalId(body, "modelId", "模型编号请填写数字，可以从模型列表里复制");
+		Long knowledgeId = optionalId(body, "knowledgeId", "知识库编号请填写数字，可以从知识库列表里复制");
+		String requestId = text(body, "requestId");
+		return chatService.regenerate(sessionId, messageId, modelId, requestId, knowledgeId);
+	}
+
 	@PostMapping("/receive")
 	@SaCheckPermission(AiConstants.PERM_ASSISTANT_CHAT)
 	public R<Map<String, Object>> receive(@RequestBody(required = false) Map<String, Object> body) {
