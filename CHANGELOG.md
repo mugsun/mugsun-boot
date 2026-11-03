@@ -7,6 +7,11 @@
 
 ### 安全
 
+- 旋转验证码可配置挖孔偏移 `mugsun.captcha.rotate.hole-offset-px`（#72）
+  - 同图挖圆、不透明孔、piece 独立伪装与边缘羽化（已在 main）上叠加
+  - 孔相对取圆中心随机偏移（默认 0 关闭）；对抗测双攻击
+  - 目标命中率仍 <20%（KNOWN GAP）；双攻击守卫 ≤70%、n=200，避免偶发红
+
 - gitleaks：#80 测试假值 `shareToken` 触发 generic-api-key
   - 用例改为 `share-demo-token-001`；历史假值按文件+规则+精确值 allowlist
 - 访问日志改记路由模板，去掉路径启发式脱敏（#80）

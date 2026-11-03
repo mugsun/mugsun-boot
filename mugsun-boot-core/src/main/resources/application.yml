@@ -189,6 +189,9 @@ mugsun:
       decoy-count: 2         # 假缺口数（与真缺口同轮廓），0–3
       bind-ip: false         # token 强制绑定 IP 哈希（默认只记录）
       bind-ua: false         # prod 为 true
+    rotate:
+      # piece-size / tolerance-deg / keyboard-step / min-angle 见 CaptchaProperties.Rotate
+      hole-offset-px: 0      # 挖孔相对取圆中心的随机偏移上限（px）；0=关闭；实测 0–15 仍未把 NCC 压到 <20%
     background:
       dir: classpath:captcha/bg/   # 或 file:/opt/mugsun/captcha-bg/；jpg/png，推荐 640×360，为空时纯色占位
       rotate: random               # random | round-robin
