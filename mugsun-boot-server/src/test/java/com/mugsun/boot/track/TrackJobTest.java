@@ -29,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 埋点聚合/维护任务集成测试（G99 B3）：5m/day/vitals rollup 精确性、幂等覆盖、游标补扫、
- * 采样外推口径、identity 归并 UV、直方图分位对照、会话结算定稿、分区预建/清理、单应用明细保留清理（G105）。
+ * 采样外推口径、identity 归并 UV、直方图分位对照、会话结算定稿、分区预建/清理、
+ * default 残留撤离再建月分区、单应用明细保留清理（G105）。
  * <p>事件一律经 {@link TrackEventStore} 直灌（receivedAtMs 可指定，窗口/日期确定），
  * 任务经公开 runNow 方法手动触发（不等调度 tick）；断言只按本类专用 appKey 过滤，天然免疫并发调度与其他测试类。
  */
@@ -420,6 +421,61 @@ class TrackJobTest extends AbstractTrackIntegrationTest {
 		assertThat(second).contains("track_event 删除 0 行，track_event_data 删除 0 行");
 		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id IN (?, ?, ?)", fresh7, old90, fresh90))
 			.as("二次清理后生还行不变").isEqualTo(3L);
+	}
+
+	/**
+	 * ⑨ 预建滞后：目标月分区尚不存在时，先让行落入 default，再 ensure 须撤离切片、建月分区、
+	 * 数据回到月分区（回归 CI：default 有跨月行时 CREATE PARTITION 报 constraint violated）。
+	 */
+	@Test
+	void ensureMonthPartitionsEvacuatesDefaultBeforeCreate() {
+		YearMonth orphan = YearMonth.of(2024, 3);
+		String suffix = String.format("%04d_%02d", orphan.getYear(), orphan.getMonthValue());
+		String eventPart = "track_event_" + suffix;
+		String dataPart = "track_event_data_" + suffix;
+		// 清掉可能残留的同名月分区，模拟「从未预建」
+		dropLeafPartitionIfPresent("track_event", eventPart);
+		dropLeafPartitionIfPresent("track_event_data", dataPart);
+
+		long ts = orphan.atDay(15).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+		String eid = uuid();
+		TrackIngestEvent e = ev(APP_CLEAN90, "$pageview", ts, uuid(), uuid(), "/evac", null, "desktop", null, null);
+		e.setEventId(eid);
+		store.insertEvents(List.of(e));
+		insertEventData(APP_CLEAN90, ts, "evac");
+
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event_default WHERE event_id = ?", eid))
+			.as("无月分区时应落入 default").isEqualTo(1L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event_data_default"
+			+ " WHERE app_key = ? AND prop_key = 'g105clean' AND str_value = 'evac'", APP_CLEAN90))
+			.as("EAV 同步落入 default").isEqualTo(1L);
+
+		partitionJob.ensureMonthPartitions(orphan);
+
+		assertThat(trackLong("SELECT count(*) AS c FROM pg_tables WHERE tablename = ?", eventPart))
+			.as("应建成事件月分区").isEqualTo(1L);
+		assertThat(trackLong("SELECT count(*) AS c FROM pg_tables WHERE tablename = ?", dataPart))
+			.as("应建成 EAV 月分区").isEqualTo(1L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE event_id = ?", eid))
+			.as("事件行仍在父表可见").isEqualTo(1L);
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event_default WHERE event_id = ?", eid))
+			.as("default 不再持有该月行").isEqualTo(0L);
+		assertThat(trackLong("SELECT count(*) AS c FROM \"" + eventPart + "\" WHERE event_id = ?", eid))
+			.as("行应在新月分区").isEqualTo(1L);
+		assertThat(trackLong("SELECT count(*) AS c FROM \"" + dataPart + "\""
+			+ " WHERE app_key = ? AND prop_key = 'g105clean' AND str_value = 'evac'", APP_CLEAN90))
+			.as("EAV 行应在新月分区").isEqualTo(1L);
+	}
+
+	/** DETACH→DROP 叶子分区（若存在）；供「从未预建」回归造 default 残留 */
+	private void dropLeafPartitionIfPresent(String parentTable, String partName) {
+		if (trackLong("SELECT count(*) AS c FROM pg_tables WHERE tablename = ?", partName) == 0L) {
+			return;
+		}
+		DataSourceKey.use(TrackConstants.DS_KEY, () -> {
+			Db.updateBySql("ALTER TABLE " + parentTable + " DETACH PARTITION \"" + partName + "\"");
+			Db.updateBySql("DROP TABLE IF EXISTS \"" + partName + "\"");
+		});
 	}
 
 	// ---------- 测试工具 ----------

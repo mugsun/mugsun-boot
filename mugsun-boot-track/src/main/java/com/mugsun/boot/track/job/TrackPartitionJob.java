@@ -30,6 +30,7 @@ import java.util.regex.Pattern;
  * DETACH→DROP（默认不归档）；单应用更短保留期的差异由 L2 明细级清理承接（G105 起已由 TrackEventCleanJob 承接）。
  * <p><b>默认分区告警</b>：track_event_default / track_event_data_default 非空 = 预建失败或数据越界，
  * log 告警 + Micrometer 计数（{@value TrackConstants#METRIC_DEFAULT_PARTITION_ROWS}）。
+ * 对「缺月后又显式 ensure」的路径，{@link #ensureMonthPartitions} 会先撤离该月 default 切片再建区。
  */
 @Component
 @TrackDS
@@ -89,19 +90,23 @@ public class TrackPartitionJob {
 		return summary;
 	}
 
-	/** 确保指定月份的两张月分区存在（幂等；public 供集成测试验证任意月份的预建/清理路径） */
+	/**
+	 * 确保指定月份的两张月分区存在（幂等；public 供集成测试验证任意月份的预建/清理路径）。
+	 * <p>若 {@code track_event_default} / {@code track_event_data_default} 已有落在该月
+	 * 范围的行（预建滞后、跨月迟到写入），PG 会拒绝 {@code CREATE ... PARTITION OF}
+	 *（{@code default partition ... would be violated}）。此时先把该月切片从 default
+	 * 搬到临时表 → 建月分区 → 再写回父表落入新分区；其它月份的 default 残留仍只告警不搬。
+	 */
 	public void ensureMonthPartitions(YearMonth month) {
 		LocalDate monthStart = month.atDay(1);
 		LocalDate monthEnd = month.plusMonths(1).atDay(1);
 		String suffix = month.format(PART_MONTH);
-		// 事件分区：fillfactor=100（追加不更新，PG 不允许父表带存储参数，只能设到叶子分区）
-		jdbc.execute("CREATE TABLE IF NOT EXISTS \"track_event_" + suffix + "\" PARTITION OF track_event"
-			+ " FOR VALUES FROM ('" + monthStart + "') TO ('" + monthEnd + "') WITH (fillfactor = 100)");
-		jdbc.execute("CREATE TABLE IF NOT EXISTS \"track_event_data_" + suffix + "\" PARTITION OF track_event_data"
-			+ " FOR VALUES FROM ('" + monthStart + "') TO ('" + monthEnd + "')");
+		String eventPart = "track_event_" + suffix;
+		String dataPart = "track_event_data_" + suffix;
+		createLeafPartitionIfAbsent("track_event", eventPart, monthStart, monthEnd, true);
+		createLeafPartitionIfAbsent("track_event_data", dataPart, monthStart, monthEnd, false);
 		// 时间线 (ts,id) 索引：PARTITION OF 时 PG 自动克隆父表索引并挂接（含 T3 的 ON ONLY 索引）；
 		// 此处按 pg_inherits 校验，缺失则 CONCURRENTLY 补建并 ATTACH（新分区为空，代价可忽略；连接为自动提交）
-		String eventPart = "track_event_" + suffix;
 		jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
 			// 与 T4/后台补建共用 advisory 锁；取不到（补建进行中）就跳过校验——PG 已自动克隆，补建任务会再校验
 			if (!TrackTimelineIndexes.tryLock(conn)) {
@@ -114,6 +119,63 @@ public class TrackPartitionJob {
 				log.warn("新分区 {} 时间线索引校验失败（由后台补建任务兜底）：{}", eventPart, e.getMessage());
 			} finally {
 				TrackTimelineIndexes.unlock(conn);
+			}
+			return null;
+		});
+	}
+
+	/**
+	 * 幂等创建单张月叶子分区。已存在则跳过；否则先撤离 default 中该月切片再 CREATE，
+	 * 最后把撤离行写回父表（路由进新分区）。
+	 */
+	private void createLeafPartitionIfAbsent(String parentTable, String partName,
+											LocalDate monthStart, LocalDate monthEnd, boolean fillfactor100) {
+		Long exists = jdbc.queryForObject(
+			"SELECT count(*) FROM pg_tables WHERE schemaname = current_schema() AND tablename = ?",
+			Long.class, partName);
+		if (exists != null && exists > 0) {
+			return;
+		}
+		String defaultPart = parentTable + "_default";
+		String from = monthStart.toString();
+		String to = monthEnd.toString();
+		jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+			boolean prev = conn.getAutoCommit();
+			conn.setAutoCommit(false);
+			try (java.sql.Statement st = conn.createStatement()) {
+				// 与 CREATE 边界同一套 date 字面量，避免 timestamptz/会话时区切片不一致
+				String evac = "_evac_" + partName;
+				st.execute("CREATE TEMP TABLE \"" + evac + "\" ON COMMIT DROP AS"
+					+ " SELECT * FROM \"" + defaultPart + "\""
+					+ " WHERE received_at >= DATE '" + from + "' AND received_at < DATE '" + to + "'");
+				int moved;
+				try (java.sql.ResultSet rs = st.executeQuery("SELECT count(*) FROM \"" + evac + "\"")) {
+					rs.next();
+					moved = rs.getInt(1);
+				}
+				if (moved > 0) {
+					st.execute("DELETE FROM \"" + defaultPart + "\""
+						+ " WHERE received_at >= DATE '" + from + "' AND received_at < DATE '" + to + "'");
+					log.info("月分区预建前从 {} 搬出 {} 行 → 即将创建 {}", defaultPart, moved, partName);
+				}
+				String create = "CREATE TABLE IF NOT EXISTS \"" + partName + "\" PARTITION OF " + parentTable
+					+ " FOR VALUES FROM ('" + from + "') TO ('" + to + "')";
+				if (fillfactor100) {
+					create += " WITH (fillfactor = 100)";
+				}
+				st.execute(create);
+				if (moved > 0) {
+					st.execute("INSERT INTO " + parentTable + " SELECT * FROM \"" + evac + "\"");
+				}
+				conn.commit();
+			} catch (Exception e) {
+				conn.rollback();
+				if (e instanceof RuntimeException re) {
+					throw re;
+				}
+				throw new IllegalStateException("创建月分区失败：" + partName, e);
+			} finally {
+				conn.setAutoCommit(prev);
 			}
 			return null;
 		});
@@ -159,7 +221,7 @@ public class TrackPartitionJob {
 		return dropped;
 	}
 
-	/** 默认分区巡检：非空 = 预建失败或数据越界，告警 + 计数（不自动搬移，人工介入） */
+	/** 默认分区巡检：非空 = 预建失败或数据越界，告警 + 计数（整表不自动搬移；单月切片仅在 {@link #ensureMonthPartitions} 建区时撤离） */
 	private void checkDefaultPartitions() {
 		long eventRows = countRows("track_event_default");
 		long dataRows = countRows("track_event_data_default");

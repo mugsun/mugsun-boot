@@ -73,6 +73,11 @@
 
 ### 修复
 
+- track：建月分区前撤离 default 同月残留，避免 CI 约束冲突
+  - `ensureMonthPartitions` 先搬出再 CREATE，再写回父表
+  - 回归 `ensureMonthPartitionsEvacuatesDefaultBeforeCreate`
+  - 修复 `TrackJobTest.eventCleanPerAppRetention` 跨月预建红
+
 - compose-full smoke：`up --wait` 不再因 oneshot `ready` 误失败（#104）
   - `ready` 横幅 exit 0 会让 Compose 把整次 `--wait` 判失败
   - 验收脚本只 wait postgres/redis/boot/pc；失败先 dump 再 cleanup
