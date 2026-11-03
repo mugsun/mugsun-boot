@@ -27,38 +27,50 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 
 Stack (per current POM): MyBatis-Flex, Sa-Token, JetCache, Warm-Flow, Flyway. The AI module does not depend on Spring AI: model calls, vector retrieval and MCP tool calls are implemented with the module's own HTTP client and pgvector queries.
 
-## Deployment
+## Quick start
+
+All you need is Docker (Compose v2.17+). One command starts the database, Redis, backend and admin console:
+
+```bash
+git clone https://github.com/mugsun/mugsun-boot.git && cd mugsun-boot
+docker compose -f docker-compose.full.yml up -d --build
+```
+
+When ready, open http://127.0.0.1:8088 and sign in as `admin`. Show the password (it is never written to logs or images):
+
+```bash
+docker compose -f docker-compose.full.yml run --rm init show
+```
+
+You can also check `docker compose -f docker-compose.full.yml logs ready` for the login tip. The console binds to `127.0.0.1` by default; set `MUGSUN_HTTP_BIND=0.0.0.0` before starting for LAN access. To wipe and start over: `docker compose -f docker-compose.full.yml down -v` (deletes data and secrets).
+
+> The first run builds a PostGIS+pgvector image locally. The official PostGIS image is amd64 only, so Apple Silicon defaults to emulation and is slower; **a multi-arch prebuilt image will be published later**. To run natively today, temporarily set `MUGSUN_PG_BASE_IMAGE` / `MUGSUN_PG_PLATFORM` (see comments in `docker-compose.full.yml`); you do not need them in the daily path.
+
+## Local development
 
 Prerequisites: JDK 21, Maven 3.9+, Docker. `mugsun-core` 0.1.0 is on Maven Central and is resolved automatically; a sibling clone is not required.
 
-The first `docker compose up -d` builds the database image locally (`postgis/postgis:16-3.4` + pgvector). The official PostGIS image is amd64 only, so on Apple Silicon it runs under emulation by default: the first build takes several extra minutes and the database is slower. To run natively, switch to a multi-arch base image:
-
-```bash
-MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 docker compose up -d --build
-```
-
 ```bash
 docker compose up -d
-cp config/application-local.yml.example config/application-local.yml
 mvn -pl mugsun-boot-server -am package -DskipTests
 java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 ```
 
-> **Always build from the repository root with `-am`** (or build the whole project with `mvn clean package -DskipTests`). If you build only the server module (`-pl mugsun-boot-server` without `-am`, `mvn package` inside `mugsun-boot-server`, or an IDE building just that module), `mugsun-boot-core` comes from the local Maven repository at `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/`. Every branch and worktree shares that one 0.1.0 version, which holds whichever branch ran `mvn install` last, so the jar can carry another branch's old code (such as an old captcha response shape) whether or not you add `clean`. When in doubt, run `mvn -B install -DskipTests` from the root first.
+`config/application-local.yml` is an optional override (`optional:file:./config/application-local.yml`, gitignored). Create it from `config/application-local.yml.example` only when you need overrides; the example has no required fields. Run `java -jar` from the repository root, otherwise that file is not picked up. You can also run `mvn -pl mugsun-boot-server -am spring-boot:run`.
 
-Run `java -jar` from the repository root, otherwise `config/application-local.yml` is not picked up. For development you can optionally run `mvn -pl mugsun-boot-server -am spring-boot:run` from the repository root instead.
+> **Always build from the repository root with `-am`** (or build the whole project with `mvn clean package -DskipTests`). If you build only the server module (`-pl mugsun-boot-server` without `-am`, `mvn package` inside `mugsun-boot-server`, or an IDE building just that module), `mugsun-boot-core` comes from the local Maven repository at `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/`. Every branch and worktree shares that one 0.1.0 version, which holds whichever branch ran `mvn install` last, so the jar can carry another branch's old code (such as an old captcha response shape) whether or not you add `clean`. When in doubt, run `mvn -B install -DskipTests` from the root first.
 
 **Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, run `cd ../mugsun-core && mvn clean install -DskipTests`, then return to this repository to build.
 
 Health check: http://localhost:8080/ping
 
-Default initial account: `admin` / `123456`. The code reads `mugsun.security.init-password`, falling back to the `MUGSUN_INIT_PASSWORD` environment variable (see `SecurityPolicyService`). It is deliberately absent from `application.yml`: the prod startup guard uses its presence to tell whether a password was injected. Production deployments must change the password. The `prod` profile refuses to start without an injected initial password.
+Default account: `admin`. The initial password comes from `mugsun.security.init-password` or the `MUGSUN_INIT_PASSWORD` environment variable (see `SecurityPolicyService`); do not commit a plaintext password. It is deliberately absent from `application.yml`: the prod startup guard uses its presence to tell whether a password was injected. Production deployments must inject and change the password. The `prod` profile refuses to start without an injected initial password.
 
 Admin console: [mugsun-pc](https://github.com/mugsun/mugsun-pc) (development default port `3006`, proxied to this service on `8080`). Walkthrough: [Documentation · Getting started](https://docs.mugsun.com/en/guide/getting-started).
 
 Package artifact: `mugsun-boot-server/target/mugsun-boot.jar`.
 
-Compose ports: `5432` (PostgreSQL), `6379` (Redis). If a local PostgreSQL / Redis already uses these ports, pick other ports and give the backend the same variables:
+Infrastructure-only Compose ports: `5432` (PostgreSQL), `6379` (Redis). If a local PostgreSQL / Redis already uses these ports, pick other ports and give the backend the same variables:
 
 ```bash
 export MUGSUN_DB_PORT=55432 MUGSUN_REDIS_PORT=56379
@@ -68,7 +80,7 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar
 
 Backend environment variables: `MUGSUN_DB_HOST`, `MUGSUN_DB_PORT`, `MUGSUN_DB_NAME`, `MUGSUN_DB_USERNAME`, `MUGSUN_DB_PASSWORD` (or a full `MUGSUN_DB_URL`), `MUGSUN_REDIS_HOST`, `MUGSUN_REDIS_PORT`. The track database `mugsun_track` follows the same host and port by default and can still be overridden with `TRACK_JDBC_URL`. The `prod` profile ignores these and keeps using `JDBC_URL`, `REDIS_HOST`, etc. Development database credentials default to the JDBC settings (`mugsun` / `mugsun`). Without Docker, see `scripts/init-db.sql`.
 
-Local configuration path: `optional:file:./config/application-local.yml` (gitignored). The working directory must be the repository root. Production injection: [Configuration](https://docs.mugsun.com/en/boot/configuration).
+Production injection: [Configuration](https://docs.mugsun.com/en/boot/configuration).
 
 OpenAPI: http://localhost:8080/swagger-ui/index.html (disabled under `prod`).
 

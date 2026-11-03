@@ -142,6 +142,32 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  ready:
+    # 一次性提示：等 boot 健康、pc 起来后向 stdout 打印登录地址与查口令命令（不打印口令）
+    image: mugsun-full-init:local
+    depends_on:
+      boot:
+        condition: service_healthy
+      pc:
+        condition: service_started
+    environment:
+      MUGSUN_HTTP_PORT: ${MUGSUN_HTTP_PORT:-8088}
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        port="$${MUGSUN_HTTP_PORT:-8088}"
+        printf '%s\n' \
+          '' \
+          '========================================' \
+          ' mugsun 已就绪' \
+          " 登录: http://127.0.0.1:$${port}" \
+          ' 账号: admin' \
+          ' 查看口令（口令本身不打印在此）:' \
+          '   docker compose -f docker-compose.full.yml run --rm init show' \
+          '========================================' \
+          ''
+
 networks:
   default:
     ipam:

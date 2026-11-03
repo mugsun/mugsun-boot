@@ -27,24 +27,36 @@
 
 技术组件（以当前 POM 为准）：MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway。AI 模块不依赖 Spring AI：模型、向量检索与 MCP 工具调用均由模块内的 HTTP 客户端和 pgvector 查询实现。
 
-## 部署
+## 快速开始
 
-前置条件：JDK 21、Maven 3.9+、Docker。`mugsun-core` 0.1.0 已发布至 Maven Central，构建时由 Maven 自动解析，无需平级 clone。
-
-首次 `docker compose up -d` 会在本地构建数据库镜像（`postgis/postgis:16-3.4` + pgvector）。官方 PostGIS 镜像只有 amd64，Apple Silicon 上默认走仿真，首次构建要多等几分钟，运行也偏慢。想原生运行可换多架构基础镜像：
+只需 Docker（Compose v2.17+）。一条命令拉起数据库、Redis、后端与管理台：
 
 ```bash
-MUGSUN_PG_BASE_IMAGE=imresamu/postgis:16-3.4 MUGSUN_PG_PLATFORM=linux/arm64 docker compose up -d --build
+git clone https://github.com/mugsun/mugsun-boot.git && cd mugsun-boot
+docker compose -f docker-compose.full.yml up -d --build
 ```
+
+就绪后打开 http://127.0.0.1:8088 ，账号 `admin`。查看口令（口令不写日志、不进镜像）：
+
+```bash
+docker compose -f docker-compose.full.yml run --rm init show
+```
+
+也可看 `docker compose -f docker-compose.full.yml logs ready` 里的登录提示。管理台默认只绑 `127.0.0.1`；局域网访问先设 `MUGSUN_HTTP_BIND=0.0.0.0`。清空重来：`docker compose -f docker-compose.full.yml down -v`（会删数据与密钥）。
+
+> 首次会在本地构建 PostGIS+pgvector 镜像。官方 PostGIS 仅 amd64，Apple Silicon 默认走仿真、偏慢；**后续将提供多架构预构建镜像**。当前若要原生跑，可临时设 `MUGSUN_PG_BASE_IMAGE` / `MUGSUN_PG_PLATFORM`（见 `docker-compose.full.yml` 注释），不必记进日常流程。
+
+## 本地开发
+
+前置：JDK 21、Maven 3.9+、Docker。`mugsun-core` 0.1.0 已发布至 Maven Central，构建时由 Maven 自动解析，无需平级 clone。
 
 ```bash
 docker compose up -d
-cp config/application-local.yml.example config/application-local.yml
 mvn -pl mugsun-boot-server -am package -DskipTests
 java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 ```
 
-须在仓库根目录执行 `java -jar`，否则读不到 `config/application-local.yml`。开发时也可在根目录直接运行（可选）：`mvn -pl mugsun-boot-server -am spring-boot:run`。
+`config/application-local.yml` 为可选覆盖（`optional:file:./config/application-local.yml`，已列入 `.gitignore`）；需要时再参考 `config/application-local.yml.example` 自行创建，example 无必填项。须在仓库根目录执行 `java -jar`，否则读不到该文件。也可：`mvn -pl mugsun-boot-server -am spring-boot:run`。
 
 > **请始终在仓库根目录、带 `-am` 构建**（或用 `mvn clean package -DskipTests` 构建整个工程）。只构建 server 模块（`-pl mugsun-boot-server` 不带 `-am`、在 `mugsun-boot-server` 目录里执行 `mvn package`，或 IDE 只构建该模块）时，`mugsun-boot-core` 会从本地 Maven 仓库 `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/` 取。所有分支和工作区共用这一个 0.1.0 版本，里面是最后一次 `mvn install` 的那个分支，打出的 jar 会带上别的分支的旧代码（例如旧的验证码返回结构），这跟加不加 `clean` 无关。拿不准时先在根目录执行一次 `mvn -B install -DskipTests`。
 
@@ -52,13 +64,13 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 
 健康检查：http://localhost:8080/ping
 
-默认初始账号：`admin` / `123456`。初始口令由代码读取 `mugsun.security.init-password`，未配置时读环境变量 `MUGSUN_INIT_PASSWORD`（见 `SecurityPolicyService`）。`application.yml` 里不写这一项是有意的：prod 启动守卫据此判断口令是否被显式注入。生产环境必须更换口令；`prod` 配置未注入初始口令时拒绝启动。
+默认账号 `admin`。初始口令由 `mugsun.security.init-password` 或环境变量 `MUGSUN_INIT_PASSWORD` 注入（见 `SecurityPolicyService`）；勿把明文口令写进仓库。`application.yml` 故意不写该项：prod 启动守卫据此判断是否已注入。生产必须注入并更换口令；`prod` 未注入时拒绝启动。
 
 管理端见 [mugsun-pc](https://github.com/mugsun/mugsun-pc)（开发默认端口 `3006`，代理至本服务 `8080`）。逐步说明见 [文档 · 快速开始](https://docs.mugsun.com/guide/getting-started)。
 
 打包产物：`mugsun-boot-server/target/mugsun-boot.jar`。
 
-Compose 暴露端口：`5432`（PostgreSQL）、`6379`（Redis）。本机已有 PostgreSQL / Redis 占用这两个端口时，换端口启动并让后端用同一变量：
+仅基础设施的 Compose 暴露：`5432`（PostgreSQL）、`6379`（Redis）。本机已占用这两个端口时，换端口并让后端用同一变量：
 
 ```bash
 export MUGSUN_DB_PORT=55432 MUGSUN_REDIS_PORT=56379
@@ -68,7 +80,7 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar
 
 后端可用的环境变量：`MUGSUN_DB_HOST`、`MUGSUN_DB_PORT`、`MUGSUN_DB_NAME`、`MUGSUN_DB_USERNAME`、`MUGSUN_DB_PASSWORD`（或整条 `MUGSUN_DB_URL`）、`MUGSUN_REDIS_HOST`、`MUGSUN_REDIS_PORT`；埋点库 `mugsun_track` 默认跟随同一主机端口，仍可用 `TRACK_JDBC_URL` 单独覆盖。`prod` 配置不读这些变量，仍用 `JDBC_URL`、`REDIS_HOST` 等。开发库账号默认与 JDBC 配置一致（`mugsun` / `mugsun`）。无 Docker 时可参考 `scripts/init-db.sql`。
 
-本地配置文件路径：`optional:file:./config/application-local.yml`（已列入 `.gitignore`）。工作目录须为本仓库根目录。生产配置注入说明见 [配置](https://docs.mugsun.com/boot/configuration)。
+生产配置注入说明见 [配置](https://docs.mugsun.com/boot/configuration)。
 
 OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
 

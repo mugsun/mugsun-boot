@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### 变更
+
+- 零配置：README 快速开始改为 full compose 一条命令
+  - 去掉复制 `application-local.yml` 步骤；local 仅为可选覆盖
+  - 写明登录地址与 `init show` 查口令；口令不进 README
+  - compose 增加 ready 一次性提示服务（不打印口令）
+  - 弱化首屏 `MUGSUN_PG_*`；注明后续提供多架构预构建镜像
+
 ### 修复
 
 - 超限上传稳定返回 400，不再在请求体未读完时断开连接

@@ -1,6 +1,7 @@
-# 本地联调覆盖：复制为同目录 application-local.yml（gitignore，不提交）。
-# 启动时 Spring 会 optional import ./config/application-local.yml，无需再写 additional-location。
+# 可选本地覆盖（非必填）。需要时复制为同目录 application-local.yml（gitignore，不提交）。
+# 启动时 Spring 会 optional import ./config/application-local.yml；文件缺失时直接用默认配置。
 # 工作目录须为 mugsun-boot（mvn spring-boot:run 或 java -jar target/*.jar）。
+# 本 example 无必填项；密钥缺省时由开发态自动生成到 ~/.mugsun（勿把明文密钥提交进仓）。
 mugsun:
   captcha:
     show-code: true   # 双因子登录验证码回显（本地联调）
