@@ -73,7 +73,7 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 
 打包产物：`mugsun-boot-server/target/mugsun-boot.jar`。
 
-仅基础设施的 Compose 暴露：`5432`（PostgreSQL）、`6379`（Redis）。本机已占用这两个端口时，换端口并让后端用同一变量：
+仅基础设施的 Compose 暴露：`5432`（PostgreSQL）、`6379`（Redis）。本地以 `--spring.profiles.active=dev` 启动且探测不到 Redis 时，会自动降级为进程内会话/验证码/登录锁（WebSocket local、单号 db、JetCache remote=mock）并打 WARN，仍可登录；生产必须提供 Redis。强制不降级：`mugsun.redis.mode=redis`。本机已占用这两个端口时，换端口并让后端用同一变量：
 
 ```bash
 export MUGSUN_DB_PORT=55432 MUGSUN_REDIS_PORT=56379

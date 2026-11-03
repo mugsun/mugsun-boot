@@ -1,8 +1,8 @@
 package com.mugsun.boot.auth;
 
+import com.mugsun.boot.auth.lock.LoginLockStore;
 import com.mugsun.boot.security.SecurityPolicyService;
 import com.mugsun.core.tool.exception.ServiceException;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -11,11 +11,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 登录锁定：按用户名维度累计失败次数，达阈值后锁定一段时间（防暴力破解与账号枚举）。
- * 失败计数与锁定标记落 Redis——重启不清零、多实例共享；阈值/时长取自安全策略参数（后台可改、即时生效）。
+ * 失败计数与锁定标记默认落 Redis——重启不清零、多实例共享；开发态缺 Redis 时可降级为进程内存储。
+ * 阈值/时长取自安全策略参数（后台可改、即时生效）。
  */
 @Service
 public class LoginLockService {
@@ -23,27 +23,23 @@ public class LoginLockService {
 	@org.springframework.beans.factory.annotation.Value("${mugsun.demo.enabled:false}")
 	private boolean demoMode;
 
-	private static final String FAIL_KEY = "mugsun:login:fail:";
-	private static final String LOCK_KEY = "mugsun:login:lock:";
-	private static final String META_KEY = "mugsun:login:lock-meta:";
-	private static final String INDEX_KEY = "mugsun:login:lock-index";
 	private static final int MAX_REASON = 200;
 	private static final int MAX_MINUTES = 30 * 24 * 60;
 
 	private final SecurityPolicyService securityPolicyService;
-	private final StringRedisTemplate redis;
+	private final LoginLockStore store;
 
-	public LoginLockService(SecurityPolicyService securityPolicyService, StringRedisTemplate redis) {
+	public LoginLockService(SecurityPolicyService securityPolicyService, LoginLockStore store) {
 		this.securityPolicyService = securityPolicyService;
-		this.redis = redis;
+		this.store = store;
 	}
 
 	/** 校验未锁定。没有过期时间的锁一直有效，直到管理员解锁。 */
 	public void assertNotLocked(String username) {
-		if (!Boolean.TRUE.equals(redis.hasKey(LOCK_KEY + username))) {
+		if (!store.hasLock(username)) {
 			return;
 		}
-		Long ttl = redis.getExpire(LOCK_KEY + username, TimeUnit.SECONDS);
+		Long ttl = store.getLockTtlSeconds(username);
 		String reason = reasonOf(username);
 		boolean hasReason = reason != null && !reason.isBlank();
 		if (ttl == null || ttl < 0) {
@@ -75,13 +71,13 @@ public class LoginLockService {
 	/** 记录一次失败，达阈值则锁定；计数窗口 = 锁定时长，滑动刷新 */
 	public void recordFail(String username) {
 		int lockMinutes = securityPolicyService.getLockMinutes();
-		Long count = redis.opsForValue().increment(FAIL_KEY + username);
-		redis.expire(FAIL_KEY + username, Duration.ofMinutes(lockMinutes));
+		Long count = store.incrementFail(username, Duration.ofMinutes(lockMinutes));
 		if (count != null && count >= securityPolicyService.getLoginFailMax()) {
-			redis.opsForValue().set(LOCK_KEY + username, "fail", Duration.ofMinutes(lockMinutes));
-			redis.opsForValue().set(META_KEY + username, "连续登录失败次数过多", Duration.ofMinutes(lockMinutes));
-			redis.opsForSet().add(INDEX_KEY, username);
-			redis.delete(FAIL_KEY + username);
+			Duration ttl = Duration.ofMinutes(lockMinutes);
+			store.setLock(username, "fail", ttl);
+			store.setMeta(username, "连续登录失败次数过多", ttl);
+			store.addIndex(username);
+			store.deleteFail(username);
 		}
 	}
 
@@ -102,34 +98,31 @@ public class LoginLockService {
 				throw new ServiceException("锁定时长不能超过 30 天，留空则一直锁定到管理员解锁");
 			}
 			Duration ttl = Duration.ofMinutes(minutes);
-			redis.opsForValue().set(LOCK_KEY + lockKey, "manual", ttl);
-			redis.opsForValue().set(META_KEY + lockKey, meta, ttl);
+			store.setLock(lockKey, "manual", ttl);
+			store.setMeta(lockKey, meta, ttl);
 		} else {
-			redis.opsForValue().set(LOCK_KEY + lockKey, "manual");
-			redis.opsForValue().set(META_KEY + lockKey, meta);
+			store.setLock(lockKey, "manual", null);
+			store.setMeta(lockKey, meta, null);
 		}
-		redis.opsForSet().add(INDEX_KEY, lockKey);
+		store.addIndex(lockKey);
 	}
 
 	/** 当前租户仍在锁定中的账号。过期项会从索引里清掉。 */
 	public List<Map<String, Object>> list(String tenantId) {
-		Set<String> members = redis.opsForSet().members(INDEX_KEY);
+		Set<String> members = store.indexMembers();
 		List<Map<String, Object>> rows = new ArrayList<>();
-		if (members == null) {
-			return rows;
-		}
 		String prefix = tenantId + ":";
 		for (String member : members) {
 			if (member == null || !member.startsWith(prefix)) {
 				continue;
 			}
-			if (!Boolean.TRUE.equals(redis.hasKey(LOCK_KEY + member))) {
-				redis.opsForSet().remove(INDEX_KEY, member);
-				redis.delete(META_KEY + member);
+			if (!store.hasLock(member)) {
+				store.removeIndex(member);
+				store.deleteMeta(member);
 				continue;
 			}
-			Long ttl = redis.getExpire(LOCK_KEY + member, TimeUnit.SECONDS);
-			String raw = redis.opsForValue().get(META_KEY + member);
+			Long ttl = store.getLockTtlSeconds(member);
+			String raw = store.getMeta(member);
 			String reason = raw;
 			String operator = "";
 			if (raw != null && raw.contains("\u001f")) {
@@ -152,14 +145,14 @@ public class LoginLockService {
 
 	/** 登录成功或管理员解锁后清除计数与锁定 */
 	public void clear(String username) {
-		redis.delete(FAIL_KEY + username);
-		redis.delete(LOCK_KEY + username);
-		redis.delete(META_KEY + username);
-		redis.opsForSet().remove(INDEX_KEY, username);
+		store.deleteFail(username);
+		store.deleteLock(username);
+		store.deleteMeta(username);
+		store.removeIndex(username);
 	}
 
 	private String reasonOf(String username) {
-		String raw = redis.opsForValue().get(META_KEY + username);
+		String raw = store.getMeta(username);
 		if (raw == null) {
 			return null;
 		}
@@ -169,6 +162,6 @@ public class LoginLockService {
 
 	/** 账号是否处于锁定中（锁键存在即锁定；登录日志页「解锁」按钮显隐依据） */
 	public boolean isLocked(String username) {
-		return Boolean.TRUE.equals(redis.hasKey(LOCK_KEY + username));
+		return store.hasLock(username);
 	}
 }

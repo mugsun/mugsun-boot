@@ -73,7 +73,7 @@ Admin console: [mugsun-pc](https://github.com/mugsun/mugsun-pc) (development def
 
 Package artifact: `mugsun-boot-server/target/mugsun-boot.jar`.
 
-Infrastructure-only Compose ports: `5432` (PostgreSQL), `6379` (Redis). If a local PostgreSQL / Redis already uses these ports, pick other ports and give the backend the same variables:
+Infrastructure-only Compose ports: `5432` (PostgreSQL), `6379` (Redis). With `--spring.profiles.active=dev`, if Redis is unreachable the app falls back to in-process session/captcha/login-lock (WebSocket local, serial numbers via db, JetCache remote=mock), logs a WARN, and you can still sign in; production still requires Redis. Force Redis with `mugsun.redis.mode=redis`. If a local PostgreSQL / Redis already uses these ports, pick other ports and give the backend the same variables:
 
 ```bash
 export MUGSUN_DB_PORT=55432 MUGSUN_REDIS_PORT=56379

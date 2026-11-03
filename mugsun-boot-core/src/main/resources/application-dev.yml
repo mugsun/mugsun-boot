@@ -1,5 +1,8 @@
 # 本地开发 profile：--spring.profiles.active=dev
 # 只放「没配密钥也能起」的开关；任何环境都不要在这里写密钥值。
+# 缺 Redis：RedisDevFallbackEnvironmentPostProcessor 会自动降级（会话/验证码/登录锁 memory、
+# WebSocket local、单号 db、JetCache remote=mock）并打 WARN；有 Redis 时仍走 Redis。
+# 强制不降级：mugsun.redis.mode=redis；强制降级（不探测）：mugsun.redis.mode=fallback。
 mugsun:
   crypto:
     # 接口传输加密、审计签名：没配时在所有环境都自动生成并持久化到 ~/.mugsun（mugsun.home），这里不用再配

@@ -10,6 +10,9 @@
 - 仓库根目录新增 Maven Wrapper（`./mvnw` / `mvnw.cmd`，Maven 3.9.16）
   - README 构建与 `spring-boot:run` 示例改为 `./mvnw`；本机 Maven 3.9+ 仍可用
   - 离线回退安装 mugsun-core 仍用本机 `mvn`（core 无 Wrapper）
+- 开发态缺 Redis 可启动并登录：探测失败则自动降级并打 WARN
+  - Sa-Token / 验证码 / 登录锁 → memory；WebSocket → local；单号 → db
+  - JetCache remote → mock；生产不降级；`mugsun.redis.mode=redis|fallback`
 - 零配置：README 快速开始改为 full compose 一条命令
   - 去掉复制 `application-local.yml` 步骤；local 仅为可选覆盖
   - 写明登录地址与 `init show` 查口令；口令不进 README
