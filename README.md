@@ -64,7 +64,7 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 
 健康检查：http://localhost:8080/ping
 
-默认账号 `admin`。初始口令由 `mugsun.security.init-password` 或环境变量 `MUGSUN_INIT_PASSWORD` 注入（见 `SecurityPolicyService`）；勿把明文口令写进仓库。`application.yml` 故意不写该项：prod 启动守卫据此判断是否已注入。生产必须注入并更换口令；`prod` 未注入时拒绝启动。
+默认账号 `admin`。初始口令由 `mugsun.security.init-password` 或环境变量 `MUGSUN_INIT_PASSWORD` 注入（见 `SecurityPolicyService`）；勿把明文口令写进仓库。未注入时，非 prod 有内置缺省口令（仅本地）；本地也可显式 `export MUGSUN_INIT_PASSWORD=…`。`application.yml` 故意不写该项：prod 启动守卫据此判断是否已注入。生产必须注入并更换口令；`prod` 未注入时拒绝启动。
 
 管理端见 [mugsun-pc](https://github.com/mugsun/mugsun-pc)（开发默认端口 `3006`，代理至本服务 `8080`）。逐步说明见 [文档 · 快速开始](https://docs.mugsun.com/guide/getting-started)。
 

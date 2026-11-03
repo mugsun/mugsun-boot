@@ -64,7 +64,7 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 
 Health check: http://localhost:8080/ping
 
-Default account: `admin`. The initial password comes from `mugsun.security.init-password` or the `MUGSUN_INIT_PASSWORD` environment variable (see `SecurityPolicyService`); do not commit a plaintext password. It is deliberately absent from `application.yml`: the prod startup guard uses its presence to tell whether a password was injected. Production deployments must inject and change the password. The `prod` profile refuses to start without an injected initial password.
+Default account: `admin`. The initial password comes from `mugsun.security.init-password` or the `MUGSUN_INIT_PASSWORD` environment variable (see `SecurityPolicyService`); do not commit a plaintext password. If unset, non-prod profiles use a built-in default (local only); locally you may also `export MUGSUN_INIT_PASSWORD=…`. It is deliberately absent from `application.yml`: the prod startup guard uses its presence to tell whether a password was injected. Production deployments must inject and change the password. The `prod` profile refuses to start without an injected initial password.
 
 Admin console: [mugsun-pc](https://github.com/mugsun/mugsun-pc) (development default port `3006`, proxied to this service on `8080`). Walkthrough: [Documentation · Getting started](https://docs.mugsun.com/en/guide/getting-started).
 
