@@ -372,6 +372,13 @@ class TrackJobTest extends AbstractTrackIntegrationTest {
 		long now = System.currentTimeMillis();
 		long old = now - 10L * 24 * 3600 * 1000;
 		long fresh = now - 24 * 3600 * 1000;
+		// 基线只预建当月+次月；10 天前常跨月，不预建会落入 default，再叠加历史 ctid 分批误删
+		YearMonth oldMonth = YearMonth.from(Instant.ofEpochMilli(old).atZone(ZoneOffset.UTC));
+		YearMonth freshMonth = YearMonth.from(Instant.ofEpochMilli(fresh).atZone(ZoneOffset.UTC));
+		partitionJob.ensureMonthPartitions(oldMonth);
+		if (!freshMonth.equals(oldMonth)) {
+			partitionJob.ensureMonthPartitions(freshMonth);
+		}
 		String old7 = uuid();
 		String fresh7 = uuid();
 		String old90 = uuid();

@@ -16,6 +16,11 @@
 
 ### 修复
 
+- 埋点明细清理按复合主键分批，避免分区表 ctid 误删
+  - `TrackEventCleanJob` 改为 `(id, received_at) IN (...)`，不再用 ctid
+  - 分区表 ctid 仅分区内唯一，按 ctid 删父表会误伤未到期行
+  - 保留清理测预建 old/fresh 所在月分区，避免落入 default
+
 - 超限上传稳定返回 400，不再在请求体未读完时断开连接
   - 新增 `server.tomcat.max-swallow-size: 32MB`（Tomcat 默认 2MB）
   - 容器拒绝超限上传时，剩余请求体超过 Tomcat 默认 2MB 吞吐上限会断连

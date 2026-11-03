@@ -545,7 +545,7 @@ public interface TrackConstants {
 	String LOCK_EVENT_CLEAN = REDIS_PREFIX + "lock:event-clean";
 	/** 事件明细清理调度 tick（毫秒）：每小时探一次，内存节流每日一轮（同回放/响应体清理范式） */
 	long EVENT_CLEAN_TICK_MS = 3600000L;
-	/** 事件明细清理单批删除行数（ctid 分批；超出逐轮消化） */
+	/** 事件明细清理单批删除行数（按 id+received_at 分批；超出逐轮消化） */
 	int EVENT_CLEAN_BATCH_SIZE = 500;
 	/** 事件明细清理单轮批数上限（单轮最多 5 万行 × 2 表，防长窗口单轮爆量） */
 	int EVENT_CLEAN_MAX_BATCHES = 100;

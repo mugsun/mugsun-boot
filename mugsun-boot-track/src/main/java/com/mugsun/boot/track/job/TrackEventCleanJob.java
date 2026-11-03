@@ -24,9 +24,10 @@ import java.time.ZoneOffset;
  * <p><b>到期线</b>：received_at 早于 now − retention_days（LEFT JOIN track_app 逐行按应用判定；
  * 应用缺失/已删回退 {@value TrackConstants#DEFAULT_RETENTION_DAYS} 天）。
  * 到期线取 Java 侧 UTC 墙钟绑定（与 TrackEventStore「TIMESTAMP=UTC 墙钟」写入规约同口径，不依赖库会话时区）。
- * <p><b>删除方式</b>：{@code DELETE ... WHERE ctid IN (SELECT ... ORDER BY received_at LIMIT ?)} 分批
+ * <p><b>删除方式</b>：{@code DELETE ... WHERE (id, received_at) IN (SELECT ... ORDER BY received_at LIMIT ?)} 分批
  * （{@value TrackConstants#EVENT_CLEAN_BATCH_SIZE} 行/批 × 最多 {@value TrackConstants#EVENT_CLEAN_MAX_BATCHES}
- * 批/表/轮），ctid 分批防长事务；循环至无到期行或批数封顶，剩余逐轮消化。
+ * 批/表/轮）。必须用分区表复合主键，禁止 ctid：ctid 只在单分区内唯一，
+ * {@code DELETE FROM 父表 WHERE ctid IN (...)} 会误删其他分区里同 ctid 的未到期行。
  * <p><b>节奏</b>：每小时 tick + 内存节流每日一轮（多节点各自节流 + 分布式锁兜底，同回放/响应体清理范式）。
  * 明细删除天然幂等可重入（无外部副作用）。
  */
@@ -37,16 +38,16 @@ public class TrackEventCleanJob {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackEventCleanJob.class);
 
-	/** 事件主表分批删除：逐应用保留期到期线（应用缺失回退默认），ctid 分批防长事务 */
-	private static final String DELETE_EXPIRED_EVENT = "DELETE FROM track_event WHERE ctid IN"
-		+ " (SELECT e.ctid FROM track_event e"
+	/** 事件主表分批删除：逐应用保留期到期线（应用缺失回退默认）；按复合主键分批防长事务 */
+	private static final String DELETE_EXPIRED_EVENT = "DELETE FROM track_event WHERE (id, received_at) IN"
+		+ " (SELECT e.id, e.received_at FROM track_event e"
 		+ " LEFT JOIN track_app a ON a.app_key = e.app_key AND a.is_deleted = 0"
 		+ " WHERE e.received_at < ? - make_interval(days => coalesce(a.retention_days, ?))"
 		+ " ORDER BY e.received_at LIMIT ?)";
 
-	/** EAV 明细表分批删除（同 received_at 月分区，与主表同口径） */
-	private static final String DELETE_EXPIRED_EVENT_DATA = "DELETE FROM track_event_data WHERE ctid IN"
-		+ " (SELECT e.ctid FROM track_event_data e"
+	/** EAV 明细表分批删除（同 received_at 月分区，与主表同口径；同样禁止 ctid） */
+	private static final String DELETE_EXPIRED_EVENT_DATA = "DELETE FROM track_event_data WHERE (id, received_at) IN"
+		+ " (SELECT e.id, e.received_at FROM track_event_data e"
 		+ " LEFT JOIN track_app a ON a.app_key = e.app_key AND a.is_deleted = 0"
 		+ " WHERE e.received_at < ? - make_interval(days => coalesce(a.retention_days, ?))"
 		+ " ORDER BY e.received_at LIMIT ?)";
