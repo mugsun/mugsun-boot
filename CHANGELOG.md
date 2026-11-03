@@ -25,6 +25,12 @@
 
 ### 变更
 
+- 一键全栈默认钉新版 mugsun-pc / mugsun-track tip（合集截图对齐行为验证码）
+  - pc → `4d6d018f09c9687047c3805bb534d151a5f8a4ef`（#19 行为验证码、去数字码、CSP #63）
+  - track → `78a008c26737a832e594eca2e958e7d17dfb215d`（happy-dom 安全升级）
+  - 登录页为 CaptchaDialog 行为验证弹层，不再是旧图形数字码
+  - boot prod：`mugsun.captcha.enabled=true`，五种 default-types 随机；无 IMAGE
+
 - 数据库默认拉取 GHCR 多架构 PostGIS+pgvector 镜像
   - 镜像 `ghcr.io/mugsun/postgis-pgvector:16-3.4`（linux/amd64 + arm64）
   - compose 不再要求本机构建或设置 `MUGSUN_PG_*`

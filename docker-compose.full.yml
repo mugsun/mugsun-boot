@@ -6,7 +6,8 @@
 #
 # 只需要 Docker（Compose v2.17+）。管理台直接用 mugsun-pc 仓库自己的 Dockerfile 和 nginx 配置构建
 # （nginx-unprivileged 非 root、基础镜像固定 digest、CSP、用 $remote_addr 覆盖 X-Forwarded-For），
-# 源码固定在下面 MUGSUN_PC_SRC / MUGSUN_TRACK_SRC 默认值里的提交 sha（可复现；升级时一起改 sha）。
+# 源码钉在下面 MUGSUN_PC_SRC / MUGSUN_TRACK_SRC 默认 tip sha（可复现，不跟浮动 main；升级时一起改）。
+# 默认 tip 登录页为行为验证码弹层（非旧扭曲数字图）；与 boot prod 的 mugsun.captcha 对齐。
 # 本地已有平级 mugsun-pc / mugsun-track 时可改用本地源码：
 #   MUGSUN_PC_SRC=../mugsun-pc MUGSUN_TRACK_SRC=../mugsun-track docker compose -f docker-compose.full.yml up -d --build
 #
@@ -116,14 +117,16 @@ services:
     restart: unless-stopped
 
   pc:
-    # 直接用 mugsun-pc 仓库的 Dockerfile + docker/nginx（pc#18 加固 + pc#37 的网关 CIDR 校验和 CSP 域名过滤），
-    # 这里不再维护单独的 nginx 配置。源码固定到提交 sha（不跟 main）；pc 镜像里 pnpm 用 --frozen-lockfile。
-    # 固定在 mugsun-pc main 上 pc#37 的合入提交 1dbc009（含 pc#18 + pc#37 加固）。
+    # 直接用 mugsun-pc 仓库的 Dockerfile + docker/nginx（非 root、digest 钉版、CSP、网关 CIDR、
+    # XFF 覆盖）。这里不再维护单独的 nginx 配置。源码钉可复现 tip（不跟浮动 main）；
+    # pc 镜像里 pnpm 用 --frozen-lockfile。登录页为行为验证码（CaptchaDialog），非旧数字图。
+    # pc tip 4d6d018（含 #19 行为验证码、去掉数字码、CSP #63）；
+    # track tip 78a008c（happy-dom 安全升级）。
     build:
-      context: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#1dbc009627e0c2ad1b91ec79a7c6438af392bf22}
+      context: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#4d6d018f09c9687047c3805bb534d151a5f8a4ef}
       dockerfile: Dockerfile
       additional_contexts:
-        track: ${MUGSUN_TRACK_SRC:-https://github.com/mugsun/mugsun-track.git#b66963f740af911db3697f35a33b8bb7065e6d3c}
+        track: ${MUGSUN_TRACK_SRC:-https://github.com/mugsun/mugsun-track.git#78a008c26737a832e594eca2e958e7d17dfb215d}
     image: mugsun-full-pc:local
     environment:
       MUGSUN_API_UPSTREAM: http://boot:8080
