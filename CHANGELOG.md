@@ -13,6 +13,8 @@
 - 开发态缺 Redis 可启动并登录：探测失败则自动降级并打 WARN
   - Sa-Token / 验证码 / 登录锁 → memory；WebSocket → local；单号 → db
   - JetCache remote → mock；生产不降级；`mugsun.redis.mode=redis|fallback`
+  - 降级判定与启动守卫共用 `config.DeployProfiles`（否决 prod/production/prd/staging）
+  - 降级属性插在 systemEnvironment 之后，不压过命令行/环境变量；Captcha memory 路径不强制装配 Redis bean
 - 零配置：README 快速开始改为 full compose 一条命令
   - 去掉复制 `application-local.yml` 步骤；local 仅为可选覆盖
   - 写明登录地址与 `init show` 查口令；口令不进 README
