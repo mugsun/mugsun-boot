@@ -99,12 +99,10 @@ class ForceChangePasswordApiTest extends AbstractIntegrationTest {
 		assertThat(otp2).isNotEqualTo(otp1);
 
 		String token = login(PLATFORM_TENANT, username, otp2);
-		JsonNode blocked = readBody(get("/system/user/page?pageNum=1&pageSize=5", token));
-		// 无权限也可能 403；强制改密应先于权限以 400 提示改密
-		assertThat(blocked.path("code").asInt()).isIn(400, 403);
-		if (blocked.path("code").asInt() == 400) {
-			assertThat(blocked.path("msg").asText()).contains("请先修改初始口令");
-		}
+		// 仅需登录的非放行接口：强制改密应 400（不依赖业务权限码）
+		JsonNode blocked = readBody(post("/auth/update-avatar", Map.of("avatar", "x"), token));
+		assertThat(blocked.path("code").asInt()).as(blocked.path("msg").asText()).isEqualTo(400);
+		assertThat(blocked.path("msg").asText()).contains("请先修改初始口令");
 
 		String publicKey = readBody(get("/auth/sm2-public-key", null)).path("data").path("publicKey").asText();
 		String newPwd = "ItReset@Done81x";
@@ -136,4 +134,39 @@ class ForceChangePasswordApiTest extends AbstractIntegrationTest {
 		assertThat(otp).isNotBlank().matches("^Mg[A-Za-z0-9]{4}-[A-Za-z0-9]{10}9a$");
 		assertThat(login(PLATFORM_TENANT, username, otp)).isNotBlank();
 	}
+
+	@Test
+	void editDoesNotClearMustChangePassword() {
+		String admin = loginAdmin();
+		String username = "it_otp_edit_" + System.nanoTime() % 1_000_000;
+		Map<String, Object> user = new HashMap<>();
+		user.put("username", username);
+		user.put("nickname", "编辑不清标记");
+		user.put("status", 1);
+		JsonNode created = readBody(post("/system/user/submit", user, admin));
+		assertThat(created.path("code").asInt()).as(created.path("msg").asText()).isEqualTo(200);
+		String otp = created.path("data").path("initialPassword").asText();
+		assertThat(otp).isNotBlank();
+
+		long userId = readBody(get("/system/user/page?pageNum=1&pageSize=50&username=" + username, admin))
+			.path("data").path("records").get(0).path("id").asLong();
+
+		// 编辑昵称；即使误传 mustChangePassword=0 也不得清库标记
+		Map<String, Object> edit = new HashMap<>();
+		edit.put("id", userId);
+		edit.put("username", username);
+		edit.put("nickname", "编辑后仍须改密");
+		edit.put("status", 1);
+		edit.put("mustChangePassword", 0);
+		JsonNode saved = readBody(post("/system/user/submit", edit, admin));
+		assertThat(saved.path("code").asInt()).as(saved.path("msg").asText()).isEqualTo(200);
+
+		String token = login(PLATFORM_TENANT, username, otp);
+		JsonNode blocked = readBody(post("/auth/update-avatar", Map.of("avatar", "x"), token));
+		assertThat(blocked.path("code").asInt()).as(blocked.path("msg").asText()).isEqualTo(400);
+		assertThat(blocked.path("msg").asText()).contains("请先修改初始口令");
+		assertThat(jdbc.queryForObject(
+			"SELECT must_change_password FROM sys_user WHERE id = ?", Integer.class, userId)).isEqualTo(1);
+	}
+
 }

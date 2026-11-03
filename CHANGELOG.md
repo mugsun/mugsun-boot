@@ -12,6 +12,8 @@
   - 首次登录强制改密；改密前仅允许改密/登出/身份相关接口
   - `MUGSUN_INIT_PASSWORD` 仍只用于平台种子 admin 与 init show
   - 建租户/建用户/重置响应返回 `initialPassword`（勿落日志明文）
+  - 编辑用户忽略 `mustChangePassword`，防客户端清强制改密标记
+  - `ApiParamMask` 同步遮罩 `initialPassword` 等一次性口令字段
 
 ### 变更
 

@@ -107,6 +107,8 @@ public class SysUserManageService {
 		if (user.getPassword() != null && !user.getPassword().isBlank()) {
 			user.setPassword(passwordEncoder.encode(user.getPassword()));
 		}
+		// #81 B1：must_change_password 仅 reset/create/改密/忘记密码写；编辑一律忽略，防客户端/默认 0 清标记
+		user.setMustChangePassword(null);
 		user.sanitizeForUpdate();
 		user.setTenantId(null);
 		try {

@@ -3,11 +3,13 @@ package com.mugsun.boot.auth;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
+import com.mugsun.boot.common.constant.AuthConstants;
 import com.mugsun.boot.common.constant.ClientConstants;
 import com.mugsun.boot.config.BizTables;
 import com.mugsun.boot.common.constant.MonitorConstants;
 import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.common.constant.TenantConstants;
+import com.mugsun.boot.security.SecurityPolicyService;
 import com.mugsun.boot.system.entity.SysUser;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.core.tool.api.R;
@@ -36,7 +38,7 @@ public class AuthController {
 	private final PasswordEncoder passwordEncoder;
 	private final LoginLockService loginLockService;
 	private final AuthLoginService authLoginService;
-	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
+	private final SecurityPolicyService securityPolicyService;
 	private final TwoFactorService twoFactorService;
 	private final com.mugsun.boot.system.service.SmsService smsService;
 	private final com.mugsun.boot.system.service.SocialService socialService;
@@ -197,8 +199,9 @@ public class AuthController {
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, ip)
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
-		StpUtil.getSession().set(com.mugsun.boot.common.constant.AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY,
-			com.mugsun.boot.security.SecurityPolicyService.isMustChangePassword(user.getMustChangePassword()));		// 按 client 策略：单账号最大在线终端数（超出踢最旧）
+		StpUtil.getSession().set(AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY,
+			SecurityPolicyService.isMustChangePassword(user.getMustChangePassword()));
+		// 按 client 策略：单账号最大在线终端数（超出踢最旧）
 		enforceMaxOnline(user.getId(), client.getMaxOnline());
 		authLoginService.saveLoginLog(username, request, client.getClientId(), user.getTenantId(), 1, "登录成功", "password");
 		return R.data(Map.of("token", StpUtil.getTokenValue()));
@@ -228,8 +231,9 @@ public class AuthController {
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, com.mugsun.boot.common.web.ClientIpResolver.clientIp(request))
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
-		StpUtil.getSession().set(com.mugsun.boot.common.constant.AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY,
-			com.mugsun.boot.security.SecurityPolicyService.isMustChangePassword(user.getMustChangePassword()));		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "双因子登录成功", "password");
+		StpUtil.getSession().set(AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY,
+			SecurityPolicyService.isMustChangePassword(user.getMustChangePassword()));
+		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "双因子登录成功", "password");
 		return R.data(Map.of("token", StpUtil.getTokenValue()));
 	}
 
@@ -284,6 +288,7 @@ public class AuthController {
 		user.setUsername(dto.getUsername());
 		user.setNickname((dto.getNickname() == null || dto.getNickname().isBlank()) ? dto.getUsername() : dto.getNickname());
 		user.setPassword(passwordEncoder.encode(rawPassword));
+		user.setMustChangePassword(0);
 		user.setPhone(dto.getPhone());
 		user.setStatus(1);
 		user.setIsLeader(0);
@@ -414,8 +419,9 @@ public class AuthController {
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_IP, com.mugsun.boot.common.web.ClientIpResolver.clientIp(request))
 			.setTerminalExtra(MonitorConstants.TERMINAL_EXTRA_UA, truncateUa(request)));
 		StpUtil.getSession().set(TenantContext.TENANT_SESSION_KEY, user.getTenantId());
-		StpUtil.getSession().set(com.mugsun.boot.common.constant.AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY,
-			com.mugsun.boot.security.SecurityPolicyService.isMustChangePassword(user.getMustChangePassword()));		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "短信登录成功", "sms");
+		StpUtil.getSession().set(AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY,
+			SecurityPolicyService.isMustChangePassword(user.getMustChangePassword()));
+		authLoginService.saveLoginLog(user.getUsername(), request, ClientConstants.DEFAULT_CLIENT_ID, user.getTenantId(), 1, "短信登录成功", "sms");
 		return R.data(Map.of("token", StpUtil.getTokenValue()));
 	}
 
@@ -571,7 +577,7 @@ public class AuthController {
 		}
 		data.put("roles", new java.util.ArrayList<>(roles));
 		data.put("buttons", StpUtil.getPermissionList());
-		data.put("needChangePassword", com.mugsun.boot.security.SecurityPolicyService.isMustChangePassword(user.getMustChangePassword())
+		data.put("needChangePassword", SecurityPolicyService.isMustChangePassword(user.getMustChangePassword())
 			|| securityPolicyService.needChangePassword(user.getId()));
 		data.put("watermark", securityPolicyService.isWatermarkEnabled());
 		data.put("gisEnabled", gisModuleStatus.enabled());
@@ -655,7 +661,7 @@ public class AuthController {
 		userMapper.update(user);
 		securityPolicyService.logPassword(user.getId(), encoded);
 		try {
-			StpUtil.getSession().set(com.mugsun.boot.common.constant.AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY, false);
+			StpUtil.getSession().set(AuthConstants.MUST_CHANGE_PASSWORD_SESSION_KEY, false);
 		} catch (Exception ignore) {
 			// 会话可能已失效，kickout 仍会清掉
 		}

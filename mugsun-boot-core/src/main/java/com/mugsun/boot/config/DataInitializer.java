@@ -139,6 +139,7 @@ public class DataInitializer implements CommandLineRunner {
 		SysUser u = new SysUser();
 		u.setUsername("fronttest");
 		u.setPassword(passwordEncoder.encode("123456"));
+		u.setMustChangePassword(0);
 		u.setNickname("前端测试");
 		u.setStatus(1);
 		u.setIsLeader(0);

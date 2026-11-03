@@ -54,8 +54,10 @@ public class SysUser extends BaseEntity {
 	@ColumnMask(FieldMaskConstants.TYPE_USER_ID_CARD)
 	private String idCard;
 
-	/** 首次登录须改密：1 是 / 0 否（发放一次性口令时置 1，用户改密后清 0）；默认 0 避免 insert 显式 null 撞 NOT NULL */
-	private Integer mustChangePassword = 0;
+	/** 首次登录须改密：1 是 / 0 否（发放一次性口令时置 1，用户改密后清 0）。
+	 * 默认 null：编辑提交未传时保持 null，Flex update 忽略该列，避免被写成 0 清掉强制改密（#81 B1）。
+	 * 新建路径必须显式 set 0/1，禁止 insert null。 */
+	private Integer mustChangePassword;
 
 	/** 部门名（展示用，非表列，page/detail 富化填充） */
 	@Column(ignore = true)

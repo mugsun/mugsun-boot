@@ -147,6 +147,7 @@ public class SocialService {
 		user.setUsername(source + "_" + suffix);
 		user.setNickname(authUser.getNickname() != null ? authUser.getNickname() : source + "用户" + suffix);
 		user.setPassword(passwordEncoder.encode(IdUtil.fastSimpleUUID()));
+		user.setMustChangePassword(0);
 		user.setStatus(1);
 		user.setTenantId(TenantConstants.DEFAULT_TENANT_ID);
 		return user;

@@ -20,7 +20,8 @@ public final class ApiParamMask {
 
 	/** 敏感 key 名单（小写比较）：密码/密钥/令牌/凭据/签名类 + PII（手机号/身份证）+ 验证码类（与 AuditMask 同源） */
 	private static final Set<String> SENSITIVE = Set.of(
-		"password", "oldpassword", "newpassword", "dspassword", "pwd", "passwd",
+		"password", "oldpassword", "newpassword", "initialpassword", "adminpassword", "onetimepassword",
+		"dspassword", "pwd", "passwd",
 		"secret", "clientsecret", "client_secret", "apikey", "accesstoken", "access_token",
 		"refreshtoken", "refresh_token", "token",
 		"credential", "credentials", "privatekey", "sign",
