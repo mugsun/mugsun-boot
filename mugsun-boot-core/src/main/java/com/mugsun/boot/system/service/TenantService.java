@@ -3,6 +3,11 @@ package com.mugsun.boot.system.service;
 import com.mugsun.boot.common.constant.RoleConstants;
 import com.mugsun.boot.common.constant.UserConstants;
 import com.mugsun.boot.datasource.TenantDatasourceService;
+import com.mugsun.boot.common.tx.AfterCommit;
+import com.mugsun.boot.oauth.OAuthService;
+import com.mugsun.boot.system.mapper.SysApiKeyMapper;
+import com.mugsun.boot.tenant.TenantCredentialPurger;
+import org.springframework.beans.factory.ObjectProvider;
 import com.mugsun.boot.system.entity.SysDept;
 import com.mugsun.boot.system.entity.SysPost;
 import com.mugsun.boot.system.entity.SysRole;
@@ -55,6 +60,9 @@ public class TenantService {
 	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
 	private final TenantPackageService packageService;
+	private final OAuthService oauthService;
+	private final SysApiKeyMapper apiKeyMapper;
+	private final ObjectProvider<TenantCredentialPurger> credentialPurgers;
 	/** 候选编号的随机源，构造注入（测试用固定序列验证已删除编号不会被复用） */
 	private final RandomGenerator random;
 	/**
@@ -75,10 +83,11 @@ public class TenantService {
 						 TenantDatasourceService datasourceService,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
 						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
-						 TenantPackageService packageService, PlatformTransactionManager txManager) {
+						 TenantPackageService packageService, OAuthService oauthService, SysApiKeyMapper apiKeyMapper,
+						 ObjectProvider<TenantCredentialPurger> credentialPurgers, PlatformTransactionManager txManager) {
 		this(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper, roleMenuMapper, roleDeptMapper,
-			datasourceService, passwordEncoder, tenantValidator, securityPolicyService, packageService, new SecureRandom(),
-			txManager);
+			datasourceService, passwordEncoder, tenantValidator, securityPolicyService, packageService, oauthService,
+			apiKeyMapper, credentialPurgers, new SecureRandom(), txManager);
 	}
 
 	public TenantService(SysTenantMapper tenantMapper, SysDeptMapper deptMapper, SysPostMapper postMapper,
@@ -87,7 +96,9 @@ public class TenantService {
 						 TenantDatasourceService datasourceService,
 						 PasswordEncoder passwordEncoder, com.mugsun.boot.tenant.TenantValidator tenantValidator,
 						 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
-						 TenantPackageService packageService, RandomGenerator random, PlatformTransactionManager txManager) {
+						 TenantPackageService packageService, OAuthService oauthService, SysApiKeyMapper apiKeyMapper,
+						 ObjectProvider<TenantCredentialPurger> credentialPurgers, RandomGenerator random,
+						 PlatformTransactionManager txManager) {
 		this.random = random;
 		this.txTemplate = newAttemptTemplate(txManager);
 		this.tenantMapper = tenantMapper;
@@ -103,6 +114,9 @@ public class TenantService {
 		this.tenantValidator = tenantValidator;
 		this.securityPolicyService = securityPolicyService;
 		this.packageService = packageService;
+		this.oauthService = oauthService;
+		this.apiKeyMapper = apiKeyMapper;
+		this.credentialPurgers = credentialPurgers;
 	}
 
 	/** 创建租户并初始化默认数据，返回租户编号 */
@@ -247,11 +261,16 @@ public class TenantService {
 			}
 		}
 		tenantMapper.deleteBatchByIds(idList);
+		List<String> codes = new ArrayList<>();
 		for (SysTenant tenant : tenants) {
 			tenantValidator.evict(tenant.getTenantCode());
 			purgeTenantData(tenant.getTenantCode());
+			if (tenant.getTenantCode() != null && !"000000".equals(tenant.getTenantCode())) {
+				codes.add(tenant.getTenantCode());
+			}
 		}
 		unregisterDatasourcesAfterCommit(tenants);
+		revokeOauthTokensAfterCommit(codes);
 		return tenants.size();
 	}
 
@@ -292,7 +311,8 @@ public class TenantService {
 	}
 
 	/**
-	 * 逻辑删除租户的组织数据：用户及其用户-角色关联、部门、岗位、角色及其角色-菜单 / 角色-部门关联、租户独立数据源配置。
+	 * 逻辑删除租户的组织数据与开放凭据：用户及其用户-角色关联、部门、岗位、角色及其角色-菜单 / 角色-部门关联、
+ * 租户独立数据源配置、OAuth 客户端、API Key，以及 {@link TenantCredentialPurger} 扩展（如 AI 密钥）。
 	 * 用户的岗位是 sys_user.post_id 列，没有单独的用户-岗位关联表，随用户一起删。
 	 * 这些表的实体都继承 BaseEntity（is_deleted 逻辑删除），Mapper 的 delete 会生成 UPDATE ... SET is_deleted = 1。
 	 * 平台租户不在这里清。跨租户清理必须忽略当前会话的租户条件。
@@ -330,6 +350,16 @@ public class TenantService {
 		}
 		roleMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
 		datasourceService.removeByTenantCode(code);
+		// 开放凭据：OAuth 客户端、API Key、可选模块（AI 密钥等）
+		if (oauthService != null) {
+			oauthService.removeByTenantCode(code);
+		}
+		if (apiKeyMapper != null) {
+			apiKeyMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", code));
+		}
+		if (credentialPurgers != null) {
+			credentialPurgers.orderedStream().forEach(p -> p.purgeByTenantCode(code));
+		}
 	}
 
 	/** 已注册的租户独立数据源在事务提交后注销（回滚时保持原样），与「删除数据源」接口的效果一致 */
@@ -341,6 +371,19 @@ public class TenantService {
 			}
 		}
 		datasourceService.unregisterAfterCommit(codes);
+	}
+
+	/** 事务提交后撤销该租户 Redis 中的 OAuth access/refresh 令牌（回滚时保留） */
+	private void revokeOauthTokensAfterCommit(List<String> tenantCodes) {
+		if (oauthService == null || tenantCodes == null || tenantCodes.isEmpty()) {
+			return;
+		}
+		List<String> codes = new ArrayList<>(tenantCodes);
+		AfterCommit.execute(() -> {
+			for (String code : codes) {
+				oauthService.revokeTokensByTenantCode(code);
+			}
+		});
 	}
 
 	private void initDefaults(String code, String tenantName) {
@@ -384,7 +427,7 @@ public class TenantService {
 
 	/**
 	 * 生成 6 位租户编号，规避超管保留号 000000 且永不复用。
-	 * 查重绕过逻辑删除过滤，已删除租户的编号也算占用：级联只清组织数据，业务表、凭据、会话和数据源路由仍按编号关联，
+	 * 查重绕过逻辑删除过滤，已删除租户的编号也算占用：业务表、会话等仍可能按编号关联，
 	 * 复用编号会让新租户接手旧租户的残留数据。
 	 */
 	private String genCode() {

@@ -38,6 +38,14 @@
 
 ### 修复
 
+- 删/停租户后开放凭据仍可用（#101）
+  - `/oauth2/token` 与 OpenAPI 验签经 `loadEnabledClient` 校验租户；`/open/**` 与 AI
+    `authenticate` 请求路径 `TenantValidator.validate`
+  - 删租户同事务级联 OAuth 客户端、API Key、AI 密钥（SPI）；提交后 SCAN 撤销 Redis
+    租户令牌
+  - 测覆盖停用与删除；MCP（`ai_mcp_token`）恢复时按 SPI 注释对齐
+
+
 - 埋点明细清理按复合主键分批，避免分区表 ctid 误删
   - `TrackEventCleanJob` 改为 `(id, received_at) IN (...)`，不再用 ctid
   - 分区表 ctid 仅分区内唯一，按 ctid 删父表会误伤未到期行

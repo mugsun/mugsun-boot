@@ -7,6 +7,7 @@ import com.mugsun.boot.system.entity.SysApiKey;
 import com.mugsun.boot.system.mapper.SysApiKeyMapper;
 import com.mugsun.boot.system.service.ApiKeyCallRecorder;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.boot.tenant.TenantValidator;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.api.ResultCode;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -36,10 +37,13 @@ public class SysApiKeyController {
 
 	private final SysApiKeyMapper apiKeyMapper;
 	private final ApiKeyCallRecorder callRecorder;
+	private final TenantValidator tenantValidator;
 
-	public SysApiKeyController(SysApiKeyMapper apiKeyMapper, ApiKeyCallRecorder callRecorder) {
+	public SysApiKeyController(SysApiKeyMapper apiKeyMapper, ApiKeyCallRecorder callRecorder,
+							  TenantValidator tenantValidator) {
 		this.apiKeyMapper = apiKeyMapper;
 		this.callRecorder = callRecorder;
+		this.tenantValidator = tenantValidator;
 	}
 
 	@GetMapping("/page")
@@ -166,7 +170,12 @@ public class SysApiKeyController {
 		boolean enabled = key != null && Integer.valueOf(1).equals(key.getStatus());
 		boolean expired = key != null && key.getExpireTime() != null && !key.getExpireTime().isAfter(LocalDateTime.now());
 		boolean pathOk = key == null || pathAllowed(key.getApiPath(), param == null ? null : param.path());
-		boolean secretOk = enabled && !expired && pathOk && secretKey.equals(key.getSecretKey());
+		String tenantReason = null;
+		if (key != null && key.getTenantId() != null && !key.getTenantId().isBlank()) {
+			tenantReason = tenantValidator.validate(key.getTenantId());
+		}
+		boolean tenantOk = tenantReason == null;
+		boolean secretOk = enabled && !expired && pathOk && tenantOk && secretKey.equals(key.getSecretKey());
 		String message;
 		if (key == null) {
 			message = "没有找到这个 AccessKey。请到密钥管理核对标识后再试";
@@ -178,6 +187,8 @@ public class SysApiKeyController {
 			message = param == null || param.path() == null || param.path().isBlank()
 				? "这把密钥限制了可调用路径。请在校验时带上要访问的路径"
 				: "这个路径不在密钥允许的范围内。请改用允许的路径，或到密钥管理放宽范围";
+		} else if (!tenantOk) {
+			message = tenantReason;
 		} else if (!secretOk) {
 			message = "SecretKey 不正确。请使用生成时保存的密钥，不要使用列表里打码后的值";
 		} else {

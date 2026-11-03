@@ -81,7 +81,8 @@ class TenantServiceRemoveTest {
 		when(provider.getIfAvailable()).thenReturn(registry);
 		service = new TenantService(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper,
 			roleMenuMapper, roleDeptMapper, new TenantDatasourceService(datasourceMapper, provider),
-			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null, new java.util.Random(), null);
+			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null,
+			null, null, mock(ObjectProvider.class), new java.util.Random(), null);
 	}
 
 	private static SysTenant tenant(long id, String code) {
@@ -180,6 +181,36 @@ class TenantServiceRemoveTest {
 	}
 
 	@Test
+	@DisplayName("删租户：同事务逻辑删 OAuth 客户端与 API Key，并调用 TenantCredentialPurger；提交后撤销 Redis 令牌")
+	void cascadesToOauthApiKeyAndPurgers() {
+		com.mugsun.boot.oauth.OAuthService oauth = mock(com.mugsun.boot.oauth.OAuthService.class);
+		com.mugsun.boot.system.mapper.SysApiKeyMapper apiKeys = mock(com.mugsun.boot.system.mapper.SysApiKeyMapper.class);
+		com.mugsun.boot.tenant.TenantCredentialPurger purger = mock(com.mugsun.boot.tenant.TenantCredentialPurger.class);
+		@SuppressWarnings("unchecked")
+		ObjectProvider<com.mugsun.boot.tenant.TenantCredentialPurger> purgers = mock(ObjectProvider.class);
+		when(purgers.orderedStream()).thenReturn(java.util.stream.Stream.of(purger));
+		ObjectProvider<TenantDataSourceRegistry> provider = mock(ObjectProvider.class);
+		when(provider.getIfAvailable()).thenReturn(registry);
+		TenantService svc = new TenantService(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper,
+			roleMenuMapper, roleDeptMapper, new TenantDatasourceService(datasourceMapper, provider),
+			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null,
+		oauth, apiKeys, purgers, new java.util.Random(), null);
+		when(tenantMapper.selectListByIds(anyList())).thenReturn(List.of(tenant(1L, "700001")));
+		when(userMapper.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of());
+		when(roleMapper.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of());
+
+		assertThat(svc.remove(List.of(1L))).isEqualTo(1);
+
+		verify(oauth).removeByTenantCode("700001");
+		ArgumentCaptor<QueryWrapper> ak = ArgumentCaptor.forClass(QueryWrapper.class);
+		verify(apiKeys).deleteByQuery(ak.capture());
+		assertThat(sql(ak.getValue())).contains("tenant_id").contains("700001");
+		verify(purger).purgeByTenantCode("700001");
+		// 无 Spring 事务同步时 AfterCommit 立即执行
+		verify(oauth).revokeTokensByTenantCode("700001");
+	}
+
+	@Test
 	@DisplayName("remove 带 @Transactional(rollbackFor = Exception.class)：租户和组织数据同一事务")
 	void removeIsTransactional() throws Exception {
 		Transactional tx = TenantService.class.getMethod("remove", List.class).getAnnotation(Transactional.class);
@@ -192,7 +223,8 @@ class TenantServiceRemoveTest {
 	void allCascadedEntitiesUseLogicalDelete() throws Exception {
 		assertThat(BaseEntity.class.getDeclaredField("isDeleted").getAnnotation(Column.class).isLogicDelete()).isTrue();
 		for (Class<?> c : List.of(SysTenant.class, SysUser.class, SysUserRole.class, SysDept.class, SysPost.class,
-			SysRole.class, SysRoleMenu.class, SysRoleDept.class, SysTenantDatasource.class)) {
+			SysRole.class, SysRoleMenu.class, SysRoleDept.class, SysTenantDatasource.class,
+			com.mugsun.boot.oauth.entity.SysOauthClient.class, com.mugsun.boot.system.entity.SysApiKey.class)) {
 			assertThat(BaseEntity.class).as(c.getSimpleName()).isAssignableFrom(c);
 		}
 	}
@@ -223,7 +255,8 @@ class TenantServiceRemoveTest {
 		ObjectProvider<TenantDataSourceRegistry> provider = mock(ObjectProvider.class);
 		return new TenantService(tenantMapper, deptMapper, postMapper, roleMapper, userMapper, userRoleMapper,
 			roleMenuMapper, roleDeptMapper, new TenantDatasourceService(datasourceMapper, provider),
-			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null, random, tm);
+			null, mock(com.mugsun.boot.tenant.TenantValidator.class), null, null,
+			null, null, mock(ObjectProvider.class), random, tm);
 	}
 
 	/** 内存事务管理器：记录开启 / 挂起 / 提交 / 回滚，栈顶是当前事务，支持 REQUIRES_NEW 挂起外层 */

@@ -5,6 +5,8 @@ import com.mugsun.boot.oauth.entity.SysOauthClient;
 import com.mugsun.boot.oauth.mapper.SysOauthClientMapper;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.boot.tenant.TenantValidator;
+import com.mugsun.boot.cache.RedisScanSupport;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -12,10 +14,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -44,14 +48,20 @@ public class OAuthService {
 	private final SysOauthClientMapper clientMapper;
 	private final StringRedisTemplate redisTemplate;
 	private final ObjectMapper objectMapper;
+	private final TenantValidator tenantValidator;
 
-	public OAuthService(SysOauthClientMapper clientMapper, StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+	public OAuthService(SysOauthClientMapper clientMapper, StringRedisTemplate redisTemplate, ObjectMapper objectMapper,
+						 TenantValidator tenantValidator) {
 		this.clientMapper = clientMapper;
 		this.redisTemplate = redisTemplate;
 		this.objectMapper = objectMapper;
+		this.tenantValidator = tenantValidator;
 	}
 
-	/** 按 clientId 查启用客户端（公共令牌端点无租户上下文，跳过隔离；不存在/停用抛 invalid_client） */
+	/**
+	 * 按 clientId 查启用客户端（公共令牌端点无租户上下文，跳过隔离；不存在/停用抛 invalid_client）。
+	 * 同时校验所属租户可用性：停用/删除/过期租户不能换发新令牌，也不能通过 OpenAPI 验签。
+	 */
 	public SysOauthClient loadEnabledClient(String clientId) {
 		if (clientId == null || clientId.isBlank()) {
 			throw OAuth2Exception.invalidClient("client_id 不能为空");
@@ -64,7 +74,23 @@ public class OAuthService {
 		if (!Integer.valueOf(1).equals(client.getStatus())) {
 			throw OAuth2Exception.invalidClient("客户端已停用");
 		}
+		assertClientTenantUsable(client);
 		return client;
+	}
+
+	/** 客户端所属租户须存在且未停用/过期（平台租户短路放行） */
+	private void assertClientTenantUsable(SysOauthClient client) {
+		if (tenantValidator == null) {
+			return;
+		}
+		String tenantId = client.getTenantId();
+		if (tenantId == null || tenantId.isBlank()) {
+			throw OAuth2Exception.invalidClient("客户端未绑定租户");
+		}
+		String reason = tenantValidator.validate(tenantId);
+		if (reason != null) {
+			throw OAuth2Exception.invalidClient(reason);
+		}
 	}
 
 	/** 客户端认证：校验密钥（客户端凭证/授权码/刷新令牌换 token 均需） */
@@ -192,6 +218,50 @@ public class OAuthService {
 		}
 		redisTemplate.delete(TOKEN_PREFIX + token);
 		redisTemplate.delete(REFRESH_PREFIX + token);
+	}
+
+	/**
+	 * 逻辑删除某租户全部 OAuth 客户端（实体继承 BaseEntity，delete 生成 UPDATE ... SET is_deleted = 1）。
+	 * 加入调用方事务；跨租户调用时由调用方 {@link TenantContext#ignore}。
+	 */
+	public void removeByTenantCode(String tenantCode) {
+		if (tenantCode == null || tenantCode.isBlank()) {
+			return;
+		}
+		clientMapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", tenantCode));
+	}
+
+	/**
+	 * 撤销 Redis 中绑定该租户的 access / refresh 令牌（SCAN，避免 KEYS）。
+	 * 宜在事务提交后调用，回滚时勿清仍有效的令牌。
+	 */
+	public void revokeTokensByTenantCode(String tenantCode) {
+		if (tenantCode == null || tenantCode.isBlank()) {
+			return;
+		}
+		revokeMatching(TOKEN_PREFIX + "*", tenantCode);
+		revokeMatching(REFRESH_PREFIX + "*", tenantCode);
+	}
+
+	private void revokeMatching(String pattern, String tenantCode) {
+		List<String> keys = RedisScanSupport.scan(redisTemplate, pattern);
+		if (keys.isEmpty()) {
+			return;
+		}
+		List<String> doomed = new ArrayList<>();
+		for (String key : keys) {
+			String meta = redisTemplate.opsForValue().get(key);
+			if (meta == null) {
+				continue;
+			}
+			Map<String, String> data = readJson(meta);
+			if (tenantCode.equals(data.get("tenantId"))) {
+				doomed.add(key);
+			}
+		}
+		if (!doomed.isEmpty()) {
+			redisTemplate.delete(doomed);
+		}
 	}
 
 	/** 校验访问令牌，返回元数据（clientId + scope + tenantId）；无效返回 null */

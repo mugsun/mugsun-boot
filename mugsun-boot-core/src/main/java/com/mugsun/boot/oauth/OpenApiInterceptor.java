@@ -1,6 +1,8 @@
 package com.mugsun.boot.oauth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.boot.tenant.TenantValidator;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.api.ResultCode;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,7 +13,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
  * 开放接口守卫：校验 Bearer 令牌与 scope，放行/拒绝均留痕。
- * 无效令牌 401，scope 不足 403。
+ * 无效令牌 401，scope 不足 403；令牌租户已删/停用/过期也拒绝（401/403）。
  */
 public class OpenApiInterceptor implements HandlerInterceptor {
 
@@ -19,13 +21,15 @@ public class OpenApiInterceptor implements HandlerInterceptor {
 	private final OAuthLogService logService;
 	private final ObjectMapper objectMapper;
 	private final OpenApiSignService signService;
+	private final TenantValidator tenantValidator;
 
 	public OpenApiInterceptor(OAuthService oauthService, OAuthLogService logService, ObjectMapper objectMapper,
-							  OpenApiSignService signService) {
+							  OpenApiSignService signService, TenantValidator tenantValidator) {
 		this.oauthService = oauthService;
 		this.logService = logService;
 		this.objectMapper = objectMapper;
 		this.signService = signService;
+		this.tenantValidator = tenantValidator;
 	}
 
 	@Override
@@ -52,19 +56,28 @@ public class OpenApiInterceptor implements HandlerInterceptor {
 			logService.record(info.clientId(), path, required, 0, ip, "缺少授权范围：" + required);
 			return reject(response, HttpServletResponse.SC_FORBIDDEN, "缺少授权范围：" + required);
 		}
+		// 租户可用性：删除/停用/过期后存量令牌不得继续调 /open/**
+		String tenantId = info.tenantId();
+		if (tenantId != null && !tenantId.isBlank()) {
+			String reason = tenantValidator.validate(tenantId);
+			if (reason != null) {
+				int status = "租户不存在".equals(reason)
+					? HttpServletResponse.SC_UNAUTHORIZED
+					: HttpServletResponse.SC_FORBIDDEN;
+				logService.record(info.clientId(), path, required, 0, ip, reason);
+				return reject(response, status, reason);
+			}
+			// 令牌租户写入统一上下文，供 SaTokenTenantFactory 对开放接口按令牌租户隔离（防跨租户越权）。
+			TenantContext.set(tenantId);
+		}
 		logService.record(info.clientId(), path, required, 1, ip, "放行");
 		request.setAttribute("oauthClientId", info.clientId());
-		// 令牌租户写入统一上下文，供 SaTokenTenantFactory 对开放接口按令牌租户隔离（防跨租户越权）。
-		// 空租户不写入：留待 fail-closed，杜绝无租户令牌被当作忽略而全量越权。
-		if (info.tenantId() != null && !info.tenantId().isBlank()) {
-			com.mugsun.boot.tenant.TenantContext.set(info.tenantId());
-		}
 		return true;
 	}
 
 	@Override
 	public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
-		com.mugsun.boot.tenant.TenantContext.clear();
+		TenantContext.clear();
 	}
 
 	private String requiredScope(HandlerMethod method) {

@@ -165,6 +165,6 @@ public class SysTenantController {
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		TenantContext.requirePlatformSuperAdmin();
 		int count = tenantService.remove(ids);
-		return R.success("已删除 " + count + " 个租户。他们的部门、岗位、角色和用户也已清掉，列表里不会再出现");
+		return R.success("已删除 " + count + " 个租户。他们的部门、岗位、角色、用户、OAuth 客户端、API 密钥和 AI 密钥也已清掉，列表里不会再出现");
 	}
 }

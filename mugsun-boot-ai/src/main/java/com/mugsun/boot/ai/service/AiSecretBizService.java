@@ -6,6 +6,8 @@ import com.mugsun.boot.ai.AiModuleService;
 import com.mugsun.boot.ai.entity.AiSecret;
 import com.mugsun.boot.ai.mapper.AiSecretMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.boot.tenant.TenantValidator;
+import com.mugsun.core.tool.exception.ForbiddenException;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -21,10 +23,12 @@ public class AiSecretBizService {
 
 	private final AiModuleService moduleService;
 	private final AiSecretMapper mapper;
+	private final TenantValidator tenantValidator;
 
-	public AiSecretBizService(AiModuleService moduleService, AiSecretMapper mapper) {
+	public AiSecretBizService(AiModuleService moduleService, AiSecretMapper mapper, TenantValidator tenantValidator) {
 		this.moduleService = moduleService;
 		this.mapper = mapper;
+		this.tenantValidator = tenantValidator;
 	}
 
 	private static final java.util.Set<String> SCOPES = java.util.Set.of("tenant", "user", "app");
@@ -142,7 +146,7 @@ public class AiSecretBizService {
 		mapper.update(s);
 	}
 
-	/** OpenAPI 鉴权：按明文 Bearer sk- 匹配（SM4 解密后比较） */
+	/** OpenAPI 鉴权：按明文 Bearer sk- 匹配（SM4 解密后比较）；密钥所属租户须可用 */
 	public AiSecret authenticate(String bearerToken) {
 		moduleService.requireEnabled();
 		if (bearerToken == null || bearerToken.isBlank()) {
@@ -153,21 +157,34 @@ public class AiSecretBizService {
 			throw new ServiceException(AiConstants.MSG_OPENAPI_AUTH);
 		}
 		String prefix = token.substring(0, Math.min(8, token.length()));
-		List<AiSecret> candidates = mapper.selectListByQuery(
-			QueryWrapper.create().eq("secret_prefix", prefix).eq("status", AiConstants.STATUS_ENABLE));
+		// /v1 无登录态：跨租户按明文密钥查找须 ignore；命中后再校验租户可用性
+		List<AiSecret> candidates = TenantContext.ignore(() -> mapper.selectListByQuery(
+			QueryWrapper.create().eq("secret_prefix", prefix).eq("status", AiConstants.STATUS_ENABLE)));
 		for (AiSecret s : candidates) {
 			if (token.equals(s.getSecretKey())) {
 				if (s.getExpireTime() != null && s.getExpireTime().isBefore(LocalDateTime.now())) {
 					throw new ServiceException(AiConstants.MSG_OPENAPI_AUTH);
 				}
+				String reason = tenantValidator.validate(s.getTenantId());
+				if (reason != null) {
+					throw new ForbiddenException(reason);
+				}
 				s.setLastUsedTime(LocalDateTime.now());
 				s.setUsedCount((s.getUsedCount() == null ? 0 : s.getUsedCount()) + 1);
 				s.sanitizeForUpdate();
-				mapper.update(s);
+				TenantContext.ignore(() -> mapper.update(s));
 				return s;
 			}
 		}
 		throw new ServiceException(AiConstants.MSG_OPENAPI_AUTH);
+	}
+
+	/** 删租户级联：逻辑删除该租户全部 AI 密钥（调用方已 ignore + 同事务） */
+	public void removeByTenantCode(String tenantCode) {
+		if (tenantCode == null || tenantCode.isBlank()) {
+			return;
+		}
+		mapper.deleteByQuery(QueryWrapper.create().eq("tenant_id", tenantCode));
 	}
 
 	private void requireUniqueDescription(String description, Long excludeId) {
