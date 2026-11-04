@@ -8,7 +8,7 @@
 
 [文档](https://docs.mugsun.com/boot/) · [快速开始](https://docs.mugsun.com/guide/getting-started) · [安全清单](https://docs.mugsun.com/boot/security-checklist)
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0--SNAPSHOT-blue)
 ![JDK](https://img.shields.io/badge/JDK-21-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
@@ -17,11 +17,11 @@
 
 | 项 | 说明 |
 | --- | --- |
-| 坐标 | `com.mugsun:mugsun-boot:0.1.0` |
+| 坐标 | tip / 开发版 `com.mugsun:mugsun-boot:0.2.0-SNAPSHOT`（以根 `pom.xml` 为准） |
 | 运行时 | JDK 21；Maven 3.9+ |
 | 框架 | Spring Boot 3.5.13 |
 | 数据层 | PostgreSQL 16（PostGIS + pgvector）；Redis 7（默认库号 `3`） |
-| 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0`（已发布至 [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)） |
+| 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core) `0.2.0-SNAPSHOT`（Central 没有；须先平级 clone 并 `mvn install`） |
 | 许可 | [MIT](./LICENSE) |
 | 文档 | [docs.mugsun.com/boot](https://docs.mugsun.com/boot/) |
 
@@ -48,9 +48,10 @@ docker compose -f docker-compose.full.yml run --rm init show
 
 ## 本地开发
 
-前置：JDK 21、Maven 3.9+、Docker。`mugsun-core` 0.1.0 已发布至 Maven Central，构建时由 Maven 自动解析，无需平级 clone。
+前置：JDK 21、Maven 3.9+、Docker。当前 tip 依赖 `mugsun-core` `0.2.0-SNAPSHOT`，Maven Central 上没有，本地开发须先平级安装 core：
 
 ```bash
+cd ../mugsun-core && mvn -B clean install -DskipTests && cd -
 docker compose up -d
 ./mvnw -pl mugsun-boot-server -am package -DskipTests
 java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
@@ -61,9 +62,9 @@ java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 
 `config/application-local.yml` 为可选覆盖（`optional:file:./config/application-local.yml`，已列入 `.gitignore`）；需要时再参考 `config/application-local.yml.example` 自行创建，example 无必填项。须在仓库根目录执行 `java -jar`，否则读不到该文件。也可：`./mvnw -pl mugsun-boot-server -am spring-boot:run`。
 
-> **请始终在仓库根目录、带 `-am` 构建**（或用 `./mvnw clean package -DskipTests` 构建整个工程）。只构建 server 模块（`-pl mugsun-boot-server` 不带 `-am`、在 `mugsun-boot-server` 目录里执行 `./mvnw package` 或系统 `mvn package`，或 IDE 只构建该模块）时，`mugsun-boot-core` 会从本地 Maven 仓库 `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/` 取。所有分支和工作区共用这一个 0.1.0 版本，里面是最后一次 `./mvnw install` 的那个分支，打出的 jar 会带上别的分支的旧代码（例如旧的验证码返回结构），这跟加不加 `clean` 无关。拿不准时先在根目录执行一次 `./mvnw -B install -DskipTests`。
+> **请始终在仓库根目录、带 `-am` 构建**（或用 `./mvnw clean package -DskipTests` 构建整个工程）。只构建 server 模块（`-pl mugsun-boot-server` 不带 `-am`、在 `mugsun-boot-server` 目录里执行 `./mvnw package` 或系统 `mvn package`，或 IDE 只构建该模块）时，`mugsun-boot-core` 会从本地 Maven 仓库里该版本的 jar 取（当前 tip 为 `0.2.0-SNAPSHOT`）。所有分支和工作区共用该坐标下最后一次 `./mvnw install` 的产物，打出的 jar 会带上别的分支的旧代码（例如旧的验证码返回结构），这跟加不加 `clean` 无关。拿不准时先在根目录执行一次 `./mvnw -B install -DskipTests`。
 
-**本地 install（离线或未同步 Central 时的回退）：** 平级克隆 [mugsun-core](https://github.com/mugsun/mugsun-core) 后，在 core 仓库用本机 Maven 执行 `cd ../mugsun-core && mvn clean install -DskipTests`（core 无 Maven Wrapper），再返回本仓库用 `./mvnw` 构建。
+**本地 install core（默认前置步骤）：** 平级克隆 [mugsun-core](https://github.com/mugsun/mugsun-core) 后，在 core 仓库用本机 Maven 执行 `cd ../mugsun-core && mvn -B clean install -DskipTests`（core 无 Maven Wrapper），再返回本仓库用 `./mvnw` 构建。Docker Compose full 一键试用仍可不经本机 Maven 安装 core。
 
 健康检查：http://localhost:8080/ping
 
@@ -180,7 +181,7 @@ Maven Profile：
 
 | 仓库 | 与本仓库的关系 |
 | --- | --- |
-| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM 与 starter；默认经 Maven Central 引入，本地 install 仅作离线/开发回退 |
+| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM 与 starter；当前 tip 依赖 `0.2.0-SNAPSHOT`，本地须先 `mvn install` |
 | [mugsun-pc](https://github.com/mugsun/mugsun-pc) | 管理端；CORS / OAuth 回跳默认 `MUGSUN_FRONT_URL=http://localhost:3006` |
 | [mugsun-track](https://github.com/mugsun/mugsun-track) | 浏览器 SDK；由本仓库 track 模块接收采集流量 |
 | cloud / uniappx-ui | 规划或商业意向，非本仓库已开源依赖 |

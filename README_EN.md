@@ -8,7 +8,7 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 
 [Documentation](https://docs.mugsun.com/en/boot/) · [Getting started](https://docs.mugsun.com/en/guide/getting-started) · [Security checklist](https://docs.mugsun.com/en/boot/security-checklist)
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0--SNAPSHOT-blue)
 ![JDK](https://img.shields.io/badge/JDK-21-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
@@ -17,11 +17,11 @@ This repository is the mugsun mid-office monolithic backend. Infrastructure is p
 
 | Item | Detail |
 | --- | --- |
-| Coordinates | `com.mugsun:mugsun-boot:0.1.0` |
+| Coordinates | tip / development `com.mugsun:mugsun-boot:0.2.0-SNAPSHOT` (see root `pom.xml`) |
 | Runtime | JDK 21; Maven 3.9+ |
 | Framework | Spring Boot 3.5.13 |
 | Data stores | PostgreSQL 16 (PostGIS + pgvector); Redis 7 (default database index `3`) |
-| Dependency | [mugsun-core](https://github.com/mugsun/mugsun-core) `com.mugsun:mugsun-*:0.1.0` (published to [Maven Central](https://repo1.maven.org/maven2/com/mugsun/)) |
+| Dependency | [mugsun-core](https://github.com/mugsun/mugsun-core) `0.2.0-SNAPSHOT` (not on Central; sibling clone and `mvn install` required first) |
 | License | [MIT](./LICENSE) |
 | Docs | [docs.mugsun.com/en/boot](https://docs.mugsun.com/en/boot/) |
 
@@ -48,9 +48,10 @@ You can also check `docker compose -f docker-compose.full.yml logs ready` for th
 
 ## Local development
 
-Prerequisites: JDK 21, Maven 3.9+, Docker. `mugsun-core` 0.1.0 is on Maven Central and is resolved automatically; a sibling clone is not required.
+Prerequisites: JDK 21, Maven 3.9+, Docker. The tip depends on `mugsun-core` `0.2.0-SNAPSHOT`, which is not on Maven Central. For local Maven development, install core as a sibling first:
 
 ```bash
+cd ../mugsun-core && mvn -B clean install -DskipTests && cd -
 docker compose up -d
 ./mvnw -pl mugsun-boot-server -am package -DskipTests
 java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
@@ -61,9 +62,9 @@ This repository ships a Maven Wrapper (`./mvnw`, Maven 3.9.16); a system Maven 3
 
 `config/application-local.yml` is an optional override (`optional:file:./config/application-local.yml`, gitignored). Create it from `config/application-local.yml.example` only when you need overrides; the example has no required fields. Run `java -jar` from the repository root, otherwise that file is not picked up. You can also run `./mvnw -pl mugsun-boot-server -am spring-boot:run`.
 
-> **Always build from the repository root with `-am`** (or build the whole project with `./mvnw clean package -DskipTests`). If you build only the server module (`-pl mugsun-boot-server` without `-am`, `./mvnw package` (or system `mvn package`) inside `mugsun-boot-server`, or an IDE building just that module), `mugsun-boot-core` comes from the local Maven repository at `~/.m2/repository/com/mugsun/mugsun-boot-core/0.1.0/`. Every branch and worktree shares that one 0.1.0 version, which holds whichever branch ran `./mvnw install` last, so the jar can carry another branch's old code (such as an old captcha response shape) whether or not you add `clean`. When in doubt, run `./mvnw -B install -DskipTests` from the root first.
+> **Always build from the repository root with `-am`** (or build the whole project with `./mvnw clean package -DskipTests`). If you build only the server module (`-pl mugsun-boot-server` without `-am`, `./mvnw package` (or system `mvn package`) inside `mugsun-boot-server`, or an IDE building just that module), `mugsun-boot-core` comes from the jar for that version in the local Maven repository (the tip is currently `0.2.0-SNAPSHOT`). Every branch and worktree shares whichever artifact last ran `./mvnw install` under that coordinate, so the jar can carry another branch's old code (such as an old captcha response shape) whether or not you add `clean`. When in doubt, run `./mvnw -B install -DskipTests` from the root first.
 
-**Local install (offline or when Central has not synced):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, then in that repo run `cd ../mugsun-core && mvn clean install -DskipTests` with a system Maven 3.9+ (core has no Maven Wrapper), and return here to build with `./mvnw`.
+**Local install of core (default prerequisite):** clone [mugsun-core](https://github.com/mugsun/mugsun-core) as a sibling, then in that repo run `cd ../mugsun-core && mvn -B clean install -DskipTests` with a system Maven 3.9+ (core has no Maven Wrapper), and return here to build with `./mvnw`. The Docker Compose full one-shot still does not require a local Maven install of core.
 
 Health check: http://localhost:8080/ping
 
@@ -180,7 +181,7 @@ Open-source line: `boot` · `core` · `pc` · `track` · [mugsun-docs](https://g
 
 | Repository | Relationship |
 | --- | --- |
-| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM and starters; pulled from Maven Central by default; local install is an offline / development fallback |
+| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM and starters; tip depends on `0.2.0-SNAPSHOT` and requires a local `mvn install` first |
 | [mugsun-pc](https://github.com/mugsun/mugsun-pc) | Admin UI; CORS / OAuth redirect default `MUGSUN_FRONT_URL=http://localhost:3006` |
 | [mugsun-track](https://github.com/mugsun/mugsun-track) | Browser SDK; ingest handled by this repository’s track module |
 | cloud / uniappx-ui | Planned or commercial intent; not open-source dependencies of this repository |
