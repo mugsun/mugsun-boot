@@ -28,8 +28,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@link GisGeodesic} 按要素局部做方位等距投影后在平面上算，距离再用 GeographicLib 在 WGS84 椭球上反算；与 PostGIS
  * geography 对照：缓冲外环顶点距离实测相差 −0.18%～+0.002%（0°–72°、500 m–200 km），88°–89.6° 为 ±0.05%。半径 / 最近邻先按经纬度包络预筛（只多收不漏，越过 ±180° 时拆成两个框），再精算。
  *
- * <p>Java 侧逐要素处理：极区照常计算（极点为原点的投影）。跨 180° 经线的要素按 RFC 7946 逐部件展开后照常计算，
- * 缓冲结果越过 180° 时切成 MultiPolygon；缓冲包住极点、或单个部件宽于 180° 算不出时跳过。跳过数写进响应 {@code skipped}，
+ * <p>Java 侧逐要素处理：极区照常计算（极点为原点的投影）；包极点面（累计经度 ±360°）面积 / 缓冲 / 距离走极点 AEQD 与 PolygonArea。
+ * 跨 180° 经线的要素按 RFC 7946 逐部件展开后照常计算，缓冲结果越过 180° 时切成 MultiPolygon；
+ * 非包极点的缓冲包住极点、或单个部件宽于 180° 算不出时跳过。跳过数写进响应 {@code skipped}，
  * 并按「操作 + 图层」限频记 WARN。
  */
 @Service
@@ -232,26 +233,47 @@ public class GisSpatialQueryService {
 		}
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
-			// 横跨全经度、平移后仍宽于 180° 的面（极冠这类包住极点的面）在 geography 里被理解成另一块区域，
-			// ST_Buffer 会悄悄丢掉极冠（mugsun-boot#63）。这类要素不缓冲，计入 skipped，与 Java 路径口径一致
-			String select = "SELECT CASE WHEN " + AMBIGUOUS + " THEN NULL"
-				+ " ELSE ST_AsGeoJSON(ST_Buffer(geom::geography, ?)::geometry) END AS geom, props_json, id"
+			// geography ST_Buffer 对极冠会悄悄丢掉极点一侧（mugsun-boot#63，PostGIS FAQ：大圆短边/半地球限制）。
+			// 走向无法确定的面改取原几何，在 JVM 里用极点 AEQD 缓冲；其余仍下沉 ST_Buffer
+			String select = "SELECT ST_AsGeoJSON(geom) AS raw,"
+				+ " CASE WHEN " + AMBIGUOUS + " THEN NULL"
+				+ " ELSE ST_AsGeoJSON(ST_Buffer(geom::geography, ?)::geometry) END AS geom,"
+				+ " props_json, id"
 				+ " FROM gis_feature WHERE layer_id = ? AND is_deleted = 0 LIMIT ?";
 			List<Map<String, Object>> feats = new ArrayList<>();
 			Skips sqlSkips = new Skips();
 			support.jdbc().query(select, rs -> {
 				String geomJson = rs.getString("geom");
-				if (geomJson == null) {
-					sqlSkips.add(Map.of("id", rs.getString("id")));
-					return;
-				}
 				Map<String, Object> props = readProps(rs.getString("props_json"));
 				props.put("bufferMeters", meters);
 				Map<String, Object> feat = new LinkedHashMap<>();
 				feat.put("type", "Feature");
-				feat.put("geometry", readJson(geomJson));
 				feat.put("properties", props);
-				feats.add(feat);
+				if (geomJson != null) {
+					feat.put("geometry", readJson(geomJson));
+					feats.add(feat);
+					return;
+				}
+				// 极冠：Java 极点 AEQD 缓冲
+				String rawJson = rs.getString("raw");
+				if (rawJson == null) {
+					sqlSkips.add(Map.of("id", rs.getString("id")));
+					return;
+				}
+				try {
+					@SuppressWarnings("unchecked")
+					Map<String, Object> rawMap = (Map<String, Object>) readJson(rawJson);
+					Geometry raw = codec.fromGeometry(rawMap);
+					Geometry buf = GisGeodesic.tryBuffer(raw, meters);
+					if (buf == null || buf.isEmpty()) {
+						sqlSkips.add(Map.of("id", rs.getString("id")));
+						return;
+					}
+					feat.put("geometry", codec.toGeometry(buf));
+					feats.add(feat);
+				} catch (RuntimeException ex) {
+					sqlSkips.add(Map.of("id", rs.getString("id")));
+				}
 			}, meters, layer.getId(), cap);
 			return sqlSkips.finish(collection(feats, GisConstants.ENGINE_POSTGIS, cap), "buffer", layer);
 		}
@@ -332,8 +354,8 @@ public class GisSpatialQueryService {
 	// ==================== 下沉数据库 ====================
 
 	/**
-	 * 平面包络宽于 180°、负经度加 360（{@code ST_ShiftLongitude}）后仍宽于 180° 的要素：经度走向无法确定
-	 * （典型是在 ±180 切开、带极点边的极冠）。与 Java 侧 {@code GisGeodesic.unwrapPart} 抛异常的条件一致。
+	 * 平面包络宽于 180°、负经度加 360（{@code ST_ShiftLongitude}）后仍宽于 180° 的要素：
+	 * 典型是 RFC 极地切口的极冠。geography {@code ST_Buffer} 会丢极冠，缓冲改走 Java 极点 AEQD。
 	 */
 	static final String AMBIGUOUS = "(ST_XMax(geom) - ST_XMin(geom) > 180"
 		+ " AND ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) > 180)";

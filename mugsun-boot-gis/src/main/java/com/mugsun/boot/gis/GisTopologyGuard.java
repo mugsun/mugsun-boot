@@ -70,8 +70,17 @@ public class GisTopologyGuard {
 		}
 		requireNonDegenerate(geom, no);
 
+		// 包极点环在经纬度平面上常被判自相交（绕极一圈、不含极点顶点），
+		// 先按 RFC 7946 极地切口改写再做 OGC 有效性（GeographicLib / PostGIS geography 面积同口径）
+		boolean polarRewritten = false;
+		if (GisGeodesic.enclosedPole(geom) != 0 && !hasPoleVertex(geom)) {
+			geom = GisGeodesic.toRfcPolar(geom);
+			polarRewritten = true;
+			warnings.add(String.format(GisConstants.WARN_TOPO_POLAR_RFC, no));
+		}
+
 		Geometry fixed = fixIfInvalid(geom, no, warnings);
-		if (fixed == null && !closed) {
+		if (fixed == null && !closed && !polarRewritten) {
 			return feature;
 		}
 		Map<String, Object> out = new LinkedHashMap<>(feature);
@@ -222,6 +231,16 @@ public class GisTopologyGuard {
 		}
 		warnings.add(String.format(GisConstants.WARN_TOPO_SELF_INTERSECT, no));
 		return fixed;
+	}
+
+
+	private static boolean hasPoleVertex(Geometry geom) {
+		for (var c : geom.getCoordinates()) {
+			if (Math.abs(c.y) >= 90d - GisGeodesic.POLE_LAT_EPS) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static String trim(double v) {

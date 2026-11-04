@@ -20,8 +20,8 @@ import java.util.Map;
  *
  * <p>当请求带 {@code layerId} 且库里有 PostGIS 时，缓冲 / 包含会转交
  * {@link GisSpatialQueryService} 下沉数据库（响应带 {@code engine}），避免把整层
- * {@code data_json} 拉进 JVM 再算一遍（没有 PostGIS 时转交后走图层查询的 Java 分支，极区 / 跨 180° 的要素被跳过）。
- * 请求带 {@code engine=java} 时不转交，整份入参在内存里用 JTS 分析；入参里有极区 / 跨 180° 的几何会报错。
+ * {@code data_json} 拉进 JVM 再算一遍（没有 PostGIS 时转交后走图层查询的 Java 分支；算不出的要素计入 skipped）。
+ * 请求带 {@code engine=java} 时不转交，整份入参在内存里用 JTS 分析；入参里有非包极点却宽于 180°、或缓冲新包住极点时会报错；包极点面可算。
  */
 @Service
 public class GisAnalyzeService {

@@ -151,6 +151,7 @@ public final class GisConstants {
 	/** 修复类问题不拒收，但要如实回报，不能悄悄改用户的数据 */
 	public static final String WARN_TOPO_RING_CLOSED = "第 %d 个要素的环未闭合，已自动闭合";
 	public static final String WARN_TOPO_SELF_INTERSECT = "第 %d 个要素自相交，已按 OGC 有效性规则修复";
+	public static final String WARN_TOPO_POLAR_RFC = "第 %d 个要素包住极点，已按 RFC 7946 极地切口改写（±180° 接到极点）";
 
 	public static String searchNoKey(String provider) {
 		if (PROVIDER_AMAP.equals(provider)) {
