@@ -20,7 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 高频空间查询：视野范围（bbox）、半径内、与某几何相交、包含、最近邻、缓冲。
  *
- * <p>有 PostGIS 时全部下沉数据库，靠 {@code idx_gis_feature_geom}（GiST）过滤，只把命中要素回给前端；
+ * <p>有 PostGIS 时全部下沉数据库，靠 {@code idx_gis_feature_geom}（GiST）与跨 180° 部分索引
+ * {@code idx_gis_feature_wrap}（{@code ST_ShiftLongitude(geom)}，#76）过滤，只把命中要素回给前端；
  * 没有时回落读整层 {@code data_json} 在 Java 侧算——米制结果与 PostGIS 的差异见下文，但要素多了就慢，响应里的
  * {@code engine} 字段会如实标明走了哪条路。
  *
@@ -100,20 +101,34 @@ public class GisSpatialQueryService {
 		}
 		int cap = clampLimit(limit);
 		if (ready(layer, forceJava)) {
-			// 先用包围盒收窄（走 GiST 索引），再用 geography 精确判距；只有后者是准的，前者只为提速
-			// 预筛框越过 ±180° 时拆成多个框；库里存的跨 180° 要素（平面包络横跨全球）另按纬度带收进来，精判交给 geography
+			// 先用包围盒收窄（走 GiST），再用 geography 精确判距；只有后者是准的，前者只为提速。
+			// 预筛框越过 ±180° 时拆成多个框。跨 180° 行（wraps_antimeridian）走 ShiftLongitude 部分索引（#76），
+			// 非跨行显式排除，避免世界宽包络误进普通 GiST 支。
 			List<Envelope> pre = GisGeodesic.looseEnvelopes(lon, lat, meters);
-			StringBuilder where = new StringBuilder(" AND (");
+			StringBuilder where = new StringBuilder(" AND ((");
 			List<Object> args = new ArrayList<>();
-			for (Envelope e : pre) {
-				where.append("geom && ST_MakeEnvelope(?, ?, ?, ?, 4326) OR ");
+			where.append("NOT wraps_antimeridian AND (");
+			for (int i = 0; i < pre.size(); i++) {
+				if (i > 0) {
+					where.append(" OR ");
+				}
+				Envelope e = pre.get(i);
+				where.append("geom && ST_MakeEnvelope(?, ?, ?, ?, 4326)");
 				args.addAll(List.of(e.getMinX(), e.getMinY(), e.getMaxX(), e.getMaxY()));
 			}
-			double minY = pre.stream().mapToDouble(Envelope::getMinY).min().orElse(-90d);
-			double maxY = pre.stream().mapToDouble(Envelope::getMaxY).max().orElse(90d);
-			where.append("(geom && ST_MakeEnvelope(-180, ?, 180, ?, 4326)").append(WIDE).append("))")
-				.append(" AND ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)");
-			args.addAll(List.of(minY, maxY, lon, lat, meters));
+			where.append(") OR (wraps_antimeridian AND (");
+			for (int i = 0; i < pre.size(); i++) {
+				if (i > 0) {
+					where.append(" OR ");
+				}
+				Envelope e = pre.get(i);
+				where.append("ST_ShiftLongitude(geom) && ST_MakeEnvelope(?, ?, ?, ?, 4326)")
+					.append(" OR ST_ShiftLongitude(geom) && ST_MakeEnvelope(?, ?, ?, ?, 4326)");
+				args.addAll(List.of(e.getMinX(), e.getMinY(), e.getMaxX(), e.getMaxY(),
+					e.getMinX() + 360d, e.getMinY(), e.getMaxX() + 360d, e.getMaxY()));
+			}
+			where.append(")))) AND ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)");
+			args.addAll(List.of(lon, lat, meters));
 			return sql(layer, where.toString(), args.toArray(),
 				"ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(" + lon + ", " + lat + "), 4326)::geography)",
 				cap);
@@ -167,9 +182,9 @@ public class GisSpatialQueryService {
 			String mirror = "ST_SetSRID(ST_MakePoint(" + (lon > 0 ? lon - 360d : lon + 360d) + ", " + lat + "), 4326)";
 			String scope = "FROM gis_feature WHERE layer_id = ? AND is_deleted = 0";
 			String where = " AND id IN ("
-				+ "SELECT id FROM (SELECT id " + scope + " ORDER BY geom <-> " + point + " LIMIT ?) k1"
-				+ " UNION SELECT id FROM (SELECT id " + scope + " ORDER BY geom <-> " + mirror + " LIMIT ?) k2"
-				+ " UNION SELECT id " + scope + " AND geom && ST_MakeEnvelope(-180, -90, 180, 90, 4326)" + WIDE + ")";
+				+ "SELECT id FROM (SELECT id " + scope + " AND NOT wraps_antimeridian ORDER BY geom <-> " + point + " LIMIT ?) k1"
+				+ " UNION SELECT id FROM (SELECT id " + scope + " AND NOT wraps_antimeridian ORDER BY geom <-> " + mirror + " LIMIT ?) k2"
+				+ " UNION SELECT id " + scope + WIDE + ")";
 			return sql(layer, where,
 				new Object[] { layer.getId(), candidates, layer.getId(), candidates, layer.getId() },
 				"ST_Distance(geom::geography, " + point + "::geography)",
@@ -366,18 +381,18 @@ public class GisSpatialQueryService {
 	}
 
 	/**
-	 * 库里存的跨 180° 要素：平面包络宽于 180°、负经度加 360（{@code ST_ShiftLongitude}）后不再宽于 180°。
+	 * 库里存的跨 180° 要素（{@code gis_feature.wraps_antimeridian}，#76 生成列，判定同 #73）：
+	 * 平面包络宽于 180°、负经度加 360（{@code ST_ShiftLongitude}）后不再宽于 180°。
 	 * 与 Java 侧 {@link GisAntimeridian#wraps} 同一判定（GeoTools WrappingProjectionHandler 的「半个地球」启发式），
 	 * 极冠这类本来就横跨全经度的面平移后仍宽于 180°，不算。
 	 */
-	static final String WIDE = " AND ST_XMax(geom) - ST_XMin(geom) > 180"
-		+ " AND ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) <= 180";
+	static final String WIDE = " AND wraps_antimeridian";
 
 	/**
-	 * 与查询几何 G 做谓词判断，兼顾库里存的跨 180° 要素（mugsun-boot#64）：
-	 * 普通要素照旧 {@code geom && G AND pred(geom, G)}；跨 180° 要素换到 [0, 360) 经度
-	 * （{@code ST_ShiftLongitude}），与 G 及 G 平移 +360 分别判断。两支都先过 GiST 可用的 {@code &&}：
-	 * 跨 180° 要素的平面包络横跨全经度，用 G 的纬度带框收。
+	 * 与查询几何 G 做谓词判断，兼顾库里存的跨 180° 要素（mugsun-boot#64 / #76）：
+	 * 普通要素 {@code geom && G AND pred(geom, G) AND NOT wraps_antimeridian}；
+	 * 跨 180° 要素换到 [0, 360)（{@code ST_ShiftLongitude}），与 G 及 G+360 分别 {@code &&} / pred，
+	 * 走部分索引 {@code idx_gis_feature_wrap}。
 	 */
 	private Map<String, Object> sqlWrapAware(GisLayer layer, String pred, String g, Object[] gArgs, int limit) {
 		List<Object> args = new ArrayList<>();
@@ -391,10 +406,10 @@ public class GisSpatialQueryService {
 	static final int WRAP_AWARE_G_COUNT = 6;
 
 	static String wrapAwareWhere(String pred, String g) {
-		return " AND ((geom && " + g + " AND " + pred + "(geom, " + g + ")"
-			+ " AND NOT (ST_XMax(geom) - ST_XMin(geom) > 180"
-			+ " AND ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) <= 180))"
-			+ " OR (geom && ST_MakeEnvelope(-180, ST_YMin(" + g + "), 180, ST_YMax(" + g + "), 4326)" + WIDE
+		return " AND ((geom && " + g + " AND " + pred + "(geom, " + g + ") AND NOT wraps_antimeridian)"
+			+ " OR (wraps_antimeridian"
+			+ " AND (ST_ShiftLongitude(geom) && " + g
+			+ " OR ST_ShiftLongitude(geom) && ST_Translate(" + g + ", 360, 0))"
 			+ " AND (" + pred + "(ST_ShiftLongitude(geom), " + g + ")"
 			+ " OR " + pred + "(ST_ShiftLongitude(geom), ST_Translate(" + g + ", 360, 0)))))";
 	}
