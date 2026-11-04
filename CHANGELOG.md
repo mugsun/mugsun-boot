@@ -14,6 +14,10 @@
 
 ### 安全
 
+- ActuatorAuthFilter 按 UrlPathHelper 归一后再鉴权（#94）
+  - 查找路径解码、去分号、剥 context-path，并跟随容器 servletPath
+  - 段感知匹配 /actuator；health/info 仍公开；防路径变体漏拦
+
 - TraceIdFilter 客户端 X-Trace-Id 白名单（#98）
   - 仅接受 `[A-Za-z0-9-]{1,64}`；换行/控制字符/非 ASCII/超长丢弃重生
   - 防任意字符写入 MDC 与响应头造成日志注入；合法 id 仍原样沿用
