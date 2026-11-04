@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * G90 集成测试探针端点（仅测试源集）：受检异常触发全局兜底 500、可控耗时造慢接口。
- * 无任何鉴权注解（公共端点），不标注任何 Swagger/OperationLog 注解——访问日志标题回退链须容忍缺失退化为 uri。
+ * 不进 LoginPublicPaths；调用须带登录（测里传 token）。无 Swagger/OperationLog 注解——访问日志标题回退链须容忍缺失退化为 uri。
  */
 @RestController
 @RequestMapping("/it/monitor")

@@ -19,6 +19,7 @@
   - 覆盖登录/验证码/头像 raw/actuator health·info/open/v1/track/file/oauth2 等现网公开口
   - LoginEntryGuardApiTest 枚举 HandlerMapping，匿名非 401/403 且不在白名单即失败
   - 仅拦 HandlerMethod；未映射仍 404；/file 仍走 LocalFileAccessFilter
+  - MonitorApiTest 慢接口探针改带 adminToken（测源不进公开白名单）
 
 - ActuatorAuthFilter 按 UrlPathHelper 归一后再鉴权（#94）
   - 查找路径解码、去分号、剥 context-path，并跟随容器 servletPath

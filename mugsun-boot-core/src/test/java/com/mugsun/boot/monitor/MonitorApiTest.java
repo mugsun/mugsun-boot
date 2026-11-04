@@ -168,7 +168,7 @@ class MonitorApiTest extends AbstractIntegrationTest {
 			assertThat(apiRows(sampledOut)).as("采样率 0 时 GET 不应产生访问日志").isEmpty();
 
 			// 慢接口：耗时 300ms 远超阈值 50ms，必记且 slow=1（不受采样影响）
-			ResponseEntity<String> slow = get("/it/monitor/sleep?ms=300", null);
+			ResponseEntity<String> slow = get("/it/monitor/sleep?ms=300", adminToken);
 			assertThat(slow.getStatusCode().value()).isEqualTo(200);
 			String slowTrace = slow.getHeaders().getFirst(MonitorConstants.TRACE_HEADER);
 			await(() -> !apiRows(slowTrace).isEmpty(), "慢接口访问日志落库");
