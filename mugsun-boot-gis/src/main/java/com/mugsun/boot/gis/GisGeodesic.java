@@ -14,8 +14,8 @@ import org.locationtech.jts.geom.CoordinateSequenceFilter;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.util.GeometryTransformer;
 import org.locationtech.jts.geom.util.LinearComponentExtracter;
@@ -54,6 +54,7 @@ import java.util.List;
  * 缓冲结果越过 180° 时在 180° 处切开成 MultiPolygon（{@link #cutAntimeridian}）。
  * 包极点面（沿环累计经度变化 ≈ ±360°，与 GeographicLib PolygonArea 的经度跨越计数同思路）：
  * 面积直接喂原环给 {@code PolygonArea}；缓冲 / 距离改用极点原点 AEQD，结果按 RFC 极地切口写出。
+ * 入库规范化（{@link #toRfcPolar}）只补 ±180°↔极点边，保留原边界纬度；等纬近似仅用于缓冲结果。
  * 空几何：距离为 +∞，缓冲为空几何，面积 / 长度为 0。
  */
 public final class GisGeodesic {
@@ -75,11 +76,27 @@ public final class GisGeodesic {
 
 	/**
 	 * WGS84 几何按地面米缓冲，返回 WGS84 几何；空几何返回空面。
-	 * 缓冲结果包住极点，或要素 / 结果跨越 180° 经线时抛 {@link ServiceException}。
+	 * 输入已是包极点面时走极点原点 AEQD，成功返回 RFC 极地切口；
+	 * 非包极点输入的缓冲结果若包住极点，或单个部件走向无法确定时抛 {@link ServiceException}；
+	 * 结果跨越 180° 经线则按 RFC 切开成 MultiPolygon。
 	 */
 	public static Geometry buffer(Geometry wgs, double meters) {
 		if (wgs == null || wgs.isEmpty()) {
 			return FACTORY.createPolygon();
+		}
+		// MultiPolygon：逐部件缓冲（包极点部件走极点 AEQD，其余走常規路径）
+		if (wgs.getNumGeometries() > 1) {
+			List<Geometry> parts = new ArrayList<>();
+			for (int i = 0; i < wgs.getNumGeometries(); i++) {
+				Geometry b = buffer(wgs.getGeometryN(i), meters);
+				if (b != null && !b.isEmpty()) {
+					parts.add(b);
+				}
+			}
+			if (parts.isEmpty()) {
+				return FACTORY.createPolygon();
+			}
+			return parts.size() == 1 ? parts.get(0) : FACTORY.buildGeometry(parts);
 		}
 		int pole = enclosedPole(wgs);
 		if (pole != 0) {
@@ -106,7 +123,7 @@ public final class GisGeodesic {
 		return cutAntimeridian(out);
 	}
 
-	/** 图层查询用的缓冲：结果包住极点或要素无法确定走向（单个部件宽于 180°）时返回 null，调用方跳过；其余同 {@link #buffer} */
+	/** 图层查询用的缓冲：与 {@link #buffer} 相同，失败（非包极点结果包住极点、走向无法确定）时返回 null，调用方跳过；包极点面可成功 */
 	public static Geometry tryBuffer(Geometry wgs, double meters) {
 		try {
 			return buffer(wgs, meters);
@@ -119,6 +136,13 @@ public final class GisGeodesic {
 	public static double distance(Geometry wgs, double lon, double lat) {
 		if (wgs == null || wgs.isEmpty()) {
 			return Double.POSITIVE_INFINITY;
+		}
+		if (wgs.getNumGeometries() > 1) {
+			double min = Double.POSITIVE_INFINITY;
+			for (int i = 0; i < wgs.getNumGeometries(); i++) {
+				min = Math.min(min, distance(wgs.getGeometryN(i), lon, lat));
+			}
+			return min;
 		}
 		int pole = enclosedPole(wgs);
 		if (pole != 0) {
@@ -571,7 +595,10 @@ public final class GisGeodesic {
 		return 0;
 	}
 
-	/** 包极点面改写成 RFC 7946 极地切口（±180 经线接到极点），便于平面拓扑与入库 */
+	/**
+	 * 包极点面改写成 RFC 7946 极地切口（±180 经线接到极点），便于平面拓扑与入库。
+	 * 只补 ±180°↔极点边，保留原边界顶点纬度与洞；等纬近似留给 {@link #bufferPolar}。
+	 */
 	static Geometry toRfcPolar(Geometry wgs) {
 		int pole = enclosedPole(wgs);
 		if (pole == 0) {
@@ -583,7 +610,11 @@ public final class GisGeodesic {
 			if (!(wgs.getGeometryN(i) instanceof Polygon poly) || poly.isEmpty()) {
 				continue;
 			}
-			parts.add(rfcCapFromRing(poly.getExteriorRing().getCoordinates(), north));
+			if (enclosedPole(poly) == 0) {
+				parts.add(poly.copy());
+				continue;
+			}
+			parts.add(rfcPolarCut(poly, north));
 		}
 		if (parts.isEmpty()) {
 			return wgs;
@@ -591,32 +622,181 @@ public final class GisGeodesic {
 		return parts.size() == 1 ? parts.get(0) : FACTORY.buildGeometry(parts);
 	}
 
-	/** 由外环采样生成 RFC 极冠：非极点顶点投影到 [-180,180]，接到 ±90° 极点边 */
-	private static Geometry rfcCapFromRing(Coordinate[] ring, boolean north) {
-		double edgeLat = north ? 90d : -90d;
-		List<Coordinate> samples = new ArrayList<>();
-		for (int i = 0; i < ring.length - 1; i++) {
-			Coordinate c = ring[i];
-			if (Math.abs(c.y) >= 90d - POLE_LAT_EPS) {
-				continue;
-			}
-			double lon = c.x - Math.rint(c.x / 360d) * 360d;
-			if (lon < -180d) {
-				lon += 360d;
-			}
-			if (lon > 180d) {
-				lon -= 360d;
-			}
-			samples.add(new Coordinate(lon, c.y));
-			if (north) {
-				edgeLat = Math.min(edgeLat, c.y);
+	/** 外环插入极地切口；洞若自身绕极同样切口，否则原样保留 */
+	private static Geometry rfcPolarCut(Polygon poly, boolean north) {
+		LinearRing shell = FACTORY.createLinearRing(
+			insertPolarCut(poly.getExteriorRing().getCoordinates(), north));
+		int nHoles = poly.getNumInteriorRing();
+		LinearRing[] holes = new LinearRing[nHoles];
+		for (int h = 0; h < nHoles; h++) {
+			Coordinate[] hr = poly.getInteriorRingN(h).getCoordinates();
+			double turns = Math.abs(longitudeWind(hr)) / 360d;
+			if (Math.rint(turns) >= 1d && Math.abs(turns - Math.rint(turns)) <= POLE_WIND_TOL / 360d) {
+				holes[h] = FACTORY.createLinearRing(insertPolarCut(hr, north));
 			} else {
-				edgeLat = Math.max(edgeLat, c.y);
+				holes[h] = FACTORY.createLinearRing(normalizeRingLons(hr));
 			}
 		}
-		return buildRfcCap(edgeLat, north, samples);
+		return FACTORY.createPolygon(shell, holes);
 	}
 
+	/**
+	 * 绕极环 → RFC：经度展开后在跨越 ±180° 处插入
+	 * {@code (seam,lat) → (seam,±90) → (−seam,±90) → (−seam,lat)}，顶点纬度不变。
+	 * 已含极点顶点的环只做经度归一。
+	 */
+	private static Coordinate[] insertPolarCut(Coordinate[] ring, boolean north) {
+		List<Coordinate> open = openRing(ring);
+		if (open.size() < 3) {
+			return ring;
+		}
+		if (ringHasPoleVertex(open)) {
+			return closeRing(normalizeRingLons(open.toArray(new Coordinate[0])));
+		}
+		List<Coordinate> u = unwrapRingLons(open);
+		double poleLat = north ? 90d : -90d;
+		List<Coordinate> out = new ArrayList<>();
+		boolean cut = false;
+		for (int i = 0; i < u.size(); i++) {
+			Coordinate a = u.get(i);
+			Coordinate b = u.get((i + 1) % u.size());
+			double na = normalizeLon180(a.x);
+			double nb = normalizeLon180(b.x);
+			out.add(new Coordinate(na, a.y));
+			if (cut) {
+				continue;
+			}
+			double uDelta = b.x - a.x;
+			// 展开后邻点连续，归一到 [-180,180] 后唯一一处会跳过 ±180
+			if (Math.abs(uDelta) >= 180d + POLE_WIND_TOL || Math.abs(nb - na) <= 180d) {
+				continue;
+			}
+			double seam = seamUnwrapped(a.x, b.x);
+			double t = Math.abs(b.x - a.x) < 1e-15 ? 0d : (seam - a.x) / (b.x - a.x);
+			double seamLat = a.y + t * (b.y - a.y);
+			if (uDelta > 0d) {
+				if (Math.abs(na - 180d) > 1e-9) {
+					out.add(new Coordinate(180d, seamLat));
+				}
+				out.add(new Coordinate(180d, poleLat));
+				out.add(new Coordinate(-180d, poleLat));
+				out.add(new Coordinate(-180d, seamLat));
+			} else {
+				if (Math.abs(na - (-180d)) > 1e-9) {
+					out.add(new Coordinate(-180d, seamLat));
+				}
+				out.add(new Coordinate(-180d, poleLat));
+				out.add(new Coordinate(180d, poleLat));
+				out.add(new Coordinate(180d, seamLat));
+			}
+			cut = true;
+		}
+		if (!cut) {
+			// 极端：顶点跨度≈360° 但未落在 ±180 缝上——在最大经度处强制切口
+			int at = 0;
+			double maxX = u.get(0).x;
+			for (int i = 1; i < u.size(); i++) {
+				if (u.get(i).x > maxX) {
+					maxX = u.get(i).x;
+					at = i;
+				}
+			}
+			List<Coordinate> rotated = new ArrayList<>();
+			for (int i = 0; i < u.size(); i++) {
+				Coordinate c = u.get((at + i) % u.size());
+				rotated.add(new Coordinate(normalizeLon180(c.x), c.y));
+			}
+			double lat0 = rotated.get(0).y;
+			out = new ArrayList<>();
+			out.add(new Coordinate(180d, lat0));
+			for (int i = 1; i < rotated.size(); i++) {
+				out.add(rotated.get(i));
+			}
+			out.add(new Coordinate(-180d, lat0));
+			out.add(new Coordinate(-180d, poleLat));
+			out.add(new Coordinate(180d, poleLat));
+		}
+		return closeRing(out.toArray(new Coordinate[0]));
+	}
+
+	/** 邻段 a→b（已展开）上落在 ±180 子午线族的缝点经度 */
+	private static double seamUnwrapped(double ax, double bx) {
+		double lo = Math.min(ax, bx);
+		double hi = Math.max(ax, bx);
+		double s = 180d + 360d * Math.ceil((lo - 180d) / 360d);
+		if (s <= lo + 1e-12) {
+			s += 360d;
+		}
+		if (s < hi - 1e-12) {
+			return s;
+		}
+		// 缝落在端点：取更靠近 b 的端点对应的 ±180
+		double nearB = 180d + 360d * Math.rint((bx - 180d) / 360d);
+		if (nearB >= lo - 1e-9 && nearB <= hi + 1e-9) {
+			return nearB;
+		}
+		return 180d + 360d * Math.rint((ax - 180d) / 360d);
+	}
+
+	private static List<Coordinate> openRing(Coordinate[] ring) {
+		List<Coordinate> open = new ArrayList<>();
+		if (ring == null || ring.length == 0) {
+			return open;
+		}
+		int n = ring.length;
+		if (n >= 2 && ring[0].equals2D(ring[n - 1])) {
+			n--;
+		}
+		for (int i = 0; i < n; i++) {
+			open.add(new Coordinate(ring[i].x, ring[i].y));
+		}
+		return open;
+	}
+
+	private static Coordinate[] closeRing(Coordinate[] open) {
+		if (open == null || open.length == 0) {
+			return open;
+		}
+		Coordinate[] out = new Coordinate[open.length + 1];
+		System.arraycopy(open, 0, out, 0, open.length);
+		out[open.length] = new Coordinate(open[0].x, open[0].y);
+		return out;
+	}
+
+	private static boolean ringHasPoleVertex(List<Coordinate> pts) {
+		for (Coordinate c : pts) {
+			if (Math.abs(c.y) >= 90d - POLE_LAT_EPS) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static List<Coordinate> unwrapRingLons(List<Coordinate> open) {
+		List<Coordinate> u = new ArrayList<>(open.size());
+		double prev = open.get(0).x;
+		u.add(new Coordinate(prev, open.get(0).y));
+		for (int i = 1; i < open.size(); i++) {
+			double x = open.get(i).x;
+			x = x - Math.rint((x - prev) / 360d) * 360d;
+			u.add(new Coordinate(x, open.get(i).y));
+			prev = x;
+		}
+		return u;
+	}
+
+	private static Coordinate[] normalizeRingLons(Coordinate[] ring) {
+		Coordinate[] out = new Coordinate[ring.length];
+		for (int i = 0; i < ring.length; i++) {
+			out[i] = new Coordinate(normalizeLon180(ring[i].x), ring[i].y);
+		}
+		return out;
+	}
+
+	/**
+	 * 缓冲用的等纬 RFC 极冠近似：把边界采样压到同一纬度再接到极点。
+	 * 仅 {@link #bufferPolar} 使用；入库走 {@link #toRfcPolar}，不要把等纬近似硬塞进规范化。
+	 */
 	static Geometry buildRfcCap(double edgeLat, boolean north, List<Coordinate> samples) {
 		double poleLat = north ? 90d : -90d;
 		List<Coordinate> lons = new ArrayList<>();
@@ -672,10 +852,10 @@ public final class GisGeodesic {
 		return x;
 	}
 
-	/** 包极点缓冲：极点原点 AEQD → 平面缓冲 → 按新边界纬写成 RFC 极冠 */
+	/** 包极点缓冲：极点原点 AEQD（含洞）→ 平面缓冲 → 外环等纬 RFC 极冠近似，洞随反投影保留 */
 	private static Geometry bufferPolar(Geometry wgs, double meters, boolean north) {
 		GisProjection p = north ? GisProjection.aeqd(0d, 90d) : GisProjection.aeqd(0d, -90d);
-		Geometry boundary = polarBoundaryRing(wgs, north);
+		Geometry boundary = polarPlanePolygon(wgs);
 		if (boundary.isEmpty()) {
 			return FACTORY.createPolygon();
 		}
@@ -687,49 +867,92 @@ public final class GisGeodesic {
 			return FACTORY.createPolygon();
 		}
 		Geometry inv = unwrapSequential(p.inverse(buf));
-		double edgeLat = north ? 90d : -90d;
-		List<Coordinate> samples = new ArrayList<>();
-		for (Coordinate c : inv.getCoordinates()) {
-			if (Math.abs(c.y) >= 90d - POLE_LAT_EPS) {
+		List<Geometry> parts = new ArrayList<>();
+		for (int i = 0; i < inv.getNumGeometries(); i++) {
+			if (!(inv.getGeometryN(i) instanceof Polygon poly) || poly.isEmpty()) {
 				continue;
 			}
-			samples.add(c);
-			if (north) {
-				edgeLat = Math.min(edgeLat, c.y);
-			} else {
-				edgeLat = Math.max(edgeLat, c.y);
+			double edgeLat = north ? 90d : -90d;
+			List<Coordinate> samples = new ArrayList<>();
+			for (Coordinate c : poly.getExteriorRing().getCoordinates()) {
+				if (Math.abs(c.y) >= 90d - POLE_LAT_EPS) {
+					continue;
+				}
+				samples.add(c);
+				if (north) {
+					edgeLat = Math.min(edgeLat, c.y);
+				} else {
+					edgeLat = Math.max(edgeLat, c.y);
+				}
 			}
+			Geometry cap = buildRfcCap(edgeLat, north, samples);
+			if (!(cap instanceof Polygon capPoly) || poly.getNumInteriorRing() == 0) {
+				parts.add(cap);
+				continue;
+			}
+			LinearRing shell = capPoly.getExteriorRing();
+			LinearRing[] holes = new LinearRing[poly.getNumInteriorRing()];
+			for (int h = 0; h < holes.length; h++) {
+				holes[h] = FACTORY.createLinearRing(
+					normalizeRingLons(poly.getInteriorRingN(h).getCoordinates()));
+			}
+			parts.add(FACTORY.createPolygon(shell, holes));
 		}
-		return buildRfcCap(edgeLat, north, samples);
+		if (parts.isEmpty()) {
+			return FACTORY.createPolygon();
+		}
+		return parts.size() == 1 ? parts.get(0) : FACTORY.buildGeometry(parts);
 	}
 
-	/** 去掉极点顶点后的外环，供极点 AEQD 投影（避免 ±180° 极点边叠到原点） */
-	private static Geometry polarBoundaryRing(Geometry wgs, boolean north) {
-		List<Coordinate> pts = new ArrayList<>();
+	/**
+	 * 去掉极点顶点后的面（含洞），经度展开成连续环，供极点 AEQD 投影
+	 * （避免 ±180° 极点边叠到原点）。
+	 */
+	private static Geometry polarPlanePolygon(Geometry wgs) {
+		List<Geometry> parts = new ArrayList<>();
 		for (int i = 0; i < wgs.getNumGeometries(); i++) {
 			if (!(wgs.getGeometryN(i) instanceof Polygon poly) || poly.isEmpty()) {
 				continue;
 			}
-			Coordinate[] ring = poly.getExteriorRing().getCoordinates();
-			for (int k = 0; k < ring.length - 1; k++) {
-				if (Math.abs(ring[k].y) >= 90d - POLE_LAT_EPS) {
-					continue;
-				}
-				pts.add(new Coordinate(ring[k].x, ring[k].y));
+			Coordinate[] ext = stripPoleAndUnwrap(poly.getExteriorRing().getCoordinates());
+			if (ext.length < 4) {
+				continue;
 			}
-			break;
+			LinearRing shell = FACTORY.createLinearRing(ext);
+			int nHoles = poly.getNumInteriorRing();
+			LinearRing[] holes = new LinearRing[nHoles];
+			for (int h = 0; h < nHoles; h++) {
+				Coordinate[] hr = stripPoleAndUnwrap(poly.getInteriorRingN(h).getCoordinates());
+				holes[h] = FACTORY.createLinearRing(hr.length >= 4 ? hr
+					: normalizeRingLons(poly.getInteriorRingN(h).getCoordinates()));
+			}
+			parts.add(FACTORY.createPolygon(shell, holes));
 		}
-		if (pts.size() < 3) {
+		if (parts.isEmpty()) {
 			return FACTORY.createPolygon();
 		}
-		// 经度展开成连续，便于投影成绕原点的环
+		return parts.size() == 1 ? parts.get(0) : FACTORY.buildGeometry(parts);
+	}
+
+	/** 去极点顶点、展开经度并闭合，供极点投影 */
+	private static Coordinate[] stripPoleAndUnwrap(Coordinate[] ring) {
+		List<Coordinate> pts = new ArrayList<>();
+		for (int k = 0; k < ring.length - 1; k++) {
+			if (Math.abs(ring[k].y) >= 90d - POLE_LAT_EPS) {
+				continue;
+			}
+			pts.add(new Coordinate(ring[k].x, ring[k].y));
+		}
+		if (pts.size() < 3) {
+			return new Coordinate[0];
+		}
 		for (int i = 1; i < pts.size(); i++) {
 			double prev = pts.get(i - 1).x;
 			double x = pts.get(i).x;
 			pts.get(i).setX(x - Math.rint((x - prev) / 360d) * 360d);
 		}
 		pts.add(new Coordinate(pts.get(0).x, pts.get(0).y));
-		return FACTORY.createPolygon(pts.toArray(new Coordinate[0]));
+		return pts.toArray(new Coordinate[0]);
 	}
 
 	/** 包极点距离：RFC 形平面 contains 为 0；否则极点 AEQD 最近点对再 inverse */
@@ -740,7 +963,7 @@ public final class GisGeodesic {
 			return 0d;
 		}
 		GisProjection p = north ? GisProjection.aeqd(0d, 90d) : GisProjection.aeqd(0d, -90d);
-		Geometry boundary = densify(polarBoundaryRing(wgs, north));
+		Geometry boundary = densify(polarPlanePolygon(wgs));
 		if (boundary.isEmpty()) {
 			return Double.NaN;
 		}
@@ -751,7 +974,7 @@ public final class GisGeodesic {
 		return inverse(lon, lat, near[0], near[1]);
 	}
 
-		/** 环面积绝对值（平方米），不依赖环的方向 */
+	/** 环面积绝对值（平方米），不依赖环的方向 */
 	private static double ringArea(Coordinate[] ring) {
 		PolygonArea pa = new PolygonArea(Geodesic.WGS84, false);
 		for (int i = 0; i < ring.length - 1; i++) {
