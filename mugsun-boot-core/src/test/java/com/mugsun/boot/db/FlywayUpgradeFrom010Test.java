@@ -349,11 +349,12 @@ class FlywayUpgradeFrom010Test {
 	}
 
 	private Flyway current(String url) {
-		// 与 application.yml 的 spring.flyway 配置一致
+		// 与 application.yml + FlywayPgCompatConfig 一致（V17 CONCURRENTLY 须会话级锁）
 		return Flyway.configure().dataSource(url, user, pass)
 			.locations("classpath:db/migration")
 			.baselineOnMigrate(true).baselineVersion("0")
 			.placeholderReplacement(false)
+			.configuration(java.util.Map.of("flyway.postgresql.transactional.lock", "false"))
 			.load();
 	}
 

@@ -21,6 +21,8 @@ import java.sql.SQLFeatureNotSupportedException;
  * 开发期把金仓等「PG 协议、却上报过低 major（如 8）」库接到与 PostgreSQL 同一套
  * {@code classpath:db/migration}：伪装 JDBC major/minor，避免 Flyway
  * {@code FlywayDbUpgradeRequiredException}；可选 default-schema 与业务表隔离。
+ * <p>自 V17 起主库有非事务迁移（{@code CREATE INDEX CONCURRENTLY}），本定制器统一关闭
+ * {@code postgresql.transactional.lock}（会话级锁，与埋点 T4 同口径）。
  * <p>达梦仍走 {@code db/migration-dm}，不在此合并。
  */
 @Configuration
@@ -40,6 +42,10 @@ public class FlywayPgCompatConfig {
 	@Bean
 	public FlywayConfigurationCustomizer flywayPgCompatCustomizer() {
 		return (FluentConfiguration configuration) -> {
+			// V17 CREATE INDEX CONCURRENTLY：PG 默认事务级 advisory 锁会让 CONCURRENTLY 自等死锁。
+			// 改会话级锁（与埋点 TrackFlywayConfig / T4 同口径）。须直连 PG 或 PgBouncer session 模式，
+			// 不支持 transaction pooling。
+			configuration.configuration(java.util.Map.of("flyway.postgresql.transactional.lock", "false"));
 			if (spoofPgMajor > 0) {
 				DataSource ds = configuration.getDataSource();
 				if (ds != null) {

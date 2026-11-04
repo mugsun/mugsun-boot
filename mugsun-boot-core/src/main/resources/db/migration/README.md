@@ -21,3 +21,6 @@
 - 埋点库：独立序列 `../track/migration/T1__baseline_0_1.sql`。
 
 版本号只增不补，可能跳号（如没有 V4–V6、V12），属正常。新脚本取合入时 main 上的最大号加 1，不要回填空号：已执行过更高版本的库再遇到低版本新脚本，Flyway 默认校验会拒绝启动。
+- `V16__gis_feature_wraps_antimeridian.sql`：`gis_feature.wraps_antimeridian` 生成列（#76；无 PostGIS 跳过）。
+- `V17__gis_feature_wrap_index`（Java，`db.migration` 包）：部分 GiST `idx_gis_feature_wrap`，`CREATE INDEX CONCURRENTLY`（#76；主库 Flyway 须会话级锁）。
+

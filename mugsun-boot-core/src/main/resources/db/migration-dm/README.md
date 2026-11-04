@@ -31,3 +31,5 @@ JDBC 不要加 `compatibleMode=oracle`。打包带上 `db-migration-dameng-flywa
 - 保留字列（如 `type`、`domain`）加双引号小写，对齐 Flex DmDialect
 
 版本号只增不补，可能跳号（如没有 V4–V6、V12），属正常。新脚本取合入时 main 上的最大号加 1，不要回填空号：已执行过更高版本的库再遇到低版本新脚本，Flyway 默认校验会拒绝启动。
+- `V16` / `V17`：PG 侧 #76（wraps_antimeridian + CONCURRENTLY 部分索引）；本方言无 PostGIS / 无 gis_feature，脚本为同号占位。
+
