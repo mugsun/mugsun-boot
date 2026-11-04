@@ -14,6 +14,10 @@
 
 ### 安全
 
+- TraceIdFilter 客户端 X-Trace-Id 白名单（#98）
+  - 仅接受 `[A-Za-z0-9-]{1,64}`；换行/控制字符/非 ASCII/超长丢弃重生
+  - 防任意字符写入 MDC 与响应头造成日志注入；合法 id 仍原样沿用
+
 - 删除旁路口 `POST /auth/sms/send`（原 SmsController）
   - 该口无 CaptchaGate / IP burst / 日时配额，可绕过验证码发短信
   - 正规发送口仍为 `POST /auth/sms-code`（完整闸）；OpenAPI 随控制器删除
