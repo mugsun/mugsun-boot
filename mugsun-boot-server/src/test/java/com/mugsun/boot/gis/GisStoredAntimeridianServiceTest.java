@@ -50,10 +50,15 @@ class GisStoredAntimeridianServiceTest {
 				props_json  TEXT,
 				create_time TIMESTAMP,
 				update_time TIMESTAMP,
+				wraps_antimeridian boolean GENERATED ALWAYS AS (
+					(ST_XMax(geom) - ST_XMin(geom) > 180)
+					AND (ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) <= 180)
+				) STORED NOT NULL,
 				is_deleted  INT NOT NULL DEFAULT 0
 			)
 			""");
 		jdbc.execute("CREATE INDEX idx_gis_feature_geom ON gis_feature USING GIST (geom)");
+		jdbc.execute("CREATE INDEX idx_gis_feature_wrap ON gis_feature USING GIST (ST_ShiftLongitude(geom)) WHERE wraps_antimeridian AND is_deleted = 0");
 		GisSpatialSupport support = mock(GisSpatialSupport.class);
 		when(support.available()).thenReturn(true);
 		when(support.jdbc()).thenReturn(jdbc);
@@ -66,6 +71,9 @@ class GisStoredAntimeridianServiceTest {
 			+ "{\"type\":\"Feature\",\"id\":\"e\",\"properties\":{\"k\":\"east\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[179.99,0.5]}},"
 			+ "{\"type\":\"Feature\",\"id\":\"f\",\"properties\":{\"k\":\"far\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[100,50]}}]}";
 		store.sync(LAYER_ID, "000000", GisConstants.KIND_VECTOR, data);
+		Integer wraps = jdbc.queryForObject(
+			"SELECT count(*) FROM gis_feature WHERE layer_id = ? AND wraps_antimeridian", Integer.class, LAYER_ID);
+		assertThat(wraps).isEqualTo(2);
 		layer = new GisLayer();
 		layer.setId(LAYER_ID);
 		layer.setTenantId("000000");
@@ -104,6 +112,26 @@ class GisStoredAntimeridianServiceTest {
 		Map<String, Object> out = service.nearest(layer, -179.98, 0.5, 3, forceJava);
 		assertThat(keys(out)).hasSize(3).doesNotContain("far");
 		assertThat(keys(out).get(0)).isIn("am-poly", "east");
+	}
+
+
+	@ParameterizedTest(name = "forceJava={0}")
+	@ValueSource(booleans = { false, true })
+	@DisplayName("bbox：180° 附近命中跨 180° 要素，0° 附近不误命中")
+	void bboxNearAntimeridian(boolean forceJava) {
+		assertThat(keys(service.bbox(layer, -179.99, -0.5, -179.95, 0.5, 10, forceJava)))
+			.contains("am-line", "am-poly");
+		assertThat(keys(service.bbox(layer, 0, -0.5, 10, 0.5, 10, forceJava))).isEmpty();
+	}
+
+	@ParameterizedTest(name = "forceJava={0}")
+	@ValueSource(booleans = { false, true })
+	@DisplayName("intersects：点落在跨 180° 多边形内")
+	void intersectsWrappedPolygon(boolean forceJava) {
+		Map<String, Object> point = Map.of(
+			"type", "Point",
+			"coordinates", java.util.List.of(-179.5, 0.5));
+		assertThat(keys(service.intersects(layer, point, 10, forceJava))).containsExactly("am-poly");
 	}
 
 	@ParameterizedTest(name = "forceJava={0}")

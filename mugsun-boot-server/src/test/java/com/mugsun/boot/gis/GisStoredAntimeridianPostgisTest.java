@@ -31,8 +31,18 @@ class GisStoredAntimeridianPostgisTest {
 		ds.setDriverClassName("org.postgresql.Driver");
 		jdbc = new JdbcTemplate(ds);
 		jdbc.execute("CREATE EXTENSION IF NOT EXISTS postgis");
-		jdbc.execute("CREATE TABLE f (name text, geom geometry(Geometry, 4326))");
+		jdbc.execute("""
+			CREATE TABLE f (
+				name text,
+				geom geometry(Geometry, 4326) NOT NULL,
+				wraps_antimeridian boolean GENERATED ALWAYS AS (
+					(ST_XMax(geom) - ST_XMin(geom) > 180)
+					AND (ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) <= 180)
+				) STORED NOT NULL
+			)
+			""");
 		jdbc.execute("CREATE INDEX ON f USING gist (geom)");
+		jdbc.execute("CREATE INDEX ON f USING gist (ST_ShiftLongitude(geom)) WHERE wraps_antimeridian");
 		jdbc.execute("INSERT INTO f VALUES"
 			+ " ('am-line', ST_GeomFromText('LINESTRING(179.9 0, -179.9 0)', 4326)),"
 			+ " ('am-poly', ST_GeomFromText('POLYGON((179 -1, -179 -1, -179 1, 179 1, 179 -1))', 4326)),"

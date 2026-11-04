@@ -66,6 +66,10 @@ class GisFeatureStoreConcurrencyTest {
 				props_json  TEXT,
 				create_time TIMESTAMP,
 				update_time TIMESTAMP,
+				wraps_antimeridian boolean GENERATED ALWAYS AS (
+					(ST_XMax(geom) - ST_XMin(geom) > 180)
+					AND (ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) <= 180)
+				) STORED NOT NULL,
 				is_deleted  INT NOT NULL DEFAULT 0
 			)
 			""");
