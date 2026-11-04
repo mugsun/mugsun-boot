@@ -389,4 +389,49 @@ class GisGeodesicTest {
 		double out = GisGeodesic.distanceLenient(box, 178, 0);
 		assertThat(out / GeodesicTruth.inverse(178, 0, 179, 0) - 1).isBetween(-0.01, 0.01);
 	}
+
+	@Test
+	@DisplayName("mugsun-boot#63：RFC 极冠与绕极环面积一致，且与 GeographicLib 包极口径相符")
+	void polarCapAreaAndWind() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry rfc = r.read("POLYGON ((-180 80, -90 80, 0 80, 90 80, 180 80, 180 90, -180 90, -180 80))");
+		Geometry wrap = r.read("POLYGON ((0 80, 90 80, 180 80, -90 80, 0 80))");
+		assertThat(GisGeodesic.enclosedPole(rfc)).isEqualTo(1);
+		assertThat(GisGeodesic.enclosedPole(wrap)).isEqualTo(1);
+		assertThat(GisGeodesic.longitudeWind(rfc.getCoordinates())).isCloseTo(360d, org.assertj.core.data.Offset.offset(1e-6));
+		double aRfc = GisGeodesic.area(rfc);
+		double aWrap = GisGeodesic.area(wrap);
+		assertThat(aRfc).isCloseTo(aWrap, org.assertj.core.data.Offset.offset(1d));
+		assertThat(aRfc).isBetween(2.4e12, 2.6e12);
+	}
+
+	@Test
+	@DisplayName("mugsun-boot#63：极冠缓冲不再 400，结果仍包北极且边界纬度下移约缓冲距离")
+	void polarCapBuffer() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry rfc = r.read("POLYGON ((-180 80, -90 80, 0 80, 90 80, 180 80, 180 90, -180 90, -180 80))");
+		Geometry buf = GisGeodesic.buffer(rfc, 1000d);
+		assertThat(GisGeodesic.enclosedPole(buf)).isEqualTo(1);
+		assertThat(buf.covers(GF.createPoint(new org.locationtech.jts.geom.Coordinate(0, 90)))).isTrue();
+		assertThat(buf.covers(GF.createPoint(new org.locationtech.jts.geom.Coordinate(0, 85)))).isTrue();
+		double edge = buf.getEnvelopeInternal().getMinY();
+		assertThat(edge).isLessThan(80d);
+		assertThat(edge).isGreaterThan(79.98d);
+		// tryBuffer 同步成功
+		assertThat(GisGeodesic.tryBuffer(rfc, 1000d)).isNotNull();
+	}
+
+	@Test
+	@DisplayName("mugsun-boot#63：极冠距离——冠内 0，冠外到边界测地距离")
+	void polarCapDistance() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry rfc = r.read("POLYGON ((-180 80, -90 80, 0 80, 90 80, 180 80, 180 90, -180 90, -180 80))");
+		assertThat(GisGeodesic.distance(rfc, 0, 85)).isZero();
+		assertThat(GisGeodesic.distanceLenient(rfc, 0, 85)).isZero();
+		double d = GisGeodesic.distance(rfc, 0, 70);
+		double expect = GeodesicTruth.inverse(0, 70, 0, 80);
+		assertThat(d / expect - 1).isBetween(-0.01, 0.01);
+		assertThat(GisGeodesic.distanceLenient(rfc, 10, 70)).isFinite();
+	}
+
 }

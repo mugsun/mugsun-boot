@@ -3,6 +3,7 @@ package com.mugsun.boot.gis;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Geometry;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -198,5 +199,19 @@ class GisTopologyGuardTest {
 		GisTopologyGuard.Result out = inspect(feat);
 		assertThat(out.warnings()).isEmpty();
 		assertThat(out.features()).hasSize(1);
+	}
+
+	@Test
+	@DisplayName("mugsun-boot#63：绕极一圈不含极点顶点的环改写为 RFC 极地切口后入库")
+	void polarWrapAcceptedAsRfc() {
+		Map<String, Object> feat = feature("Polygon", List.of(List.of(
+			List.of(0, 80), List.of(90, 80), List.of(180, 80), List.of(-90, 80), List.of(0, 80))));
+		GisTopologyGuard.Result out = inspect(feat);
+		assertThat(out.warnings()).anyMatch(w -> w.contains("极点") || w.contains("RFC"));
+		@SuppressWarnings("unchecked")
+		Map<String, Object> geom = (Map<String, Object>) out.features().get(0).get("geometry");
+		Geometry g = new GisGeometryCodec().fromGeometry(geom);
+		assertThat(GisGeodesic.enclosedPole(g)).isEqualTo(1);
+		assertThat(g.isValid()).isTrue();
 	}
 }

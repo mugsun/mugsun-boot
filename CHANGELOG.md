@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 修复
+
+- GIS 包极点面 area/buffer/距离/入库不再误拒或静默丢极冠（#63）
+  - 沿环累计经度 ≈ ±360° 判包极点（对齐 GeographicLib PolygonArea）
+  - 面积直接 PolygonArea；缓冲/距离用极点原点 AEQD，结果按 RFC 7946 极地切口写出
+  - 绕极环入库改写为 ±180 接极点；PostGIS 图层缓冲对极冠回落 Java，不再 skip
+
 ### 新增
 
 - AI 聊天 `POST /system/ai/chat/regenerate`（#71）

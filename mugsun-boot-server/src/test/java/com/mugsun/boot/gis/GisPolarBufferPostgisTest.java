@@ -11,7 +11,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** mugsun-boot#63：PostGIS 路径缓冲前识别走向无法确定的要素（极冠），不再静默返回丢了极冠的结果 */
+/** mugsun-boot#63：识别极冠（AMBIGUOUS）；geography ST_Buffer 仍会丢极冠，业务路径改走 Java 极点 AEQD */
 class GisPolarBufferPostgisTest {
 
 	private static PostgreSQLContainer<?> postgis;
