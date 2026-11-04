@@ -434,4 +434,110 @@ class GisGeodesicTest {
 		assertThat(GisGeodesic.distanceLenient(rfc, 10, 70)).isFinite();
 	}
 
+	@Test
+	@DisplayName("mugsun-boot#63 跟进：南极 RFC 极冠与绕极环面积/缓冲/距离与北极对称")
+	void southPolarCapAreaAndBuffer() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry rfc = r.read("POLYGON ((-180 -80, -90 -80, 0 -80, 90 -80, 180 -80, 180 -90, -180 -90, -180 -80))");
+		// 绕南极一圈（无极点顶点）：西向 wind≈-360
+		Geometry wrap = r.read("POLYGON ((0 -80, -90 -80, 180 -80, 90 -80, 0 -80))");
+		assertThat(GisGeodesic.enclosedPole(rfc)).isEqualTo(-1);
+		assertThat(GisGeodesic.enclosedPole(wrap)).isEqualTo(-1);
+		double aRfc = GisGeodesic.area(rfc);
+		double aWrap = GisGeodesic.area(wrap);
+		assertThat(aRfc).isCloseTo(aWrap, org.assertj.core.data.Offset.offset(1d));
+		assertThat(aRfc).isBetween(2.4e12, 2.6e12);
+
+		Geometry buf = GisGeodesic.buffer(rfc, 1000d);
+		assertThat(GisGeodesic.enclosedPole(buf)).isEqualTo(-1);
+		assertThat(buf.covers(GF.createPoint(new Coordinate(0, -90)))).isTrue();
+		assertThat(buf.covers(GF.createPoint(new Coordinate(0, -85)))).isTrue();
+		double edge = buf.getEnvelopeInternal().getMaxY();
+		assertThat(edge).isGreaterThan(-80d);
+		assertThat(edge).isLessThan(-79.98d);
+		assertThat(GisGeodesic.distance(rfc, 0, -85)).isZero();
+		double d = GisGeodesic.distance(rfc, 0, -70);
+		double expect = GeodesicTruth.inverse(0, -70, 0, -80);
+		assertThat(d / expect - 1).isBetween(-0.01, 0.01);
+	}
+
+	@Test
+	@DisplayName("mugsun-boot#63 跟进：入库 toRfcPolar 只补极点边，变纬边界不被压成等纬")
+	void toRfcPolarPreservesBoundaryLatitudes() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		// 绕极环各顶点纬度不同：75/80/70，规范化后应仍能看到这些纬度
+		Geometry wrap = r.read("POLYGON ((0 80, 90 75, 180 80, -90 70, 0 80))");
+		assertThat(GisGeodesic.enclosedPole(wrap)).isEqualTo(1);
+		Geometry rfc = GisGeodesic.toRfcPolar(wrap);
+		assertThat(GisGeodesic.enclosedPole(rfc)).isEqualTo(1);
+		assertThat(rfc.isValid()).isTrue();
+		boolean saw75 = false, saw70 = false, sawPole = false;
+		for (Coordinate c : rfc.getCoordinates()) {
+			if (Math.abs(c.y - 75d) < 1e-6) {
+				saw75 = true;
+			}
+			if (Math.abs(c.y - 70d) < 1e-6) {
+				saw70 = true;
+			}
+			if (Math.abs(c.y - 90d) < 1e-6) {
+				sawPole = true;
+			}
+			// 等纬近似会把全部边界压到 minLat=70；不允许只剩 70 与 90
+		}
+		assertThat(saw75).isTrue();
+		assertThat(saw70).isTrue();
+		assertThat(sawPole).isTrue();
+		// 边界上应仍有 lat=80 的顶点（未被压到 70）
+		assertThat(java.util.Arrays.stream(rfc.getCoordinates()).anyMatch(c -> Math.abs(c.y - 80d) < 1e-6)).isTrue();
+	}
+
+	@Test
+	@DisplayName("mugsun-boot#63 跟进：极冠带洞——面积扣洞、洞内距离非 0、缓冲仍包极且保留洞")
+	void polarCapWithHole() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry solid = r.read("POLYGON ((-180 80, -90 80, 0 80, 90 80, 180 80, 180 90, -180 90, -180 80))");
+		Geometry withHole = r.read("POLYGON (("
+			+ "-180 80, -90 80, 0 80, 90 80, 180 80, 180 90, -180 90, -180 80),"
+			+ "(10 85, 20 85, 20 87, 10 87, 10 85))");
+		assertThat(GisGeodesic.enclosedPole(withHole)).isEqualTo(1);
+		double aSolid = GisGeodesic.area(solid);
+		double aHole = GisGeodesic.area(withHole);
+		assertThat(aSolid - aHole).isGreaterThan(1e9);
+
+		assertThat(GisGeodesic.distance(withHole, 15, 86)).isGreaterThan(0d);
+		assertThat(GisGeodesic.distance(withHole, 0, 89)).isZero();
+
+		Geometry buf = GisGeodesic.buffer(withHole, 500d);
+		assertThat(GisGeodesic.enclosedPole(buf)).isEqualTo(1);
+		assertThat(buf.covers(GF.createPoint(new Coordinate(0, 90)))).isTrue();
+		assertThat(buf instanceof org.locationtech.jts.geom.Polygon p && p.getNumInteriorRing() >= 1).isTrue();
+	}
+
+	@Test
+	@DisplayName("mugsun-boot#63 跟进：MultiPolygon 北极冠 + 普通面分别缓冲")
+	void multiPolygonPolarAndNormal() throws Exception {
+		org.locationtech.jts.io.WKTReader r = new org.locationtech.jts.io.WKTReader(GF);
+		Geometry mp = r.read("MULTIPOLYGON ("
+			+ "((-180 80, -90 80, 0 80, 90 80, 180 80, 180 90, -180 90, -180 80)),"
+			+ "((116 39, 117 39, 117 40, 116 40, 116 39)))");
+		Geometry buf = GisGeodesic.buffer(mp, 1000d);
+		assertThat(buf.getNumGeometries()).isGreaterThanOrEqualTo(2);
+		boolean hasPolar = false;
+		boolean hasBeijing = false;
+		for (int i = 0; i < buf.getNumGeometries(); i++) {
+			Geometry g = buf.getGeometryN(i);
+			if (GisGeodesic.enclosedPole(g) == 1) {
+				hasPolar = true;
+			}
+			if (g.getEnvelopeInternal().intersects(new org.locationtech.jts.geom.Envelope(115, 118, 38, 41))) {
+				hasBeijing = true;
+			}
+		}
+		assertThat(hasPolar).isTrue();
+		assertThat(hasBeijing).isTrue();
+		assertThat(GisGeodesic.distance(mp, 0, 85)).isZero();
+		assertThat(GisGeodesic.distance(mp, 116.5, 39.5)).isZero();
+	}
+
+
 }

@@ -214,4 +214,50 @@ class GisTopologyGuardTest {
 		assertThat(GisGeodesic.enclosedPole(g)).isEqualTo(1);
 		assertThat(g.isValid()).isTrue();
 	}
+	@Test
+	@DisplayName("mugsun-boot#63 跟进：南极绕极环改写为 RFC 极地切口")
+	void southPolarWrapAcceptedAsRfc() {
+		Map<String, Object> feat = feature("Polygon", List.of(List.of(
+			List.of(0, -80), List.of(-90, -80), List.of(180, -80), List.of(90, -80), List.of(0, -80))));
+		GisTopologyGuard.Result out = inspect(feat);
+		assertThat(out.warnings()).anyMatch(w -> w.contains("极点") || w.contains("RFC"));
+		Geometry g = new GisGeometryCodec().fromGeometry(geometryOf(out));
+		assertThat(GisGeodesic.enclosedPole(g)).isEqualTo(-1);
+		assertThat(g.isValid()).isTrue();
+	}
+
+	@Test
+	@DisplayName("mugsun-boot#63 跟进：变纬绕极环入库保留原纬度，不压成等纬")
+	void polarWrapPreservesVaryingLatitudes() {
+		Map<String, Object> feat = feature("Polygon", List.of(List.of(
+			List.of(0, 80), List.of(90, 75), List.of(180, 80), List.of(-90, 70), List.of(0, 80))));
+		GisTopologyGuard.Result out = inspect(feat);
+		Geometry g = new GisGeometryCodec().fromGeometry(geometryOf(out));
+		assertThat(GisGeodesic.enclosedPole(g)).isEqualTo(1);
+		boolean saw75 = false, saw70 = false;
+		for (var c : g.getCoordinates()) {
+			if (Math.abs(c.y - 75d) < 1e-6) {
+				saw75 = true;
+			}
+			if (Math.abs(c.y - 70d) < 1e-6) {
+				saw70 = true;
+			}
+		}
+		assertThat(saw75).isTrue();
+		assertThat(saw70).isTrue();
+	}
+
+	@Test
+	@DisplayName("mugsun-boot#63 跟进：绕极环带洞入库后洞仍在")
+	void polarWrapWithHoleKeepsHole() {
+		Map<String, Object> feat = feature("Polygon", List.of(
+			List.of(List.of(0, 80), List.of(90, 80), List.of(180, 80), List.of(-90, 80), List.of(0, 80)),
+			List.of(List.of(10, 85), List.of(20, 85), List.of(20, 87), List.of(10, 87), List.of(10, 85))));
+		GisTopologyGuard.Result out = inspect(feat);
+		Geometry g = new GisGeometryCodec().fromGeometry(geometryOf(out));
+		assertThat(g instanceof org.locationtech.jts.geom.Polygon p && p.getNumInteriorRing() == 1).isTrue();
+		assertThat(GisGeodesic.enclosedPole(g)).isEqualTo(1);
+	}
+
+
 }
