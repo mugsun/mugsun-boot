@@ -15,9 +15,12 @@
 ### 新增
 
 - GIS `gis_feature.wraps_antimeridian` 生成列与部分 GiST（#76）
-  - 判定同 #73：平面包络宽于 180° 且 `ST_ShiftLongitude` 后 ≤180°（IMMUTABLE → `GENERATED ALWAYS AS STORED`，免应用侧维护）
-  - V16 加列（无 PostGIS / 无表跳过）；V17 `CREATE INDEX CONCURRENTLY idx_gis_feature_wrap`（会话级 Flyway 锁，同埋点 T4）
-  - 查询跨 180° 支走 `ST_ShiftLongitude(geom) &&` + wraps；非跨支 `NOT wraps_antimeridian`；Java 回落不变
+  - 判定同 #73：平面包络宽于 180° 且 `ST_ShiftLongitude` 后 ≤180°
+    （IMMUTABLE → `GENERATED ALWAYS AS STORED`，免应用侧维护）
+  - V16 加列（无 PostGIS / 无表跳过）；V17 `CREATE INDEX CONCURRENTLY`
+    `idx_gis_feature_wrap`（会话级 Flyway 锁，同埋点 T4）
+  - 查询跨 180° 支走 `ST_ShiftLongitude(geom) &&` + wraps；
+    非跨支 `NOT wraps_antimeridian`；Java 回落不变
 
 - AI 聊天 `POST /system/ai/chat/regenerate`（#71）
   - 复用上一条用户提问，不重复落库；原地覆盖助手消息
