@@ -20,8 +20,8 @@ mybatis-flex:
       username: ${JDBC_USERNAME}
       password: ${JDBC_PASSWORD}
 
-# jetcache.remote.default 不在 prod 覆盖（避免空 map 冲掉 application.yml 的 type）；
-# 若必须覆盖 remote.default，须同级保留 type: redis.lettuce（空 map / 裸键会触发 JetCacheCondition StringIndexOutOfBounds）。
+# jetcache.remote.default 不在 prod 覆盖（避免空 map 冲掉 application.yml 的 type / broadcastChannel）；
+# 若必须覆盖 remote.default，须同级保留 type: redis.lettuce 与 broadcastChannel（空 map / 裸键会触发 JetCacheCondition StringIndexOutOfBounds）。
 # uri 仍由 JetCacheRedisUriEnvironmentPostProcessor 按 spring.data.redis 合成。
 
 # 对象存储：生产禁用本地 /file/** 匿名直出（私有附件全走授权流式/预签名），启用云平台由 sys_oss 配置驱动

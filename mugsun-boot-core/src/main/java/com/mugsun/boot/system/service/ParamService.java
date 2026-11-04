@@ -9,7 +9,8 @@ import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Service;
 
 /**
- * 参数服务：参数取值走本地缓存，写操作按键失效
+ * 参数服务：参数取值走两级缓存（本地+远程，{@code syncLocal} 广播失效），写/删按键失效。
+ * <p>仅本地缓存时，多机改参要等本地 TTL（默认 1 小时）才一致；BOTH+syncLocal 在写/删后广播清各机本地。
  */
 @Service
 public class ParamService {
@@ -57,7 +58,7 @@ public class ParamService {
 		evict(paramKey);
 	}
 
-	@Cached(name = "param:", key = "#paramKey", cacheType = CacheType.LOCAL)
+	@Cached(name = "param:", key = "#paramKey", cacheType = CacheType.BOTH, syncLocal = true)
 	public String cachedGetValue(String paramKey) {
 		SysParam param = paramMapper.selectOneByQuery(QueryWrapper.create().eq("param_key", paramKey));
 		return param == null ? null : param.getParamValue();

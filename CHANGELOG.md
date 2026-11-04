@@ -63,6 +63,11 @@
 
 ### 变更
 
+- 系统参数缓存改两级并广播本地失效（#90）
+  - ParamService `@Cached`：LOCAL → BOTH + syncLocal=true
+  - `jetcache.remote.default.broadcastChannel: mugsun`（空 channel 时 JetCache 静默不装广播）
+  - 写/删仍 `@CacheInvalidate`；多机关模块不再等本地 1h
+
 - #103 合后跟：JetCache EPP / compose / 注释约定（#70 后）
   - 空白口令归一；LabSeed 跳过合成日志 WARN→debug
   - 显式 `jetcache.remote.default.uri` 旁路仍回解析核对（P2）

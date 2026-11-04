@@ -53,8 +53,8 @@ spring:
     redis:
       # 安全复审 F4：演示环境用独立的 Redis db（默认 4，正式环境默认 3），重置时只 FLUSHDB 这一个
       database: ${MUGSUN_DEMO_REDIS_DB:4}
-# jetcache.remote.default 不在 demo 覆盖（避免空 map 冲掉 application.yml 的 type）；
-# 若必须覆盖 remote.default，须同级保留 type: redis.lettuce（空 map / 裸键会触发 JetCacheCondition StringIndexOutOfBounds）。
+# jetcache.remote.default 不在 demo 覆盖（避免空 map 冲掉 application.yml 的 type / broadcastChannel）；
+# 若必须覆盖 remote.default，须同级保留 type: redis.lettuce 与 broadcastChannel（空 map / 裸键会触发 JetCacheCondition StringIndexOutOfBounds）。
 # uri 仍由 JetCacheRedisUriEnvironmentPostProcessor 按 spring.data.redis 合成
 #（demo 已把 database 换成 MUGSUN_DEMO_REDIS_DB，默认 4）。
 mybatis-flex:

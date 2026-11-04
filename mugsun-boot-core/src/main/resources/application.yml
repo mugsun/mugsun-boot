@@ -108,8 +108,10 @@ jetcache:
       keyConvertor: bean:tenantKeyConvertor
       valueEncoder: bean:jsonValueEncoder
       valueDecoder: bean:jsonValueDecoder
+      # #90：syncLocal 多机失效广播频道；空则 JetCache 2.7.9 静默不装 BroadcastManager
+      broadcastChannel: mugsun
       # 无口令缺省；有 spring.data.redis.password 时由 JetCacheRedisUriEnvironmentPostProcessor 覆盖为编码 uri
-      # 覆盖整个 jetcache.remote.default 时须同级保留 type（空 map 会冲掉继承的 type，见 FAQ）
+      # 覆盖整个 jetcache.remote.default 时须同级保留 type（空 map 会冲掉继承的 type，见 FAQ）；channel 也须一并保留
       # 显式 jetcache.remote.default.uri（命令行/环境变量）不会被 EPP 覆盖，但须百分号编码且与 spring.data.redis 一致
       uri: redis://${MUGSUN_REDIS_HOST:localhost}:${MUGSUN_REDIS_PORT:6379}/3
 dromara:
