@@ -9,6 +9,7 @@
     磁盘余量由 AccessLogCapacityMonitor 告警，
     只进这个文件不进主日志；目录与保留可用 mugsun.demo.access-log.* 覆盖。留存 ≥6 个月（《网络安全法》第二十一条），
     务必把日志目录挂到持久卷并纳入备份。
+    #79 tradeoff：极端流量下可能丢少量访问日志，优先保证请求不被阻塞。
 -->
 <configuration>
 	<include resource="org/springframework/boot/logging/logback/defaults.xml"/>

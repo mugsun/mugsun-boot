@@ -19,6 +19,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * {@code offer} 失败即丢、不给短暂缓冲。本类在两者之间：有时限的 offer，超时丢弃。
  * <p>极端流量下优先不堵请求，可能丢少量访问日志；用限频 WARN 与
  * {@code mugsun.demo.access_log.dropped} 发现。
+ * <p>生产与单测经反射读 {@link AsyncAppenderBase}{@code .blockingQueue}
+ * （Spring Boot BOM 锁定 logback <strong>1.5.x</strong>）。升级 logback 若改掉该字段名，
+ * {@link #start()} 解析失败会 {@code addError} 后 {@code stop}，即 refuse to start。
  */
 public class AccessLogAsyncAppender extends AsyncAppender {
 

@@ -70,6 +70,11 @@
   - 可配 offer-timeout-ms / drop-warn-interval-ms
   - 极端流量优先不堵请求，可能丢少量访问日志
 
+- #79 合后跟：注释钉 logback 1.5.x `blockingQueue` 反射契约
+  - 升级改字段名则 AccessLogAsyncAppender refuse to start
+  - logback-spring.xml 文件头补极端流量可丢 tradeoff
+  - AccessLogDropMetrics 注册单测（SimpleMeterRegistry）
+
 - 系统参数缓存改两级并广播本地失效（#90）
   - ParamService `@Cached`：LOCAL → BOTH + syncLocal=true
   - `jetcache.remote.default.broadcastChannel: mugsun`
