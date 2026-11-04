@@ -113,4 +113,12 @@ class AuthApiTest extends AbstractIntegrationTest {
 		JsonNode r = readBody(get("/auth/captcha/config", null));
 		assertThat(r.path("data").path("registerMode").asText()).isEqualTo("OPEN");
 	}
+
+	@Test
+	void legacySmsSendEndpointIsGone() {
+		// 旁路口已删：无 CaptchaGate 的 POST /auth/sms/send 不得再可调用；正规口为 /auth/sms-code
+		ResponseEntity<String> resp = post("/auth/sms/send?phone=13800138000", Map.of(), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(404);
+	}
 }
+

@@ -14,6 +14,11 @@
 
 ### 安全
 
+- 删除旁路口 `POST /auth/sms/send`（原 SmsController）
+  - 该口无 CaptchaGate / IP burst / 日时配额，可绕过验证码发短信
+  - 正规发送口仍为 `POST /auth/sms-code`（完整闸）；OpenAPI 随控制器删除
+  - 单测断言无 captcha 调旧口得 404；demo 写端点清单同步去掉该映射
+
 - CSP 违规报告收集端 `POST /csp-report`（经 Nginx 即 `/api/csp-report`）
   - 仅 demo 装配；匿名可报；consumes 两种类型；错类型回 415（非 500）
   - URL 去 query/fragment；blocked/source 只留 origin；路径令牌段脱敏；不入库，单独滚动日志

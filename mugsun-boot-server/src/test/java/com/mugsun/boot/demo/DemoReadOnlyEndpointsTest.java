@@ -143,7 +143,7 @@ class DemoReadOnlyEndpointsTest {
 		List<String> mustBlock = List.of(
 			"POST /auth/register", "POST /auth/update-password", "POST /auth/forget-reset", "POST /auth/forget-code",
 			"POST /auth/update-info", "POST /auth/update-avatar", "POST /auth/avatar/upload",
-			"POST /auth/sms-code", "POST /auth/sms/send", "POST /auth/social/bind", "POST /auth/switch-tenant/000000",
+			"POST /auth/sms-code", "POST /auth/social/bind", "POST /auth/switch-tenant/000000",
 			"POST /system/user/import", "POST /system/file/upload", "POST /system/oss/upload",
 			"POST /system/param/submit", "POST /system/job/run/1", "POST /system/gen/syncDdl",
 			"POST /system/ai/chat/stream", "POST /system/ai/chat/regenerate", "POST /system/ai/weave/trackInsight", "POST /v1/chat/completions",

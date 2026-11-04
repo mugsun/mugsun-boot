@@ -28,7 +28,6 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/auth/register` | AuthController#register | 拒绝 |
 | POST | `/auth/sms-code` | AuthController#smsCode | 拒绝 |
 | POST | `/auth/sms-login` | AuthController#smsLogin | 拒绝 |
-| POST | `/auth/sms/send` | SmsController#send | 拒绝 |
 | POST | `/auth/social/bind` | AuthController#socialBind | 拒绝 |
 | POST | `/auth/social/login` | AuthController#socialLogin | 拒绝 |
 | DELETE | `/auth/social/unbind/{source}` | AuthController#socialUnbind | 拒绝 |
