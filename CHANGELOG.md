@@ -63,6 +63,13 @@
 
 ### 变更
 
+- 访问日志 AsyncAppender 队列满不再无限阻塞请求（#79）
+  - 自定义 AccessLogAsyncAppender：offer 等待默认 50ms，超时丢弃并计数
+  - 丢弃限频 WARN（默认每分钟最多一条，带累计丢弃数）
+  - Micrometer：`mugsun.demo.access_log.dropped`
+  - 可配 offer-timeout-ms / drop-warn-interval-ms
+  - 极端流量优先不堵请求，可能丢少量访问日志
+
 - 系统参数缓存改两级并广播本地失效（#90）
   - ParamService `@Cached`：LOCAL → BOTH + syncLocal=true
   - `jetcache.remote.default.broadcastChannel: mugsun`

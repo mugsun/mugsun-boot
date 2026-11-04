@@ -68,11 +68,19 @@
 				<!-- 留存 ≥180 天是硬要求：不设 totalSizeCap，只按天数删除 -->
 			</rollingPolicy>
 		</appender>
-		<!-- 异步写盘，不阻塞请求线程；不丢弃（discardingThreshold=0、neverBlock=false），队列满时退化为同步写，留存优先 -->
-		<appender name="ACCESS_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+		<!-- 访问日志异步写盘（#79 AccessLogAsyncAppender）：
+		     队列满时最多等待 offerTimeoutMs（默认 50ms），仍写不进则丢弃并计数+限频 WARN。
+		     极端流量优先不堵请求，可能丢少量访问日志；指标 mugsun.demo.access_log.dropped。
+		     discardingThreshold=0：不按级别提前丢；入队由自定义 append 做有时限 offer。 -->
+		<springProperty scope="context" name="ACCESS_OFFER_TIMEOUT_MS"
+			source="mugsun.demo.access-log.offer-timeout-ms" defaultValue="50"/>
+		<springProperty scope="context" name="ACCESS_DROP_WARN_INTERVAL_MS"
+			source="mugsun.demo.access-log.drop-warn-interval-ms" defaultValue="60000"/>
+		<appender name="ACCESS_ASYNC" class="com.mugsun.boot.monitor.AccessLogAsyncAppender">
 			<queueSize>8192</queueSize>
 			<discardingThreshold>0</discardingThreshold>
-			<neverBlock>false</neverBlock>
+			<offerTimeoutMs>${ACCESS_OFFER_TIMEOUT_MS}</offerTimeoutMs>
+			<dropWarnIntervalMs>${ACCESS_DROP_WARN_INTERVAL_MS}</dropWarnIntervalMs>
 			<includeCallerData>false</includeCallerData>
 			<appender-ref ref="ACCESS_FILE"/>
 		</appender>
