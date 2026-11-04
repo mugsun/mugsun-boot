@@ -120,6 +120,11 @@ public class CaptchaProperties implements InitializingBean {
 		private long maxDurationMs = 30000;
 		/** WORD_CLICK 私有词库（classpath: 或 file:，每行一个 3–4 字词，# 注释）；空 = 内置 captcha/words.txt */
 		private String wordsFile;
+		/**
+		 * ICON_CLICK seed-warp 最大位移相对图标短边比例（#77）。
+		 * 默认 0.14；0=关闭形变。上限在渲染侧钳到 0.35。不做 R7-1 高对比。
+		 */
+		private double seedWarpStrength = 0.14;
 
 		public int getCount() { return count; }
 		public void setCount(int v) { this.count = v; }
@@ -133,6 +138,8 @@ public class CaptchaProperties implements InitializingBean {
 		public void setMaxDurationMs(long v) { this.maxDurationMs = v; }
 		public String getWordsFile() { return wordsFile; }
 		public void setWordsFile(String v) { this.wordsFile = v; }
+		public double getSeedWarpStrength() { return seedWarpStrength; }
+		public void setSeedWarpStrength(double v) { this.seedWarpStrength = v; }
 	}
 
 	/** 拼图还原：行列数（2×2 起） */

@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### 变更
+
+- ICON_CLICK 每题 seed-warped 网格形变，提示条同 seed（#77）
+  - 公开库 PNG 经确定性位移后再贴画布，模板匹配更难
+  - `mugsun.captcha.click.seed-warp-strength` 默认 0.14，0=关
+  - 不做 R7-1 高对比渐变/杂波；ICON_CLICK 仍辅助、勿单独启用
+  - `IconTemplateSolverTest` 门禁仍 ≤20%（200 题）
+
 ### 修复
 
 - GIS 包极点面 area/buffer/距离/入库不再误拒或静默丢极冠（#63）

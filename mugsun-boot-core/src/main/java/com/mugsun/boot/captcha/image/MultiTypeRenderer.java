@@ -477,8 +477,16 @@ public class MultiTypeRenderer {
 	public Click renderIconClick(boolean english) {
 		CaptchaProperties.Click cfg = props.getClick();
 		RandomGenerator rnd = Rng.get();
+		// 每题一个 seed：画布与提示条对同一 slug 形变一致（#77 seed-warped）
+		long challengeSeed = rnd.nextLong();
+		double warpStrength = cfg.getSeedWarpStrength();
 		int total = cfg.getCount() + Math.max(0, cfg.getDecoys());
 		List<Icon> icons = pickIcons(total, rnd);
+		List<BufferedImage> warped = new ArrayList<>(icons.size());
+		for (Icon icon : icons) {
+			long iseed = IconSeedWarp.iconSeed(challengeSeed, icon.slug());
+			warped.add(IconSeedWarp.warp(icon.image(), iseed, warpStrength));
+		}
 		int w = props.getSlider().getWidth();
 		int h = props.getSlider().getHeight();
 		BufferedImage bg = library.next(w, h);
@@ -496,7 +504,7 @@ public class MultiTypeRenderer {
 			// 不再垫白色圆盘（它让候选位置一眼可找）；改为贴合图标轮廓的柔和投影 + 细白描边
 			AffineTransform old = g.getTransform();
 			g.rotate(Math.toRadians(rnd.nextInt(-30, 31)), p[0], p[1]);
-			BufferedImage img = icons.get(i).image();
+			BufferedImage img = warped.get(i);
 			g.drawImage(silhouette(img, new Color(0, 0, 0, 90)), p[0] - s / 2 + 2, p[1] - s / 2 + 2, s, s, null);
 			BufferedImage halo = silhouette(img, new Color(255, 255, 255, 150));
 			for (int[] o : new int[][]{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
@@ -518,7 +526,8 @@ public class MultiTypeRenderer {
 		smooth(pg);
 		for (int i = 0; i < cfg.getCount(); i++) {
 			names.add(icons.get(i).name(english));
-			pg.drawImage(icons.get(i).image(), 6 + i * 34, 3, 30, 30, null);
+			// 提示条用同 seed 形变图，与画布一致（#77）
+			pg.drawImage(warped.get(i), 6 + i * 34, 3, 30, 30, null);
 		}
 		pg.dispose();
 		return new Click(jpeg(bg), w, h, names, png(pi), answer, size, null, decoyPos, List.of());
