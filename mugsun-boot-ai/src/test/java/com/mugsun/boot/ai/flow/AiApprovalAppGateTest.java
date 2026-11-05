@@ -100,4 +100,17 @@ class AiApprovalAppGateTest {
 		when(mapper.selectOneById(1L)).thenReturn(app("000000", 1, "chatflow", safeDsl()));
 		assertTrue(AiApprovalAppGate.load(mapper, om, 1L, "000000").ok());
 	}
+
+	@Test
+	void foreachParallelAllowedForApproval() {
+		AiAppMapper mapper = mock(AiAppMapper.class);
+		String dsl = "{\"nodes\":["
+			+ "{\"id\":\"s\",\"type\":\"start\"},"
+			+ "{\"id\":\"f\",\"type\":\"foreach\",\"data\":{\"type\":\"foreach\"}},"
+			+ "{\"id\":\"p\",\"type\":\"parallel\",\"data\":{\"type\":\"parallel\"}},"
+			+ "{\"id\":\"t\",\"type\":\"text\"},"
+			+ "{\"id\":\"e\",\"type\":\"end\"}]}";
+		when(mapper.selectOneById(1L)).thenReturn(app("000000", 1, "workflow", dsl));
+		assertTrue(AiApprovalAppGate.load(mapper, om, 1L, "000000").ok());
+	}
 }

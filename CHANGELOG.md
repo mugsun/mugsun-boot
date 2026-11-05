@@ -7,6 +7,15 @@
 
 ### 新增
 
+- AiFlow foreach/parallel 控制节点（P0 契约落地）
+  - `foreach`：数组串行迭代；maxIterations 20/100；timeout 120s/300s
+  - 截断成功+truncated；禁嵌套；body 步硬顶 50；AI_* 错误码
+  - `parallel`：waitAll；分支失败 continue→success+partial
+  - 可观测 iterations/branches；body 合成 node_id 落 ai_app_node_run
+  - lab 种子：数组迭代/两路并行/迭代预审（seed-fronttest）
+  - 文档 `docs/ai-flow-foreach-parallel.md`；pc palette 另刀
+
+
 - AI×审批流：warm-flow 内嵌 AI 节点（P0）
   - 设计器 type=`ai` → BETWEEN + create 监听 `AiApprovalNodeListener`
   - 绑定已发布 AiApp（workflow|chatflow）；变量写回 ai_summary/pass/reason

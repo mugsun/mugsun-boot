@@ -1,0 +1,68 @@
+{
+  "flowCode": "ai-foreach-preaudit",
+  "flowName": "迭代预审演示",
+  "modelValue": "CLASSICS",
+  "version": "1",
+  "formCustom": "N",
+  "nodeList": [
+    {
+      "nodeType": 0,
+      "nodeCode": "start",
+      "nodeName": "开始",
+      "coordinate": "200,200|200,200",
+      "skipList": [
+        {
+          "nowNodeCode": "start",
+          "nextNodeCode": "ai_pre",
+          "skipName": "提交",
+          "skipType": "PASS",
+          "coordinate": "220,200;310,200"
+        }
+      ]
+    },
+    {
+      "nodeType": 1,
+      "nodeCode": "ai_pre",
+      "nodeName": "AI迭代预审",
+      "permissionFlag": "initiator",
+      "nodeRatio": "0",
+      "listenerType": "create",
+      "listenerPath": "com.mugsun.boot.ai.flow.AiApprovalNodeListener",
+      "ext": "__AI_EXT__",
+      "coordinate": "360,200|360,200",
+      "skipList": [
+        {
+          "nowNodeCode": "ai_pre",
+          "nextNodeCode": "human",
+          "skipName": "通过",
+          "skipType": "PASS",
+          "coordinate": "410,200;500,200"
+        }
+      ]
+    },
+    {
+      "nodeType": 1,
+      "nodeCode": "human",
+      "nodeName": "人工复核",
+      "permissionFlag": "admin",
+      "nodeRatio": "0",
+      "coordinate": "540,200|540,200",
+      "skipList": [
+        {
+          "nowNodeCode": "human",
+          "nextNodeCode": "end",
+          "skipName": "通过",
+          "skipType": "PASS",
+          "coordinate": "590,200;680,200"
+        }
+      ]
+    },
+    {
+      "nodeType": 2,
+      "nodeCode": "end",
+      "nodeName": "结束",
+      "coordinate": "720,200|720,200",
+      "skipList": []
+    }
+  ]
+}

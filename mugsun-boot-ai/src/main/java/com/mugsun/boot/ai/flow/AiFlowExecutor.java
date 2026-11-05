@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mugsun.boot.ai.entity.*;
 import com.mugsun.boot.ai.mapper.AiAppNodeRunMapper;
@@ -29,9 +30,16 @@ import java.sql.ResultSetMetaData;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
- * 工作流执行器：对齐手册 15 节点（start/end/switch/llm/rag/question/extract/optimize/db/http/code/text/updateVar/mcp/notice）。
+ * 工作流执行器：对齐手册节点
+ * （start/end/switch/llm/rag/question/extract/optimize/db/http/code/text/updateVar/mcp/notice/foreach/parallel）。
  */
 @Component
 public class AiFlowExecutor {
@@ -137,7 +145,7 @@ public class AiFlowExecutor {
 					break;
 				}
 				String type = nodeType(node);
-				ObjectNode nodeOut = execNode(run.getId(), node, type, vars, app);
+				ObjectNode nodeOut = execNode(run.getId(), node, type, vars, app, byId, null, run.getTenantId());
 				output = nodeOut.path("output").asText(output);
 				if ("end".equalsIgnoreCase(type)) {
 					break;
@@ -152,10 +160,14 @@ public class AiFlowExecutor {
 			}
 			run.setStatus("success");
 			run.setOutputJson(objectMapper.writeValueAsString(Map.of("output", output, "vars", vars)));
+		} catch (AiFlowNodeException e) {
+			run.setStatus("failed");
+			run.setErrorCode(e.getErrorCode());
+			run.setErrorMsg(trimMsg(e.getMessage()));
 		} catch (Exception e) {
 			run.setStatus("failed");
-			run.setErrorCode("EXECUTE_ERROR");
-			run.setErrorMsg(e.getMessage());
+			run.setErrorCode(AiFlowControlConstants.ERR_EXECUTE);
+			run.setErrorMsg(trimMsg(e.getMessage()));
 		}
 		run.setDurationMs(System.currentTimeMillis() - t0);
 		run.sanitizeForUpdate();
@@ -165,16 +177,18 @@ public class AiFlowExecutor {
 		resp.put("status", run.getStatus());
 		resp.put("output", output);
 		resp.put("vars", vars);
+		resp.put("errorCode", run.getErrorCode());
 		resp.put("errorMsg", run.getErrorMsg());
 		return resp;
 	}
 
-	private ObjectNode execNode(Long runId, JsonNode node, String type, Map<String, Object> vars, AiApp app) throws Exception {
+	private ObjectNode execNode(Long runId, JsonNode node, String type, Map<String, Object> vars, AiApp app,
+								Map<String, JsonNode> byId, String nodeIdOverride, String tenantId) throws Exception {
 		long t0 = System.currentTimeMillis();
 		AiAppNodeRun nr = new AiAppNodeRun();
 		nr.sanitizeForInsert();
 		nr.setRunId(runId);
-		nr.setNodeId(node.path("id").asText());
+		nr.setNodeId(nodeIdOverride != null ? nodeIdOverride : node.path("id").asText());
 		nr.setNodeType(type);
 		nr.setNodeName(node.path("data").path("label").asText(type));
 		nr.setInputJson(objectMapper.writeValueAsString(vars));
@@ -277,7 +291,6 @@ public class AiFlowExecutor {
 						throw new ServiceException("db 节点请配置 datasourceId");
 					}
 					AiDatasource ds = datasourceBizService.requireRaw(dsId);
-					// 数据源表白名单；节点 data.tableWhitelist 可再收窄
 					Set<String> allowed = SqlTableGate.parseWhitelist(ds.getTableWhitelist());
 					Set<String> nodeWl = SqlTableGate.parseWhitelist(data.path("tableWhitelist").asText(""));
 					if (!nodeWl.isEmpty()) {
@@ -340,7 +353,6 @@ public class AiFlowExecutor {
 					bindOut(vars, data, output);
 				}
 				case "code" -> {
-					// GraalJS 默认关闭：返回入参镜像，避免任意代码执行
 					boolean enabled = data.path("enabled").asBoolean(false);
 					if (!enabled) {
 						output = "{\"ok\":false,\"message\":\"code 节点默认关闭，需角色白名单开启\"}";
@@ -420,6 +432,14 @@ public class AiFlowExecutor {
 						output = String.valueOf(vars.getOrDefault("output", vars.getOrDefault("input", "")));
 					}
 				}
+				case "foreach" -> {
+					execForeach(runId, node, data, vars, app, byId, tenantId, out);
+					output = out.path("output").asText("");
+				}
+				case "parallel" -> {
+					execParallel(runId, node, data, vars, app, byId, tenantId, out);
+					output = out.path("output").asText("");
+				}
 				default -> output = "";
 			}
 			vars.put("output", output);
@@ -428,9 +448,12 @@ public class AiFlowExecutor {
 			nr.setOutputJson(out.toString());
 		} catch (Exception e) {
 			nr.setStatus("failed");
-			nr.setErrorMsg(e.getMessage());
+			nr.setErrorMsg(trimMsg(e.getMessage()));
 			out.put("output", "");
 			out.put("error", e.getMessage() == null ? "" : e.getMessage());
+			if (e instanceof AiFlowNodeException afe) {
+				out.put("errorCode", afe.getErrorCode());
+			}
 			throw e;
 		} finally {
 			nr.setDurationMs(System.currentTimeMillis() - t0);
@@ -438,6 +461,432 @@ public class AiFlowExecutor {
 			nodeRunMapper.update(nr);
 		}
 		return out;
+	}
+
+	private void execForeach(Long runId, JsonNode node, JsonNode data, Map<String, Object> vars, AiApp app,
+							 Map<String, JsonNode> byId, String tenantId, ObjectNode out) throws Exception {
+		String parentId = node.path("id").asText("foreach");
+		String inputPath = data.path("inputPath").asText("");
+		if (inputPath.isBlank()) {
+			throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_INPUT_NOT_ARRAY, "foreach 缺少 inputPath");
+		}
+		List<Object> items = resolveArray(vars, inputPath);
+		if (items == null) {
+			throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_INPUT_NOT_ARRAY,
+				"foreach 输入不是数组: " + inputPath);
+		}
+		List<String> bodyIds = readBodyNodeIds(data);
+		if (bodyIds.isEmpty()) {
+			throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_BODY_INVALID, "foreach bodyNodeIds 不能为空");
+		}
+		assertBodyNoNest(bodyIds, byId, AiFlowControlConstants.ERR_FOREACH_BODY_INVALID);
+
+		int maxIter = AiFlowControlConstants.clampMaxIterations(data.path("maxIterations").asInt(0));
+		long timeoutMs = AiFlowControlConstants.clampTimeoutMs(data.path("timeoutMs").asLong(0));
+		long deadline = System.currentTimeMillis() + timeoutMs;
+		String itemVar = data.path("itemVar").asText("item");
+		if (itemVar.isBlank()) {
+			itemVar = "item";
+		}
+		String indexVar = data.path("indexVar").asText("index");
+		if (indexVar.isBlank()) {
+			indexVar = "index";
+		}
+		String aggregate = data.path("aggregate").asText(AiFlowControlConstants.AGG_ARRAY).toLowerCase(Locale.ROOT);
+		String outputVar = data.path("outputVar").asText("foreachResults");
+		if (outputVar.isBlank()) {
+			outputVar = "foreachResults";
+		}
+		String onFail = data.path("onItemFailure").asText(AiFlowControlConstants.ON_FAIL_CONTINUE).toLowerCase(Locale.ROOT);
+		boolean abort = AiFlowControlConstants.ON_FAIL_ABORT.equals(onFail);
+
+		boolean truncated = items.size() > maxIter;
+		int ran = Math.min(items.size(), maxIter);
+		List<Object> collected = new ArrayList<>();
+		ArrayNode iterations = objectMapper.createArrayNode();
+		String lastOutput = "";
+
+		for (int i = 0; i < ran; i++) {
+			if (System.currentTimeMillis() > deadline) {
+				throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_TIMEOUT, "foreach 执行超时");
+			}
+			Object item = items.get(i);
+			vars.put(itemVar, item);
+			vars.put(indexVar, i);
+			ObjectNode iter = objectMapper.createObjectNode();
+			iter.put("index", i);
+			ArrayNode steps = objectMapper.createArrayNode();
+			long it0 = System.currentTimeMillis();
+			try {
+				String roundOut = runBodyChain(runId, bodyIds, byId, vars, app, parentId, String.valueOf(i),
+					deadline, tenantId, steps, AiFlowControlConstants.ERR_FOREACH_TIMEOUT);
+				lastOutput = roundOut == null ? "" : roundOut;
+				iter.put("status", "success");
+				iter.put("output", lastOutput);
+				if (AiFlowControlConstants.AGG_ARRAY.equals(aggregate)) {
+					collected.add(lastOutput);
+				}
+			} catch (AiFlowNodeException | ServiceException ex) {
+				String code = ex instanceof AiFlowNodeException afe ? afe.getErrorCode()
+					: AiFlowControlConstants.ERR_FOREACH_ITEM_ERROR;
+				iter.put("status", "failed");
+				iter.put("errorCode", code);
+				iter.put("errorMsg", trimMsg(ex.getMessage()));
+				iter.put("output", "");
+				if (abort) {
+					iter.put("durationMs", System.currentTimeMillis() - it0);
+					iter.set("steps", steps);
+					iterations.add(iter);
+					out.set("iterations", iterations);
+					out.put("inputCount", items.size());
+					out.put("ranCount", i + 1);
+					out.put("truncated", truncated);
+					throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_ITEM_ERROR,
+						trimMsg(ex.getMessage()), ex);
+				}
+			} catch (Exception ex) {
+				iter.put("status", "failed");
+				iter.put("errorCode", AiFlowControlConstants.ERR_FOREACH_ITEM_ERROR);
+				iter.put("errorMsg", trimMsg(ex.getMessage()));
+				iter.put("output", "");
+				if (abort) {
+					iter.put("durationMs", System.currentTimeMillis() - it0);
+					iter.set("steps", steps);
+					iterations.add(iter);
+					throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_ITEM_ERROR,
+						trimMsg(ex.getMessage()), ex);
+				}
+			}
+			iter.put("durationMs", System.currentTimeMillis() - it0);
+			iter.set("steps", steps);
+			iterations.add(iter);
+		}
+
+		Object aggVal;
+		String output;
+		if (AiFlowControlConstants.AGG_NONE.equals(aggregate)) {
+			aggVal = null;
+			output = lastOutput;
+		} else if (AiFlowControlConstants.AGG_LAST.equals(aggregate)) {
+			aggVal = lastOutput;
+			output = lastOutput;
+			vars.put(outputVar, lastOutput);
+		} else {
+			aggVal = collected;
+			output = objectMapper.writeValueAsString(collected);
+			vars.put(outputVar, collected);
+		}
+		out.put("aggregate", aggregate);
+		out.put("inputCount", items.size());
+		out.put("ranCount", ran);
+		out.put("truncated", truncated);
+		out.set("iterations", iterations);
+		out.put("output", output);
+		if (aggVal != null && !AiFlowControlConstants.AGG_LAST.equals(aggregate)) {
+			// already in vars
+		}
+	}
+
+	private void execParallel(Long runId, JsonNode node, JsonNode data, Map<String, Object> vars, AiApp app,
+							  Map<String, JsonNode> byId, String tenantId, ObjectNode out) throws Exception {
+		String parentId = node.path("id").asText("parallel");
+		JsonNode branchesNode = data.path("branches");
+		if (!branchesNode.isArray()) {
+			throw new AiFlowNodeException(AiFlowControlConstants.ERR_PARALLEL_BRANCH_INVALID, "parallel 缺少 branches");
+		}
+		int maxBranches = AiFlowControlConstants.clampMaxBranches(data.path("maxBranches").asInt(0));
+		if (branchesNode.size() < 2) {
+			throw new AiFlowNodeException(AiFlowControlConstants.ERR_PARALLEL_BRANCH_INVALID, "parallel 至少 2 个分支");
+		}
+		if (branchesNode.size() > maxBranches) {
+			throw new AiFlowNodeException(AiFlowControlConstants.ERR_PARALLEL_BRANCH_INVALID,
+				"parallel 分支数超过上限 " + maxBranches);
+		}
+		long timeoutMs = AiFlowControlConstants.clampTimeoutMs(data.path("timeoutMs").asLong(0));
+		long deadline = System.currentTimeMillis() + timeoutMs;
+		String tenant = tenantId == null || tenantId.isBlank() ? TenantContext.current() : tenantId;
+
+		record BranchJob(String id, String label, List<String> bodyIds, String outputVar) {
+		}
+		List<BranchJob> jobs = new ArrayList<>();
+		for (JsonNode b : branchesNode) {
+			String id = b.path("id").asText("");
+			if (id.isBlank()) {
+				throw new AiFlowNodeException(AiFlowControlConstants.ERR_PARALLEL_BRANCH_INVALID, "branch.id 不能为空");
+			}
+			List<String> bodyIds = readBodyNodeIds(b);
+			if (bodyIds.isEmpty()) {
+				bodyIds = readBodyNodeIds(b.path("data"));
+			}
+			if (bodyIds.isEmpty()) {
+				throw new AiFlowNodeException(AiFlowControlConstants.ERR_PARALLEL_BRANCH_INVALID,
+					"branch bodyNodeIds 不能为空: " + id);
+			}
+			assertBodyNoNest(bodyIds, byId, AiFlowControlConstants.ERR_PARALLEL_BRANCH_INVALID);
+			String ov = b.path("outputVar").asText("branch_" + id);
+			if (ov.isBlank()) {
+				ov = "branch_" + id;
+			}
+			jobs.add(new BranchJob(id, b.path("label").asText(id), bodyIds, ov));
+		}
+
+		ExecutorService es = Executors.newFixedThreadPool(Math.min(jobs.size(), maxBranches), r -> {
+			Thread t = new Thread(r, "ai-flow-parallel");
+			t.setDaemon(true);
+			return t;
+		});
+		Map<String, Object> snapshot = new HashMap<>(vars);
+		List<Future<ObjectNode>> futures = new ArrayList<>();
+		try {
+			for (BranchJob job : jobs) {
+				futures.add(es.submit(() -> TenantContext.execute(tenant, () -> {
+					ObjectNode branchOut = objectMapper.createObjectNode();
+					branchOut.put("id", job.id());
+					ArrayNode steps = objectMapper.createArrayNode();
+					long b0 = System.currentTimeMillis();
+					Map<String, Object> branchVars = new HashMap<>(snapshot);
+					try {
+						if (System.currentTimeMillis() > deadline) {
+							throw new AiFlowNodeException(AiFlowControlConstants.ERR_PARALLEL_TIMEOUT, "parallel 分支超时");
+						}
+						String bout = runBodyChain(runId, job.bodyIds(), byId, branchVars, app, parentId, job.id(),
+							deadline, tenant, steps, AiFlowControlConstants.ERR_PARALLEL_TIMEOUT);
+						branchOut.put("status", "success");
+						branchOut.put("output", bout == null ? "" : bout);
+						branchOut.put("outputVar", job.outputVar());
+					} catch (Exception ex) {
+						String code = ex instanceof AiFlowNodeException afe ? afe.getErrorCode()
+							: AiFlowControlConstants.ERR_PARALLEL_BRANCH_FAILED;
+						branchOut.put("status", "failed");
+						branchOut.put("errorCode", code);
+						branchOut.put("errorMsg", trimMsg(ex.getMessage()));
+						branchOut.put("output", "");
+						branchOut.put("outputVar", job.outputVar());
+					}
+					branchOut.put("durationMs", System.currentTimeMillis() - b0);
+					branchOut.set("steps", steps);
+					return branchOut;
+				})));
+			}
+
+			ArrayNode branchesOut = objectMapper.createArrayNode();
+			ObjectNode parallelResults = objectMapper.createObjectNode();
+			boolean partial = false;
+			long remain = Math.max(1L, deadline - System.currentTimeMillis());
+			for (int i = 0; i < futures.size(); i++) {
+				Future<ObjectNode> f = futures.get(i);
+				BranchJob job = jobs.get(i);
+				ObjectNode branchOut;
+				try {
+					remain = Math.max(1L, deadline - System.currentTimeMillis());
+					branchOut = f.get(remain, TimeUnit.MILLISECONDS);
+				} catch (TimeoutException te) {
+					f.cancel(true);
+					partial = true;
+					branchOut = objectMapper.createObjectNode();
+					branchOut.put("id", job.id());
+					branchOut.put("status", "timeout");
+					branchOut.put("errorCode", AiFlowControlConstants.ERR_PARALLEL_TIMEOUT);
+					branchOut.put("errorMsg", "parallel 分支超时");
+					branchOut.put("output", "");
+					branchOut.put("durationMs", timeoutMs);
+					branchOut.set("steps", objectMapper.createArrayNode());
+				} catch (ExecutionException ee) {
+					partial = true;
+					Throwable c = ee.getCause() == null ? ee : ee.getCause();
+					branchOut = objectMapper.createObjectNode();
+					branchOut.put("id", job.id());
+					branchOut.put("status", "failed");
+					branchOut.put("errorCode", AiFlowControlConstants.ERR_PARALLEL_BRANCH_FAILED);
+					branchOut.put("errorMsg", trimMsg(c.getMessage()));
+					branchOut.put("output", "");
+					branchOut.set("steps", objectMapper.createArrayNode());
+				}
+				if (!"success".equals(branchOut.path("status").asText())) {
+					partial = true;
+				} else {
+					vars.put(job.outputVar(), branchOut.path("output").asText(""));
+				}
+				branchesOut.add(branchOut);
+				ObjectNode pr = objectMapper.createObjectNode();
+				pr.put("status", branchOut.path("status").asText());
+				pr.put("output", branchOut.path("output").asText(""));
+				if (branchOut.hasNonNull("errorCode")) {
+					pr.put("errorCode", branchOut.path("errorCode").asText());
+				}
+				if (branchOut.hasNonNull("errorMsg")) {
+					pr.put("errorMsg", branchOut.path("errorMsg").asText());
+				}
+				pr.put("durationMs", branchOut.path("durationMs").asLong(0));
+				parallelResults.set(job.id(), pr);
+			}
+
+			// 若整节点墙钟已过且仍有未完成，升为节点超时
+			boolean anyTimeout = false;
+			for (JsonNode b : branchesOut) {
+				if ("timeout".equals(b.path("status").asText())) {
+					anyTimeout = true;
+					break;
+				}
+			}
+			if (anyTimeout && System.currentTimeMillis() > deadline) {
+				out.set("branches", branchesOut);
+				out.set("parallelResults", parallelResults);
+				out.put("partial", true);
+				throw new AiFlowNodeException(AiFlowControlConstants.ERR_PARALLEL_TIMEOUT, "parallel 执行超时");
+			}
+
+			Map<String, Object> prMap = objectMapper.convertValue(parallelResults, Map.class);
+			vars.put("parallelResults", prMap);
+			String output = parallelResults.toString();
+			out.set("branches", branchesOut);
+			out.set("parallelResults", parallelResults);
+			out.put("partial", partial);
+			out.put("output", output);
+		} finally {
+			es.shutdownNow();
+		}
+	}
+
+	private String runBodyChain(Long runId, List<String> bodyIds, Map<String, JsonNode> byId,
+								Map<String, Object> vars, AiApp app, String parentId, String mid,
+								long deadlineMs, String tenantId, ArrayNode stepsOut, String timeoutErr) throws Exception {
+		String output = "";
+		int steps = 0;
+		String to = timeoutErr == null ? AiFlowControlConstants.ERR_FOREACH_TIMEOUT : timeoutErr;
+		for (String id : bodyIds) {
+			if (System.currentTimeMillis() > deadlineMs) {
+				throw new AiFlowNodeException(to, "body 执行超时");
+			}
+			if (++steps > AiFlowControlConstants.FOREACH_BODY_STEPS_HARD) {
+				throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_BODY_INVALID,
+					"单轮 body 步数超过 " + AiFlowControlConstants.FOREACH_BODY_STEPS_HARD);
+			}
+			JsonNode bodyNode = byId.get(id);
+			if (bodyNode == null) {
+				throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_BODY_INVALID, "body 节点不存在: " + id);
+			}
+			String type = nodeType(bodyNode);
+			String tl = type == null ? "" : type.toLowerCase(Locale.ROOT);
+			if (AiFlowControlConstants.TYPE_FOREACH.equals(tl) || AiFlowControlConstants.TYPE_PARALLEL.equals(tl)) {
+				throw new AiFlowNodeException(AiFlowControlConstants.ERR_FOREACH_BODY_INVALID,
+					"P0 禁止嵌套 foreach/parallel: " + id);
+			}
+			String synId = AiFlowControlConstants.syntheticNodeId(parentId, mid, id);
+			long s0 = System.currentTimeMillis();
+			ObjectNode stepMeta = objectMapper.createObjectNode();
+			stepMeta.put("nodeId", id);
+			stepMeta.put("nodeType", type);
+			try {
+				ObjectNode bout = execNode(runId, bodyNode, type, vars, app, byId, synId, tenantId);
+				output = bout.path("output").asText(output);
+				stepMeta.put("status", "success");
+				stepMeta.putNull("errorMsg");
+			} catch (Exception ex) {
+				stepMeta.put("status", "failed");
+				stepMeta.put("errorMsg", trimMsg(ex.getMessage()));
+				stepMeta.put("durationMs", System.currentTimeMillis() - s0);
+				stepsOut.add(stepMeta);
+				throw ex;
+			}
+			stepMeta.put("durationMs", System.currentTimeMillis() - s0);
+			stepsOut.add(stepMeta);
+		}
+		return output;
+	}
+
+	private void assertBodyNoNest(List<String> bodyIds, Map<String, JsonNode> byId, String errCode) {
+		for (String id : bodyIds) {
+			JsonNode n = byId.get(id);
+			if (n == null) {
+				throw new AiFlowNodeException(errCode, "body 节点不存在: " + id);
+			}
+			String tl = nodeType(n).toLowerCase(Locale.ROOT);
+			if (AiFlowControlConstants.TYPE_FOREACH.equals(tl) || AiFlowControlConstants.TYPE_PARALLEL.equals(tl)) {
+				throw new AiFlowNodeException(errCode, "P0 禁止嵌套 foreach/parallel: " + id);
+			}
+		}
+	}
+
+	private List<String> readBodyNodeIds(JsonNode data) {
+		List<String> ids = new ArrayList<>();
+		if (data == null || data.isMissingNode() || data.isNull()) {
+			return ids;
+		}
+		JsonNode arr = data.path("bodyNodeIds");
+		if (arr.isArray()) {
+			for (JsonNode n : arr) {
+				String id = n.asText("").trim();
+				if (!id.isEmpty()) {
+					ids.add(id);
+				}
+			}
+		}
+		return ids;
+	}
+
+	@SuppressWarnings("unchecked")
+	private List<Object> resolveArray(Map<String, Object> vars, String inputPath) {
+		Object raw = resolvePath(vars, inputPath);
+		if (raw == null) {
+			return null;
+		}
+		if (raw instanceof List<?> list) {
+			return new ArrayList<>(list);
+		}
+		if (raw instanceof Object[] arr) {
+			return new ArrayList<>(Arrays.asList(arr));
+		}
+		if (raw instanceof JsonNode jn) {
+			if (jn.isArray()) {
+				List<Object> out = new ArrayList<>();
+				jn.forEach(x -> out.add(x.isValueNode() ? (x.isNumber() ? x.numberValue() : x.asText()) : x));
+				return out;
+			}
+			return null;
+		}
+		if (raw instanceof String s) {
+			String t = s.trim();
+			if (t.startsWith("[")) {
+				try {
+					JsonNode n = objectMapper.readTree(t);
+					if (n.isArray()) {
+						List<Object> out = new ArrayList<>();
+						n.forEach(x -> out.add(x.isValueNode() ? (x.isNumber() ? x.numberValue() : x.asText()) : x.toString()));
+						return out;
+					}
+				} catch (Exception ignored) {
+					return null;
+				}
+			}
+			return null;
+		}
+		return null;
+	}
+
+	@SuppressWarnings("unchecked")
+	private Object resolvePath(Map<String, Object> vars, String path) {
+		if (path == null || path.isBlank()) {
+			return null;
+		}
+		String[] parts = path.split("\\.");
+		Object cur = vars;
+		for (String p : parts) {
+			if (cur == null) {
+				return null;
+			}
+			if (cur instanceof Map<?, ?> m) {
+				cur = m.get(p);
+			} else if (cur instanceof JsonNode jn) {
+				cur = jn.get(p);
+				if (cur != null && ((JsonNode) cur).isMissingNode()) {
+					return null;
+				}
+			} else {
+				return null;
+			}
+		}
+		return cur;
 	}
 
 	private AiModel resolveModel(JsonNode data, AiApp app) {
@@ -525,5 +974,13 @@ public class AiFlowExecutor {
 			s = s.replace("{{global." + e.getKey() + "}}", String.valueOf(e.getValue()));
 		}
 		return s;
+	}
+
+	private static String trimMsg(String m) {
+		if (m == null) {
+			return "";
+		}
+		String t = m.trim();
+		return t.length() > 200 ? t.substring(0, 200) : t;
 	}
 }
