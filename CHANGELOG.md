@@ -24,6 +24,10 @@
 
 ### 修复
 
+- 修 tika-parsers 污染 x-file-storage 探测致埋点上传 500
+  - ContentTypeDetect 固定 MimeTypes，不加载 parsers Detector SPI
+  - 知识库 AutoDetectParser 抽文不变；Track gzip 落储不再 ArchiveException
+
 - 修 TrackAskApiTest 子类 @Import 另起上下文撞 warm-flow（CI loginAdmin 500）
   - 可控 LLM 网关改挂 AbstractIntegrationTest 共享 @Import
   - 与 MultipartResolverRecorder 同 key，避免 Redis 被销毁污染
