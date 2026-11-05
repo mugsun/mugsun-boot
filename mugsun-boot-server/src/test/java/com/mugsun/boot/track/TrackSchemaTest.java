@@ -46,6 +46,12 @@ class TrackSchemaTest extends AbstractTrackIntegrationTest {
 				+ " AND table_name IN ('track_event', 'track_app')"
 				+ " AND column_name IN ('geo_lon', 'geo_lat', 'geo_enabled')"));
 		assertThat(geoCols.getLong("c")).as("G106 三列：geo_lon/geo_lat/geo_enabled").isEqualTo(3L);
+
+		assertThat(names).as("错误问题单表").contains("track_error_issue");
+		Row issueMig = DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.selectOneBySql(
+			"SELECT count(*) AS c FROM flyway_schema_history WHERE script = ? AND success",
+			"T5__track_error_issue.sql"));
+		assertThat(issueMig.getLong("c")).as("T5 错误问题单迁移应成功").isEqualTo(1L);
 	}
 
 	/** ② track_event 插入落到正确月分区（tableoid 反证实际落点） */
@@ -108,6 +114,12 @@ class TrackSchemaTest extends AbstractTrackIntegrationTest {
 				+ " AND permission IN (?, ?, ?)",
 			TrackConstants.PERM_APP_ADD, TrackConstants.PERM_APP_EDIT, TrackConstants.PERM_REPLAY_VIEW);
 		assertThat(buttons.getLong("c")).as("业务库应有 3 条 track 按钮权限种子").isEqualTo(3L);
+
+		Row issueEdit = Db.selectOneBySql(
+			"SELECT count(*) AS c FROM sys_menu WHERE is_deleted = 0"
+				+ " AND permission = ?",
+			TrackConstants.PERM_ERROR_ISSUE_EDIT);
+		assertThat(issueEdit.getLong("c")).as("V18 错误问题单写权种子").isEqualTo(1L);
 	}
 
 	/** ⑤ 主库无 track_* 表（物理隔离反证：埋点表只存在于 mugsun_track 库） */

@@ -10,3 +10,5 @@
 | `T4__track_event_timeline_index_partitions`（Java，`db.track.migration` 包） | 非事务迁移，**启动期不同步建大分区索引**：只给空分区 `CREATE INDEX CONCURRENTLY` → 校验 `indisvalid` → `ATTACH PARTITION`；非空存量分区跳过，交给 `TrackTimelineIndexBackfillJob` 低峰期后台补（`mugsun.track.timeline-index.backfill-enabled`）。永不抛异常，只记 WARN |
 
 **连接要求**：T4、后台补建、`TrackPartitionJob` 共用会话级 `pg_advisory_lock(hashtext('track_timeline_index'))`，埋点 Flyway 也用会话级锁（`postgresql.transactional.lock=false`，`lockRetryCount=600`）。埋点库连接须直连 PG 或走 PgBouncer **session** 模式，**不支持 PgBouncer transaction pooling**。
+| `T5__track_error_issue.sql` | 错误问题单表 `track_error_issue`（指纹聚合/指派/解决/复发） |
+

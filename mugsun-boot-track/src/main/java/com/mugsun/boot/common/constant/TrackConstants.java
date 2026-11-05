@@ -22,6 +22,8 @@ public interface TrackConstants {
 	String PERM_PERF_LIST = "sys:track-perf:list";
 	/** 权限码：错误监控查询 */
 	String PERM_ERROR_LIST = "sys:track-error:list";
+	/** 权限码：错误问题单写（指派/解决/重开） */
+	String PERM_ERROR_ISSUE_EDIT = "sys:track-error-issue:edit";
 	/** 权限码：埋点接入应用查询 */
 	String PERM_APP_LIST = "sys:track-app:list";
 	/** 权限码：埋点接入应用新增 */
@@ -378,6 +380,26 @@ public interface TrackConstants {
 	String METRIC_REPLAY_RECEIVED = "track.replay.received";
 	/** 指标：回放块幂等命中丢弃数（同 session+seq 重发） */
 	String METRIC_REPLAY_DUPLICATED = "track.replay.duplicated";
+
+
+	/* ==================== 错误问题单（指纹聚合工作流） ==================== */
+
+	/** 问题单状态：打开（未指派） */
+	String ERROR_ISSUE_STATUS_OPEN = "OPEN";
+	/** 问题单状态：已指派 */
+	String ERROR_ISSUE_STATUS_ASSIGNED = "ASSIGNED";
+	/** 问题单状态：已解决 */
+	String ERROR_ISSUE_STATUS_RESOLVED = "RESOLVED";
+	/** 相对筛 release：本版本新增（first_release = 筛值） */
+	String ERROR_ISSUE_FLAG_NEW = "NEW";
+	/** 相对筛 release：本版本复发（regressed 且 last_release = 筛值） */
+	String ERROR_ISSUE_FLAG_REGRESSED = "REGRESSED";
+	/** 相对筛 release：持续出现（命中筛值但非 NEW/REGRESSED） */
+	String ERROR_ISSUE_FLAG_ONGOING = "ONGOING";
+	/** 问题单标题（最近错误消息）长度上限 */
+	int ERROR_ISSUE_TITLE_MAX_LEN = 512;
+	/** props 热点键：发布版本号（与 sourcemap release / 错误明细对齐） */
+	String PROP_RELEASE = "release";
 
 	/* ==================== G101：错误监控增强（sourcemap 堆栈还原支撑 + 错误告警） ==================== */
 

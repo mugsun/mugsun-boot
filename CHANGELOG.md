@@ -22,6 +22,16 @@
 
 ### 新增
 
+- 埋点错误问题单 API `/system/track/error-issues`（指纹聚合工作流）
+  - T5 `track_error_issue`：状态 OPEN/ASSIGNED/RESOLVED，指派/解决/复发
+  - 摄入 `$error` 按 appKey+fingerprint upsert；RESOLVED 再来 →
+    regressed + reopen 并清 resolvedAt
+  - 列表可筛 release/status/assignee/regressedOnly；筛 release 时带
+    releaseFlag（NEW/REGRESSED/ONGOING）
+  - 读权复用 `sys:track-error:list`；写权 `sys:track-error-issue:edit`（V18）
+  - 安全硬拦：page/detail 要 list；assign/resolve/reopen 要 edit；按租户+appKey
+    校验 id（禁仅凭 id）
+
 - GIS `gis_feature.wraps_antimeridian` 生成列与部分 GiST（#76）
   - 判定同 #73：平面包络宽于 180° 且 `ST_ShiftLongitude` 后 ≤180°
     （IMMUTABLE → `GENERATED ALWAYS AS STORED`，免应用侧维护）
