@@ -22,6 +22,14 @@
 
 ### 新增
 
+- 埋点问数据 `POST /system/track/ask`（自然语言只读查自家埋点）
+  - 入口权 `sys:track-ask:list`（V19）；意图二次校验分析读权
+  - 跨租户同「应用不存在」；unsupported 仍 200 引导换问
+  - 数字只编排 TrackAnalysis/Funnel/Retention；LLM 仅抽意图
+  - 失败降级规则解析，禁止半截编造数
+  - `replays`≤5 有错优先；无回放权 → replayDenied；带 appKey
+  - demo 只读白名单放行本 POST；`TrackAskApiTest` 覆盖鉴权/租户
+
 - 埋点错误问题单 API `/system/track/error-issues`（指纹聚合工作流）
   - T5 `track_error_issue`：状态 OPEN/ASSIGNED/RESOLVED，指派/解决/复发
   - 摄入 `$error` 按 appKey+fingerprint upsert；RESOLVED 再来 →

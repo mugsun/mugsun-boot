@@ -724,7 +724,16 @@ public class TrackAnalysisService {
 		return " AND " + (alias == null ? "" : alias + ".") + "tenant_id = ?";
 	}
 
-	/** 应用可见性（Redis 通道无 SQL 租户条件，先显式校验本租户归属；0 行 = 不存在或他租户） */
+	/**
+	 * 问数据等编排入口：应用必须对本租户可见，跨租户与「应用不存在」同口径 400。
+	 */
+	public String requireAppAccessible(String appKey) {
+		String key = assertAppKey(appKey);
+		assertAppVisible(key, currentTenant());
+		return key;
+	}
+
+		/** 应用可见性（Redis 通道无 SQL 租户条件，先显式校验本租户归属；0 行 = 不存在或他租户） */
 	private void assertAppVisible(String appKey, String tenant) {
 		List<Object> args = new ArrayList<>(List.of(appKey));
 		String sql = "SELECT count(*) FROM track_app WHERE app_key = ? AND is_deleted = 0" + tenantFrag(null, tenant, args);

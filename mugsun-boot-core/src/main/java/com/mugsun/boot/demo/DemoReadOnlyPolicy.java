@@ -49,7 +49,9 @@ public final class DemoReadOnlyPolicy {
 	 * 只读查询型 POST。当前代码库没有以 POST 承载的纯查询接口（已逐个核对 298 个写映射），故为空；
 	 * 以后新增时必须在此逐个列出并在测试里说明理由。
 	 */
-	public static final Set<String> READ_ONLY_POST_ALLOWLIST = Set.of();
+	public static final Set<String> READ_ONLY_POST_ALLOWLIST = Set.of(
+		// 埋点问数据：中文提问编排既有分析只读查询，不写库
+		"/system/track/ask");
 
 	/** 任何方法都拒绝的前缀（段感知匹配） */
 	public static final List<String> ALWAYS_BLOCKED_PREFIXES = List.of(

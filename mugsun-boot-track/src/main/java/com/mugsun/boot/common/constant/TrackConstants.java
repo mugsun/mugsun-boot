@@ -509,6 +509,8 @@ public interface TrackConstants {
 	String PERM_FUNNEL_LIST = "sys:track-funnel:list";
 	/** 权限码：留存分析查询 */
 	String PERM_RETENTION_LIST = "sys:track-retention:list";
+	/** 权限码：埋点问数据（自然语言只读查询入口） */
+	String PERM_ASK_LIST = "sys:track-ask:list";
 
 	/** 漏斗查询 days 上限（天；漏斗走明细即席查询，必须限窗——§2「明细下钻限时分区」） */
 	int FUNNEL_DAYS_MAX = 30;
