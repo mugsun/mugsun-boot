@@ -12,6 +12,7 @@ import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -114,6 +115,26 @@ public class AiKnowledgeController {
 	@SaCheckPermission(AiConstants.PERM_KB_ASSET_UPLOAD)
 	public R<AiKnowledgeAsset> upload(@RequestBody AiKnowledgeAsset body) {
 		return R.data(service.uploadAsset(body));
+	}
+
+	/**
+	 * multipart 上传知识库资料（pdf/docx/pptx）。字段：knowledgeId、file，可选分段参数。
+	 * Token 走 Authorization 头，勿放进 query。
+	 */
+	@PostMapping("/asset/upload-file")
+	@SaCheckPermission(AiConstants.PERM_KB_ASSET_UPLOAD)
+	public R<AiKnowledgeAsset> uploadFile(@RequestParam(value = "file", required = false) MultipartFile file,
+										  @RequestParam(required = false) Long knowledgeId,
+										  @RequestParam(required = false) Integer segmentLength,
+										  @RequestParam(required = false) Integer segmentOverlap,
+										  @RequestParam(required = false) String segmentType,
+										  @RequestParam(required = false) String segmentSymbol) {
+		AiKnowledgeAsset saved = service.uploadAssetFile(knowledgeId, file, segmentLength, segmentOverlap,
+			segmentType, segmentSymbol);
+		R<AiKnowledgeAsset> result = R.data(saved);
+		String name = saved.getFileName();
+		result.setMsg("已上传「" + (name == null || name.isBlank() ? "这份资料" : name) + "」。可以在分段列表里查看");
+		return result;
 	}
 
 	@GetMapping("/asset/list")

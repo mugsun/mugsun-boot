@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 知识库资料 Tika 解析：PDF/DOCX/PPTX 抽正文进既有分段
+  - multipart `POST /system/ai/knowledge/asset/upload-file`（20MB 可配）
+  - JSON upload 的 fileUrl 改下载字节后走 Tika，禁当 UTF-8 整串读
+  - 解析失败留 `vectorStatus=failed`+`failReason`，不写假分段
+  - 依赖 `tika-parsers-standard-package`（排除 OCR）；AI 模块约 +30MB
+  - multipart 白名单追加本口；权限仍 `ai:kb-asset:upload`
+
 ### 变更
 
 - ICON_CLICK 每题 seed-warped 网格形变，提示条同 seed（#77）

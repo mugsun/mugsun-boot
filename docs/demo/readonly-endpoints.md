@@ -81,6 +81,7 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/system/ai/knowledge/asset/remove` | AiKnowledgeController#removeAsset | 拒绝 |
 | POST | `/system/ai/knowledge/asset/resegment` | AiKnowledgeController#resegment | 拒绝 |
 | POST | `/system/ai/knowledge/asset/upload` | AiKnowledgeController#upload | 拒绝 |
+| POST | `/system/ai/knowledge/asset/upload-file` | AiKnowledgeController#uploadFile | 拒绝 |
 | POST | `/system/ai/knowledge/copy` | AiKnowledgeController#copy | 拒绝 |
 | POST | `/system/ai/knowledge/hit-test` | AiKnowledgeController#hitTest | 拒绝 |
 | POST | `/system/ai/knowledge/remove` | AiKnowledgeController#remove | 拒绝 |

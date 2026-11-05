@@ -71,7 +71,8 @@ class MultipartAuthFilterTest {
 
 	@ParameterizedTest
 	@ValueSource(strings = {"/system/file/upload", "/auth/avatar/upload", "/system/user/import",
-		"/system/region/import", "/system/track/sourcemap/upload"})
+		"/system/region/import", "/system/track/sourcemap/upload",
+		"/system/ai/knowledge/asset/upload-file"})
 	@DisplayName("白名单路径未带 token：401 + Connection: close，不调用 getInputStream / getParts")
 	void whitelistedWithoutTokenIs401(String path) throws Exception {
 		MockFilterChain chain = new MockFilterChain();

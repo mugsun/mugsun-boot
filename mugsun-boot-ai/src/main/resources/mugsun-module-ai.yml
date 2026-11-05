@@ -4,3 +4,7 @@ mugsun:
     # AI 模块总开关：未设置按开；设置后只认 true/false，空值等其它值启动失败（MUGSUN_AI_ENABLED 同理）。
     # sys_param ai.module.enabled=false 可运行时关闭
     enabled: ${MUGSUN_AI_ENABLED:true}
+
+  # 知识库资料上传（pdf/docx/pptx）；单文件默认 20MB
+  # kb:
+  #   max-upload-bytes: 20971520

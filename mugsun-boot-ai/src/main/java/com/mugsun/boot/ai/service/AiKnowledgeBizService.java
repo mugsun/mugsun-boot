@@ -9,6 +9,9 @@ import com.mugsun.boot.ai.entity.AiModel;
 import com.mugsun.boot.ai.mapper.AiKnowledgeAssetMapper;
 import com.mugsun.boot.ai.mapper.AiKnowledgeMapper;
 import com.mugsun.boot.ai.mapper.AiKnowledgeSegmentMapper;
+import com.mugsun.boot.ai.support.AiDocumentTextExtractor;
+import com.mugsun.boot.ai.support.AiKbDocumentTypes;
+import com.mugsun.boot.ai.support.AiKbProperties;
 import com.mugsun.boot.ai.support.AiKbVectorStore;
 import com.mugsun.boot.ai.support.AiLlmClient;
 import com.mugsun.boot.ai.support.AiRrfFusion;
@@ -18,10 +21,10 @@ import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -43,13 +46,16 @@ public class AiKnowledgeBizService {
 	private final WebClient.Builder webClientBuilder;
 	private final com.mugsun.boot.ai.support.AiOutboundProperties outbound;
 	private final com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients;
+	private final AiDocumentTextExtractor documentTextExtractor;
+	private final AiKbProperties kbProperties;
 
 	public AiKnowledgeBizService(AiModuleService moduleService, AiKnowledgeMapper knowledgeMapper,
 								 AiKnowledgeAssetMapper assetMapper, AiKnowledgeSegmentMapper segmentMapper,
 								 AiModelBizService modelBizService, AiLlmClient llmClient,
 								 AiKbVectorStore vectorStore, WebClient.Builder webClientBuilder,
 								 com.mugsun.boot.ai.support.AiOutboundProperties outbound,
-								 com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients) {
+								 com.mugsun.boot.ai.support.OutboundWebClientFactory outboundWebClients,
+								 AiDocumentTextExtractor documentTextExtractor, AiKbProperties kbProperties) {
 		this.outboundWebClients = outboundWebClients;
 		this.moduleService = moduleService;
 		this.knowledgeMapper = knowledgeMapper;
@@ -60,6 +66,8 @@ public class AiKnowledgeBizService {
 		this.vectorStore = vectorStore;
 		this.webClientBuilder = webClientBuilder;
 		this.outbound = outbound;
+		this.documentTextExtractor = documentTextExtractor;
+		this.kbProperties = kbProperties;
 	}
 
 	private static final java.util.Set<String> MODES = java.util.Set.of("hybrid", "vector", "keyword");
@@ -244,6 +252,9 @@ public class AiKnowledgeBizService {
 
 	public AiKnowledgeAsset uploadAsset(AiKnowledgeAsset body) {
 		moduleService.requireEnabled();
+		if (body == null || body.getKnowledgeId() == null) {
+			throw new ServiceException("请先打开一个知识库再上传资料");
+		}
 		AiKnowledge kb = require(body.getKnowledgeId());
 		body.sanitizeForInsert();
 		body.setTenantId(TenantContext.current());
@@ -253,12 +264,86 @@ public class AiKnowledgeBizService {
 		if (body.getProgress() == null) {
 			body.setProgress(0);
 		}
-		String text = resolveContent(body);
-		if (text == null || text.isBlank()) {
-			throw new ServiceException("请先贴上正文，或填写能打开的文件地址。没有内容就没法分段");
+		ResolvedContent resolved = resolveContent(body);
+		if (!resolved.ok()) {
+			// 仅「有文件地址但解析失败」留 failed 行；纯空提交不插脏数据
+			boolean hadRemote = body.getFileUrl() != null && !body.getFileUrl().isBlank();
+			if (hadRemote) {
+				persistFailedAsset(body, resolved.reason());
+			}
+			throw new ServiceException(resolved.reason());
 		}
+		return ingestSuccess(kb, body, resolved.text());
+	}
+
+	/**
+	 * multipart 上传：校验白名单与大小 → Tika 抽文 → 切段向量；
+	 * 解析失败则留下 {@code vectorStatus=failed} 行（无假分段）并抛错。
+	 */
+	public AiKnowledgeAsset uploadAssetFile(Long knowledgeId, MultipartFile file, Integer segmentLength,
+											Integer segmentOverlap, String segmentType, String segmentSymbol) {
+		moduleService.requireEnabled();
+		if (knowledgeId == null) {
+			throw new ServiceException("请先打开一个知识库再上传资料");
+		}
+		if (file == null || file.isEmpty()) {
+			throw new ServiceException("请选择要上传的文件");
+		}
+		AiKnowledge kb = require(knowledgeId);
+		String filename = file.getOriginalFilename();
+		long max = kbProperties.getMaxUploadBytes();
+		if (file.getSize() > max) {
+			throw new ServiceException("文件超过 " + (max / (1024 * 1024)) + "MB。请压缩或拆分后再上传");
+		}
+		byte[] bytes;
+		try {
+			bytes = file.getBytes();
+		} catch (Exception e) {
+			throw new ServiceException("文件读不出来。请换一个文件再试");
+		}
+		if (bytes.length == 0) {
+			throw new ServiceException("文件是空的。请换一份有正文的资料再上传");
+		}
+		if (bytes.length > max) {
+			throw new ServiceException("文件超过 " + (max / (1024 * 1024)) + "MB。请压缩或拆分后再上传");
+		}
+		int headLen = Math.min(1024, bytes.length);
+		String ext = AiKbDocumentTypes.validate(filename, file.getContentType(), bytes, headLen);
+		AiKnowledgeAsset body = new AiKnowledgeAsset();
+		body.sanitizeForInsert();
+		body.setKnowledgeId(knowledgeId);
+		body.setTenantId(TenantContext.current());
+		body.setFileName(filename == null || filename.isBlank() ? ("document." + ext) : filename.trim());
+		body.setFileSize((long) bytes.length);
+		body.setFileType(ext);
+		body.setSegmentLength(segmentLength);
+		body.setSegmentOverlap(segmentOverlap);
+		body.setSegmentType(segmentType);
+		body.setSegmentSymbol(segmentSymbol);
+		body.setVectorStatus("pending");
+		body.setProgress(0);
+		body.setSegmentCount(0);
+
+		String[] reason = new String[1];
+		String text = documentTextExtractor.extractOrNull(bytes, body.getFileName(), AiKbDocumentTypes.mimeOf(ext), reason);
+		if (text == null || text.isBlank()) {
+			persistFailedAsset(body, reason[0] != null ? reason[0]
+				: "没从文件里抽出正文。可能是扫描件或空文档，当前不支持 OCR");
+			throw new ServiceException(body.getFailReason());
+		}
+		return ingestSuccess(kb, body, text);
+	}
+
+	private AiKnowledgeAsset ingestSuccess(AiKnowledge kb, AiKnowledgeAsset body, String text) {
 		body.setContentText(text);
-		assetMapper.insert(body);
+		body.setFailReason(null);
+		body.setVectorStatus("pending");
+		if (body.getId() == null) {
+			assetMapper.insert(body);
+		} else {
+			body.sanitizeForUpdate();
+			assetMapper.update(body);
+		}
 
 		int len = body.getSegmentLength() == null || body.getSegmentLength() <= 0 ? 500 : body.getSegmentLength();
 		int overlap = body.getSegmentOverlap() == null ? 50 : Math.max(0, body.getSegmentOverlap());
@@ -290,9 +375,35 @@ public class AiKnowledgeBizService {
 		vectorizeSegments(kb, segs);
 		body.setVectorStatus("success");
 		body.setProgress(100);
+		body.setFailReason(null);
 		body.sanitizeForUpdate();
 		assetMapper.update(body);
 		return body;
+	}
+
+	private void persistFailedAsset(AiKnowledgeAsset body, String reason) {
+		String msg = truncateFail(reason == null || reason.isBlank()
+			? "资料处理失败。请换文件或贴正文后再试"
+			: reason);
+		body.setContentText(null);
+		body.setSegmentCount(0);
+		body.setProgress(0);
+		body.setVectorStatus("failed");
+		body.setFailReason(msg);
+		if (body.getId() == null) {
+			assetMapper.insert(body);
+		} else {
+			body.sanitizeForUpdate();
+			assetMapper.update(body);
+		}
+	}
+
+	private static String truncateFail(String reason) {
+		if (reason == null) {
+			return "资料处理失败";
+		}
+		String t = reason.trim();
+		return t.length() <= 500 ? t : t.substring(0, 500);
 	}
 
 	/** 对知识库分段向量化；rebuild=true 时先清向量再全量重建，否则只处理非 success */
@@ -428,10 +539,12 @@ public class AiKnowledgeBizService {
 			vectorStore.deleteBySegment(s.getId());
 			segmentMapper.deleteById(s.getId());
 		}
-		String text = resolveContent(asset);
-		if (text == null || text.isBlank()) {
-			throw new ServiceException("这份资料还没有正文。请重新上传后再分段");
+		ResolvedContent resolved = resolveContent(asset);
+		if (!resolved.ok()) {
+			throw new ServiceException(resolved.reason() != null ? resolved.reason()
+				: "这份资料还没有正文。请重新上传后再分段");
 		}
+		String text = resolved.text();
 		int len = asset.getSegmentLength() == null || asset.getSegmentLength() <= 0 ? 500 : asset.getSegmentLength();
 		int overlap = asset.getSegmentOverlap() == null ? 50 : Math.max(0, asset.getSegmentOverlap());
 		List<String> chunks = chunk(text, len, overlap, asset.getSegmentType(), asset.getSegmentSymbol());
@@ -771,25 +884,106 @@ public class AiKnowledgeBizService {
 		}
 	}
 
-	private String resolveContent(AiKnowledgeAsset body) {
+	/**
+	 * 解析资料正文：{@code contentText} 优先；否则 http(s) {@code fileUrl} 下载字节后走 Tika。
+	 * 不再把二进制当 UTF-8 整串读，也不再用文件名冒充正文。
+	 */
+	private ResolvedContent resolveContent(AiKnowledgeAsset body) {
 		if (body.getContentText() != null && !body.getContentText().isBlank()) {
-			return body.getContentText();
+			return ResolvedContent.ok(body.getContentText());
 		}
 		if (body.getFileUrl() != null && !body.getFileUrl().isBlank()) {
 			String url = body.getFileUrl().trim();
-			if (url.startsWith("http://") || url.startsWith("https://")) {
-				url = outbound.guard(url);
-				try {
-					byte[] bytes = outboundWebClients.create().get().uri(url)
-						.retrieve().bodyToMono(byte[].class).block(Duration.ofSeconds(30));
-					if (bytes != null && bytes.length > 0) {
-						return new String(bytes, StandardCharsets.UTF_8);
-					}
-				} catch (Exception ignored) {
-				}
+			if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+				return ResolvedContent.fail("文件地址请用 http 或 https 开头的链接");
 			}
+			String nameHint = body.getFileName();
+			if (nameHint == null || nameHint.isBlank()) {
+				nameHint = url;
+			}
+			try {
+				AiKbDocumentTypes.requireExt(nameHint);
+			} catch (ServiceException ex) {
+				// URL 路径无白名单后缀时，仍允许后续靠 Content-Type / 魔数；先记下
+			}
+			final String guarded;
+			try {
+				guarded = outbound.guard(url);
+			} catch (ServiceException ex) {
+				return ResolvedContent.fail(ex.getMessage());
+			}
+			byte[] bytes;
+			try {
+				bytes = outboundWebClients.create().get().uri(guarded)
+					.retrieve().bodyToMono(byte[].class).block(Duration.ofSeconds(30));
+			} catch (Exception e) {
+				return ResolvedContent.fail("打不开这个文件地址。请检查链接是否可访问，或改为直接上传文件");
+			}
+			if (bytes == null || bytes.length == 0) {
+				return ResolvedContent.fail("文件地址没有返回内容。请换一个链接或直接上传文件");
+			}
+			long max = kbProperties.getMaxUploadBytes();
+			if (bytes.length > max) {
+				return ResolvedContent.fail("文件超过 " + (max / (1024 * 1024)) + "MB。请压缩或拆分后再上传");
+			}
+			String filename = body.getFileName();
+			if (filename == null || filename.isBlank()) {
+				filename = AiKbDocumentTypes.extOf(url).isEmpty() ? "remote.bin" : ("remote." + AiKbDocumentTypes.extOf(url));
+			}
+			String ext;
+			try {
+				ext = AiKbDocumentTypes.validate(filename, null, bytes, Math.min(1024, bytes.length));
+			} catch (ServiceException ex) {
+				// URL 文件名不可靠时，尝试用魔数猜扩展名
+				ext = guessExtByMagic(bytes);
+				if (ext == null) {
+					return ResolvedContent.fail(ex.getMessage());
+				}
+				if (body.getFileName() == null || body.getFileName().isBlank()) {
+					body.setFileName("remote." + ext);
+				}
+				body.setFileType(ext);
+			}
+			body.setFileSize((long) bytes.length);
+			if (body.getFileType() == null || body.getFileType().isBlank()) {
+				body.setFileType(ext);
+			}
+			String[] reason = new String[1];
+			String text = documentTextExtractor.extractOrNull(bytes, body.getFileName(),
+				AiKbDocumentTypes.mimeOf(ext), reason);
+			if (text == null || text.isBlank()) {
+				return ResolvedContent.fail(reason[0] != null ? reason[0]
+					: "没从文件里抽出正文。可能是扫描件或空文档，当前不支持 OCR");
+			}
+			return ResolvedContent.ok(text);
 		}
-		return body.getFileName();
+		return ResolvedContent.fail("请先贴上正文，或上传 PDF/DOCX/PPTX，或填写能打开的文件地址");
+	}
+
+	private static String guessExtByMagic(byte[] bytes) {
+		int n = Math.min(1024, bytes == null ? 0 : bytes.length);
+		if (AiKbDocumentTypes.magicMatches("pdf", bytes, n)) {
+			return "pdf";
+		}
+		if (AiKbDocumentTypes.magicMatches("docx", bytes, n)) {
+			// zip：无法区分 docx/pptx，拒绝猜测以免错解析
+			return null;
+		}
+		return null;
+	}
+
+	private record ResolvedContent(String text, String reason) {
+		static ResolvedContent ok(String text) {
+			return new ResolvedContent(text, null);
+		}
+
+		static ResolvedContent fail(String reason) {
+			return new ResolvedContent(null, reason);
+		}
+
+		boolean ok() {
+			return text != null && !text.isBlank();
+		}
 	}
 
 	static List<String> chunk(String text, int length, int overlap, String type, String symbol) {

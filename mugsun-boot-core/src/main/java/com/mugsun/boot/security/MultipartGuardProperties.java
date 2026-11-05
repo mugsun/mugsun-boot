@@ -13,7 +13,7 @@ import java.util.List;
  * 新增上传接口时把路径追加到 {@code mugsun.security.multipart.allowed-paths}；启动时 {@link MultipartEndpointAudit}
  * 会对照识别出的 multipart 接口：漏配（接口需要 multipart 但不在白名单）打 WARN，多配（白名单里的路径当前没有
  * 对应接口，例如可选模块未装配）打 INFO。
- * <p>注意：在 yml 里写这个列表是整体替换，要把默认的 5 条一起写上。
+ * <p>注意：在 yml 里写这个列表是整体替换，要把默认的 6 条一起写上。
  * <p>启动校验（{@link #validate}）：空串、不以 / 开头、含 * 、含 .. 、含 ; 、含 { 或 } 的条目一律拒绝启动，
  * 防止误配成通配或无法精确命中的路径。
  */
@@ -21,13 +21,14 @@ import java.util.List;
 @ConfigurationProperties(prefix = "mugsun.security.multipart")
 public class MultipartGuardProperties implements InitializingBean {
 
-	/** 默认 5 个上传接口：附件、头像、用户导入、行政区导入、sourcemap */
+	/** 默认 6 个上传接口：附件、头像、用户导入、行政区导入、sourcemap、知识库资料 */
 	public static final List<String> DEFAULT_ALLOWED_PATHS = List.of(
 		"/system/file/upload",
 		"/auth/avatar/upload",
 		"/system/user/import",
 		"/system/region/import",
-		"/system/track/sourcemap/upload");
+		"/system/track/sourcemap/upload",
+		"/system/ai/knowledge/asset/upload-file");
 
 	private List<String> allowedPaths = new ArrayList<>(DEFAULT_ALLOWED_PATHS);
 
