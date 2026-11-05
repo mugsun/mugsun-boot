@@ -4,7 +4,6 @@ import cn.hutool.core.util.IdUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.common.module.TrackAskIntent;
-import com.mugsun.boot.common.module.TrackAskLlmGateway;
 import com.mybatisflex.core.datasource.DataSourceKey;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
@@ -16,17 +15,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.ResponseEntity;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -36,7 +30,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@Import(TrackAskApiTest.FailingLlmConfig.class)
 class TrackAskApiTest extends AbstractTrackIntegrationTest {
 
 	private static final String APP = "it-track-ask";
@@ -94,13 +87,13 @@ class TrackAskApiTest extends AbstractTrackIntegrationTest {
 			Db.updateBySql("DELETE FROM track_session WHERE app_key IN (?, ?)", APP, APP_B);
 			Db.updateBySql("DELETE FROM track_app WHERE app_key IN (?, ?)", APP, APP_B);
 		});
-		FailingLlm.MODE.set("off");
+		TrackAskTestLlmGateway.MODE.set("off");
 	}
 
 	@Test
 	@Order(1)
 	void overviewQuestionReturnsMetrics() {
-		FailingLlm.MODE.set("off");
+		TrackAskTestLlmGateway.MODE.set("off");
 		JsonNode data = readBodyAssertOk(ask(adminToken, APP, "最近 7 天概览", 7));
 		assertThat(data.path("intent").asText()).isEqualTo("overview");
 		assertThat(data.path("source").asText()).isEqualTo("track-analysis");
@@ -180,7 +173,7 @@ class TrackAskApiTest extends AbstractTrackIntegrationTest {
 	@Test
 	@Order(7)
 	void llmFailureDoesNotFabricateMetrics() {
-		FailingLlm.MODE.set("throw");
+		TrackAskTestLlmGateway.MODE.set("throw");
 		try {
 			JsonNode data = readBodyAssertOk(ask(adminToken, APP, "最近 7 天概览", 7));
 			// 降级规则解析后仍有真数；禁止出现无 source 的假 metrics
@@ -194,16 +187,16 @@ class TrackAskApiTest extends AbstractTrackIntegrationTest {
 			}
 			assertThat(warned).as("应提示模型失败已降级").isTrue();
 		} finally {
-			FailingLlm.MODE.set("off");
+			TrackAskTestLlmGateway.MODE.set("off");
 		}
 
-		FailingLlm.MODE.set("unsupported");
+		TrackAskTestLlmGateway.MODE.set("unsupported");
 		try {
 			JsonNode data = readBodyAssertOk(ask(adminToken, APP, "最近 7 天概览", 7));
 			assertThat(data.path("intent").asText()).isEqualTo("overview");
 			assertThat(data.path("metrics").path("pv").isMissingNode()).isFalse();
 		} finally {
-			FailingLlm.MODE.set("off");
+			TrackAskTestLlmGateway.MODE.set("off");
 		}
 	}
 
@@ -327,27 +320,5 @@ class TrackAskApiTest extends AbstractTrackIntegrationTest {
 			}
 		}
 		throw new IllegalStateException("分页中未找到 " + field + "=" + value);
-	}
-
-	@TestConfiguration
-	static class FailingLlmConfig {
-		@Bean
-		@Primary
-		TrackAskLlmGateway failingTrackAskLlmGateway() {
-			return new FailingLlm();
-		}
-	}
-
-	static final class FailingLlm implements TrackAskLlmGateway {
-		static final AtomicReference<String> MODE = new AtomicReference<>("off");
-
-		@Override
-		public TrackAskIntent extract(String question, Integer daysHint) {
-			return switch (MODE.get()) {
-				case "throw" -> throw new RuntimeException("mock llm timeout");
-				case "unsupported" -> TrackAskIntent.unsupported("mock unsupported");
-				default -> TrackAskIntent.unsupported("llm-off"); // 让服务走规则
-			};
-		}
 	}
 }

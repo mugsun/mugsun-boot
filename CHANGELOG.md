@@ -15,6 +15,10 @@
 
 ### 修复
 
+- 修 TrackAskApiTest 子类 @Import 另起上下文撞 warm-flow（CI loginAdmin 500）
+  - 可控 LLM 网关改挂 AbstractIntegrationTest 共享 @Import
+  - 与 MultipartResolverRecorder 同 key，避免 Redis 被销毁污染
+
 - GIS 包极点面 area/buffer/距离/入库不再误拒或静默丢极冠（#63）
   - 沿环累计经度 ≈ ±360° 判包极点（对齐 GeographicLib PolygonArea）
   - 面积直接 PolygonArea；缓冲/距离用极点原点 AEQD，结果按 RFC 7946 极地切口写出

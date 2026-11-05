@@ -41,9 +41,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>复刻前端真实登录链路（验证码总开关关闭）：取 SM2 公钥 → sm-crypto 同构加密（C1C3C2、无 04 前缀）→ 登录换 token。
  */
 // 启动守卫只对 dev/test/local 放行（DeployProfiles），集成测试显式激活 test
-// multipart 计数包装放在基类：只在子类 @Import 会改上下文缓存 key、多起一个上下文，撞 warm-flow 静态 SpringUtil。
-// 放在这里所有子类 key 一致；包装只委托不改行为（见 MultipartResolverRecorder）
-@Import(com.mugsun.boot.security.MultipartResolverRecorder.class)
+// multipart 计数 / 问数据可控 LLM 放在基类：只在子类 @Import 会改上下文缓存 key、
+// 多起一个上下文，撞 warm-flow 静态 SpringUtil（NoUnique WarmFlowProperties）并污染 Redis。
+// 放在这里所有子类 key 一致；包装/可控网关默认无副作用（见 MultipartResolverRecorder、TrackAskTestLlmGateway）
+@Import({
+	com.mugsun.boot.security.MultipartResolverRecorder.class,
+	com.mugsun.boot.track.TrackAskTestLlmGateway.class
+})
 @ActiveProfiles("test")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 	properties = {
