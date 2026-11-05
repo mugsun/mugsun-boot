@@ -68,12 +68,34 @@ public class AiFlowExecutor {
 	}
 
 	public Map<String, Object> run(AiApp app, Map<String, Object> input) {
+		return run(app, input, null, null);
+	}
+
+	/** @see #run(AiApp, Map, Long, String) */
+	public Map<String, Object> run(AiApp app, Map<String, Object> input, Long userIdOverride) {
+		return run(app, input, userIdOverride, null);
+	}
+
+	/**
+	 * @param userIdOverride 非空时写入 AiAppRun.userId（审批内嵌用流程发起人）；空则取当前登录人
+	 * @param tenantIdOverride 非空时<strong>显式</strong>写入 AiAppRun.tenantId（审批内嵌用实例租户）；
+	 *                        禁止只靠工作线程 ambient {@link TenantContext#current()}
+	 */
+	public Map<String, Object> run(AiApp app, Map<String, Object> input, Long userIdOverride, String tenantIdOverride) {
 		long t0 = System.currentTimeMillis();
 		AiAppRun run = new AiAppRun();
 		run.sanitizeForInsert();
 		run.setAppId(app.getId());
-		run.setTenantId(TenantContext.current());
-		run.setUserId(StpUtil.getLoginIdAsLong());
+		if (tenantIdOverride != null && !tenantIdOverride.isBlank()) {
+			run.setTenantId(tenantIdOverride.trim());
+		} else {
+			run.setTenantId(TenantContext.current());
+		}
+		if (userIdOverride != null) {
+			run.setUserId(userIdOverride);
+		} else {
+			run.setUserId(StpUtil.getLoginIdAsLong());
+		}
 		run.setTraceId(IdUtil.fastSimpleUUID());
 		try {
 			run.setInputJson(objectMapper.writeValueAsString(input));
@@ -142,6 +164,7 @@ public class AiFlowExecutor {
 		resp.put("runId", run.getId());
 		resp.put("status", run.getStatus());
 		resp.put("output", output);
+		resp.put("vars", vars);
 		resp.put("errorMsg", run.getErrorMsg());
 		return resp;
 	}

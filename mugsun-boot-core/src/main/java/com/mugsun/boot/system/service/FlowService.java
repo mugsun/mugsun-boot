@@ -149,13 +149,13 @@ public class FlowService {
 				+ "order by u.id desc", args.toArray());
 	}
 
-	/** 实例历史流转（进度时间线） */
+	/** 实例历史流转（进度时间线）；AI 节点可选附带 aiTrace（优先 his.ext） */
 	public List<Row> history(Long instanceId) {
 		assertInstanceAccess(instanceId);
 		List<Row> rows = Db.selectListBySql(
 			"select node_code as \"nodeCode\", node_name as \"nodeName\", approver as \"approver\", "
 				+ "skip_type as \"skipType\", flow_status as \"flowStatus\", message as \"message\", "
-				+ "create_time as \"createTime\" "
+				+ "create_time as \"createTime\", ext as \"ext\" "
 				+ "from flow_his_task where instance_id = ? and coalesce(del_flag, '0') <> '1' order by id asc", instanceId);
 		for (Row row : rows) {
 			String approver = row.getString("approver");
@@ -165,8 +165,32 @@ public class FlowService {
 					row.set("approver", names.get(0).get("name"));
 				}
 			}
+			Object trace = parseAiTrace(row.getString("ext"));
+			if (trace != null) {
+				row.set("aiTrace", trace);
+			}
+			row.remove("ext");
 		}
 		return rows;
+	}
+
+	/** his.ext 为 AI 摘要 JSON 时挂到 history.aiTrace；否则忽略 */
+	@SuppressWarnings("unchecked")
+	private Object parseAiTrace(String ext) {
+		if (ext == null || ext.isBlank()) {
+			return null;
+		}
+		try {
+			Map<String, Object> m = objectMapper.readValue(ext,
+				new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
+			if (m.containsKey("aiFlowId") || m.containsKey("runId") || m.containsKey("aiTrace")) {
+				Object nested = m.get("aiTrace");
+				return nested instanceof Map ? nested : m;
+			}
+			return null;
+		} catch (Exception e) {
+			return null;
+		}
 	}
 
 	/** 实例可退回的历史审批节点（供“退回指定节点”选择；排除开始/结束/网关） */

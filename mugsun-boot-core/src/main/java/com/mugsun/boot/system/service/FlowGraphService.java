@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 图形流程翻译引擎：把 mugsun 递归节点树（审批/条件分支/并行分支）翻译成 warm-flow 扁平 nodeList+skipList JSON。
+ * 图形流程翻译引擎：把 mugsun 递归节点树（审批/条件/并行/AI 预审）翻译成 warm-flow 扁平 nodeList+skipList JSON。
  * <p>网关为引擎原生：条件分支=排他网关(nodeType 3，取第一条 skipCondition 为真的边)；并行分支=并行网关
  * (nodeType 4，fork 无条件全激活 + join 原生 AND-join)。会签复用节点 nodeRatio(0或签/100会签/1~99票签)。
  * <p>条件组编译为 warm-flow skipCondition：单条件→ {@code op@@field|value}；多条件→ {@code default@@${SpEL}}；
@@ -26,9 +26,12 @@ public class FlowGraphService {
 		this.objectMapper = objectMapper;
 	}
 
-	/** 递归节点：type=approval/condition/parallel；approval 用候选人/比例/表单权限，condition/parallel 用 branches */
+	/** 递归节点：type=approval/condition/parallel/ai；approval 用候选人/比例/表单权限，condition/parallel 用 branches；
+	 * ai 用 aiFlowId(+可选映射/超时/失败策略)，落库 BETWEEN + create 监听器。 */
 	public record TreeNode(String type, String name, List<String> candidates, String role, String nodeRatio,
-						   Map<String, String> fieldPerms, List<Branch> branches, TreeNode childNode) {
+						   Map<String, String> fieldPerms, List<Branch> branches, TreeNode childNode,
+						   Long aiFlowId, Map<String, String> inputMap, Map<String, String> outputMap,
+						   Long timeoutMs, String onFailure) {
 	}
 
 	/** 分支：condition 用 conditions+logic（空条件=默认否则分支）；parallel 分支无条件；childNode 为分支子流程 */
@@ -95,7 +98,8 @@ public class FlowGraphService {
 			case "condition" -> exclusiveGateway(node, nextCode, ctx, nodes);
 			case "parallel" -> parallelGateway(node, nextCode, ctx, nodes);
 			case "approval" -> approval(node, nextCode, ctx, nodes);
-			default -> throw new ServiceException("未知节点类型。请改成审批、条件或并行后再发布");
+			case "ai" -> aiNode(node, nextCode, ctx, nodes);
+			default -> throw new ServiceException("未知节点类型。请改成审批、条件、并行或 AI 预审后再发布");
 		};
 	}
 
@@ -108,6 +112,58 @@ public class FlowGraphService {
 		n.put("nodeRatio", ratio(node.nodeRatio()));
 		if (ctx.hasForm()) {
 			bindForm(n, ctx.formKey, node.fieldPerms());
+		}
+		n.put("skipList", list(skip(code, cont, "通过", null, ctx)));
+		nodes.add(n);
+		return code;
+	}
+
+
+	/** AI 预审节点（nodeType 1 BETWEEN）：create 监听器调已发布 AiFlow；候选人默认 initiator 便于失败 stay 后人工办 */
+	private String aiNode(TreeNode node, String nextCode, Ctx ctx, List<Map<String, Object>> nodes) {
+		if (node.aiFlowId() == null || node.aiFlowId() <= 0) {
+			throw new ServiceException("AI 节点「" + coalesce(node.name(), "未命名") + "」未绑定应用。请选择已发布的 AI 应用后再发布");
+		}
+		String code = ctx.next();
+		String cont = translate(node.childNode(), nextCode, ctx, nodes);
+		Map<String, Object> n = baseNode(1, code, coalesce(node.name(), "AI预审"), ctx);
+		// 失败 stay 时发起人可在待办里看到；成功由监听器 ignore skip
+		n.put("permissionFlag", FlowConstants.PLACEHOLDER_INITIATOR);
+		n.put("nodeRatio", "0");
+		n.put("listenerType", "create");
+		n.put("listenerPath", FlowConstants.AI_APPROVAL_LISTENER);
+		Map<String, Object> ext = new LinkedHashMap<>();
+		ext.put("aiFlowId", node.aiFlowId());
+		if (node.inputMap() != null && !node.inputMap().isEmpty()) {
+			ext.put("inputMap", node.inputMap());
+		}
+		if (node.outputMap() != null && !node.outputMap().isEmpty()) {
+			for (String to : node.outputMap().values()) {
+				if (to == null || to.isBlank()) {
+					continue;
+				}
+				String key = to.trim();
+				if (!isAllowedAiOutputKey(key)) {
+					throw new ServiceException("AI 节点输出映射目标键非法（仅 ai_summary/ai_pass/ai_reason/ai_run_id 或 ai_ext_*）。请改映射后再发布");
+				}
+			}
+			ext.put("outputMap", node.outputMap());
+		}
+		long timeout = node.timeoutMs() == null || node.timeoutMs() <= 0 ? 120_000L : node.timeoutMs();
+		if (timeout > 300_000L) {
+			throw new ServiceException("AI 节点超时须 ≤ 300000 毫秒。请改小后再发布");
+		}
+		ext.put("timeoutMs", timeout);
+		String onFailure = node.onFailure() == null || node.onFailure().isBlank() ? "rejectLast" : node.onFailure().trim();
+		if (!"rejectLast".equals(onFailure) && !"stay".equals(onFailure)
+			&& !onFailure.startsWith("transfer:role:")) {
+			throw new ServiceException("AI 节点失败策略无效。请改成 rejectLast、stay 或 transfer:role:<角色码> 后再发布");
+		}
+		ext.put("onFailure", onFailure);
+		try {
+			n.put("ext", objectMapper.writeValueAsString(ext));
+		} catch (Exception e) {
+			throw new ServiceException("AI 节点配置序列化失败。请重新配置后再发布");
 		}
 		n.put("skipList", list(skip(code, cont, "通过", null, ctx)));
 		nodes.add(n);
@@ -323,6 +379,15 @@ public class FlowGraphService {
 			throw new ServiceException("会签比例须为 0 到 100 的整数。请改成这个范围里的整数后再发布");
 		}
 		return r;
+	}
+
+	/** 与 ai 模块 AiApprovalConstants.isAllowedOutputKey 对齐（core 不依赖 ai） */
+	private static boolean isAllowedAiOutputKey(String key) {
+		if ("ai_summary".equals(key) || "ai_pass".equals(key) || "ai_reason".equals(key) || "ai_run_id".equals(key)) {
+			return true;
+		}
+		return key.startsWith("ai_ext_") && key.length() > "ai_ext_".length()
+			&& key.matches("ai_ext_[A-Za-z0-9_]+");
 	}
 
 	private String coalesce(String v, String fallback) {

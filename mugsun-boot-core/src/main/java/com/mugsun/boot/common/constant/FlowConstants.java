@@ -31,4 +31,16 @@ public interface FlowConstants {
 	String FIELD_PERM_READ = "READ";
 	/** 字段级权限·隐藏（办理时不渲染，不校验不提交；写门控时剔除该字段） */
 	String FIELD_PERM_NONE = "NONE";
+
+	/** AI 预审节点 create 监听器全限定名（设计器 type=ai 落库用；实现位于 ai 模块） */
+	String AI_APPROVAL_LISTENER = "com.mugsun.boot.ai.flow.AiApprovalNodeListener";
+
+	/** AI 节点 ext 中配置根下的标准输出变量 */
+	String AI_VAR_SUMMARY = "ai_summary";
+	String AI_VAR_PASS = "ai_pass";
+	String AI_VAR_REASON = "ai_reason";
+	String AI_VAR_RUN_ID = "ai_run_id";
+	String AI_VAR_ERROR_CODE = "ai_error_code";
+	String AI_VAR_ERROR_MSG = "ai_error_msg";
 }
+

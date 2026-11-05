@@ -7,6 +7,20 @@
 
 ### 新增
 
+- AI×审批流：warm-flow 内嵌 AI 节点（P0）
+  - 设计器 type=`ai` → BETWEEN + create 监听 `AiApprovalNodeListener`
+  - 绑定已发布 AiApp（workflow|chatflow）；变量写回 ai_summary/pass/reason
+  - 硬禁 db/http/mcp/code/**notice**（及 notify/notification/channel/webhook 同义）
+  - 失败码 AI_*；onFailure=rejectLast|stay|transfer
+  - history 可选 `aiTrace`；lab 种子 `ai-preaudit`（随 seed-fronttest）
+  - **安全收紧（相对初版契约）**
+  - 强制 `inputMap`（空/缺省=无输入，不再浅拷贝全量流程变量）
+  - `outputMap` 目标键仅 `ai_summary|ai_pass|ai_reason|ai_run_id` 或 `ai_ext_*`
+  - `timeoutMs` 硬顶 ≤300000；`app.tenantId` 空 fail-closed
+  - 工作线程 `TenantContext.execute(instance.tenantId)`
+  - `AiAppRun.tenantId` 显式写实例租户
+  - `inputSummary` 对 password/token/secret/authorization 等键脱敏
+
 - 埋点空间行为分析 `GET /system/track/spatial`（P0）
   - 权限 `sys:track-spatial:list`（V20）；默认 mode=agg
   - agg 格心 round+count；points 带跳转 id；不回 IP/geo_acc
