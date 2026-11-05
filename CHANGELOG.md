@@ -16,6 +16,11 @@
 
 ### 变更
 
+- full compose 钉升 mugsun-pc 构建 tip（零配置收口）
+  - `4d6d018…` → `8b123c5db7b75fa48c1c2f2d5f2736d911278df1`
+  - 含 npm @mugsun/track-web；仍勿用 additional_contexts.track
+  - 不改 GHCR 默认镜像与 secrets 生成
+
 - ICON_CLICK 每题 seed-warped 网格形变，提示条同 seed（#77）
   - 公开库 PNG 经确定性位移后再贴画布，模板匹配更难
   - `mugsun.captcha.click.seed-warp-strength` 默认 0.14；0=关；钳 [0,0.35]

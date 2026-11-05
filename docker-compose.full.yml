@@ -6,7 +6,7 @@
 #
 # 只需要 Docker（Compose v2.17+）。管理台直接用 mugsun-pc 仓库自己的 Dockerfile 和 nginx 配置构建
 # （nginx-unprivileged 非 root、基础镜像固定 digest、CSP、用 $remote_addr 覆盖 X-Forwarded-For），
-# 源码钉在下面 MUGSUN_PC_SRC 默认 tip sha（可复现，不跟浮动 main；升级时一起改）。
+# 源码钉在下面 MUGSUN_PC_SRC 默认 tip sha（可复现，不跟浮动 main；升级时改 tip+注释）。
 # 默认 tip 登录页为行为验证码弹层（非旧扭曲数字图）；与 boot prod 的 mugsun.captcha 对齐。
 # 钉死的 pc tip 已 npm 依赖 @mugsun/track-web，构建不再需要 additional_contexts.track。
 # 本地已有平级 mugsun-pc 时可改用本地源码：
@@ -121,9 +121,10 @@ services:
     # 直接用 mugsun-pc 仓库的 Dockerfile + docker/nginx（非 root、digest 钉版、CSP、网关 CIDR、
     # XFF 覆盖）。这里不再维护单独的 nginx 配置。源码钉可复现 tip（不跟浮动 main）；
     # pc 镜像里 pnpm 用 --frozen-lockfile。登录页为行为验证码（CaptchaDialog），非旧数字图。
-    # pc tip 4d6d018（含 #19 行为验证码、去掉数字码、CSP #63；npm @mugsun/track-web@0.3.0）。
+    # pc tip 8b123c5（含 KB upload-file；#19 行为验证码/去数字码/CSP #63；
+    # npm @mugsun/track-web@0.3.0，勿再加 additional_contexts.track）。
     build:
-      context: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#4d6d018f09c9687047c3805bb534d151a5f8a4ef}
+      context: ${MUGSUN_PC_SRC:-https://github.com/mugsun/mugsun-pc.git#8b123c5db7b75fa48c1c2f2d5f2736d911278df1}
       dockerfile: Dockerfile
     image: mugsun-full-pc:local
     environment:
