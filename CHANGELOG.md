@@ -7,6 +7,12 @@
 
 ### 新增
 
+- 埋点空间行为分析 `GET /system/track/spatial`（P0）
+  - 权限 `sys:track-spatial:list`（V20）；默认 mode=agg
+  - agg 格心 round+count；points 带跳转 id；不回 IP/geo_acc
+  - days 上限 30（与漏斗对齐）；硬顶 cells≤5000/points≤2000；限流键 `mugsun:track:rls:{userId}`
+  - 旧 `/system/track/geo` 不动；实验室 geo 种子随 fronttest 开关
+
 - 知识库资料 Tika 解析：PDF/DOCX/PPTX 抽正文进既有分段
   - multipart `POST /system/ai/knowledge/asset/upload-file`（20MB 可配）
   - JSON upload 的 fileUrl 改下载字节后走 Tika，禁当 UTF-8 整串读

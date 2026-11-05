@@ -598,4 +598,25 @@ public interface TrackConstants {
 	String GEO_REGION_UNKNOWN = "未知";
 	/** 内网 IP 展示桶 */
 	String GEO_REGION_INTRANET = "内网";
+
+	/* ==================== 空间行为分析（P0 spatial） ==================== */
+
+	/** 权限码：空间行为分析查询 */
+	String PERM_SPATIAL_LIST = "sys:track-spatial:list";
+	/** 空间查询 days 上限（天；与漏斗对齐，明细即席须限窗） */
+	int SPATIAL_DAYS_MAX = 30;
+	/** 聚合格上限（超则按 count 降序截断，truncated=true） */
+	int GEO_CELLS_MAX = 5000;
+	/** 空间查询默认网格精度（zoom/gridPrecision 皆缺） */
+	int SPATIAL_DEFAULT_PRECISION = 2;
+	/** 空间分析限流：次/分/用户 */
+	int SPATIAL_RATE_LIMIT = 60;
+	/** 空间分析限流键前缀：ZSET 滑窗 mugsun:track:rls:{userId}，与 collect rl: 隔离 */
+	String SPATIAL_RATE_LIMIT_KEY_PREFIX = REDIS_PREFIX + "rls:";
+	/** 空间分析限流窗长（秒） */
+	long SPATIAL_RATE_LIMIT_WINDOW_SECONDS = 60L;
+	/** 空间分析限流键 TTL（秒，略大于窗） */
+	long SPATIAL_RATE_LIMIT_EXPIRE_SECONDS = 70L;
+	/** 演示/实验室 geo 种子应用标识 */
+	String LAB_GEO_APP_KEY = "ak_lab_spatial_demo";
 }

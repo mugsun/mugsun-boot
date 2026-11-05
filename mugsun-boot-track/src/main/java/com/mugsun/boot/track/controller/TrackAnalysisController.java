@@ -6,6 +6,7 @@ import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackAnalysisService;
 import com.mugsun.boot.track.TrackFunnelService;
 import com.mugsun.boot.track.TrackRetentionService;
+import com.mugsun.boot.track.TrackSpatialService;
 import com.mugsun.core.tool.api.R;
 import com.mybatisflex.core.paginate.Page;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,12 +32,14 @@ public class TrackAnalysisController {
 	private final TrackAnalysisService analysisService;
 	private final TrackFunnelService funnelService;
 	private final TrackRetentionService retentionService;
+	private final TrackSpatialService spatialService;
 
 	public TrackAnalysisController(TrackAnalysisService analysisService, TrackFunnelService funnelService,
-								   TrackRetentionService retentionService) {
+								   TrackRetentionService retentionService, TrackSpatialService spatialService) {
 		this.analysisService = analysisService;
 		this.funnelService = funnelService;
 		this.retentionService = retentionService;
+		this.spatialService = spatialService;
 	}
 
 	/**
@@ -139,6 +142,28 @@ public class TrackAnalysisController {
 	public R<Map<String, Object>> geo(@RequestParam(required = false) String appKey,
 									  @RequestParam(required = false) Integer days) {
 		return R.data(analysisService.geo(appKey, days));
+	}
+
+	/**
+	 * 空间行为分析（P0）：{mode, cells|points, geoCount, truncated}。
+	 * mode=agg 默认；days 1..{@value TrackConstants#SPATIAL_DAYS_MAX}（与漏斗对齐）；
+	 * 不回 IP/geo_acc；旧 /geo 不动。
+	 */
+	@GetMapping("/spatial")
+	@SaCheckPermission(TrackConstants.PERM_SPATIAL_LIST)
+	public R<Map<String, Object>> spatial(@RequestParam String appKey,
+										  @RequestParam(required = false) Integer days,
+										  @RequestParam(required = false) String mode,
+										  @RequestParam(required = false) String bbox,
+										  @RequestParam(required = false) Integer zoom,
+										  @RequestParam(required = false) Integer gridPrecision,
+										  @RequestParam(required = false) String eventNames,
+										  @RequestParam(required = false) Long funnelId,
+										  @RequestParam(required = false) String funnelSteps,
+										  @RequestParam(required = false) Long windowHours,
+										  @RequestParam(required = false) Boolean convertedOnly) {
+		return R.data(spatialService.spatial(appKey, days, mode, bbox, zoom, gridPrecision,
+			eventNames, funnelId, funnelSteps, windowHours, convertedOnly));
 	}
 
 	/**

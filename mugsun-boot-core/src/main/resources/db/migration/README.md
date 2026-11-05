@@ -24,4 +24,4 @@
 - `V16__gis_feature_wraps_antimeridian.sql`：`gis_feature.wraps_antimeridian` 生成列（#76；无 PostGIS 跳过）。
 - `V17__gis_feature_wrap_index`（Java，`db.migration` 包）：部分 GiST `idx_gis_feature_wrap`，`CREATE INDEX CONCURRENTLY`（#76；主库 Flyway 须会话级锁）。
 - `V18__track_error_issue_perm.sql`：错误问题单写权限 `sys:track-error-issue:edit`（读复用 `sys:track-error:list`）。
-
+- `V20__track_spatial_perm.sql`：空间行为分析读权 `sys:track-spatial:list`。

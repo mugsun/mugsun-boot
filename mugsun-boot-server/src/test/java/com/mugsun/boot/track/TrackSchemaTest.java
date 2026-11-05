@@ -120,6 +120,12 @@ class TrackSchemaTest extends AbstractTrackIntegrationTest {
 				+ " AND permission = ?",
 			TrackConstants.PERM_ERROR_ISSUE_EDIT);
 		assertThat(issueEdit.getLong("c")).as("V18 错误问题单写权种子").isEqualTo(1L);
+
+		Row spatial = Db.selectOneBySql(
+			"SELECT count(*) AS c FROM sys_menu WHERE is_deleted = 0"
+				+ " AND permission = ?",
+			TrackConstants.PERM_SPATIAL_LIST);
+		assertThat(spatial.getLong("c")).as("V20 空间行为读权种子").isEqualTo(1L);
 	}
 
 	/** ⑤ 主库无 track_* 表（物理隔离反证：埋点表只存在于 mugsun_track 库） */
