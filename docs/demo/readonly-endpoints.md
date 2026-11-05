@@ -293,6 +293,9 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/system/top-menu/submit` | SysTopMenuController#submit | 拒绝 |
 | POST | `/system/track/app/remove` | TrackAppController#appRemove | 拒绝 |
 | POST | `/system/track/app/submit` | TrackAppController#appSubmit | 拒绝 |
+| POST | `/system/track/error-issues/assign` | TrackErrorIssueController#assign | 拒绝 |
+| POST | `/system/track/error-issues/reopen` | TrackErrorIssueController#reopen | 拒绝 |
+| POST | `/system/track/error-issues/resolve` | TrackErrorIssueController#resolve | 拒绝 |
 | POST | `/system/track/event-def/submit` | TrackAppController#eventDefSubmit | 拒绝 |
 | POST | `/system/track/sourcemap/remove` | TrackSourcemapController#remove | 拒绝 |
 | POST | `/system/track/sourcemap/upload` | TrackSourcemapController#upload | 拒绝 |
