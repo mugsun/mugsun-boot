@@ -105,6 +105,7 @@ OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
 | `mugsun.captcha.slider.decoy-count` | `1` | 假缺口数量（0–2） |
 | `mugsun.captcha.slider.keyboard-step-px` | `4` | 键盘模式每次按键移动的原始像素（challenge 返回 `keyboardStep`） |
 | `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` / `false`（prod 的 `bind-ua` 为 `true`） | 令牌强制绑定 IP / UA 哈希（关闭时只记录） |
+| `mugsun.captcha.click.seed-warp-strength` | `0.14` | ICON_CLICK 每题 seed-warp 强度（相对短边）；`0`=关；约钳 `[0, 0.35]`（与渲染一致） |
 | `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | 背景图目录（`file:` 亦可），jpg/png，推荐 640×360；为空用纯色占位 |
 | `mugsun.captcha.background.rotate` | `random` | `random` 或 `round-robin` |
 | `mugsun.captcha.background.reload-seconds` | `600` | 目录重扫间隔，0 只在启动时加载 |

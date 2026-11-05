@@ -105,6 +105,7 @@ Login, registration, the forgot-password code and the SMS code request require a
 | `mugsun.captcha.slider.decoy-count` | `1` | Fake gaps (0–2) |
 | `mugsun.captcha.slider.keyboard-step-px` | `4` | Native pixels moved per key press in keyboard mode (returned as `keyboardStep`) |
 | `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` / `false` (`bind-ua` is `true` in prod) | Enforce token binding to IP / UA hash (recorded either way) |
+| `mugsun.captcha.click.seed-warp-strength` | `0.14` | ICON_CLICK per-challenge seed-warp strength (vs short edge); `0`=off; clamped about `[0, 0.35]` (same as render) |
 | `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | Background folder (`file:` works too), jpg/png, 640×360 recommended; plain-colour placeholder when empty |
 | `mugsun.captcha.background.rotate` | `random` | `random` or `round-robin` |
 | `mugsun.captcha.background.reload-seconds` | `600` | Rescan interval, 0 = load at startup only |

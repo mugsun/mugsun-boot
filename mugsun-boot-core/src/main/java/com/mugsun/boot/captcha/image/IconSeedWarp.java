@@ -20,6 +20,9 @@ final class IconSeedWarp {
 	/** 默认最大位移相对短边比例（经验值，可被配置覆盖） */
 	static final double DEFAULT_STRENGTH = 0.14;
 
+	/** 与 CaptchaProperties.Click.SEED_WARP_STRENGTH_MAX 一致 */
+	static final double MAX_STRENGTH = 0.35;
+
 	private IconSeedWarp() {
 	}
 
@@ -32,14 +35,14 @@ final class IconSeedWarp {
 	}
 
 	/**
-	 * 对 ARGB 图标做双线性网格形变。{@code strength} ∈ [0, 0.35]；
+	 * 对 ARGB 图标做双线性网格形变。{@code strength} ∈ [0, {@link #MAX_STRENGTH}]；
 	 * ≤0 或空图直接返回原图（不复制）。
 	 */
 	static BufferedImage warp(BufferedImage src, long seed, double strength) {
 		if (src == null) {
 			throw new IllegalArgumentException("src");
 		}
-		double s = clamp(strength, 0, 0.35);
+		double s = clamp(strength, 0, MAX_STRENGTH);
 		if (s <= 1e-9) {
 			return src;
 		}

@@ -9,9 +9,9 @@
 
 - ICON_CLICK 每题 seed-warped 网格形变，提示条同 seed（#77）
   - 公开库 PNG 经确定性位移后再贴画布，模板匹配更难
-  - `mugsun.captcha.click.seed-warp-strength` 默认 0.14，0=关
+  - `mugsun.captcha.click.seed-warp-strength` 默认 0.14；0=关；钳 [0,0.35]
   - 不做 R7-1 高对比渐变/杂波；ICON_CLICK 仍辅助、勿单独启用
-  - `IconTemplateSolverTest` 门禁仍 ≤20%（200 题）
+  - `IconTemplateSolverTest` 约 0–1/200 full；门禁仍 ≤20%
 
 ### 修复
 

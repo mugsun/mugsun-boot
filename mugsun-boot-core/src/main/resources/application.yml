@@ -196,7 +196,7 @@ mugsun:
       hole-offset-px: 0      # 挖孔相对取圆中心的随机偏移上限（px）；0=关闭；实测 0–15 仍未把 NCC 压到 <20%
     click:
       # count / decoys / min-radius-px 等见 CaptchaProperties.Click
-      # ICON_CLICK 每题 seeded 网格形变强度（相对短边，#77）；0=关闭；勿改回 R7-1 高对比
+      # ICON_CLICK 每题 seeded 网格形变强度（相对短边，#77）；0=关；钳 [0,0.35]；勿改回 R7-1
       seed-warp-strength: 0.14
     background:
       dir: classpath:captcha/bg/   # 或 file:/opt/mugsun/captcha-bg/；jpg/png，推荐 640×360，为空时纯色占位

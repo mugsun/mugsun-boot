@@ -21,6 +21,7 @@ public class CaptchaProperties implements InitializingBean {
 
 	public static final String PROP_TYPE = "mugsun.captcha.type";
 	public static final String PROP_DEFAULT_TYPES = "mugsun.captcha.default-types";
+	public static final String PROP_SEED_WARP_STRENGTH = "mugsun.captcha.click.seed-warp-strength";
 
 	/**
 	 * 平台默认启用的题型：五种全开（滑块、词语点选、旋转、图标点选、拼图还原），每次随机出一种（config 返回 RANDOM）。
@@ -120,9 +121,12 @@ public class CaptchaProperties implements InitializingBean {
 		private long maxDurationMs = 30000;
 		/** WORD_CLICK 私有词库（classpath: 或 file:，每行一个 3–4 字词，# 注释）；空 = 内置 captcha/words.txt */
 		private String wordsFile;
+		/** 与 IconSeedWarp.warp 钳位上限一致 */
+		public static final double SEED_WARP_STRENGTH_MAX = 0.35;
 		/**
 		 * ICON_CLICK seed-warp 最大位移相对图标短边比例（#77）。
-		 * 默认 0.14；0=关闭形变。上限在渲染侧钳到 0.35。不做 R7-1 高对比。
+		 * 默认 0.14；0=关闭形变。合法区间 [0, {@link #SEED_WARP_STRENGTH_MAX}]，
+		 * 与渲染钳位一致；越界在 {@link CaptchaProperties#validate()} 钳回。不做 R7-1 高对比。
 		 */
 		private double seedWarpStrength = 0.14;
 
@@ -164,7 +168,26 @@ public class CaptchaProperties implements InitializingBean {
 		if (StrictEnumSetting.parseOne(PROP_TYPE, type, LegacyType.class, REMOVED_TYPES) != null) {
 			log.warn("配置项 {} 已废弃且不再起作用（题型由 {} 与租户设置决定），请删掉这一项", PROP_TYPE, PROP_DEFAULT_TYPES);
 		}
+		clampSeedWarpStrength();
 		return StrictEnumSetting.parseList(PROP_DEFAULT_TYPES, defaultTypes, CaptchaType.class, REMOVED_TYPES);
+	}
+
+	/**
+	 * 将 {@code click.seed-warp-strength} 钳到 [0, {@link Click#SEED_WARP_STRENGTH_MAX}]（#77）。
+	 * 与渲染侧 {@code IconSeedWarp.warp} 一致；NaN / 无穷启动失败。
+	 */
+	private void clampSeedWarpStrength() {
+		double raw = click.getSeedWarpStrength();
+		if (Double.isNaN(raw) || Double.isInfinite(raw)) {
+			throw new InvalidSettingException(PROP_SEED_WARP_STRENGTH, String.valueOf(raw),
+				"须为 [0, " + Click.SEED_WARP_STRENGTH_MAX + "] 的有限数；0=关闭形变");
+		}
+		double clamped = Math.max(0, Math.min(Click.SEED_WARP_STRENGTH_MAX, raw));
+		if (clamped != raw) {
+			log.warn("配置项 {}={} 已钳到 [0, {}] → {}", PROP_SEED_WARP_STRENGTH, raw,
+				Click.SEED_WARP_STRENGTH_MAX, clamped);
+			click.setSeedWarpStrength(clamped);
+		}
 	}
 
 	public static class Slider {
