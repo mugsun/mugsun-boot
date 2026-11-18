@@ -262,6 +262,51 @@ class TrackReplayApiTest extends AbstractTrackIntegrationTest {
 		}
 	}
 
+	/** ⑤b 当日存储额度用完（小额度注入）：429、块不入队；额度恢复后同一块重发照常收下（拒收时已删幂等键） */
+	@Test
+	void dailyStorageQuotaRejects429() {
+		String sessionId = uuid();
+		Block block = block(sessionId, 0, List.of(rrweb(2, 1000)));
+		paramService.setValue(TrackConstants.PARAM_STORAGE_APP_DAILY_MAX, "1");
+		try {
+			ResponseEntity<String> rejected = postReplay(APP_R, block);
+			assertThat(rejected.getStatusCode().value()).as("超出单应用当日额度应 429").isEqualTo(429);
+			assertThat(readBody(rejected).path("msg").asText()).contains("存储额度已经用完");
+		} finally {
+			paramService.setValue(TrackConstants.PARAM_STORAGE_APP_DAILY_MAX,
+				String.valueOf(TrackConstants.DEFAULT_STORAGE_APP_DAILY_MAX_BYTES));
+		}
+		assertThat(trackLong("SELECT count(*) AS c FROM track_replay WHERE session_id = ?", sessionId))
+			.as("被拒的块不入队、不落储").isZero();
+
+		ResponseEntity<String> retried = postReplay(APP_R, block);
+		assertThat(retried.getStatusCode().value()).isEqualTo(200);
+		assertThat(readBody(retried).path("data").path("duplicated").asBoolean())
+			.as("拒收时已删幂等键，重发不算重复").isFalse();
+		awaitUntil("重发块落储", () -> trackLong(
+			"SELECT count(*) AS c FROM track_replay WHERE session_id = ? AND is_deleted = 0", sessionId) == 1L);
+	}
+
+	/** ⑤c 存储盘剩余空间低于下限（下限调到极大）：503；下限恢复后同一块照常收下 */
+	@Test
+	void diskBelowMinFreeRejects503() {
+		String sessionId = uuid();
+		Block block = block(sessionId, 0, List.of(rrweb(2, 1000)));
+		paramService.setValue(TrackConstants.PARAM_STORAGE_MIN_FREE, String.valueOf(Long.MAX_VALUE));
+		try {
+			ResponseEntity<String> rejected = postReplay(APP_R, block);
+			assertThat(rejected.getStatusCode().value()).as("剩余空间低于下限应 503").isEqualTo(503);
+			assertThat(readBody(rejected).path("msg").asText()).contains("存储空间不足");
+		} finally {
+			paramService.setValue(TrackConstants.PARAM_STORAGE_MIN_FREE,
+				String.valueOf(TrackConstants.DEFAULT_STORAGE_MIN_FREE_BYTES));
+		}
+		ResponseEntity<String> retried = postReplay(APP_R, block);
+		assertThat(retried.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("下限恢复后落储", () -> trackLong(
+			"SELECT count(*) AS c FROM track_replay WHERE session_id = ? AND is_deleted = 0", sessionId) == 1L);
+	}
+
 	// ==================== 读取 API ====================
 
 	/** ⑥ page/detail/data 200 + 结构断言；无 token 401；低权 403；跨租户查不到 */

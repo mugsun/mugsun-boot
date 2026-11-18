@@ -348,6 +348,27 @@ class FlywayUpgradeFrom010Test {
 		});
 	}
 
+	/** V22：埋点回放和响应体的三个存储容量参数落库；重跑不重复插、不覆盖管理员改过的值。 */
+	@Test
+	void v22SeedsTrackStorageQuotaParams() throws Exception {
+		withTempDb(url -> {
+			Flyway current = current(url);
+			current.migrate();
+			current.validate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				assertThat(count(st, "SELECT count(*) FROM sys_param WHERE param_key = 'track.storage.daily-max-bytes' AND param_value = '10737418240' AND is_deleted = 0")).isEqualTo(1);
+				assertThat(count(st, "SELECT count(*) FROM sys_param WHERE param_key = 'track.storage.app-daily-max-bytes' AND param_value = '2147483648' AND is_deleted = 0")).isEqualTo(1);
+				assertThat(count(st, "SELECT count(*) FROM sys_param WHERE param_key = 'track.storage.min-free-bytes' AND param_value = '5368709120' AND is_deleted = 0")).isEqualTo(1);
+
+				st.execute("UPDATE sys_param SET param_value = '1' WHERE param_key = 'track.storage.app-daily-max-bytes'");
+				st.execute(readResource("db/migration/V22__track_storage_quota_params.sql"));
+				assertThat(count(st, "SELECT count(*) FROM sys_param WHERE param_key LIKE 'track.storage.%'")).as("重跑不重复插").isEqualTo(3);
+				assertThat(count(st, "SELECT count(*) FROM sys_param WHERE param_key = 'track.storage.app-daily-max-bytes' AND param_value = '1'"))
+					.as("重跑不覆盖管理员改过的值").isEqualTo(1);
+			}
+		});
+	}
+
 	private static String rootMessage(Throwable t) {
 		StringBuilder sb = new StringBuilder();
 		for (Throwable x = t; x != null; x = x.getCause()) {

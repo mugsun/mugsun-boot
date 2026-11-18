@@ -431,6 +431,46 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		}
 	}
 
+	/** ⑧b 当日存储额度用完（小额度注入）：429、不落文件；额度恢复后同一 event_id 重发照常收下（拒收时已删幂等键） */
+	@Test
+	void dailyStorageQuotaRejects429() {
+		String eventId = uuid();
+		paramService.setValue(TrackConstants.PARAM_STORAGE_APP_DAILY_MAX, "1");
+		try {
+			ResponseEntity<String> rejected = postApiBodyGzip(APP_T, eventId, BODY_JSON);
+			assertThat(rejected.getStatusCode().value()).as("超出单应用当日额度应 429").isEqualTo(429);
+			assertThat(readBody(rejected).path("msg").asText()).contains("存储额度已经用完");
+			assertThat(bodyFile(APP_T, eventId)).as("拒收不落对象").doesNotExist();
+		} finally {
+			paramService.setValue(TrackConstants.PARAM_STORAGE_APP_DAILY_MAX,
+				String.valueOf(TrackConstants.DEFAULT_STORAGE_APP_DAILY_MAX_BYTES));
+		}
+		ResponseEntity<String> retried = postApiBodyGzip(APP_T, eventId, BODY_JSON);
+		assertThat(retried.getStatusCode().value()).isEqualTo(200);
+		assertThat(readBody(retried).path("data").path("duplicated").asBoolean())
+			.as("拒收时已删幂等键，重发不算重复").isFalse();
+		assertThat(bodyFile(APP_T, eventId)).exists();
+	}
+
+	/** ⑧c 存储盘剩余空间低于下限（下限调到极大）：503、不落文件；下限恢复后照常收下 */
+	@Test
+	void diskBelowMinFreeRejects503() {
+		String eventId = uuid();
+		paramService.setValue(TrackConstants.PARAM_STORAGE_MIN_FREE, String.valueOf(Long.MAX_VALUE));
+		try {
+			ResponseEntity<String> rejected = postApiBodyGzip(APP_T, eventId, BODY_JSON);
+			assertThat(rejected.getStatusCode().value()).as("剩余空间低于下限应 503").isEqualTo(503);
+			assertThat(readBody(rejected).path("msg").asText()).contains("存储空间不足");
+			assertThat(bodyFile(APP_T, eventId)).as("拒收不落对象").doesNotExist();
+		} finally {
+			paramService.setValue(TrackConstants.PARAM_STORAGE_MIN_FREE,
+				String.valueOf(TrackConstants.DEFAULT_STORAGE_MIN_FREE_BYTES));
+		}
+		ResponseEntity<String> retried = postApiBodyGzip(APP_T, eventId, BODY_JSON);
+		assertThat(retried.getStatusCode().value()).isEqualTo(200);
+		assertThat(bodyFile(APP_T, eventId)).exists();
+	}
+
 	/** ⑨ 幂等重发：同 event_id 二次上传 200 duplicated=true；gzip=false 明文体服务端补压后读取还原一致 */
 	@Test
 	void duplicateBodyDroppedIdempotent() {

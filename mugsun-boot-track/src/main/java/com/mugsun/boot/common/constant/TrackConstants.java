@@ -216,7 +216,8 @@ public interface TrackConstants {
 	String METRIC_RECEIVED = "track.ingest.received";
 	/** 指标：丢弃事件/回放块/响应体数（tag reason：batch_truncated/invalid_event/bad_name/ts_absurd/queue_full/retry_exhausted/persist_failed
 	 *  / replay_session_oversize / replay_banned / replay_queue_full / replay_retry_exhausted / replay_persist_failed
-	 *  / api_body_oversize / api_body_store_failed / event_disabled（G105：事件定义停用拒收）） */
+	 *  / api_body_oversize / api_body_store_failed / event_disabled（G105：事件定义停用拒收）
+	 *  / replay_disk_low / replay_quota_exceeded / api_body_disk_low / api_body_quota_exceeded（存储容量闸拒收）） */
 	String METRIC_DROPPED = "track.ingest.dropped";
 	/** 指标：限流拒收批次数 */
 	String METRIC_RATELIMITED = "track.ingest.ratelimited";
@@ -502,6 +503,29 @@ public interface TrackConstants {
 	String METRIC_API_BODY_RECEIVED = "track.api-body.received";
 	/** 指标：响应体幂等命中丢弃数（同 event_id 重发） */
 	String METRIC_API_BODY_DUPLICATED = "track.api-body.duplicated";
+
+	/* ==================== 回放 / 响应体存储容量闸（TrackStorageGuard） ==================== */
+
+	/** sys_param 键：回放块和响应体全平台每日落盘上限（字节，gzip 落盘口径，UTC 日；超出 429） */
+	String PARAM_STORAGE_DAILY_MAX = "track.storage.daily-max-bytes";
+	/** 兜底默认：全平台每日 10GB */
+	long DEFAULT_STORAGE_DAILY_MAX_BYTES = 10737418240L;
+	/** sys_param 键：单个应用每日落盘上限（字节，口径同上；超出 429，不挤占其它应用） */
+	String PARAM_STORAGE_APP_DAILY_MAX = "track.storage.app-daily-max-bytes";
+	/** 兜底默认：单应用每日 2GB */
+	long DEFAULT_STORAGE_APP_DAILY_MAX_BYTES = 2147483648L;
+	/** sys_param 键：存储盘最低剩余空间（字节；默认平台落本机磁盘时生效，低于它暂停接收，503） */
+	String PARAM_STORAGE_MIN_FREE = "track.storage.min-free-bytes";
+	/** 兜底默认：剩余 5GB */
+	long DEFAULT_STORAGE_MIN_FREE_BYTES = 5368709120L;
+	/** 剩余空间读数缓存（毫秒）：不必每个写入请求都查一次文件系统 */
+	long STORAGE_FREE_CHECK_INTERVAL_MS = 5000L;
+	/** 当日落盘字节计数键前缀：INCRBY mugsun:track:storage-quota:{yyyyMMdd}（全平台）/ …:{yyyyMMdd}:{app_key}（单应用） */
+	String STORAGE_QUOTA_KEY_PREFIX = REDIS_PREFIX + "storage-quota:";
+	/** 计数键日期段格式（UTC） */
+	String STORAGE_QUOTA_DAY_PATTERN = "yyyyMMdd";
+	/** 计数键 TTL（秒）：26h，跨过当日即可 */
+	long STORAGE_QUOTA_KEY_TTL_SECONDS = 93600L;
 
 	/* ==================== G103：漏斗分析 + 留存分析 ==================== */
 

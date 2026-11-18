@@ -28,11 +28,13 @@ import java.util.zip.GZIPOutputStream;
  * 协议字段校验（app_key/event_id/payload 存在与长度、b64 预检）
  * → appKey 存在且 enabled=1 且 api_body_enabled=1（本地缓存）
  * → IP+appKey 分钟窗限流（独立键前缀，阈值 = collect 同级）
+ * → 存储盘余量（{@link TrackStorageGuard}，低于下限 503）
  * → event_id 路径安全字符集（兼作对象键文件名段，防路径穿越）
  * → base64 解码 + 还原明文（gzip=true 有界解压；gzip=false 明文同界兜底，解压后 ≤ sys_param 上限，超 413）
  * → 幂等（SETNX api-body:{event_id} TTL 25h，重复上传 200 duplicated 丢弃）
+ * → 当日存储配额（单应用 + 全平台，落盘 gzip 字节口径；超出 → 删幂等键 + 429）
  * → 落对象存储（明文体服务端补压 gzip，键 api-body/{app_key}/{yyyyMM}/{event_id}.json.gz；
- * 失败 → 删幂等键 + 503 由 SDK 重发）。
+ * 失败 → 退回配额 + 删幂等键 + 503 由 SDK 重发）。
  * <p><b>at-most-once</b>：body 不上离线补发队列（§19 推演雷 6），失败由 SDK 重试；
  * 时间线对缺失 body 显示「body 未采集」占位，诚实口径。
  * <p><b>Redis 降级</b>：与事件摄入同策略——限流/幂等 Redis 故障一律 fail-open 放行并告警，
@@ -53,14 +55,17 @@ public class TrackApiBodyService {
 	private final ParamService paramService;
 	private final StringRedisTemplate redis;
 	private final TrackIngestMetrics metrics;
+	private final TrackStorageGuard storageGuard;
 
 	public TrackApiBodyService(TrackAppService appService, TrackApiBodyStorage storage,
-							   ParamService paramService, StringRedisTemplate redis, TrackIngestMetrics metrics) {
+							   ParamService paramService, StringRedisTemplate redis, TrackIngestMetrics metrics,
+							   TrackStorageGuard storageGuard) {
 		this.appService = appService;
 		this.storage = storage;
 		this.paramService = paramService;
 		this.redis = redis;
 		this.metrics = metrics;
+		this.storageGuard = storageGuard;
 	}
 
 	/**
@@ -106,6 +111,7 @@ public class TrackApiBodyService {
 
 		// 3) 限流（独立键前缀，阈值 = collect 同级；body 频次远低于事件流但仍需防恶意打爆）
 		assertRateLimit(appKey, ip);
+		storageGuard.assertDiskRoom(TrackStorageGuard.Channel.API_BODY);
 
 		// 4) base64 解码 → 明文字节：gzip 体有界解压（防 zip 炸弹，解压后 ≤ sys_param 上限）；
 		//    明文体同界长度兜底；落储字节恒为 gzip（明文体服务端补压，存储/读取单一口径）
@@ -136,10 +142,20 @@ public class TrackApiBodyService {
 			return Map.of("accepted", true, "duplicated", true);
 		}
 
-		// 7) 落对象存储（键确定，重写为同键覆盖；失败 → 删幂等键放行重发 + 503，at-most-once 由 SDK 重试兜底）
+		// 7) 当日存储配额（超出 429：删幂等键，额度恢复后同一响应体还能再收）
+		TrackStorageGuard.Reservation quota;
+		try {
+			quota = storageGuard.reserve(TrackStorageGuard.Channel.API_BODY, appKey, storeBytes.length);
+		} catch (TrackCollectException e) {
+			unmark(idemKey);
+			throw e;
+		}
+
+		// 8) 落对象存储（键确定，重写为同键覆盖；失败 → 退回配额、删幂等键放行重发 + 503，at-most-once 由 SDK 重试兜底）
 		try {
 			storage.save(appKey, eventId, System.currentTimeMillis(), storeBytes);
 		} catch (RuntimeException e) {
+			storageGuard.release(quota);
 			unmark(idemKey);
 			metrics.dropped("api_body_store_failed", 1);
 			log.warn("响应体落储失败 app={} event={}：{}", appKey, eventId, e.getMessage());

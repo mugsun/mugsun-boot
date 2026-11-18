@@ -28,12 +28,14 @@ import java.util.zip.GZIPOutputStream;
  * 协议字段校验（app_key/session_id 路径安全字符集、seq 界、gzip 标记、payload 长度）
  * → appKey 存在且 enabled=1 且 replay_enabled=1（本地缓存）
  * → IP+appKey 分钟窗限流（独立键前缀，阈值 = collect × {@value TrackConstants#REPLAY_RATE_LIMIT_FACTOR}）
+ * → 存储盘余量（{@link TrackStorageGuard}，低于下限 503）
  * → 会话超限封禁检查（命中 413）
  * → base64 解码 + 还原明文（gzip=true 有界解压；gzip=false 明文同界兜底，解压后 ≤{@value TrackConstants#REPLAY_BLOCK_MAX_BYTES} 字节，超 413）
  * → rrweb 事件数组解析（条数/时长/全量快照数，不信 event_count 上报值）
  * → 块幂等（SETNX session+seq，重复块 200 duplicated 丢弃）
  * → 会话累计体积 INCRBY（解压后口径，超 sys_param 上限 → 置封禁键 + 413，该会话后续块一律 413 丢弃）
- * → 入内存有界队列（满 → 删幂等键 + 503，SDK 重发）。
+ * → 当日存储配额（单应用 + 全平台，落盘 gzip 字节口径；超出 → 删幂等键 + 429）
+ * → 入内存有界队列（满 → 退回配额 + 删幂等键 + 503，SDK 重发）。
  * <p><b>Redis 降级</b>：与事件摄入同策略——限流/幂等/计数 Redis 故障一律 fail-open 放行并告警，
  * 绝不让辅助通道反噬摄入主链路。
  * <p>刻意独立解析器（不复用 Spring 全局 ObjectMapper）：回放内容须原样留存，XSS 净化由播放侧渲染负责。
@@ -55,14 +57,17 @@ public class TrackReplayService {
 	private final ParamService paramService;
 	private final StringRedisTemplate redis;
 	private final TrackIngestMetrics metrics;
+	private final TrackStorageGuard storageGuard;
 
 	public TrackReplayService(TrackAppService appService, TrackReplayConsumer consumer,
-							  ParamService paramService, StringRedisTemplate redis, TrackIngestMetrics metrics) {
+							  ParamService paramService, StringRedisTemplate redis, TrackIngestMetrics metrics,
+							  TrackStorageGuard storageGuard) {
 		this.appService = appService;
 		this.consumer = consumer;
 		this.paramService = paramService;
 		this.redis = redis;
 		this.metrics = metrics;
+		this.storageGuard = storageGuard;
 	}
 
 	/**
@@ -116,6 +121,7 @@ public class TrackReplayService {
 
 		// 3) 限流（独立键前缀，阈值 = collect × 2；回放块大频次低）
 		assertRateLimit(appKey, ip);
+		storageGuard.assertDiskRoom(TrackStorageGuard.Channel.REPLAY);
 
 		// 4) 会话超限封禁检查（此前块已把会话累计顶破上限：后续块一律 413 丢弃）
 		if (banned(sessionId)) {
@@ -187,7 +193,16 @@ public class TrackReplayService {
 				+ maxBytes + " 字节，后面的内容不再接收，请换一个新会话再录");
 		}
 
-		// 9) 入队（满 → 删幂等键放行重发 + 503；宁可丢块不拖垮存储/DB）
+		// 9) 当日存储配额（超出 429：删幂等键，额度恢复后同一块还能再收）
+		TrackStorageGuard.Reservation quota;
+		try {
+			quota = storageGuard.reserve(TrackStorageGuard.Channel.REPLAY, appKey, storeBytes.length);
+		} catch (TrackCollectException e) {
+			unmark(seqKey);
+			throw e;
+		}
+
+		// 10) 入队（满 → 退回配额、删幂等键放行重发 + 503；宁可丢块不拖垮存储/DB）
 		TrackReplayBlock block = new TrackReplayBlock();
 		block.setAppKey(appKey);
 		block.setSessionId(sessionId);
@@ -204,6 +219,7 @@ public class TrackReplayService {
 		block.setTenantId(app.getTenantId() != null && !app.getTenantId().isBlank()
 			? app.getTenantId() : TenantConstants.DEFAULT_TENANT_ID);
 		if (!consumer.offer(block)) {
+			storageGuard.release(quota);
 			unmark(seqKey);
 			metrics.dropped("replay_queue_full", 1);
 			throw new TrackCollectException(503, "回放服务繁忙，请重试");

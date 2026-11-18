@@ -26,3 +26,4 @@
 - `V18__track_error_issue_perm.sql`：错误问题单写权限 `sys:track-error-issue:edit`（读复用 `sys:track-error:list`）。
 - `V20__track_spatial_perm.sql`：空间行为分析读权 `sys:track-spatial:list`。
 - `V21__form_tenant.sql`：低代码表单 `sys_form`、`sys_form_data` 补 `tenant_id`（存量归平台租户 000000），表单标识改为租户内唯一 `uk_form_tenant_key`（三套方言同号）。
+- `V22__track_storage_quota_params.sql`：埋点回放和响应体的存储容量参数 `track.storage.daily-max-bytes` / `track.storage.app-daily-max-bytes` / `track.storage.min-free-bytes`（三套方言同号；已有同名参数不覆盖）。
