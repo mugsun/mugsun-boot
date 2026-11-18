@@ -7,9 +7,11 @@ import org.locationtech.jts.operation.valid.IsValidOp;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 入站几何的拓扑校验与脏数据处置。所有图层入站都从这里过一遍，脏几何不许落库。
@@ -153,25 +155,24 @@ public class GisTopologyGuard {
 		}
 		for (int i = 0; i < geom.getNumGeometries(); i++) {
 			Geometry part = geom.getGeometryN(i);
-			int distinct = distinctCount(part);
-			if (type.contains("Line") && distinct < 2) {
+			if (type.contains("Line") && !hasDistinct(part, 2)) {
 				throw new ServiceException(String.format(GisConstants.MSG_TOPO_DEGENERATE, no, "线至少需要两个不同的点"));
 			}
-			if (type.contains("Polygon") && distinct < 3) {
+			if (type.contains("Polygon") && !hasDistinct(part, 3)) {
 				throw new ServiceException(String.format(GisConstants.MSG_TOPO_DEGENERATE, no, "面的环至少需要三个不同的点"));
 			}
 		}
 	}
 
-	private static int distinctCount(Geometry geom) {
-		List<String> seen = new ArrayList<>();
+	/** 去重后是否至少有 need 个不同的点：凑够就停，不把整条线的点都去重一遍 */
+	private static boolean hasDistinct(Geometry geom, int need) {
+		Set<String> seen = new HashSet<>();
 		for (var c : geom.getCoordinates()) {
-			String key = trim(c.x) + "," + trim(c.y);
-			if (!seen.contains(key)) {
-				seen.add(key);
+			if (seen.add(trim(c.x) + "," + trim(c.y)) && seen.size() >= need) {
+				return true;
 			}
 		}
-		return seen.size();
+		return false;
 	}
 
 	// ==================== 修复并回报 ====================

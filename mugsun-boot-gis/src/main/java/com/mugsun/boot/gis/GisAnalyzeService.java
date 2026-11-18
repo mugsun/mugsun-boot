@@ -40,6 +40,12 @@ public class GisAnalyzeService {
 	}
 
 	public Map<String, Object> analyze(Map<String, Object> body) {
+		try (GisGeodesic.DensifyScope budget = GisGeodesic.densifyBudget()) {
+			return analyzeBody(body);
+		}
+	}
+
+	private Map<String, Object> analyzeBody(Map<String, Object> body) {
 		if (body == null) {
 			throw new ServiceException(GisConstants.MSG_ANALYZE_EMPTY);
 		}
@@ -299,7 +305,7 @@ public class GisAnalyzeService {
 			collection.put("count", 0);
 			collection.put("features", List.of());
 		} else {
-			collection = formatService.normalizeUnknown(Map.of("type", "FeatureCollection", "features", feats));
+			collection = formatService.normalizeResult(feats);
 		}
 		Map<String, Object> out = new LinkedHashMap<>();
 		out.put("op", op);

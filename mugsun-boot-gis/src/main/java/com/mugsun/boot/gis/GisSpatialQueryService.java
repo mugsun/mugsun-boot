@@ -92,6 +92,13 @@ public class GisSpatialQueryService {
 
 	public Map<String, Object> radius(GisLayer layer, double lon, double lat, double meters,
 									  int limit, boolean forceJava) {
+		try (GisGeodesic.DensifyScope budget = GisGeodesic.densifyBudget()) {
+			return radiusQuery(layer, lon, lat, meters, limit, forceJava);
+		}
+	}
+
+	private Map<String, Object> radiusQuery(GisLayer layer, double lon, double lat, double meters,
+											int limit, boolean forceJava) {
 		requireIndexable(layer);
 		if (!valid(lon, lat)) {
 			throw new ServiceException(GisConstants.MSG_SPATIAL_POINT);
@@ -167,6 +174,12 @@ public class GisSpatialQueryService {
 	}
 
 	public Map<String, Object> nearest(GisLayer layer, double lon, double lat, int limit, boolean forceJava) {
+		try (GisGeodesic.DensifyScope budget = GisGeodesic.densifyBudget()) {
+			return nearestQuery(layer, lon, lat, limit, forceJava);
+		}
+	}
+
+	private Map<String, Object> nearestQuery(GisLayer layer, double lon, double lat, int limit, boolean forceJava) {
 		requireIndexable(layer);
 		if (!valid(lon, lat)) {
 			throw new ServiceException(GisConstants.MSG_SPATIAL_POINT);
@@ -242,6 +255,12 @@ public class GisSpatialQueryService {
 	 * 默认带 limit，避免万级图层一次吐出整层多边形把前端和带宽打爆。
 	 */
 	public Map<String, Object> buffer(GisLayer layer, double meters, int limit, boolean forceJava) {
+		try (GisGeodesic.DensifyScope budget = GisGeodesic.densifyBudget()) {
+			return bufferQuery(layer, meters, limit, forceJava);
+		}
+	}
+
+	private Map<String, Object> bufferQuery(GisLayer layer, double meters, int limit, boolean forceJava) {
 		requireIndexable(layer);
 		if (meters <= 0 || meters > GisConstants.BUFFER_MAX_M) {
 			throw new ServiceException(GisConstants.MSG_ANALYZE_DISTANCE);
@@ -286,6 +305,8 @@ public class GisSpatialQueryService {
 					}
 					feat.put("geometry", codec.toGeometry(buf));
 					feats.add(feat);
+				} catch (GisGeodesic.DensifyLimitException tooMany) {
+					throw tooMany;
 				} catch (RuntimeException ex) {
 					sqlSkips.add(Map.of("id", rs.getString("id")));
 				}

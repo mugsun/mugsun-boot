@@ -9,6 +9,7 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.operation.buffer.BufferOp;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -16,6 +17,7 @@ import java.util.stream.Stream;
 import static com.mugsun.boot.gis.GeodesicTruth.GF;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import com.mugsun.core.tool.exception.ServiceException;
 
@@ -537,6 +539,40 @@ class GisGeodesicTest {
 		assertThat(hasBeijing).isTrue();
 		assertThat(GisGeodesic.distance(mp, 0, 85)).isZero();
 		assertThat(GisGeodesic.distance(mp, 116.5, 39.5)).isZero();
+	}
+
+	@Test
+	@DisplayName("BOOT-113：在两个远点之间来回折返的线，插点超过预算就报错，而不是插几千万个点把内存吃光")
+	void zigzagLineStopsAtDensifyBudget() {
+		Coordinate[] cs = new Coordinate[2001];
+		for (int i = 0; i < cs.length; i++) {
+			cs[i] = new Coordinate(i % 2 == 0 ? 0d : 90d, 0d);
+		}
+		Geometry zigzag = GF.createLineString(cs);
+		assertTimeoutPreemptively(Duration.ofSeconds(10), () -> assertThatThrownBy(() -> GisGeodesic.densify(zigzag))
+			.isInstanceOf(GisGeodesic.DensifyLimitException.class)
+			.hasMessageContaining("100 万"));
+	}
+
+	@Test
+	@DisplayName("一次运算共用一份插点预算：嵌套范围沿用外层，容错路径不吞超预算；范围外每次单独计")
+	void densifyBudgetSharedWithinScope() {
+		// 赤道上 90° 约 10019 公里，每次加密插 10018 个点：一份预算够 99 次，第 100 次不够
+		Geometry edge = GF.createLineString(new Coordinate[] { new Coordinate(0, 0), new Coordinate(90, 0) });
+		try (GisGeodesic.DensifyScope outer = GisGeodesic.densifyBudget()) {
+			for (int i = 0; i < 99; i++) {
+				GisGeodesic.densify(edge);
+			}
+			try (GisGeodesic.DensifyScope inner = GisGeodesic.densifyBudget()) {
+				assertThatThrownBy(() -> GisGeodesic.densify(edge))
+					.isInstanceOf(GisGeodesic.DensifyLimitException.class);
+			}
+			assertThatThrownBy(() -> GisGeodesic.tryBuffer(edge, 500d))
+				.isInstanceOf(GisGeodesic.DensifyLimitException.class);
+			assertThatThrownBy(() -> GisGeodesic.distanceLenient(edge, 10d, 10d))
+				.isInstanceOf(GisGeodesic.DensifyLimitException.class);
+		}
+		assertThat(GisGeodesic.densify(edge).getNumPoints()).isEqualTo(10_020);
 	}
 
 

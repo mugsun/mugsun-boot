@@ -47,12 +47,30 @@ public class GisFormatService {
 	}
 
 	public Map<String, Object> normalize(JsonNode raw) {
+		return normalize(raw, true);
+	}
+
+	/**
+	 * 分析结果回写用：不按入参的顶点上限拒收。缓冲会把一个点变成上百个顶点的圆，正常结果也可能超过入参上限；
+	 * 结果有多大已经由算子自己限住（结果条数、加密插点预算）。
+	 */
+	public Map<String, Object> normalizeResult(List<Map<String, Object>> features) {
+		Map<String, Object> fc = new LinkedHashMap<>();
+		fc.put("type", "FeatureCollection");
+		fc.put("features", features);
+		return normalize(objectMapper.valueToTree(fc), false);
+	}
+
+	private Map<String, Object> normalize(JsonNode raw, boolean input) {
 		List<Map<String, Object>> features = collect(raw);
 		if (features.isEmpty()) {
 			throw new ServiceException(GisConstants.MSG_LAYER_EMPTY);
 		}
 		if (features.size() > GisConstants.FEATURE_MAX) {
 			throw new ServiceException(GisConstants.MSG_LAYER_TOO_MANY);
+		}
+		if (input) {
+			requireVertexLimit(features);
 		}
 		// 拓扑校验放在计 bbox 之前：越界坐标会把 bbox 撑成全球，后续按包围盒预筛的查询全部失效
 		GisTopologyGuard.Result checked = topologyGuard.inspect(features);
@@ -71,6 +89,38 @@ public class GisFormatService {
 		}
 		out.put("features", features);
 		return out;
+	}
+
+	/**
+	 * 入参所有要素合计不超过 {@link GisConstants#VERTEX_MAX} 个顶点。放在拓扑校验之前：校验、修复、加密和分析的代价
+	 * 都随顶点数增长，要在建 JTS 对象之前挡住（BOOT-113）。
+	 */
+	private static void requireVertexLimit(List<Map<String, Object>> features) {
+		long total = 0;
+		for (Map<String, Object> feat : features) {
+			if (feat.get("geometry") instanceof Map<?, ?> geom) {
+				total += positions(geom.get("coordinates"));
+			}
+		}
+		if (total > GisConstants.VERTEX_MAX) {
+			throw new ServiceException(String.format(GisConstants.MSG_LAYER_TOO_MANY_VERTICES, total));
+		}
+	}
+
+	/** 嵌套坐标数组里有多少个 [lon, lat] 对；与拓扑校验一样，数字和数字字符串都算坐标 */
+	private static long positions(Object coords) {
+		if (!(coords instanceof List<?> list) || list.isEmpty()) {
+			return 0;
+		}
+		Object first = list.get(0);
+		if (first instanceof Number || first instanceof String) {
+			return 1;
+		}
+		long n = 0;
+		for (Object item : list) {
+			n += positions(item);
+		}
+		return n;
 	}
 
 	public Map<String, Object> normalizeUnknown(Object payload) {

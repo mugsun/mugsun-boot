@@ -58,6 +58,13 @@ public final class GisConstants {
 	/** 三维切片图层：倾斜摄影 / 模型，数据是 3D Tiles 的 tileset.json */
 	public static final String KIND_3DTILES = "3dtiles";
 	public static final int FEATURE_MAX = 8000;
+	/**
+	 * 一次导入 / 保存 / 分析的入参最多这么多个顶点（所有要素的坐标对合计）。2MB 的 GeoJSON 按常见精度约 10 万个点，
+	 * 取 20 万不误伤正常数据，只挡住 WKT / CSV 这类每个点只占几个字节的超密输入
+	 */
+	public static final int VERTEX_MAX = 200_000;
+	/** WKT / CSV / KML / GPX 原文最多多少个字符：与全局请求体上限（2MB）一致，从别的入口传进来的原文也一样限 */
+	public static final int TEXT_MAX_CHARS = 2 * 1024 * 1024;
 
 	/** 随包发布的示例切片目录（classpath:gis/tileset/<code>），只允许白名单内的 code */
 	public static final String TILESET_DEMO_CITY = "demo-city";
@@ -120,12 +127,17 @@ public final class GisConstants {
 	public static final String MSG_LAYER_EMPTY = "没有可识别的地理要素（需要 GeoJSON 或含经纬度的记录）";
 	public static final String MSG_LAYER_INVALID = "图层数据不是合法 JSON";
 	public static final String MSG_LAYER_TOO_MANY = "单图层最多 8000 个要素";
+	public static final String MSG_LAYER_TOO_MANY_VERTICES = "一次最多 20 万个顶点（这次有 %d 个），请拆成几批，或先抽稀几何";
+	public static final String MSG_TEXT_TOO_LARGE = "原文超过 2MB，请拆成几个文件分别导入";
+	public static final String MSG_ENGINE_JAVA_FORBIDDEN = "engine=java 只给平台管理员做诊断对比用";
 	public static final String MSG_LAYER_NAME = "请填写图层名称";
 	public static final String MSG_ANALYZE_OP = "不支持的空间运算";
 	public static final String MSG_ANALYZE_DISTANCE = "请填写缓冲距离（米）";
 	/** 米制计算（缓冲 / 距离 / 面积 / 长度）的适用范围：极区阈值（度），与 Web Mercator 显示上限 85.05° 对齐 */
 	public static final String MSG_GEODESIC_POLE = "缓冲范围包住了极点，暂不支持输出该缓冲结果，请缩小缓冲距离或在极点附近拆分要素";
 	public static final String MSG_GEODESIC_ANTIMERIDIAN = "要素单个部件的经度跨度超过 180°（或缓冲结果绕地球一周），无法确定走向，请先在 180° 经线处拆分要素";
+	/** 沿测地线加密的插点预算用完：要素的边太长或太多（例如在两个远点之间来回折返的线） */
+	public static final String MSG_GEODESIC_DENSIFY_LIMIT = "这次运算要沿地表加密的点超过 100 万个（要素的边太长或太多），请缩小范围、拆分要素或分批计算";
 	public static final String MSG_ANALYZE_OTHER = "该运算需要第二组几何（other）";
 	public static final String MSG_ANALYZE_EMPTY = "没有可运算的几何";
 	public static final String MSG_RASTER_URL = "栅格图层需要 http(s) 服务地址；XYZ 须含 {z}/{x}/{y}，WMS 须含 layers";

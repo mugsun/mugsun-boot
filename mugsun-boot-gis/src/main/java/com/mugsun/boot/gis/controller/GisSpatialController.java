@@ -93,7 +93,8 @@ public class GisSpatialController {
 									   @RequestParam(required = false, defaultValue = "0") int limit,
 									   @RequestParam(required = false) String engine) {
 		moduleService.requireEnabled();
-		return R.data(queryService.bbox(require(layerId), minLon, minLat, maxLon, maxLat, limit, forceJava(engine)));
+		boolean java = forceJava(engine);
+		return R.data(queryService.bbox(require(layerId), minLon, minLat, maxLon, maxLat, limit, java));
 	}
 
 	/** 半径内的要素，距离以米计，结果 properties 带 meters */
@@ -105,7 +106,8 @@ public class GisSpatialController {
 										 @RequestParam(required = false, defaultValue = "0") int limit,
 										 @RequestParam(required = false) String engine) {
 		moduleService.requireEnabled();
-		return R.data(queryService.radius(require(layerId), lon, lat, meters, limit, forceJava(engine)));
+		boolean java = forceJava(engine);
+		return R.data(queryService.radius(require(layerId), lon, lat, meters, limit, java));
 	}
 
 	/**
@@ -118,10 +120,10 @@ public class GisSpatialController {
 	@SaCheckPermission(value = { GisConstants.PERM_LAYER_LIST, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)
 	public R<Map<String, Object>> intersects(@RequestBody Map<String, Object> body) {
 		moduleService.requireEnabled();
+		boolean java = forceJava(body.get("engine"));
 		Long layerId = GisAnalyzeService.parseId(body.get("layerId"));
 		int limit = body.get("limit") instanceof Number n ? n.intValue() : 0;
-		return R.data(queryService.intersects(require(layerId), body.get("geometry"), limit,
-			forceJava(body.get("engine") == null ? null : String.valueOf(body.get("engine")))));
+		return R.data(queryService.intersects(require(layerId), body.get("geometry"), limit, java));
 	}
 
 	/** 最近邻：按距离升序回最近的若干要素 */
@@ -132,7 +134,8 @@ public class GisSpatialController {
 										  @RequestParam(required = false, defaultValue = "10") int limit,
 										  @RequestParam(required = false) String engine) {
 		moduleService.requireEnabled();
-		return R.data(queryService.nearest(require(layerId), lon, lat, limit, forceJava(engine)));
+		boolean java = forceJava(engine);
+		return R.data(queryService.nearest(require(layerId), lon, lat, limit, java));
 	}
 
 	/**
@@ -142,10 +145,10 @@ public class GisSpatialController {
 	@SaCheckPermission(value = { GisConstants.PERM_LAYER_LIST, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)
 	public R<Map<String, Object>> contains(@RequestBody Map<String, Object> body) {
 		moduleService.requireEnabled();
+		boolean java = forceJava(body.get("engine"));
 		Long layerId = GisAnalyzeService.parseId(body.get("layerId"));
 		int limit = body.get("limit") instanceof Number n ? n.intValue() : 0;
-		return R.data(queryService.contains(require(layerId), body.get("geometry"), limit,
-			forceJava(body.get("engine") == null ? null : String.valueOf(body.get("engine")))));
+		return R.data(queryService.contains(require(layerId), body.get("geometry"), limit, java));
 	}
 
 	/**
@@ -155,12 +158,12 @@ public class GisSpatialController {
 	@SaCheckPermission(value = { GisConstants.PERM_LAYER_LIST, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)
 	public R<Map<String, Object>> buffer(@RequestBody Map<String, Object> body) {
 		moduleService.requireEnabled();
+		boolean java = forceJava(body.get("engine"));
 		Long layerId = GisAnalyzeService.parseId(body.get("layerId"));
 		double meters = body.get("distance") instanceof Number n
 			? n.doubleValue() : GisConstants.BUFFER_DEFAULT_M;
 		int limit = body.get("limit") instanceof Number n ? n.intValue() : 0;
-		return R.data(queryService.buffer(require(layerId), meters, limit,
-			forceJava(body.get("engine") == null ? null : String.valueOf(body.get("engine")))));
+		return R.data(queryService.buffer(require(layerId), meters, limit, java));
 	}
 
 	/** 矢量瓦片：application/vnd.mapbox-vector-tile，空瓦片回 0 字节 */
@@ -176,9 +179,12 @@ public class GisSpatialController {
 			.body(pbf);
 	}
 
-	/** engine=java 强制走 Java 回落路径，仅用于诊断与压测对比，不影响默认行为 */
-	private static boolean forceJava(String engine) {
-		return GisConstants.ENGINE_JAVA.equalsIgnoreCase(engine);
+	/**
+	 * engine=java 强制走 Java 回落路径，仅供平台管理员诊断与压测对比，不影响默认行为。
+	 * 要在 require(layerId) 之前调用：非平台管理员带 engine=java 时先回 403，不先去查图层。
+	 */
+	private boolean forceJava(Object engine) {
+		return moduleService.forceJava(engine);
 	}
 
 	private GisLayer require(Long id) {

@@ -98,6 +98,30 @@ class GisAnalyzeServiceTest {
 	}
 
 	@Test
+	@DisplayName("分析结果不按入参的顶点上限拦：250 个点各缓冲 150 公里，结果超过 20 万个顶点照常返回")
+	void bufferResultMayExceedInputVertexLimit() {
+		Object[] points = new Object[250];
+		for (int i = 0; i < points.length; i++) {
+			points[i] = point(-175 + (i % 50) * 7d, -40 + (i / 50) * 20d);
+		}
+		Map<String, Object> req = body("buffer", collection(points));
+		req.put("distance", 150_000);
+		@SuppressWarnings("unchecked")
+		Map<String, Object> col = (Map<String, Object>) service.analyze(req).get("collection");
+
+		assertThat(col.get("count")).isEqualTo(250);
+		@SuppressWarnings("unchecked")
+		List<Map<String, Object>> feats = (List<Map<String, Object>>) col.get("features");
+		long vertices = 0;
+		for (Map<String, Object> f : feats) {
+			for (Object ring : (List<?>) ((Map<?, ?>) f.get("geometry")).get("coordinates")) {
+				vertices += ((List<?>) ring).size();
+			}
+		}
+		assertThat(vertices).isGreaterThan(GisConstants.VERTEX_MAX);
+	}
+
+	@Test
 	@DisplayName("缓冲距离越界被拒绝")
 	void bufferDistanceOutOfRange() {
 		Map<String, Object> req = body("buffer", collection(point(116.4, 39.9)));

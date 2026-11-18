@@ -4,6 +4,8 @@ import com.mugsun.boot.common.module.GisModuleStatus;
 import com.mugsun.boot.common.module.ModuleSwitch;
 import com.mugsun.boot.common.module.ModuleSwitchRuntime;
 import com.mugsun.boot.system.service.ParamService;
+import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.tool.exception.ForbiddenException;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
@@ -62,5 +64,19 @@ public class GisModuleService implements GisModuleStatus {
 		if (!isEnabled()) {
 			throw new com.mugsun.core.tool.exception.ServiceException(GisConstants.MSG_DISABLED);
 		}
+	}
+
+	/**
+	 * 请求里的 engine 是否要求强制走 Java（内存 JTS）路径。这条路逐要素在 JVM 里加密、缓冲，比 PostGIS 慢得多，
+	 * 只给平台管理员做诊断对比；其他人带 engine=java 拒绝（403），而不是悄悄改走默认路径（BOOT-113）。
+	 */
+	public boolean forceJava(Object engine) {
+		if (engine == null || !GisConstants.ENGINE_JAVA.equalsIgnoreCase(String.valueOf(engine).trim())) {
+			return false;
+		}
+		if (!TenantContext.isPlatformSuperAdmin()) {
+			throw new ForbiddenException(GisConstants.MSG_ENGINE_JAVA_FORBIDDEN);
+		}
+		return true;
 	}
 }

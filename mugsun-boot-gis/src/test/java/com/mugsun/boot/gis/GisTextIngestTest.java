@@ -16,12 +16,16 @@
  */
 package com.mugsun.boot.gis;
 
+import com.mugsun.core.tool.exception.ServiceException;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 /**
  * 非 JSON 入站解析：用示例中心下发的四段原文当基准，防止「贴进去解析不出来」回归。
@@ -84,6 +88,38 @@ class GisTextIngestTest {
 		assertThat(geomType(feats.get(0))).isEqualTo("LineString");
 	}
 
+	/** 航点 lat / lon 两种先后顺序、单双引号都认；航点和轨迹点混在一起时各归各 */
+	@Test
+	void gpxReadsWaypointsInEitherAttributeOrder() {
+		List<Map<String, Object>> feats = ingest.parse("""
+			<gpx version="1.1">
+			<wpt lat="39.9087" lon="116.3975"><name>天安门</name></wpt>
+			<wpt lon='116.3970' lat='39.9180'/>
+			<trk><trkseg><trkpt lon="116.352" lat="39.9078"/><trkpt lat="39.9088" lon="116.445"/></trkseg></trk>
+			</gpx>""");
+		assertThat(feats).extracting(GisTextIngestTest::geomType).containsExactly("Point", "Point", "LineString");
+		assertThat(coordinates(feats.get(1))).isEqualTo(List.of(116.3970, 39.9180));
+	}
+
+	/** BOOT-113：不闭合的标签不能让正则反复回溯（旧写法耗时随标签数三次方增长，几百个就要几秒） */
+	@Test
+	void unclosedTagsDoNotBacktrack() {
+		String gpx = "<gpx>" + "<wpt lat='1' ".repeat(40_000);
+		String kml = "<kml>" + "<coordinates ".repeat(40_000) + "<name ".repeat(40_000);
+		assertTimeoutPreemptively(Duration.ofSeconds(2), () -> {
+			assertThat(ingest.parse(gpx)).isEmpty();
+			assertThat(ingest.parse(kml)).isEmpty();
+		});
+	}
+
+	@Test
+	void rejectsTextOverTwoMegabytes() {
+		String huge = "POINT (1 1)\n".repeat(GisConstants.TEXT_MAX_CHARS / 12 + 1);
+		assertThatThrownBy(() -> ingest.parse(huge))
+			.isInstanceOf(ServiceException.class)
+			.hasMessageContaining("2MB");
+	}
+
 	@Test
 	void rejectsTextWithoutGeometry() {
 		assertThat(ingest.parse("hello world")).isEmpty();
@@ -98,5 +134,10 @@ class GisTextIngestTest {
 	@SuppressWarnings("unchecked")
 	private static Map<String, Object> props(Map<String, Object> feat) {
 		return (Map<String, Object>) feat.get("properties");
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Object coordinates(Map<String, Object> feat) {
+		return ((Map<String, Object>) feat.get("geometry")).get("coordinates");
 	}
 }

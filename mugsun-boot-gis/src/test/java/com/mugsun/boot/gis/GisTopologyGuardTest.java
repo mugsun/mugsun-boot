@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 /**
  * 拓扑校验：哪些脏几何必须拒收、哪些应当修复后放过。
@@ -133,6 +135,17 @@ class GisTopologyGuardTest {
 			pt(116.39, 39.90), pt(116.41, 39.90), pt(116.39, 39.90))))))
 			.isInstanceOf(ServiceException.class)
 			.hasMessageContaining("环至少需要三个不同的点");
+	}
+
+	@Test
+	@DisplayName("BOOT-113：20 万个点的线判退化很快（旧写法逐个比对，要比较几十亿次）")
+	void longLineInspectedQuickly() {
+		List<List<Double>> coords = new ArrayList<>();
+		for (int i = 0; i < 200_000; i++) {
+			coords.add(pt(100 + i * 1e-4, 30 + (i % 2) * 1e-4));
+		}
+		Map<String, Object> feat = feature("LineString", coords);
+		assertTimeoutPreemptively(Duration.ofSeconds(5), () -> assertThat(inspect(feat).warnings()).isEmpty());
 	}
 
 	@Test

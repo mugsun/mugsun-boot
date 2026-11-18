@@ -62,6 +62,13 @@ public final class GisGeodesic {
 	/** 沿测地线加密的步长（米） */
 	static final double DENSIFY_M = 1_000d;
 	/**
+	 * 一次运算（一次分析、一次空间查询）沿测地线加密最多插这么多个点，内存里约几十 MB。边长、边多的输入
+	 * （例如在两个远点之间来回折返的线）每条边都要插上万个点，不设上限会一直插到内存耗尽（BOOT-113）
+	 */
+	static final int DENSIFY_BUDGET = 1_000_000;
+	/** 当前线程这次运算还剩的插点预算；没有用 {@link #densifyBudget()} 包住时，每次加密单独按整份预算计 */
+	private static final ThreadLocal<int[]> DENSIFY_LEFT = new ThreadLocal<>();
+	/**
 	 * 每 1/4 圆 32 段（JTS 默认 8 段）。折线弦会向内凹 R·(1−cos(π/4/n))：16 段约 0.12%，32 段约 0.03%。
 	 * 椭球投影把其它误差压下去之后，这一项成了主导，所以从 16 提到 32。
 	 */
@@ -72,6 +79,31 @@ public final class GisGeodesic {
 	static final double M_PER_DEG_MIN = 110_574d;
 
 	private GisGeodesic() {
+	}
+
+	/** 这次运算的插点预算用完。容错路径（跳过算不了的要素）不能吞掉它，否则下一个要素又接着插 */
+	public static final class DensifyLimitException extends ServiceException {
+		DensifyLimitException() {
+			super(GisConstants.MSG_GEODESIC_DENSIFY_LIMIT);
+		}
+	}
+
+	/** {@link #densifyBudget()} 开出的预算范围，用 try-with-resources 关掉 */
+	public interface DensifyScope extends AutoCloseable {
+		@Override
+		void close();
+	}
+
+	/**
+	 * 给当前线程开一份 {@link #DENSIFY_BUDGET} 的插点预算，范围内的所有加密共用。一次分析、一次空间查询各开一份，
+	 * 逐要素加密的循环才有总量上限；已在别的范围里时沿用外层预算，关掉内层不影响外层。
+	 */
+	public static DensifyScope densifyBudget() {
+		if (DENSIFY_LEFT.get() != null) {
+			return () -> { };
+		}
+		DENSIFY_LEFT.set(new int[] { DENSIFY_BUDGET });
+		return DENSIFY_LEFT::remove;
 	}
 
 	/**
@@ -127,6 +159,8 @@ public final class GisGeodesic {
 	public static Geometry tryBuffer(Geometry wgs, double meters) {
 		try {
 			return buffer(wgs, meters);
+		} catch (DensifyLimitException tooMany) {
+			throw tooMany;
 		} catch (ServiceException outOfRange) {
 			return null;
 		}
@@ -192,6 +226,8 @@ public final class GisGeodesic {
 		}
 		try {
 			return distance(wgs, lon, lat);
+		} catch (DensifyLimitException tooMany) {
+			throw tooMany;
 		} catch (ServiceException outOfRange) {
 			// 落到下面的回落
 		}
@@ -240,6 +276,8 @@ public final class GisGeodesic {
 				return proj;
 			}
 			return vertexMin;
+		} catch (DensifyLimitException tooMany) {
+			throw tooMany;
 		} catch (RuntimeException e) {
 			return Double.NaN;
 		}
@@ -984,11 +1022,16 @@ public final class GisGeodesic {
 		return Math.abs(r.area);
 	}
 
-	/** 把每条边当作测地线，沿 {@link GeodesicLine} 每 {@link #DENSIFY_M} 米插点；经度保持与前一点连续 */
+	/**
+	 * 把每条边当作测地线，沿 {@link GeodesicLine} 每 {@link #DENSIFY_M} 米插点；经度保持与前一点连续。
+	 * 插点计入当前预算（{@link #densifyBudget()}），不够时在分配之前抛 {@link DensifyLimitException}
+	 */
 	static Geometry densify(Geometry wgs) {
 		if (wgs.getDimension() == 0 || wgs.isEmpty()) {
 			return wgs;
 		}
+		int[] shared = DENSIFY_LEFT.get();
+		int[] left = shared != null ? shared : new int[] { DENSIFY_BUDGET };
 		return new GeometryTransformer() {
 			@Override
 			protected CoordinateSequence transformCoordinates(CoordinateSequence seq, Geometry parent) {
@@ -1004,6 +1047,12 @@ public final class GisGeodesic {
 					GeodesicLine line = Geodesic.WGS84.InverseLine(a.y, a.x, b.y, b.x,
 						GeodesicMask.DISTANCE_IN | GeodesicMask.LATITUDE | GeodesicMask.LONGITUDE);
 					int n = (int) Math.ceil(line.Distance() / DENSIFY_M);
+					if (n > 1) {
+						if (n - 1 > left[0]) {
+							throw new DensifyLimitException();
+						}
+						left[0] -= n - 1;
+					}
 					for (int k = 1; k < n; k++) {
 						GeodesicData d = line.Position(line.Distance() * k / n,
 							GeodesicMask.LATITUDE | GeodesicMask.LONGITUDE);

@@ -1,6 +1,7 @@
 package com.mugsun.boot.gis;
 
 import com.mugsun.boot.security.XssCleaner;
+import com.mugsun.core.tool.exception.ServiceException;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -22,22 +23,24 @@ import java.util.regex.Pattern;
 @Component
 public class GisTextIngest {
 
+	/*
+	 * 标签里的属性段一律限长并用占有量词：不闭合的标签会让无上限的 [^>]* 从每个起点扫到文末再逐字回溯，
+	 * 耗时随长度平方甚至三次方增长（BOOT-113）。占有量词不改变匹配结果：紧跟其后的字符本来就不在字符类里。
+	 */
 	private static final Pattern KML_COORD = Pattern.compile(
-		"<coordinates[^>]*>([^<]+)</coordinates>", Pattern.CASE_INSENSITIVE);
+		"<coordinates[^>]{0,256}+>([^<]++)</coordinates>", Pattern.CASE_INSENSITIVE);
 	private static final Pattern KML_NAME = Pattern.compile(
-		"<name[^>]*>([^<]*)</name>", Pattern.CASE_INSENSITIVE);
-	private static final Pattern GPX_WPT = Pattern.compile(
-		"<wpt\\s[^>]*lat\\s*=\\s*[\"']([^\"']+)[\"'][^>]*lon\\s*=\\s*[\"']([^\"']+)[\"']",
-		Pattern.CASE_INSENSITIVE);
-	private static final Pattern GPX_WPT_SWAP = Pattern.compile(
-		"<wpt\\s[^>]*lon\\s*=\\s*[\"']([^\"']+)[\"'][^>]*lat\\s*=\\s*[\"']([^\"']+)[\"']",
-		Pattern.CASE_INSENSITIVE);
+		"<name[^>]{0,256}+>([^<]*+)</name>", Pattern.CASE_INSENSITIVE);
+	/** GPX 航点 / 轨迹点标签：先取出整段属性，再在里面分别找 lat、lon，属性先后顺序都认 */
+	private static final Pattern GPX_POINT = Pattern.compile(
+		"<(wpt|trkpt)\\s([^>]{0,256}+)>", Pattern.CASE_INSENSITIVE);
+	private static final Pattern GPX_LAT = Pattern.compile(
+		"(?:^|\\s)lat\\s*=\\s*[\"']([^\"']{1,64})[\"']", Pattern.CASE_INSENSITIVE);
+	private static final Pattern GPX_LON = Pattern.compile(
+		"(?:^|\\s)lon\\s*=\\s*[\"']([^\"']{1,64})[\"']", Pattern.CASE_INSENSITIVE);
 	/** 行首的 WKT 几何关键字：用作多几何文本的切分点 */
 	private static final Pattern WKT_HEAD = Pattern.compile(
 		"(?im)(?=^[ \\t]*(?:MULTI)?(?:POINT|LINESTRING|POLYGON)\\b|^[ \\t]*GEOMETRYCOLLECTION\\b)");
-	private static final Pattern GPX_TRKPT = Pattern.compile(
-		"<trkpt\\s[^>]*lat\\s*=\\s*[\"']([^\"']+)[\"'][^>]*lon\\s*=\\s*[\"']([^\"']+)[\"']",
-		Pattern.CASE_INSENSITIVE);
 
 	private final GeometryFactory factory = new GeometryFactory(new PrecisionModel(), 4326);
 	private final GisGeometryCodec codec;
@@ -49,6 +52,9 @@ public class GisTextIngest {
 	public List<Map<String, Object>> parse(String raw) {
 		if (raw == null) {
 			return List.of();
+		}
+		if (raw.length() > GisConstants.TEXT_MAX_CHARS) {
+			throw new ServiceException(GisConstants.MSG_TEXT_TOO_LARGE);
 		}
 		String text = raw.trim();
 		if (text.isEmpty()) {
@@ -176,16 +182,21 @@ public class GisTextIngest {
 
 	private List<Map<String, Object>> gpx(String text) {
 		List<Map<String, Object>> out = new ArrayList<>();
-		collectGpx(out, GPX_WPT.matcher(text), false);
-		collectGpx(out, GPX_WPT_SWAP.matcher(text), true);
 		List<Coordinate> track = new ArrayList<>();
-		Matcher trk = GPX_TRKPT.matcher(text);
-		while (trk.find()) {
-			try {
-				track.add(new Coordinate(Double.parseDouble(trk.group(2)), Double.parseDouble(trk.group(1))));
-			} catch (NumberFormatException ignored) {
-				// skip
+		Matcher tag = GPX_POINT.matcher(text);
+		while (tag.find()) {
+			Coordinate c = gpxCoordinate(tag.group(2));
+			if (c == null) {
+				continue;
 			}
+			if ("trkpt".equalsIgnoreCase(tag.group(1))) {
+				track.add(c);
+				continue;
+			}
+			Map<String, Object> props = new LinkedHashMap<>();
+			props.put("name", "航点");
+			props.put("kind", "point");
+			out.add(codec.toFeature(factory.createPoint(c), props, null));
 		}
 		if (track.size() >= 2) {
 			Map<String, Object> props = new LinkedHashMap<>();
@@ -196,18 +207,17 @@ public class GisTextIngest {
 		return out;
 	}
 
-	private void collectGpx(List<Map<String, Object>> out, Matcher m, boolean lonFirst) {
-		while (m.find()) {
-			try {
-				double lat = Double.parseDouble(lonFirst ? m.group(2) : m.group(1));
-				double lon = Double.parseDouble(lonFirst ? m.group(1) : m.group(2));
-				Map<String, Object> props = new LinkedHashMap<>();
-				props.put("name", "航点");
-				props.put("kind", "point");
-				out.add(codec.toFeature(factory.createPoint(new Coordinate(lon, lat)), props, null));
-			} catch (NumberFormatException ignored) {
-				// skip
-			}
+	/** 标签属性段里的 lat / lon；缺一个或不是数字返回 null，这个点跳过 */
+	private static Coordinate gpxCoordinate(String attrs) {
+		Matcher lat = GPX_LAT.matcher(attrs);
+		Matcher lon = GPX_LON.matcher(attrs);
+		if (!lat.find() || !lon.find()) {
+			return null;
+		}
+		try {
+			return new Coordinate(Double.parseDouble(lon.group(1).trim()), Double.parseDouble(lat.group(1).trim()));
+		} catch (NumberFormatException e) {
+			return null;
 		}
 	}
 

@@ -36,6 +36,8 @@ public class GisAnalyzeController {
 	}, mode = SaMode.OR)
 	public R<Map<String, Object>> analyze(@RequestBody Map<String, Object> body) {
 		moduleService.requireEnabled();
+		// 是否走 Java 由分析服务自己读 body.engine，这里只拦住非平台管理员的 engine=java
+		moduleService.forceJava(body == null ? null : body.get("engine"));
 		return R.data(analyzeService.analyze(body));
 	}
 }
