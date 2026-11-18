@@ -1,7 +1,6 @@
 package com.mugsun.boot.auth;
 
 import cn.hutool.core.util.IdUtil;
-import cn.hutool.core.util.RandomUtil;
 import com.mugsun.boot.mail.MailService;
 import com.mugsun.boot.security.SecurityPolicyService;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -11,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Map;
 
@@ -33,6 +33,7 @@ public class TwoFactorService {
 	private final SecurityPolicyService policy;
 	private final MailService mailService;
 	private final com.mugsun.boot.system.service.SmsService smsService;
+	private final SecureRandom random = new SecureRandom();
 
 	@Value("${mugsun.captcha.show-code:false}")
 	private boolean showCode;
@@ -55,8 +56,8 @@ public class TwoFactorService {
 
 	/** 生成二次验证码存 Redis、按渠道下发，返回 [token, code(仅 dev)] */
 	public String[] challenge(Long userId, String contact) {
-		String code = RandomUtil.randomNumbers(6);
-		String token = IdUtil.fastSimpleUUID();
+		String code = String.valueOf(100000 + random.nextInt(900000));
+		String token = IdUtil.simpleUUID();
 		redis.opsForValue().set(KEY + token, userId + ":" + code + ":0", Duration.ofMinutes(EXPIRE_MIN));
 		String channel = policy.getTwoFactorChannel();
 		try {

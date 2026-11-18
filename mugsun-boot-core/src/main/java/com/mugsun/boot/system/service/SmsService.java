@@ -18,10 +18,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Random;
 
 /**
  * 短信服务：验证码发送与校验。发送通道由 sys_sms 启用配置驱动（SMS4J SmsReadConfig），
@@ -43,7 +43,7 @@ public class SmsService {
 	private final SysSmsCodeMapper smsCodeMapper;
 	private final SysSmsMapper smsMapper;
 	private final org.springframework.data.redis.core.StringRedisTemplate redis;
-	private final Random random = new Random();
+	private final SecureRandom random = new SecureRandom();
 
 	/** 开发环境回显验证码（生产须 false） */
 	@Value("${mugsun.sms.show-code:false}")

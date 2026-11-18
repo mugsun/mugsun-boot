@@ -95,7 +95,7 @@ public class AiSecretBizService {
 			resp.put("id", db.getId());
 			return resp;
 		}
-		String plain = AiConstants.SECRET_PREFIX + IdUtil.fastSimpleUUID();
+		String plain = AiConstants.SECRET_PREFIX + IdUtil.simpleUUID();
 		body.sanitizeForInsert();
 		body.setTenantId(TenantContext.current());
 		body.setSecretKey(plain);

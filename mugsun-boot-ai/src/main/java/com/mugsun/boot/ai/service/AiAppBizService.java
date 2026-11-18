@@ -198,7 +198,7 @@ public class AiAppBizService {
 		AiApp app = require(id);
 		if (enable) {
 			if (app.getShareToken() == null || app.getShareToken().isBlank()) {
-				app.setShareToken(IdUtil.fastSimpleUUID());
+				app.setShareToken(IdUtil.simpleUUID());
 			}
 			app.setShareStatus(AiConstants.FLAG_YES);
 		} else {
