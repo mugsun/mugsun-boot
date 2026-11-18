@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
-/** 与 SDK 同口径：截断不拆代理对、按字节截断、堆栈帧 URL 去 query */
+/** 与 SDK 同口径：截断不拆代理对、按字节截断、堆栈帧 URL 去 query；去控制字符 */
 class TrackPropsTextTest {
 
 	private static boolean hasLoneSurrogate(String s) {
@@ -48,5 +48,16 @@ class TrackPropsTextTest {
 			.contains("at https://cdn.x.com/b.js:3:7")
 			.contains("f@https://x.com/a.js:2:3")
 			.contains("(https://cdn.x.com/plain.js:4:4)");
+	}
+
+	@Test
+	void stripsControlCharsButKeepsTabsAndNewlines() {
+		assertThat(TrackPropsText.stripControl("a\u0000b\u0007c\u001Fd")).isEqualTo("abcd");
+		assertThat(TrackPropsText.stripControl("\u0000")).isEmpty();
+		assertThat(TrackPropsText.stripControl("l1\nl2\r\n\tx")).isEqualTo("l1\nl2\r\n\tx");
+		assertThat(TrackPropsText.stripControl("中文\uD83D\uDE00\u0000")).isEqualTo("中文\uD83D\uDE00");
+		String clean = "nothing to strip";
+		assertThat(TrackPropsText.stripControl(clean)).isSameAs(clean);
+		assertThat(TrackPropsText.stripControl(null)).isNull();
 	}
 }

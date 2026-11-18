@@ -256,7 +256,7 @@ public class TrackIngestService {
 			event.setGeoLon(geo[0]);
 			event.setGeoLat(geo[1]);
 		}
-		event.setIp(ip);
+		event.setIp(TrackPropsText.stripControl(ip));
 		event.setUserAgent(userAgent);
 		event.setPlatform(platform);
 
@@ -364,7 +364,7 @@ public class TrackIngestService {
 		}
 	}
 
-	/** props 截断净化：键 ≤64 / 值 ≤1024（顶层 stack ≤4096）/ 嵌套深度 ≤3（超出剪为 null）/ 单事件总量 ≤16KB（超出从尾部逐键摘除） */
+	/** props 截断净化：键 ≤64 / 值 ≤1024（顶层 stack ≤4096）/ 嵌套深度 ≤3（超出剪为 null）/ 单事件总量 ≤16KB（超出从尾部逐键摘除）/ 键和字符串值去控制字符 */
 	private String sanitizeProps(JsonNode props) {
 		if (props == null || !props.isObject()) {
 			return "{}";
@@ -373,7 +373,7 @@ public class TrackIngestService {
 		Iterator<Map.Entry<String, JsonNode>> fields = props.fields();
 		while (fields.hasNext()) {
 			Map.Entry<String, JsonNode> field = fields.next();
-			String key = truncate(field.getKey(), TrackConstants.PROPS_KEY_MAX_LEN);
+			String key = truncate(TrackPropsText.stripControl(field.getKey()), TrackConstants.PROPS_KEY_MAX_LEN);
 			if (key == null || key.isBlank()) {
 				continue;
 			}
@@ -381,7 +381,8 @@ public class TrackIngestService {
 			if (!out.has(key)) {
 				JsonNode value = field.getValue();
 				out.set(key, TrackConstants.PROP_ERROR_STACK.equals(key) && value != null && value.isTextual()
-					? TextNode.valueOf(truncate(TrackPropsText.stripStackUrlQuery(value.asText()), TrackConstants.PROPS_STACK_MAX_LEN))
+					? TextNode.valueOf(truncate(TrackPropsText.stripStackUrlQuery(TrackPropsText.stripControl(value.asText())),
+						TrackConstants.PROPS_STACK_MAX_LEN))
 					: sanitizeValue(value, 1));
 			}
 		}
@@ -411,13 +412,13 @@ public class TrackIngestService {
 		return json;
 	}
 
-	/** 值截断：字符串 ≤1024；对象/数组超深度（>3 层）剪为 null；数值/布尔/空原样保留 */
+	/** 值截断：字符串去控制字符后 ≤1024；对象/数组超深度（>3 层）剪为 null；数值/布尔/空原样保留 */
 	private JsonNode sanitizeValue(JsonNode node, int depth) {
 		if (node == null || node.isNull()) {
 			return NullNode.getInstance();
 		}
 		if (node.isTextual()) {
-			return TextNode.valueOf(truncate(node.asText(), TrackConstants.PROPS_VALUE_MAX_LEN));
+			return TextNode.valueOf(truncate(TrackPropsText.stripControl(node.asText()), TrackConstants.PROPS_VALUE_MAX_LEN));
 		}
 		if (node.isObject()) {
 			if (depth >= TrackConstants.PROPS_MAX_DEPTH) {
@@ -427,7 +428,7 @@ public class TrackIngestService {
 			Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
 			while (fields.hasNext()) {
 				Map.Entry<String, JsonNode> field = fields.next();
-				String key = truncate(field.getKey(), TrackConstants.PROPS_KEY_MAX_LEN);
+				String key = truncate(TrackPropsText.stripControl(field.getKey()), TrackConstants.PROPS_KEY_MAX_LEN);
 				if (key != null && !key.isBlank() && !child.has(key)) {
 					child.set(key, sanitizeValue(field.getValue(), depth + 1));
 				}
@@ -488,7 +489,7 @@ public class TrackIngestService {
 		}
 	}
 
-	/** 节点文本字段（非文本/空白归 null） */
+	/** 节点文本字段（去控制字符；非文本/空白归 null） */
 	private String text(JsonNode node, String field) {
 		if (node == null) {
 			return null;
@@ -497,7 +498,7 @@ public class TrackIngestService {
 		if (value == null || value.isNull() || value.isContainerNode()) {
 			return null;
 		}
-		String text = value.asText();
+		String text = TrackPropsText.stripControl(value.asText());
 		return text == null || text.isBlank() ? null : text;
 	}
 

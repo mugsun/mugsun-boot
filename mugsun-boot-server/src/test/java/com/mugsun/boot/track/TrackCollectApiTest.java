@@ -59,6 +59,8 @@ class TrackCollectApiTest extends AbstractTrackIntegrationTest {
 	private PasswordEncoder passwordEncoder;
 	@Autowired
 	private MeterRegistry meterRegistry;
+	@Autowired
+	private TrackEventConsumer trackEventConsumer;
 
 	/** 播种测试应用（幂等；track_app 在埋点库，经 DataSourceKey 路由） */
 	@BeforeEach
@@ -254,6 +256,63 @@ class TrackCollectApiTest extends AbstractTrackIntegrationTest {
 		assertThat(trackLong("SELECT count(DISTINCT error_fingerprint) AS c FROM track_event"
 			+ " WHERE session_id = ? AND error_fingerprint IS NOT NULL", sessionId))
 			.as("query 不同不拆组").isEqualTo(1L);
+	}
+
+	/** ①f 字符串里的 U+0000 等控制字符在入口去掉（PostgreSQL text/jsonb 都不收），同批事件照常落库；制表符、换行保留 */
+	@Test
+	void controlCharsStrippedAtIngest() {
+		String sessionId = uuid();
+		String distinctId = uuid();
+		long clientTs = System.currentTimeMillis();
+		String bad = uuid();
+		List<Map<String, Object>> events = new ArrayList<>();
+		events.add(event(uuid(), "$pageview", clientTs, distinctId, sessionId, Map.of("url_path", "/before")));
+		events.add(event(bad, "$pageview", clientTs + 100, distinctId, sessionId, Map.of(
+			"url_path", "/nul\u0000path", "page_title", "ti\u0000t\u0007le", "k\u0000ey", "v\u0000al",
+			"nested", Map.of("x", "y\u0000z"), "note", "line1\nline2\tend")));
+		events.add(event(uuid(), "signup_click", clientTs + 200, distinctId, sessionId, Map.of("plan", "pro")));
+		ResponseEntity<String> resp = post("/track/collect", payload(APP_A, events), null);
+		assertThat(resp.getStatusCode().value()).isEqualTo(200);
+		awaitUntil("同批 3 条事件都落库", () -> trackLong(
+			"SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId) == 3L);
+		Row row = trackRow("SELECT url_path, page_title, props->>'key' AS k, props->'nested'->>'x' AS x,"
+			+ " props->>'note' AS note FROM track_event WHERE event_id = ?", bad);
+		assertThat(row.getString("url_path")).isEqualTo("/nulpath");
+		assertThat(row.getString("page_title")).isEqualTo("title");
+		assertThat(row.getString("k")).isEqualTo("val");
+		assertThat(row.getString("x")).isEqualTo("yz");
+		assertThat(row.getString("note")).isEqualTo("line1\nline2\tend");
+	}
+
+	/** ①g 绕过入口的坏数据被库拒收（U+0000）：消费端只丢这一条（persist_failed），同批其他事件照常落库 */
+	@Test
+	void consumerDropsOnlyRowRejectedByDatabase() {
+		String sessionId = uuid();
+		long now = System.currentTimeMillis();
+		List<TrackIngestEvent> batch = new ArrayList<>();
+		for (int i = 0; i < 3; i++) {
+			TrackIngestEvent e = new TrackIngestEvent();
+			e.setEventId(uuid());
+			e.setAppKey(APP_A);
+			e.setTenantId(PLATFORM_TENANT);
+			e.setEventName("$pageview");
+			e.setClientTsMs(now + i);
+			e.setTsMs(now + i);
+			e.setReceivedAtMs(now);
+			e.setDistinctId(sessionId);
+			e.setSessionId(sessionId);
+			e.setUrlPath(i == 1 ? "/bad\u0000path" : "/ok");
+			e.setPropsJson("{}");
+			batch.add(e);
+		}
+		double droppedBefore = droppedCount("persist_failed");
+
+		List<TrackIngestEvent> stored = TenantContext.ignore(() -> trackEventConsumer.persistEvents(batch));
+
+		assertThat(stored).containsExactly(batch.get(0), batch.get(2));
+		assertThat(trackLong("SELECT count(*) AS c FROM track_event WHERE app_key = ? AND session_id = ?", APP_A, sessionId))
+			.isEqualTo(2L);
+		assertThat(droppedCount("persist_failed") - droppedBefore).isEqualTo(1.0);
 	}
 
 	/** ② 伪 app_key / 停用应用 4xx（不存在的 key 走负缓存，不打库风暴） */

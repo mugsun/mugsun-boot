@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -35,7 +36,7 @@ import java.util.concurrent.TimeUnit;
  * <p><b>背压</b>：队列上限 {@value TrackConstants#CONSUME_QUEUE_CAPACITY}，offer 失败 = 丢新 + dropped 计数
  * （宁可丢事件不拖垮 DB）。<b>失败重试</b>：DB 瞬断批次重回队列尾，指数退避（1s 基数翻倍、30s 封顶），
  * 超 {@value TrackConstants#CONSUME_MAX_RETRY} 次丢弃 + 计数；进程重启丢失上限 = 一个批量窗口（at-most-once，
- * 幂等键防重放）。
+ * 幂等键防重放）。数据本身被库拒收的事件不重试：拆批找出后单条丢弃 + 计数，同批其他事件照常落库。
  */
 @Component
 public class TrackEventConsumer {
@@ -112,28 +113,30 @@ public class TrackEventConsumer {
 		}
 	}
 
-	/** 落库一批：富化（UA/IP 属地）→ 事件批量插 → 会话聚合 upsert → identity/event_def upsert → lag 指标
+	/** 落库一批：富化（UA/IP 属地）→ 事件批量插（被库拒收的单条剔除）→ 会话聚合 upsert → identity/event_def upsert → lag 指标
 	 *  → $error 告警评估 + 问题单 upsert（仅落库成功后；Quietly 非阻塞静默，任何异常不触发批次重试） */
 	private void flush(List<TrackIngestEvent> batch) {
 		if (batch.isEmpty()) {
 			return;
 		}
+		List<TrackIngestEvent> stored = batch;
 		try {
 			enrich(batch);
 			// 跨租户混合批写：显式 ignore 租户上下文（JdbcTemplate 原生 SQL 本不过租户插件，双保险）；
 			// 数据源路由由 TrackEventStore 类级 @TrackDS 切面压栈
+			stored = TenantContext.ignore(() -> persistEvents(batch));
+			List<TrackIngestEvent> rows = stored;
 			TenantContext.ignore(() -> {
-				store.insertEvents(batch);
-				store.upsertSessions(aggregateSessions(batch));
-				store.upsertIdentities(bindingsOf(batch));
-				store.upsertEventDefs(eventDefsOf(batch));
+				store.upsertSessions(aggregateSessions(rows));
+				store.upsertIdentities(bindingsOf(rows));
+				store.upsertEventDefs(eventDefsOf(rows));
 			});
 			long now = System.currentTimeMillis();
-			for (TrackIngestEvent e : batch) {
+			for (TrackIngestEvent e : rows) {
 				metrics.lag(Duration.ofMillis(Math.max(0, now - e.getReceivedAtMs())));
 			}
 			// G101 错误告警 + 错误问题单 upsert：$error 逐条评估；静默语义保证不拖垮落库
-			for (TrackIngestEvent e : batch) {
+			for (TrackIngestEvent e : rows) {
 				if (TrackConstants.EVENT_ERROR.equals(e.getEventName())) {
 					alertService.evaluateQuietly(e);
 					errorIssueService.upsertQuietly(e);
@@ -141,8 +144,50 @@ public class TrackEventConsumer {
 			}
 		} catch (Exception e) {
 			log.warn("埋点落库失败（批次重回队列尾重试）：{}", e.getMessage());
-			requeue(batch);
+			requeue(stored);
 		}
+	}
+
+	/**
+	 * 事件批量插入；整批因数据本身被库拒收（重试也不会成功）时对半拆开重插，单条仍被拒收的计 persist_failed 丢弃，
+	 * 不拖累同批其他事件。返回已落库的事件；连接断开、超时等异常原样抛出，由调用方整批重试。
+	 * 重插靠 ON CONFLICT (event_id, received_at) DO NOTHING 保证不重复。
+	 */
+	List<TrackIngestEvent> persistEvents(List<TrackIngestEvent> events) {
+		try {
+			store.insertEvents(events);
+			return events;
+		} catch (RuntimeException e) {
+			String state = rejectedDataState(e);
+			if (state == null) {
+				throw e;
+			}
+			if (events.size() == 1) {
+				TrackIngestEvent bad = events.get(0);
+				metrics.dropped("persist_failed", 1);
+				log.warn("埋点事件被数据库拒收（SQLState {}），已丢弃：appKey={} eventId={}", state, bad.getAppKey(), bad.getEventId());
+				return List.of();
+			}
+			int mid = events.size() / 2;
+			List<TrackIngestEvent> stored = new ArrayList<>(persistEvents(events.subList(0, mid)));
+			stored.addAll(persistEvents(events.subList(mid, events.size())));
+			return stored;
+		}
+	}
+
+	/** 数据本身被库拒收时返回 SQLState（22 数据异常、23 约束冲突）；连接、超时等可重试的返回 null */
+	private static String rejectedDataState(Throwable e) {
+		for (Throwable t = e; t != null; t = t.getCause()) {
+			if (t instanceof SQLException se) {
+				for (SQLException s = se; s != null; s = s.getNextException()) {
+					String state = s.getSQLState();
+					if (state != null && (state.startsWith("22") || state.startsWith("23"))) {
+						return state;
+					}
+				}
+			}
+		}
+		return null;
 	}
 
 	/** 批次重回队列尾：逐条 attempts+1，指数退避后经独立虚拟线程 re-offer；超上限丢弃 + 计数 */

@@ -5,7 +5,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * props 文本工具：截断不拆代理对；按 UTF-8 字节截断；堆栈帧 URL 去 query。
+ * props 文本工具：截断不拆代理对；按 UTF-8 字节截断；堆栈帧 URL 去 query；去控制字符。
  * 与 SDK（@mugsun/track-web core/utils：truncate / truncateBytes / stripStackUrlQuery）同口径。
  */
 final class TrackPropsText {
@@ -49,6 +49,33 @@ final class TrackPropsText {
 			i += Character.charCount(cp);
 		}
 		return s.substring(0, i);
+	}
+
+	/** 去掉 C0 控制字符，保留制表符、换行、回车：PostgreSQL 的 text 和 jsonb 都不收 U+0000，带它的事件会让整批落库失败 */
+	static String stripControl(String s) {
+		if (s == null) {
+			return null;
+		}
+		int i = 0;
+		while (i < s.length() && !isStrippedControl(s.charAt(i))) {
+			i++;
+		}
+		if (i == s.length()) {
+			return s;
+		}
+		StringBuilder sb = new StringBuilder(s.length());
+		sb.append(s, 0, i);
+		for (; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if (!isStrippedControl(c)) {
+				sb.append(c);
+			}
+		}
+		return sb.toString();
+	}
+
+	private static boolean isStrippedControl(char c) {
+		return c < 0x20 && c != '\t' && c != '\n' && c != '\r';
 	}
 
 	static int utf8Length(String s) {
