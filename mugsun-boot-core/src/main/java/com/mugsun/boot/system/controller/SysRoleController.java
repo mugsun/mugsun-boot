@@ -2,6 +2,7 @@ package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.DataScopeConstants;
 import com.mugsun.boot.common.constant.RoleConstants;
@@ -20,6 +21,7 @@ import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysRoleMenuMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
 import com.mugsun.boot.system.payload.GrantParam;
+import com.mugsun.boot.system.service.UserRoleAssignGuard;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.tenant.TenantPackageModules;
 import com.mugsun.boot.tenant.TenantValidator;
@@ -89,12 +91,15 @@ public class SysRoleController {
 		return R.data(roleMapper.paginate(pageNum, Math.min(pageSize, 500), query));
 	}
 
-	/** 角色下拉选项（value/label 契约样例，供用户授权等场景消费） */
+	/** 角色下拉选项（value/label 契约样例，供用户授权等场景消费）；内置管理员角色只对能授予它的人列出 */
 	@GetMapping("/select")
+	@SaCheckPermission(value = {"sys:user:add", "sys:user:edit", "sys:user:grant", "sys:role:list"}, mode = SaMode.OR)
 	public R<List<Map<String, Object>>> select() {
+		boolean showAdmin = UserRoleAssignGuard.unrestricted();
 		List<Map<String, Object>> options = roleMapper
 			.selectListByQuery(QueryWrapper.create().orderBy("sort", true))
 			.stream()
+			.filter(role -> showAdmin || !RoleConstants.ADMIN.equals(role.getRoleCode()))
 			.map(role -> {
 				Map<String, Object> option = new HashMap<>();
 				option.put("value", role.getId());

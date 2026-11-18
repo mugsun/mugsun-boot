@@ -59,6 +59,7 @@ public class SysUserController {
 	private final com.mugsun.boot.auth.LoginLockService loginLockService;
 	private final com.mugsun.boot.log.UsualLogService usualLogService;
 	private final com.mugsun.boot.system.service.SysUserManageService userManageService;
+	private final com.mugsun.boot.system.service.UserRoleAssignGuard roleAssignGuard;
 
 	public SysUserController(SysUserMapper userMapper, PasswordEncoder passwordEncoder, AuditService auditService,
 							 SysUserRoleMapper userRoleMapper,
@@ -70,7 +71,8 @@ public class SysUserController {
 							 NotifySendApi notifySendApi,
 							 com.mugsun.boot.auth.LoginLockService loginLockService,
 							 com.mugsun.boot.log.UsualLogService usualLogService,
-							 com.mugsun.boot.system.service.SysUserManageService userManageService) {
+							 com.mugsun.boot.system.service.SysUserManageService userManageService,
+							 com.mugsun.boot.system.service.UserRoleAssignGuard roleAssignGuard) {
 		this.userMapper = userMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.auditService = auditService;
@@ -84,6 +86,7 @@ public class SysUserController {
 		this.loginLockService = loginLockService;
 		this.usualLogService = usualLogService;
 		this.userManageService = userManageService;
+		this.roleAssignGuard = roleAssignGuard;
 	}
 
 	@GetMapping("/page")
@@ -409,6 +412,7 @@ public class SysUserController {
 		assertOrgValid(user);
 		String oneTimePassword = null;
 		if (creating) {
+			roleAssignGuard.assertAssignable(null, user.getRoleIds());
 			oneTimePassword = userManageService.create(user);
 		} else {
 			// 审计前镜像恒脱敏读：与操作者角色无关，敏感字段永不落明文入审计
@@ -417,6 +421,7 @@ public class SysUserController {
 				throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再编辑");
 			}
 			assertTargetOperable(user.getId(), true);
+			roleAssignGuard.assertAssignable(user.getId(), user.getRoleIds());
 			// 更新+审计+角色同步在同一事务内（任一步失败整体回滚）
 			userManageService.update(user, before);
 		}
@@ -810,17 +815,12 @@ public class SysUserController {
 	@Transactional(rollbackFor = Exception.class)
 	public R<Void> grant(@RequestBody UserGrantParam param) {
 		assertUserInScope(param.userId());
+		// roleIds 为 null 时下面会清空该用户全部角色，校验时按空列表算
+		roleAssignGuard.assertAssignable(param.userId(), param.roleIds() == null ? List.of() : param.roleIds());
 		if (param.roleIds() != null) {
 			for (Long roleId : param.roleIds()) {
-				com.mugsun.boot.system.entity.SysRole role = roleMapper.selectOneById(roleId);
-				if (role == null) {
+				if (roleMapper.selectOneById(roleId) == null) {
 					throw new com.mugsun.core.tool.exception.ServiceException("角色不存在：" + roleId);
-				}
-				// 内置 admin 角色仅平台超管或同为 admin 角色持有者可授（防低权角色自助升格）
-				if (com.mugsun.boot.common.constant.RoleConstants.ADMIN.equals(role.getRoleCode())
-					&& !TenantContext.isPlatformSuperAdmin()
-					&& !StpUtil.getRoleList().contains(com.mugsun.boot.common.constant.RoleConstants.ADMIN)) {
-					throw new com.mugsun.core.tool.exception.ServiceException("内置管理员角色仅管理员可授予");
 				}
 			}
 		}
