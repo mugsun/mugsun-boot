@@ -11,6 +11,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -31,7 +32,7 @@ public class CaptchaBodyLimitFilter extends OncePerRequestFilter {
 
 	@Override
 	protected boolean shouldNotFilter(HttpServletRequest request) {
-		String uri = request.getRequestURI();
+		String uri = UrlPathHelper.defaultInstance.getLookupPathForRequest(request);
 		return uri == null || !(uri.endsWith("/auth/captcha/verify") || uri.endsWith("/app/captcha/check"));
 	}
 

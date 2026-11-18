@@ -8,6 +8,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -36,9 +37,8 @@ public class LocalFileAccessFilter extends OncePerRequestFilter {
 
 	@Override
 	protected boolean shouldNotFilter(HttpServletRequest request) {
-		String uri = request.getRequestURI();
-		String ctx = request.getContextPath();
-		String path = ctx != null && !ctx.isEmpty() && uri.startsWith(ctx) ? uri.substring(ctx.length()) : uri;
+		// 静态资源映射按解码后的路径出文件，这里要同一口径；按原始 URI 判断时 /fil%65/... 会跳过签名校验
+		String path = UrlPathHelper.defaultInstance.getLookupPathForRequest(request);
 		String prefix = properties.getUrlPrefix();
 		return !path.startsWith(prefix) && !path.equals(prefix.substring(0, prefix.length() - 1));
 	}

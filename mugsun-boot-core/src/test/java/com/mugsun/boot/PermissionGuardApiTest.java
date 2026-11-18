@@ -6,6 +6,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.http.ResponseEntity;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +110,20 @@ class PermissionGuardApiTest extends AbstractIntegrationTest {
 		assertThat(response.getStatusCode().value()).isEqualTo(403);
 		JsonNode r = readBody(response);
 		assertThat(r.path("code").asInt()).isEqualTo(403);
+	}
+
+	@Test
+	void encodedPathIsRejectedBeforeGuards() throws Exception {
+		// /%73ystem/user/page 解码后仍路由到 /system/user/page，按原始 URI 判断的守卫会被绕开 —— 入口直接 400。
+		// TestRestTemplate 会把 % 再编码成 %25，只能用 JDK 客户端原样发
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/%73ystem/user/page"))
+			.header(TOKEN_HEADER, lowToken)
+			.GET()
+			.build();
+		HttpResponse<String> response = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
+			.send(request, HttpResponse.BodyHandlers.ofString());
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(400);
+		assertThat(om.readTree(response.body()).path("code").asInt()).isEqualTo(400);
 	}
 
 	@Test

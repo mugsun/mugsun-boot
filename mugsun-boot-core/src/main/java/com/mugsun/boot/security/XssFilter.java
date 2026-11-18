@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.util.List;
@@ -28,7 +29,7 @@ public class XssFilter extends OncePerRequestFilter {
 		throws ServletException, IOException {
 		String contentType = request.getContentType();
 		boolean multipart = contentType != null && contentType.toLowerCase().startsWith("multipart/");
-		if (multipart || isExcluded(request.getRequestURI())) {
+		if (multipart || isExcluded(UrlPathHelper.defaultInstance.getLookupPathForRequest(request))) {
 			chain.doFilter(request, response);
 			return;
 		}

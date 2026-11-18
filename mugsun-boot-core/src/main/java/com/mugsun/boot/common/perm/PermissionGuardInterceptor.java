@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.util.UrlPathHelper;
 
 /**
  * 权限兜底守卫（fail-closed）：对 /system/** 的写请求（POST/PUT/DELETE），
@@ -46,7 +47,8 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
 		if (!loggedIn) {
 			return true;
 		}
-		String path = request.getRequestURI();
+		// deriveCode 要求首段字面等于 system：必须用解码后的路径，否则 /%73ystem/... 推不出权限码而放行
+		String path = UrlPathHelper.defaultInstance.getLookupPathForRequest(request);
 		if (PermissionModules.isExempt(path)) {
 			return true;
 		}

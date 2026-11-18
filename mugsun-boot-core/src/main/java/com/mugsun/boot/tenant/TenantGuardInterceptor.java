@@ -9,6 +9,7 @@ import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.util.Collections;
 import java.util.Set;
@@ -46,7 +47,8 @@ public class TenantGuardInterceptor implements HandlerInterceptor {
 		if (!loggedIn) {
 			return true;
 		}
-		String path = request.getRequestURI();
+		// 与 Spring 路由同一口径（解码、去分号参数、折叠斜杠），原始 URI 里编码一个字母就能绕开前缀名单
+		String path = UrlPathHelper.defaultInstance.getLookupPathForRequest(request);
 		Object t = StpUtil.getSession().get(TenantContext.TENANT_SESSION_KEY);
 		String sessionTenant = t == null ? null : t.toString();
 		// 平台超管 = 平台租户 000000 + 内置 admin 角色（区别于自助注册落 000000 的无角色用户，杜绝越权升格）

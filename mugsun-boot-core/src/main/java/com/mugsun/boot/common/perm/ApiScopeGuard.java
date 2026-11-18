@@ -7,6 +7,7 @@ import com.mugsun.core.tool.exception.ForbiddenException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.util.UrlPathHelper;
 
 /**
  * 接口权限守卫：请求命中已启用规则时，除平台管理员外必须持有被授权的角色。
@@ -24,7 +25,7 @@ public class ApiScopeGuard implements HandlerInterceptor {
 		if (!loggedIn || TenantContext.isPlatformSuperAdmin()) {
 			return true;
 		}
-		ApiScopeIndex.Rule rule = ApiScopeIndex.match(request.getRequestURI());
+		ApiScopeIndex.Rule rule = ApiScopeIndex.match(UrlPathHelper.defaultInstance.getLookupPathForRequest(request));
 		if (rule == null) {
 			return true;
 		}
