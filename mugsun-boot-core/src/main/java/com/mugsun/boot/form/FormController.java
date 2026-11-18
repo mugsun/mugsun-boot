@@ -2,12 +2,14 @@ package com.mugsun.boot.form;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
+import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.form.entity.SysForm;
 import com.mugsun.boot.form.entity.SysFormData;
 import com.mugsun.boot.form.mapper.SysFormDataMapper;
 import com.mugsun.boot.form.mapper.SysFormMapper;
 import com.mugsun.boot.system.service.UserService;
+import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -112,13 +114,16 @@ public class FormController {
 		param.setName(name);
 		param.setFormKey(formKey);
 		if (param.getId() == null) {
-			SysForm exists = formMapper.selectOneByQuery(QueryWrapper.create().eq("form_key", formKey));
+			String tenant = currentTenant();
+			SysForm exists = formMapper.selectOneByQuery(
+				QueryWrapper.create().eq("form_key", formKey).and("tenant_id = ?", tenant));
 			if (exists != null) {
 				throw new ServiceException("标识「" + formKey + "」已经有了。请换一个，或编辑原来那个");
 			}
 			if (param.getStatus() == null) {
 				param.setStatus(1);
 			}
+			param.setTenantId(tenant);
 			formMapper.insertSelective(param);
 			return R.success("已创建。接下来可以设计字段，设计完就能填报");
 		}
@@ -129,6 +134,7 @@ public class FormController {
 		if (!formKey.equals(before.getFormKey())) {
 			throw new ServiceException("表单标识创建后不能改。请沿用原来的标识");
 		}
+		param.setTenantId(before.getTenantId());
 		formMapper.update(param);
 		return R.success("已保存。预览和填报会用这份设计");
 	}
@@ -155,7 +161,8 @@ public class FormController {
 		}
 		for (SysForm form : forms) {
 			if (form.getFormKey() != null && !form.getFormKey().isBlank()) {
-				formDataMapper.deleteByQuery(QueryWrapper.create().eq("form_key", form.getFormKey()));
+				formDataMapper.deleteByQuery(QueryWrapper.create().eq("form_key", form.getFormKey())
+					.and("tenant_id = ?", form.getTenantId()));
 			}
 		}
 		formMapper.deleteBatchByIds(distinct);
@@ -183,6 +190,7 @@ public class FormController {
 			throw new ServiceException("填报内容过长。请精简后再提交");
 		}
 		SysFormData data = new SysFormData();
+		data.setTenantId(form.getTenantId());
 		data.setFormKey(formKey);
 		data.setFormData(formData);
 		data.setSubmitter(StpUtil.getLoginIdAsLong());
@@ -208,6 +216,12 @@ public class FormController {
 		Page<SysFormData> page = formDataMapper.paginate(pageNum, Math.min(pageSize, 500), query);
 		fillSubmitterName(page.getRecords());
 		return R.data(page);
+	}
+
+	/** 平台管理员切到「查看全部租户」时没有当前租户，这时新建的表单归平台租户 */
+	private static String currentTenant() {
+		String tenant = TenantContext.current();
+		return tenant == null ? TenantConstants.DEFAULT_TENANT_ID : tenant;
 	}
 
 	private void fillSubmitterName(List<SysFormData> records) {

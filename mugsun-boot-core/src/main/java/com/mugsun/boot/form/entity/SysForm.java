@@ -9,6 +9,7 @@ import com.mybatisflex.annotation.Table;
 @Table("sys_form")
 public class SysForm extends BaseEntity {
 
+	private String tenantId;
 	private String name;
 	private String formKey;
 	/** form-create 规则 JSON */
@@ -17,6 +18,14 @@ public class SysForm extends BaseEntity {
 	private String formOption;
 	private Integer status;
 	private String remark;
+
+	public String getTenantId() {
+		return tenantId;
+	}
+
+	public void setTenantId(String tenantId) {
+		this.tenantId = tenantId;
+	}
 
 	public String getName() {
 		return name;

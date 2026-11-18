@@ -3,6 +3,7 @@ package com.mugsun.boot.system.service;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.FlowConstants;
+import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.RuntimeSql;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -561,8 +562,15 @@ public class FlowService {
 			r.put("hasForm", false);
 			return r;
 		}
+		// 流程定义由平台维护，绑的一般是平台表单；本租户有同标识的表单时优先用本租户的，不取其他租户的
+		String tenant = com.mugsun.boot.tenant.TenantContext.current();
+		if (tenant == null) {
+			tenant = TenantConstants.DEFAULT_TENANT_ID;
+		}
 		Row form = firstRow("select name as \"n\", form_schema as \"s\", form_option as \"o\" "
-			+ "from " + bizTable("sys_form") + " where form_key = ? and is_deleted = 0 and status = 1", formKey);
+			+ "from " + bizTable("sys_form") + " where form_key = ? and is_deleted = 0 and status = 1"
+			+ " and tenant_id in (?, ?) order by case when tenant_id = ? then 0 else 1 end",
+			formKey, tenant, TenantConstants.DEFAULT_TENANT_ID, tenant);
 		if (form == null || form.getString("s") == null) {
 			r.put("hasForm", false);
 			return r;

@@ -25,3 +25,4 @@
 - `V17__gis_feature_wrap_index`（Java，`db.migration` 包）：部分 GiST `idx_gis_feature_wrap`，`CREATE INDEX CONCURRENTLY`（#76；主库 Flyway 须会话级锁）。
 - `V18__track_error_issue_perm.sql`：错误问题单写权限 `sys:track-error-issue:edit`（读复用 `sys:track-error:list`）。
 - `V20__track_spatial_perm.sql`：空间行为分析读权 `sys:track-spatial:list`。
+- `V21__form_tenant.sql`：低代码表单 `sys_form`、`sys_form_data` 补 `tenant_id`（存量归平台租户 000000），表单标识改为租户内唯一 `uk_form_tenant_key`（三套方言同号）。

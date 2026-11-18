@@ -311,6 +311,43 @@ class FlywayUpgradeFrom010Test {
 		});
 	}
 
+	/** V21：存量表单和填报归平台租户；表单标识改为租户内唯一，已删除的表单不占标识；重跑幂等。 */
+	@Test
+	void v21MovesFormsIntoPlatformTenantAndScopesFormKey() throws Exception {
+		withTempDb(url -> {
+			Flyway.configure().dataSource(url, user, pass)
+				.locations("classpath:db/migration").baselineOnMigrate(true).baselineVersion("0")
+				.placeholderReplacement(false)
+				.configuration(java.util.Map.of("flyway.postgresql.transactional.lock", "false"))
+				.target("20").load().migrate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				st.execute("INSERT INTO sys_form (id, name, form_key, status, is_deleted) VALUES (9100000000000002101, '请假', 'it_v21_leave', 1, 0)");
+				st.execute("INSERT INTO sys_form_data (id, form_key, form_data, submitter, is_deleted) VALUES (9100000000000002111, 'it_v21_leave', '{}', 1, 0)");
+			}
+			Flyway current = current(url);
+			current.migrate();
+			current.validate();
+			try (Connection c = DriverManager.getConnection(url, user, pass); Statement st = c.createStatement()) {
+				assertThat(count(st, "SELECT count(*) FROM sys_form WHERE id = 9100000000000002101 AND tenant_id = '000000'")).isEqualTo(1);
+				assertThat(count(st, "SELECT count(*) FROM sys_form_data WHERE id = 9100000000000002111 AND tenant_id = '000000'")).isEqualTo(1);
+				assertThat(count(st, "SELECT count(*) FROM pg_indexes WHERE indexname = 'uk_form_key'")).as("全局唯一的旧索引已删").isZero();
+
+				String insert = "INSERT INTO sys_form (id, name, form_key, status, is_deleted, tenant_id) VALUES (%d, 'x', 'it_v21_leave', 1, 0, '700021')";
+				st.execute(insert.formatted(9100000000000002102L));
+				java.sql.SQLException dup = org.assertj.core.api.Assertions.catchThrowableOfType(
+					java.sql.SQLException.class, () -> st.execute(insert.formatted(9100000000000002103L)));
+				assertThat((Object) dup).as("同一租户里标识不能重复").isNotNull();
+				assertThat(dup.getSQLState()).isEqualTo("23505");
+				st.execute("UPDATE sys_form SET is_deleted = 1 WHERE id = 9100000000000002102");
+				st.execute(insert.formatted(9100000000000002103L));
+
+				st.execute(readResource("db/migration/V21__form_tenant.sql"));
+				assertThat(count(st, "SELECT count(*) FROM sys_form WHERE form_key = 'it_v21_leave' AND tenant_id = '700021'")).as("重跑不改已有归属").isEqualTo(2);
+				assertThat(count(st, "SELECT count(*) FROM sys_form WHERE form_key = 'it_v21_leave' AND tenant_id = '000000'")).isEqualTo(1);
+			}
+		});
+	}
+
 	private static String rootMessage(Throwable t) {
 		StringBuilder sb = new StringBuilder();
 		for (Throwable x = t; x != null; x = x.getCause()) {

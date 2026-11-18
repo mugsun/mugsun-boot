@@ -10,6 +10,8 @@ import com.mybatisflex.annotation.Table;
 @Table("sys_form_data")
 public class SysFormData extends BaseEntity {
 
+	/** 与所属表单相同 */
+	private String tenantId;
 	private String formKey;
 	/** 填报数据 JSON */
 	private String formData;
@@ -17,6 +19,14 @@ public class SysFormData extends BaseEntity {
 	/** 填报人展示名（非表列） */
 	@Column(ignore = true)
 	private String submitterName;
+
+	public String getTenantId() {
+		return tenantId;
+	}
+
+	public void setTenantId(String tenantId) {
+		this.tenantId = tenantId;
+	}
 
 	public String getFormKey() {
 		return formKey;
