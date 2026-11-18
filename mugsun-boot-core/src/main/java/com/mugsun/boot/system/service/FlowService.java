@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -194,13 +195,29 @@ public class FlowService {
 		}
 	}
 
-	/** 实例可退回的历史审批节点（供“退回指定节点”选择；排除开始/结束/网关） */
+	/** 实例可退回的节点（供“退回指定节点”选择）：本实例走过、且在当前待办节点上游的审批节点；开始、结束、网关不在其中 */
 	public List<Row> backNodes(Long instanceId) {
 		assertInstanceAccess(instanceId);
+		Instance ins = FlowEngine.insService().getById(instanceId);
+		List<String> current = Db.selectListBySql(
+			"select distinct node_code as \"nodeCode\" from flow_task "
+				+ "where instance_id = ? and coalesce(del_flag,'0') <> '1'", instanceId)
+			.stream().map(r -> r.getString("nodeCode")).toList();
+		return backNodeRows(instanceId, ins.getDefinitionId(), current);
+	}
+
+	/** 走过的审批节点里位于 fromNodes 上游的那些，按第一次走到的先后排；上游沿定义里的通过连线逆向找，引擎已去掉网关 */
+	private List<Row> backNodeRows(Long instanceId, Long definitionId, List<String> fromNodes) {
+		Set<String> upstream = new HashSet<>();
+		for (String code : fromNodes) {
+			FlowEngine.nodeService().previousNodeList(definitionId, code)
+				.forEach(n -> upstream.add(n.getNodeCode()));
+		}
 		return Db.selectListBySql(
-			"select distinct node_code as \"nodeCode\", node_name as \"nodeName\" "
+			"select node_code as \"nodeCode\", max(node_name) as \"nodeName\" "
 				+ "from flow_his_task where instance_id = ? and node_type = 1 and coalesce(del_flag,'0') <> '1' "
-				+ "order by length(node_code), node_code", instanceId);
+				+ "group by node_code order by min(create_time), node_code", instanceId)
+			.stream().filter(r -> upstream.contains(r.getString("nodeCode"))).toList();
 	}
 
 	/** 查询实例（含流程状态，含参与人访问校验） */
@@ -645,11 +662,16 @@ public class FlowService {
 		return ins.getFlowStatus();
 	}
 
-	/** 退回指定历史节点 */
+	/** 退回指定节点：引擎对 REJECT 加 nodeCode 不看方向，目标是结束节点时直接办结，所以只放行 backNodes 规则内的节点 */
 	public String rejectToNode(Long taskId, String nodeCode, String message) {
-		requireTaskInTenant(taskId);
+		Task task = requireTaskInTenant(taskId);
 		if (nodeCode == null || nodeCode.isBlank()) {
 			throw new ServiceException("请选择退回节点");
+		}
+		boolean allowed = backNodeRows(task.getInstanceId(), task.getDefinitionId(), List.of(task.getNodeCode()))
+			.stream().anyMatch(r -> nodeCode.equals(r.getString("nodeCode")));
+		if (!allowed) {
+			throw new ServiceException("只能退回到前面已经办过的审批节点。请从可退回的节点里重新选择");
 		}
 		Instance ins = FlowEngine.taskService().skip(taskId,
 			base().skipType("REJECT").nodeCode(nodeCode).message(text(message, "退回")));
