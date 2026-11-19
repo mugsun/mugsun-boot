@@ -26,8 +26,8 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * BOOT-071：行政区划的表没有 tenant_id，全平台共用一份。
- * 其他租户的管理员（持通配权限）只能读，写请求一律 403；平台租户照常维护。
+ * BOOT-071 / BOOT-073：行政区划、帮助文档、更新日志的表没有 tenant_id，全平台共用一份。
+ * 其他租户的管理员（持通配权限）只能读，写请求一律 403；平台租户照常维护；帮助文档的浏览计数是读者动作，所有租户都能调。
  * 区划导入只给已有编码改名称，不能改挂到别的上级（改挂能让两条区划互为上级，从树上消失且删不掉）。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -82,6 +82,70 @@ class PlatformSharedContentWriteApiTest extends AbstractIntegrationTest {
 		// 平台照常维护
 		assertOk(post("/system/region/submit", region(id, code, "0", "平台改的名称"), adminToken));
 		assertOk(post("/system/region/remove/" + id, null, adminToken));
+	}
+
+	@Test
+	void tenantAdminCannotWriteHelpDocs() {
+		String suffix = P.substring(2);
+		assertOk(post("/system/help/catalog/submit", Map.of("name", "平台目录-" + suffix, "sort", 1), adminToken));
+		long catalogId = helpCatalogId("平台目录-" + suffix);
+		Map<String, Object> doc = new HashMap<>();
+		doc.put("catalogId", catalogId);
+		doc.put("title", "平台文档-" + suffix);
+		doc.put("content", "<p>平台写的帮助</p>");
+		assertOk(post("/system/help/doc/submit", doc, adminToken));
+		long docId = helpDocId(catalogId, "平台文档-" + suffix);
+
+		// 读：目录、文档详情都能看；浏览计数是读者动作，不算维护
+		assertThat(readBody(get("/system/help/catalog/tree", tenantAdminToken)).path("code").asInt()).isEqualTo(200);
+		assertThat(readBody(get("/system/help/doc/detail?id=" + docId, tenantAdminToken)).path("code").asInt()).isEqualTo(200);
+		JsonNode viewed = readBody(post("/system/help/view/" + docId, null, tenantAdminToken));
+		assertThat(viewed.path("code").asInt()).as("浏览计数：" + viewed.path("msg").asText()).isEqualTo(200);
+		assertThat(viewed.path("data").path("viewCount").asInt()).isEqualTo(1);
+
+		// 写：目录、文档、页面绑定的新增、修改、删除都被拒绝
+		assertRefused(post("/system/help/catalog/submit", Map.of("name", "租户目录-" + suffix), tenantAdminToken));
+		assertRefused(post("/system/help/catalog/submit", Map.of("id", catalogId, "name", "被租户改名"), tenantAdminToken));
+		Map<String, Object> tampered = new HashMap<>(doc);
+		tampered.put("id", docId);
+		tampered.put("content", "<a href=\"https://phish.example\">重新登录</a>");
+		assertRefused(post("/system/help/doc/submit", tampered, tenantAdminToken));
+		assertRefused(post("/system/help/doc/remove", List.of(docId), tenantAdminToken));
+		assertRefused(post("/system/help/catalog/remove/" + catalogId, null, tenantAdminToken));
+		assertRefused(post("/system/help/binding/submit", Map.of("docId", docId, "routePath", "/system/user"), tenantAdminToken));
+		assertRefused(post("/system/help/binding/remove/1", null, tenantAdminToken));
+
+		JsonNode detail = readBody(get("/system/help/doc/detail?id=" + docId, adminToken)).path("data");
+		assertThat(detail.path("content").asText()).as("文档正文没有被改").contains("平台写的帮助");
+		assertThat(helpCatalogId("平台目录-" + suffix)).as("目录还在，名称没变").isEqualTo(catalogId);
+
+		// 平台照常维护
+		assertOk(post("/system/help/doc/remove", List.of(docId), adminToken));
+		assertOk(post("/system/help/catalog/remove/" + catalogId, null, adminToken));
+	}
+
+	@Test
+	void tenantAdminCannotWriteChangelog() {
+		String title = "平台发布的更新-" + P.substring(2);
+		assertOk(post("/system/changelog/submit", Map.of("version", "v0.0.1", "type", "fix", "title", title), adminToken));
+		long id = changelogId(title);
+
+		// 读：首页的最近更新所有租户都能看
+		assertThat(readBody(get("/system/changelog/recent?limit=20", tenantAdminToken)).path("code").asInt()).isEqualTo(200);
+
+		// 写：发布、修改、删除都被拒绝
+		assertRefused(post("/system/changelog/submit",
+			Map.of("version", "v9.9.9", "type", "feature", "title", "租户发布的更新-" + P.substring(2)), tenantAdminToken));
+		assertRefused(post("/system/changelog/submit",
+			Map.of("id", id, "version", "v0.0.1", "type", "fix", "title", "被租户改写"), tenantAdminToken));
+		assertRefused(post("/system/changelog/remove", List.of(id), tenantAdminToken));
+
+		JsonNode page = readBody(get("/system/changelog/page?pageNum=1&pageSize=50&name=" + P.substring(2), adminToken));
+		List<String> titles = page.path("data").path("records").findValuesAsText("title");
+		assertThat(titles).as("只有平台发布的那一条，标题没变").containsExactly(title);
+
+		// 平台照常维护
+		assertOk(post("/system/changelog/remove", List.of(id), adminToken));
 	}
 
 	@Test
@@ -150,6 +214,35 @@ class PlatformSharedContentWriteApiTest extends AbstractIntegrationTest {
 			}
 		}
 		return com.fasterxml.jackson.databind.node.MissingNode.getInstance();
+	}
+
+	private long helpCatalogId(String name) {
+		for (JsonNode node : readBody(get("/system/help/catalog/tree", adminToken)).path("data")) {
+			if (name.equals(node.path("name").asText())) {
+				return node.path("id").asLong();
+			}
+		}
+		throw new IllegalStateException("帮助目录里没找到：" + name);
+	}
+
+	private long helpDocId(long catalogId, String title) {
+		JsonNode page = readBody(get("/system/help/doc/page?pageNum=1&pageSize=50&catalogId=" + catalogId, adminToken));
+		for (JsonNode node : page.path("data").path("records")) {
+			if (title.equals(node.path("title").asText())) {
+				return node.path("id").asLong();
+			}
+		}
+		throw new IllegalStateException("帮助文档里没找到：" + title);
+	}
+
+	private long changelogId(String title) {
+		JsonNode page = readBody(get("/system/changelog/page?pageNum=1&pageSize=50&name=" + P.substring(2), adminToken));
+		for (JsonNode node : page.path("data").path("records")) {
+			if (title.equals(node.path("title").asText())) {
+				return node.path("id").asLong();
+			}
+		}
+		throw new IllegalStateException("更新日志里没找到：" + title);
 	}
 
 	private static RegionExcel row(String code, String parentCode, String name, int level) {
