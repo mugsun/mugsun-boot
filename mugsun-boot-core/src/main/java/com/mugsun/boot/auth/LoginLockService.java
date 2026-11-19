@@ -25,6 +25,8 @@ public class LoginLockService {
 
 	private static final int MAX_REASON = 200;
 	private static final int MAX_MINUTES = 30 * 24 * 60;
+	/** 演示模式下密码登录的锁键在账号后面带的来源地址后缀 */
+	private static final String IP_SUFFIX = "@ip:";
 
 	private final SecurityPolicyService securityPolicyService;
 	private final LoginLockStore store;
@@ -65,7 +67,21 @@ public class LoginLockService {
 	 */
 	public String keyForLogin(String tenantId, String username, String clientIp) {
 		String key = keyOf(tenantId, username);
-		return demoMode ? key + "@ip:" + (clientIp == null ? "-" : clientIp) : key;
+		return demoMode ? key + IP_SUFFIX + (clientIp == null ? "-" : clientIp) : key;
+	}
+
+	/**
+	 * 从锁键取出账号：去掉「租户:」前缀和演示模式下的「@ip:来源地址」后缀，与 {@link #keyOf}、{@link #keyForLogin} 对应。
+	 * 锁键里没有冒号时返回 null。
+	 */
+	public String usernameOf(String lockKey) {
+		int colon = lockKey == null ? -1 : lockKey.indexOf(':');
+		if (colon < 0) {
+			return null;
+		}
+		String username = lockKey.substring(colon + 1);
+		int ip = username.indexOf(IP_SUFFIX);
+		return ip < 0 ? username : username.substring(0, ip);
 	}
 
 	/** 记录一次失败，达阈值则锁定；计数窗口 = 锁定时长，滑动刷新。落锁路径走 store 原子方法（#68）。 */

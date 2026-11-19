@@ -61,6 +61,7 @@ insert / update 前调用实体的 `sanitizeForInsert()` / `sanitizeForUpdate()`
 - 查询方法上加 `@DataScope`；`DataScopeAspect` 激活后，由 `MugsunDataScopeDialect` 对受控表注入条件
 - 受控表登记：`DataScopeTables.register(表名, 部门列, 本人列)`；内置已登记 `sys_user`（`dept_id` / `id`）
 - 规则实现：`rule/` 下的 `AllDataRule`、`SelfDataRule`、`DeptDataRule`、`DeptAndChildDataRule`、`CustomDeptDataRule`、`CustomSqlDataRule`
+- 条件只在查询时注入，按 id 改、删的写接口不会自动受约束，要自己校验目标行在操作者的范围内。用户管理用 `UserDataScopeGuard`：先取 `operatorScope()`，写之前 `assertCovers`，新建或改部门之后在同一事务里 `assertStillCovers`
 
 租户隔离与数据权限正交：忽略租户不会关掉数据权限。
 

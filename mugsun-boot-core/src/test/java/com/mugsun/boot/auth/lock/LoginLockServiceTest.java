@@ -81,4 +81,15 @@ class LoginLockServiceTest {
 		assertThat(service.isLocked(key)).isFalse();
 		assertThat(store.indexMembers()).doesNotContain(key);
 	}
+
+	@Test
+	void usernameOfStripsTenantPrefixAndDemoIpSuffix() {
+		assertThat(service.usernameOf(service.keyOf("752432", "alice"))).isEqualTo("alice");
+		assertThat(service.usernameOf(service.keyForLogin("752432", "alice", "10.0.0.1"))).isEqualTo("alice");
+		assertThat(service.usernameOf(service.keyForLogin("752432", "alice", "fe80::1"))).isEqualTo("alice");
+		assertThat(service.usernameOf(service.keyForLogin("752432", "alice", null))).isEqualTo("alice");
+		assertThat(service.usernameOf("752432:")).isEmpty();
+		assertThat(service.usernameOf("no-colon")).isNull();
+		assertThat(service.usernameOf(null)).isNull();
+	}
 }

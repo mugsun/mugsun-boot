@@ -17,6 +17,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 委派出去的用户管理权不能拿来提权：只有用户管理权限的操作者，不能给人挂菜单或数据范围比自己大的角色、
  * 内置管理员角色，不能改自己和管理员账号的角色；用户保存和「分配角色」两条路径同一口径。
+ * <p>操作者的数据范围是「本部门及以下」，被操作的用户都建在操作者的部门里：
+ * 范围外的用户会先被数据范围拦下（见 {@link UserWriteDataScopeApiTest}），轮不到这里要测的角色检查。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class UserRoleAssignGuardApiTest extends AbstractIntegrationTest {
@@ -27,6 +29,7 @@ class UserRoleAssignGuardApiTest extends AbstractIntegrationTest {
 
 	private String adminToken;
 	private String operatorToken;
+	private long deptId;
 	private long operatorId;
 	private long operatorRoleId;
 	private long smallRoleId;
@@ -39,6 +42,7 @@ class UserRoleAssignGuardApiTest extends AbstractIntegrationTest {
 	@BeforeAll
 	void setup() {
 		adminToken = loginAdmin();
+		deptId = createDept("集成测试-角色分配部门");
 		List<Long> listMenus = menuIds("sys:user:list");
 		List<Long> operatorMenus = new ArrayList<>(listMenus);
 		operatorMenus.addAll(menuIds("sys:user:add", "sys:user:edit", "sys:user:grant"));
@@ -83,9 +87,23 @@ class UserRoleAssignGuardApiTest extends AbstractIntegrationTest {
 
 	@Test
 	void cannotClearAdminAccountRoles() {
+		// 管理员账号在操作者的数据范围内时，由角色分配这一层拦下
+		long adminInScopeId = createUser("it_assign_admin2", List.of(adminRoleId));
+		try {
+			// roleIds 缺省即清空全部角色
+			assertRejected(grant(adminInScopeId, null), "管理员账号");
+			assertThat(roleIdsOf(adminInScopeId)).containsExactly(adminRoleId);
+		} finally {
+			// 用完收回管理员角色，不给后面的测试多留一个超管
+			Map<String, Object> revoke = new HashMap<>();
+			revoke.put("userId", adminInScopeId);
+			revoke.put("roleIds", List.of());
+			post("/system/user/grant", revoke, adminToken);
+		}
+
+		// 内置管理员不在操作者的部门里，先被数据范围拦下
 		long adminId = idOf(USER_PAGE, "username", ADMIN_USERNAME);
-		// roleIds 缺省即清空全部角色
-		assertRejected(grant(adminId, null), "管理员账号");
+		assertRejected(grant(adminId, null), "不在你的数据范围内");
 		assertThat(roleIdsOf(adminId)).contains(adminRoleId);
 	}
 
@@ -144,8 +162,22 @@ class UserRoleAssignGuardApiTest extends AbstractIntegrationTest {
 		user.put("username", username);
 		user.put("nickname", "集成测试-" + username);
 		user.put("status", 1);
+		user.put("deptId", deptId);
 		user.put("roleIds", roleIds);
 		return user;
+	}
+
+	private long createDept(String deptName) {
+		Map<String, Object> dept = new HashMap<>();
+		dept.put("deptName", deptName);
+		dept.put("fullName", deptName);
+		dept.put("category", "dept");
+		dept.put("parentId", 0);
+		dept.put("sort", 99);
+		assertOk(post("/system/dept/submit", dept, adminToken), "建部门 " + deptName);
+		return jdbc.queryForObject(
+			"select id from sys_dept where dept_name = ? and tenant_id = ? and coalesce(is_deleted, 0) = 0",
+			Long.class, deptName, PLATFORM_TENANT);
 	}
 
 	private long createRole(String code, int dataScope, List<Long> menuIds) {

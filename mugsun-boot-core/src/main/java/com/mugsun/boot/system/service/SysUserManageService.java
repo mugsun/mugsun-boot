@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.NotifyConstants;
 import com.mugsun.boot.common.mask.FieldMaskContext;
 import com.mugsun.boot.common.tx.AfterCommit;
+import com.mugsun.boot.datascope.DataScopeContext;
 import com.mugsun.boot.log.AuditService;
 import com.mugsun.boot.notify.api.NotifyReceiver;
 import com.mugsun.boot.notify.api.NotifySendApi;
@@ -31,6 +32,8 @@ import java.util.List;
 /**
  * 用户管理写路径：新增/编辑/删除及角色同步，统一在事务内完成（任一步失败整体回滚）。
  * 权限、字段脱敏、入参规范化、组织归属与目标可操作性校验仍由 Controller 前置完成。
+ * <p>新增、编辑、导入写完以后，在同一事务里按操作者的数据范围复核一次（{@link UserDataScopeGuard#assertStillCovers}）：
+ * 保存的结果落到范围之外（比如部门选了别人管的部门）就整体回滚。
  */
 @Service
 public class SysUserManageService {
@@ -45,11 +48,12 @@ public class SysUserManageService {
 	private final SecurityPolicyService securityPolicyService;
 	private final TenantValidator tenantValidator;
 	private final NotifySendApi notifySendApi;
+	private final UserDataScopeGuard dataScopeGuard;
 
 	public SysUserManageService(SysUserMapper userMapper, SysUserRoleMapper userRoleMapper, SysRoleMapper roleMapper,
 								PasswordEncoder passwordEncoder, AuditService auditService,
 								SecurityPolicyService securityPolicyService, TenantValidator tenantValidator,
-								NotifySendApi notifySendApi) {
+								NotifySendApi notifySendApi, UserDataScopeGuard dataScopeGuard) {
 		this.userMapper = userMapper;
 		this.userRoleMapper = userRoleMapper;
 		this.roleMapper = roleMapper;
@@ -58,14 +62,16 @@ public class SysUserManageService {
 		this.securityPolicyService = securityPolicyService;
 		this.tenantValidator = tenantValidator;
 		this.notifySendApi = notifySendApi;
+		this.dataScopeGuard = dataScopeGuard;
 	}
 
 	/**
-	 * 新建用户：配额锁内查重+插入、记密码历史、提交后欢迎通知、挂角色（同一事务）。
+	 * 新建用户：配额锁内查重+插入、按数据范围复核、记密码历史、提交后欢迎通知、挂角色（同一事务）。
+	 * @param operatorScope 操作者保存前的数据范围，取自 {@link UserDataScopeGuard#operatorScope()}
 	 * @return 服务端生成的一次性口令明文（调用方仅通过 API 响应交给管理员；勿打日志）；用户自带口令时返回 null
 	 */
 	@Transactional(rollbackFor = Exception.class)
-	public String create(SysUser user) {
+	public String create(SysUser user, DataScopeContext.Ctx operatorScope) {
 		// 服务端清洗：审计字段与租户归属一律服务端裁定（Flex 仅对 null tenantId 才填充当前租户）
 		user.sanitizeForInsert();
 		user.setTenantId(null);
@@ -91,6 +97,7 @@ public class SysUserManageService {
 			}
 			return null;
 		});
+		dataScopeGuard.assertStillCovers(operatorScope, user.getId());
 		securityPolicyService.logPassword(user.getId(), user.getPassword());
 		notifyWelcome(user);
 		syncUserRoles(user.getId(), user.getRoleIds());
@@ -98,11 +105,12 @@ public class SysUserManageService {
 	}
 
 	/**
-	 * 编辑用户：更新+审计+角色同步（同一事务）。
+	 * 编辑用户：更新+按数据范围复核+审计+角色同步（同一事务）。
 	 * @param before Controller 已脱敏读出的修改前镜像（用于审计）
+	 * @param operatorScope 操作者保存前的数据范围，取自 {@link UserDataScopeGuard#operatorScope()}
 	 */
 	@Transactional(rollbackFor = Exception.class)
-	public void update(SysUser user, SysUser before) {
+	public void update(SysUser user, SysUser before, DataScopeContext.Ctx operatorScope) {
 		assertUsernameFree(user.getUsername(), user.getId());
 		if (user.getPassword() != null && !user.getPassword().isBlank()) {
 			user.setPassword(passwordEncoder.encode(user.getPassword()));
@@ -116,6 +124,7 @@ public class SysUserManageService {
 		} catch (DuplicateKeyException ex) {
 			throw new ServiceException("账号「" + user.getUsername() + "」已经有人用过。请换一个账号");
 		}
+		dataScopeGuard.assertStillCovers(operatorScope, user.getId());
 		// 审计前后镜像恒脱敏读：与操作者角色无关，敏感字段永不落明文入审计
 		SysUser after = FieldMaskContext.maskedRead(() -> userMapper.selectOneById(user.getId()));
 		if (before != null) {
@@ -128,6 +137,32 @@ public class SysUserManageService {
 		auditService.record("sys_user", user.getId().toString(), before, after,
 			operator == null ? null : operator.toString());
 		syncUserRoles(user.getId(), user.getRoleIds());
+	}
+
+	/**
+	 * 导入新增一行：配额锁内检查并插入、按数据范围复核、记密码历史。
+	 * 一行一个事务：复核不过或中途出错，这一行整体回滚，不影响其他行。
+	 * @param user 调用方已填好字段（含加密后的口令）并做过 sanitizeForInsert 的新用户
+	 */
+	@Transactional(rollbackFor = Exception.class)
+	public void importCreate(SysUser user, String tenantId, DataScopeContext.Ctx operatorScope) {
+		tenantValidator.quotaLocked(tenantId, () -> {
+			tenantValidator.assertAccountQuota(tenantId);
+			userMapper.insert(user);
+			return null;
+		});
+		dataScopeGuard.assertStillCovers(operatorScope, user.getId());
+		securityPolicyService.logPassword(user.getId(), user.getPassword());
+	}
+
+	/**
+	 * 导入覆盖一行：更新后按数据范围复核，同一事务。
+	 * @param patch 只带 id 和要覆盖的字段，空字段不更新
+	 */
+	@Transactional(rollbackFor = Exception.class)
+	public void importOverwrite(SysUser patch, DataScopeContext.Ctx operatorScope) {
+		userMapper.update(patch);
+		dataScopeGuard.assertStillCovers(operatorScope, patch.getId());
 	}
 
 	/** 删除用户：清角色关联 → 删用户（同一事务）；会话回收在提交后执行，回滚则不踢 */

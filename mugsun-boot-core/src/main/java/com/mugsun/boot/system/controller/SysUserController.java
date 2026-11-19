@@ -7,6 +7,7 @@ import com.mugsun.boot.common.constant.FieldMaskConstants;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.common.constant.UserConstants;
 import com.mugsun.boot.datascope.DataScope;
+import com.mugsun.boot.datascope.DataScopeContext;
 import com.mugsun.boot.log.AuditService;
 import com.mugsun.boot.log.OperationLog;
 import com.mugsun.boot.notify.api.NotifySendApi;
@@ -54,12 +55,12 @@ public class SysUserController {
 	private final com.mugsun.boot.system.mapper.SysDeptMapper deptMapper;
 	private final com.mugsun.boot.system.mapper.SysPostMapper postMapper;
 	private final com.mugsun.boot.security.SecurityPolicyService securityPolicyService;
-	private final com.mugsun.boot.tenant.TenantValidator tenantValidator;
 	private final NotifySendApi notifySendApi;
 	private final com.mugsun.boot.auth.LoginLockService loginLockService;
 	private final com.mugsun.boot.log.UsualLogService usualLogService;
 	private final com.mugsun.boot.system.service.SysUserManageService userManageService;
 	private final com.mugsun.boot.system.service.UserRoleAssignGuard roleAssignGuard;
+	private final com.mugsun.boot.system.service.UserDataScopeGuard dataScopeGuard;
 
 	public SysUserController(SysUserMapper userMapper, PasswordEncoder passwordEncoder, AuditService auditService,
 							 SysUserRoleMapper userRoleMapper,
@@ -67,12 +68,12 @@ public class SysUserController {
 							 com.mugsun.boot.system.mapper.SysDeptMapper deptMapper,
 							 com.mugsun.boot.system.mapper.SysPostMapper postMapper,
 							 com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
-							 com.mugsun.boot.tenant.TenantValidator tenantValidator,
 							 NotifySendApi notifySendApi,
 							 com.mugsun.boot.auth.LoginLockService loginLockService,
 							 com.mugsun.boot.log.UsualLogService usualLogService,
 							 com.mugsun.boot.system.service.SysUserManageService userManageService,
-							 com.mugsun.boot.system.service.UserRoleAssignGuard roleAssignGuard) {
+							 com.mugsun.boot.system.service.UserRoleAssignGuard roleAssignGuard,
+							 com.mugsun.boot.system.service.UserDataScopeGuard dataScopeGuard) {
 		this.userMapper = userMapper;
 		this.passwordEncoder = passwordEncoder;
 		this.auditService = auditService;
@@ -81,12 +82,12 @@ public class SysUserController {
 		this.deptMapper = deptMapper;
 		this.postMapper = postMapper;
 		this.securityPolicyService = securityPolicyService;
-		this.tenantValidator = tenantValidator;
 		this.notifySendApi = notifySendApi;
 		this.loginLockService = loginLockService;
 		this.usualLogService = usualLogService;
 		this.userManageService = userManageService;
 		this.roleAssignGuard = roleAssignGuard;
+		this.dataScopeGuard = dataScopeGuard;
 	}
 
 	@GetMapping("/page")
@@ -410,20 +411,22 @@ public class SysUserController {
 		normalizeUser(user);
 		// 部门/岗位归属校验（建档挂组织，防跨租户）
 		assertOrgValid(user);
+		// 操作者的数据范围只取一次：保存前检查目标用户、保存后复核结果都用这一份
+		DataScopeContext.Ctx scope = dataScopeGuard.operatorScope();
 		String oneTimePassword = null;
 		if (creating) {
 			roleAssignGuard.assertAssignable(null, user.getRoleIds());
-			oneTimePassword = userManageService.create(user);
+			oneTimePassword = userManageService.create(user, scope);
 		} else {
 			// 审计前镜像恒脱敏读：与操作者角色无关，敏感字段永不落明文入审计
 			SysUser before = com.mugsun.boot.common.mask.FieldMaskContext.maskedRead(() -> userMapper.selectOneById(user.getId()));
 			if (before == null) {
 				throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再编辑");
 			}
-			assertTargetOperable(user.getId(), true);
+			assertTargetOperable(user.getId(), true, scope);
 			roleAssignGuard.assertAssignable(user.getId(), user.getRoleIds());
-			// 更新+审计+角色同步在同一事务内（任一步失败整体回滚）
-			userManageService.update(user, before);
+			// 更新+数据范围复核+审计+角色同步在同一事务内（任一步失败整体回滚）
+			userManageService.update(user, before, scope);
 		}
 		if (creating && oneTimePassword != null) {
 			java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
@@ -453,8 +456,9 @@ public class SysUserController {
 		if (users.size() != ids.size()) {
 			throw new com.mugsun.core.tool.exception.ServiceException("有用户不存在，或已经被删除。请刷新列表后再试");
 		}
+		DataScopeContext.Ctx scope = dataScopeGuard.operatorScope();
 		for (Long id : ids) {
-			assertTargetOperable(id, false);
+			assertTargetOperable(id, false, scope);
 		}
 		// 清角色关联+删用户在同一事务内；提交后回收会话
 		userManageService.removeUsers(users);
@@ -522,6 +526,8 @@ public class SysUserController {
 			com.mugsun.boot.common.excel.ImportFiles.readExcel(file, SysUserExcel.class),
 			MSG_IMPORT_NO_ROWS);
 		String tenant = TenantContext.current();
+		// 整批共用一份操作者数据范围：覆盖前检查目标用户，写入后逐行复核
+		DataScopeContext.Ctx scope = dataScopeGuard.operatorScope();
 		int success = 0;
 		List<UserImportResult.FailRow> failList = new java.util.ArrayList<>();
 		List<UserImportResult.CreatedRow> created = new java.util.ArrayList<>();
@@ -532,7 +538,7 @@ public class SysUserController {
 				continue;
 			}
 			try {
-				String otp = importRow(row, username, updateSupport, tenant);
+				String otp = importRow(row, username, updateSupport, tenant, scope);
 				success++;
 				if (otp != null) {
 					created.add(new UserImportResult.CreatedRow(i + 2, username, otp));
@@ -562,8 +568,9 @@ public class SysUserController {
 	/** 表格解析出 0 行，或全部是空用户名行 */
 	static final String MSG_IMPORT_NO_ROWS = "这份表格里没有用户。请先下载模板，至少填好用户名后再导入";
 
-	/** 导入单行：格式校验 → 部门/岗位名解析 → 新增或按 updateSupport 覆盖 */
-	private String importRow(SysUserExcel row, String username, boolean updateSupport, String tenant) {
+	/** 导入单行：格式校验 → 部门/岗位名解析 → 新增或按 updateSupport 覆盖；写入后按操作者的数据范围复核 */
+	private String importRow(SysUserExcel row, String username, boolean updateSupport, String tenant,
+							 DataScopeContext.Ctx scope) {
 		String phone = trimToNull(row.getPhone());
 		// 手机号格式校验（与 submit 同规：短信登录按号取人，脏号即冒注面）
 		if (phone != null && !phone.matches("^1\\d{10}$")) {
@@ -581,7 +588,7 @@ public class SysUserController {
 				throw new com.mugsun.core.tool.exception.ServiceException("已存在。请改一个用户名，或打开覆盖后再导入");
 			}
 			// 覆盖更新：仅模板承载字段（不更新密码/手机号）；空白字段视为「不更新」，置 null 交 Flex update 忽略、保留原值
-			assertTargetOperable(existing.getId(), true);
+			assertTargetOperable(existing.getId(), true, scope);
 			SysUser update = new SysUser();
 			update.setId(existing.getId());
 			update.setNickname(trimToNull(row.getNickname()));
@@ -590,7 +597,7 @@ public class SysUserController {
 			update.setDeptId(deptId);
 			update.setPostId(postId);
 			update.sanitizeForUpdate();
-			userMapper.update(update);
+			userManageService.importOverwrite(update, scope);
 			return null;
 		}
 		// 新增：初始密码入库（与 submit 同款收尾：审计字段服务端清洗 + 配额锁内检查+插入防并发超额）
@@ -609,12 +616,8 @@ public class SysUserController {
 		user.setIsLeader(0);
 		user.sanitizeForInsert();
 		user.setTenantId(null);
-		tenantValidator.quotaLocked(tenant, () -> {
-			tenantValidator.assertAccountQuota(tenant);
-			userMapper.insert(user);
-			return null;
-		});
-		securityPolicyService.logPassword(user.getId(), user.getPassword());
+		// 配额锁内检查+插入、数据范围复核、记密码历史在同一事务内，复核不过这一行回滚
+		userManageService.importCreate(user, tenant, scope);
 		return raw;
 	}
 
@@ -662,8 +665,9 @@ public class SysUserController {
 	@Transactional(rollbackFor = Exception.class)
 	public R<List<java.util.Map<String, Object>>> resetPassword(@RequestBody List<Long> ids) {
 		List<java.util.Map<String, Object>> issued = new java.util.ArrayList<>();
+		DataScopeContext.Ctx scope = dataScopeGuard.operatorScope();
 		for (Long id : ids) {
-			assertTargetOperable(id, true);
+			assertTargetOperable(id, true, scope);
 			SysUser existing = userMapper.selectOneById(id);
 			if (existing == null) {
 				throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再重置");
@@ -740,6 +744,15 @@ public class SysUserController {
 			lockKey = loginLockService.keyOf(user.getTenantId(), user.getUsername());
 		} else if (!lockKey.startsWith(TenantContext.current() + ":")) {
 			throw new com.mugsun.core.tool.exception.ServiceException("这是其他租户的账号，不能在这里解锁。请切到对应租户后再试");
+		} else {
+			// 传锁键和传用户 id 过同一套检查：锁键里的账号在本租户有对应用户，就按这名用户校验数据范围和管理员保护；
+			// 没有对应用户（有人拿不存在的账号试密码留下的锁）没有要保护的对象，直接清
+			String account = loginLockService.usernameOf(lockKey);
+			SysUser locked = account == null || account.isBlank() ? null
+				: userMapper.selectOneByQuery(QueryWrapper.create().eq("username", account));
+			if (locked != null) {
+				assertTargetOperable(locked.getId(), true);
+			}
 		}
 		loginLockService.clear(lockKey);
 		int colon = lockKey.indexOf(':');
@@ -836,20 +849,36 @@ public class SysUserController {
 		return R.success("授权成功");
 	}
 
-	/** 用户归属校验：Flex 租户条件天然挡跨租户直查，null 即越界或不存在 */
+	/** 用户归属校验，只动一个用户的接口用：操作者的数据范围现取 */
 	private void assertUserInScope(Long userId) {
+		assertUserInScope(userId, dataScopeGuard.operatorScope());
+	}
+
+	/**
+	 * 用户归属校验：先看存在且属于当前租户（Flex 租户条件天然挡跨租户直查，null 即越界或不存在），
+	 * 再看在不在操作者的数据范围内（和用户列表同一套规则，列表里看不到的人不能动）。
+	 * @param scope 操作者的数据范围；批量接口在循环外取一次传进来
+	 */
+	private void assertUserInScope(Long userId, DataScopeContext.Ctx scope) {
 		if (userId == null || userMapper.selectOneById(userId) == null) {
 			throw new com.mugsun.core.tool.exception.ServiceException("这个用户不存在，或属于其他租户。请刷新列表后再试");
 		}
+		dataScopeGuard.assertCovers(scope, userId);
+	}
+
+	/** 目标用户操作保护，只动一个用户的接口用：操作者的数据范围现取 */
+	private void assertTargetOperable(Long userId, boolean allowSelf) {
+		assertTargetOperable(userId, allowSelf, dataScopeGuard.operatorScope());
 	}
 
 	/**
 	 * 目标用户操作保护：
+	 * 目标须在当前租户、在操作者的数据范围内；
 	 * 内置 admin 角色持有者仅平台超管可操作（防租户内改密/停用/删除管理员致账号接管）；
 	 * allowSelf=false 时禁止操作自己（防自杀/自锁）。
 	 */
-	private void assertTargetOperable(Long userId, boolean allowSelf) {
-		assertUserInScope(userId);
+	private void assertTargetOperable(Long userId, boolean allowSelf, DataScopeContext.Ctx scope) {
+		assertUserInScope(userId, scope);
 		if (!allowSelf && StpUtil.getLoginIdAsLong() == userId) {
 			throw new com.mugsun.core.tool.exception.ServiceException("不能对当前登录账号执行这个操作。请换一个账号登录后再试，或改其他用户");
 		}

@@ -33,7 +33,7 @@ class SysUserManageServiceTest {
 		userMapper = mock(SysUserMapper.class);
 		userRoleMapper = mock(SysUserRoleMapper.class);
 		roleMapper = mock(SysRoleMapper.class);
-		service = new SysUserManageService(userMapper, userRoleMapper, roleMapper, null, null, null, null, null);
+		service = new SysUserManageService(userMapper, userRoleMapper, roleMapper, null, null, null, null, null, null);
 	}
 
 	@Test
