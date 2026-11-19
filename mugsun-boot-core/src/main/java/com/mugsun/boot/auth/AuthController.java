@@ -449,10 +449,17 @@ public class AuthController {
 		return R.data(data);
 	}
 
-	/** 社交登录入口：生成第三方授权跳转地址（state 落 Redis 防 CSRF），前端跳转此地址 */
+	/** 社交登录入口：生成第三方授权跳转地址（state 落 Redis 防 CSRF），前端跳转此地址。这里发的 state 只能用来登录 */
 	@GetMapping("/social/render/{source}")
 	public R<Map<String, Object>> socialRender(@PathVariable String source) {
 		return R.data(Map.of("authorizeUrl", socialService.renderAuthUrl(source)));
+	}
+
+	/** 绑定入口：要求已登录，state 记下当前用户，/social/bind 只接受本人从这里发起的 state */
+	@GetMapping("/social/bind-render/{source}")
+	@SaCheckLogin
+	public R<Map<String, Object>> socialBindRender(@PathVariable String source) {
+		return R.data(Map.of("authorizeUrl", socialService.renderBindUrl(source, StpUtil.getLoginIdAsLong())));
 	}
 
 	/** 本地 mock 授权页：模拟第三方放行，生成 code 回跳前端回调地址（仅 mockEnabled 的 dev 联调；
@@ -492,7 +499,7 @@ public class AuthController {
 		return R.data(Map.of("token", token));
 	}
 
-	/** 当前登录用户绑定社交账号：同样只收 code+state，服务端换 openId */
+	/** 当前登录用户绑定社交账号：同样只收 code+state，服务端换 openId；state 必须是本人从 /social/bind-render 发起的 */
 	@PostMapping("/social/bind")
 	@SaCheckLogin
 	public R<Void> socialBind(@RequestBody Map<String, String> body) {
