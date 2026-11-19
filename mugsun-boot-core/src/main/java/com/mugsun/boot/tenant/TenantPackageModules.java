@@ -133,7 +133,22 @@ public final class TenantPackageModules {
 		"/system/client"
 	);
 
+	/**
+	 * 平台租户专属「写」路径：表没有 tenant_id、全平台共用一份的内容（行政区划）。
+	 * 各租户照常读；非 GET 的写请求只收平台租户会话发来的，其他租户的管理员持通配 {@code *} 也不行。
+	 * 和 {@link #PLATFORM_WRITE_PREFIXES} 的区别：那一份是系统配置，只给平台超管；
+	 * 这一份是内容，平台租户内仍按权限码判断，可以授权专人维护，不要求内置管理员角色。
+	 */
+	private static final List<String> PLATFORM_TENANT_WRITE_PREFIXES = List.of(
+		"/system/region"
+	);
+
 	private TenantPackageModules() {
+	}
+
+	/** 是否平台租户专属「写」路径（GET 只读放行，写操作只收平台租户的会话） */
+	public static boolean isPlatformTenantWrite(String path) {
+		return matchesAny(path, PLATFORM_TENANT_WRITE_PREFIXES);
 	}
 
 	/** 是否平台超管专属路径 */

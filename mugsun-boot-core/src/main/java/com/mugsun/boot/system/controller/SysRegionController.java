@@ -12,6 +12,7 @@ import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.core.web.excel.ExcelUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -146,11 +147,15 @@ public class SysRegionController {
 		ExcelUtil.export(response, "行政区划模板", "行政区划", List.of(), RegionExcel.class);
 	}
 
-	/** 导入区划：先整表校验，通过后再按编码新增或更新 */
+	/**
+	 * 导入区划：先整表校验，通过后再按编码新增；编码已存在的只更新名称，上级和层级不动（和编辑接口一致）。
+	 * 整批在一个事务里，中途出错不会留下半批数据。
+	 */
 	@SaCheckPermission("sys:region:import")
 	@PostMapping("/import")
 	@OperationLog("导入行政区划")
 	@RepeatSubmit(message = "请勿重复导入。请先看列表里是否已经出现这些区划")
+	@Transactional(rollbackFor = Exception.class)
 	public R<Integer> importData(@RequestParam(value = "file", required = false) MultipartFile file) {
 		if (file == null) {
 			throw new ServiceException("请先选择填好的表格。可以点下载模板，按表头填写后再导入");
@@ -164,8 +169,6 @@ public class SysRegionController {
 			SysRegion exist = findByCode(row.code());
 			if (exist != null) {
 				exist.setName(row.name());
-				exist.setParentCode(row.parentCode());
-				exist.setLevel(row.level());
 				regionMapper.update(exist);
 			} else {
 				SysRegion region = new SysRegion();
@@ -185,9 +188,11 @@ public class SysRegionController {
 
 	private List<PreparedRegion> prepareImport(List<RegionExcel> rows) {
 		Map<String, Integer> known = new HashMap<>();
+		Map<String, String> existingParent = new HashMap<>();
 		for (SysRegion region : regionMapper.selectListByQuery(QueryWrapper.create())) {
 			if (region.getCode() != null) {
 				known.put(region.getCode(), region.getLevel() == null ? 1 : region.getLevel());
+				existingParent.put(region.getCode(), blankToRoot(region.getParentCode()));
 			}
 		}
 		Set<String> seen = new HashSet<>();
@@ -220,6 +225,12 @@ public class SysRegionController {
 			String parentCode = blankToRoot(row.getParentCode());
 			if (code.equals(parentCode)) {
 				throw new ServiceException("第 " + line + " 行的上级不能是自己。请改成上一级的编码，顶级填 0");
+			}
+			// 已有的区划不能靠导入改挂：改挂后下级的层级全部失准，两行互挂还会成环，从树上消失且删不掉
+			String oldParent = existingParent.get(code);
+			if (oldParent != null && !oldParent.equals(parentCode)) {
+				throw new ServiceException("第 " + line + " 行的区划已经存在，上级不能通过导入修改。请把父级编码改回 "
+					+ ("0".equals(oldParent) ? "0（顶级）" : oldParent) + "，或先删除这一级再重新导入");
 			}
 			Integer level = row.getLevel();
 			int expect = expectedLevel(parentCode, known, line);
