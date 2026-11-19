@@ -1,12 +1,14 @@
 package com.mugsun.boot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mugsun.boot.social.SocialProperties;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Map;
@@ -19,17 +21,39 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 绑定入口要求登录；正常的「个人中心绑定 → 社交登录」照常可用。
  * 别人发起的绑定 state、同一来源绑第二个账号见 SocialServiceTest（mock 来源的第三方身份是固定的）。
  */
-@TestPropertySource(properties = {
-	"mugsun.social.mock-enabled=true",
-	"mugsun.social.type.mock.client-id=it-mock",
-	"mugsun.social.type.mock.client-secret=it-mock-secret",
-	"mugsun.social.type.mock.redirect-uri=http://frontend.test:3006/#/auth/social-callback?source=mock"
-})
 class SocialStateApiTest extends AbstractIntegrationTest {
 
+	@Autowired
+	private SocialProperties socialProperties;
+
+	private boolean mockEnabledBefore;
+	private SocialProperties.ClientConfig mockConfigBefore;
+
+	/**
+	 * mock 来源在运行期打开、用完复原，不用 {@code @TestPropertySource}：那会改上下文缓存 key、多起一个应用上下文，
+	 * 和别的测试类一起跑时撞上 warm-flow 的静态 SpringUtil，整个类启动失败（见 AbstractIntegrationTest 的说明）。
+	 */
+	@BeforeEach
+	void enableMockSource() {
+		mockEnabledBefore = socialProperties.isMockEnabled();
+		mockConfigBefore = socialProperties.getType().get("mock");
+		SocialProperties.ClientConfig mock = new SocialProperties.ClientConfig();
+		mock.setClientId("it-mock");
+		mock.setClientSecret("it-mock-secret");
+		mock.setRedirectUri("http://frontend.test:3006/#/auth/social-callback?source=mock");
+		socialProperties.getType().put("mock", mock);
+		socialProperties.setMockEnabled(true);
+	}
+
 	@AfterEach
-	void unbindAdmin() {
+	void unbindAdminAndRestore() {
 		rest.exchange("/auth/social/unbind/mock", HttpMethod.DELETE, new HttpEntity<>(authHeaders(loginAdmin())), String.class);
+		socialProperties.setMockEnabled(mockEnabledBefore);
+		if (mockConfigBefore == null) {
+			socialProperties.getType().remove("mock");
+		} else {
+			socialProperties.getType().put("mock", mockConfigBefore);
+		}
 	}
 
 	@Test
