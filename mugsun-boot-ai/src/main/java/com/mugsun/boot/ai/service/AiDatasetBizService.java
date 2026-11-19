@@ -9,18 +9,13 @@ import com.mugsun.boot.ai.mapper.AiDatasetTableMapper;
 import com.mugsun.boot.ai.mapper.AiDatasetTermMapper;
 import com.mugsun.boot.ai.mapper.AiTerminologyMapper;
 import com.mugsun.boot.ai.support.AiLlmClient;
-import com.mugsun.boot.ai.support.SqlSafetyGate;
-import com.mugsun.boot.ai.support.SqlTableGate;
+import com.mugsun.boot.ai.support.SqlReadOnlyChecker;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Service;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
 import java.util.*;
 
 @Service
@@ -394,29 +389,8 @@ public class AiDatasetBizService {
 					+ "只能使用下列表，禁止其它表：\n" + String.join(", ", allowed) + "\n\n" + schema),
 			Map.of("role", "user", "content", question == null ? "" : question)
 		), 512);
-		String sql = SqlSafetyGate.guard(stripSql(sqlRaw));
-		assertSqlTablesAllowed(sql, allowed);
-		List<Map<String, Object>> rows = new ArrayList<>();
-		int maxRows = ds.getMaxRows() == null ? 1000 : ds.getMaxRows();
-		try (Connection c = datasourceBizService.open(datasource);
-			 Statement st = c.createStatement()) {
-			st.setMaxRows(maxRows);
-			try (ResultSet rs = st.executeQuery(sql)) {
-				ResultSetMetaData meta = rs.getMetaData();
-				int cols = meta.getColumnCount();
-				while (rs.next()) {
-					Map<String, Object> row = new LinkedHashMap<>();
-					for (int i = 1; i <= cols; i++) {
-						row.put(meta.getColumnLabel(i), rs.getObject(i));
-					}
-					rows.add(row);
-				}
-			}
-		} catch (ServiceException e) {
-			throw e;
-		} catch (Exception e) {
-			throw new ServiceException("这次没有查出结果。请检查数据源能不能连上，再试一次");
-		}
+		String sql = SqlReadOnlyChecker.check(stripSql(sqlRaw), allowed).sql();
+		List<Map<String, Object>> rows = query(ds, datasource, sql);
 		Map<String, Object> resp = new HashMap<>();
 		resp.put("sql", sql);
 		resp.put("rows", rows);
@@ -430,6 +404,10 @@ public class AiDatasetBizService {
 			if (t.getTableName() != null && !t.getTableName().isBlank()) {
 				fromDataset.add(t.getTableName().trim().toLowerCase(Locale.ROOT));
 			}
+		}
+		if (fromDataset.isEmpty()) {
+			// 空集合在检查器里表示不限表，问数不能带着空集合去查
+			throw new ServiceException("还没有配置数据表。请先点配置，选好表后再问");
 		}
 		String wl = datasource.getTableWhitelist();
 		if (wl == null || wl.isBlank()) {
@@ -456,9 +434,11 @@ public class AiDatasetBizService {
 		return intersect;
 	}
 
-	/** 粗提取 FROM/JOIN 后的表名，必须落在允许集合内 */
-	private void assertSqlTablesAllowed(String sql, Set<String> allowed) {
-		SqlTableGate.assertAllowed(sql, allowed);
+	/** 按数据集配置的行数上限和超时，执行一条已经过 SqlReadOnlyChecker 检查的查询 */
+	private List<Map<String, Object>> query(AiDataset ds, AiDatasource datasource, String sql) {
+		int maxRows = ds.getMaxRows() == null || ds.getMaxRows() <= 0 ? 1000 : ds.getMaxRows();
+		int timeoutMs = ds.getTimeoutMs() == null ? 0 : ds.getTimeoutMs();
+		return datasourceBizService.runQuery(datasource, sql, List.of(), maxRows, timeoutMs);
 	}
 
 	public Map<String, Object> analyze(Long datasetId, String question) {
@@ -526,29 +506,8 @@ public class AiDatasetBizService {
 		}
 		AiDatasource datasource = datasourceBizService.requireRaw(tables.get(0).getDatasourceId());
 		Set<String> allowed = resolveAllowedTables(datasource, tables);
-		String sql = SqlSafetyGate.guard(stripSql(sqlRaw));
-		assertSqlTablesAllowed(sql, allowed);
-		List<Map<String, Object>> rows = new ArrayList<>();
-		int maxRows = ds.getMaxRows() == null ? 1000 : ds.getMaxRows();
-		try (Connection c = datasourceBizService.open(datasource);
-			 Statement st = c.createStatement()) {
-			st.setMaxRows(maxRows);
-			try (ResultSet rs = st.executeQuery(sql)) {
-				ResultSetMetaData meta = rs.getMetaData();
-				int cols = meta.getColumnCount();
-				while (rs.next()) {
-					Map<String, Object> row = new LinkedHashMap<>();
-					for (int i = 1; i <= cols; i++) {
-						row.put(meta.getColumnLabel(i), rs.getObject(i));
-					}
-					rows.add(row);
-				}
-			}
-		} catch (ServiceException e) {
-			throw e;
-		} catch (Exception e) {
-			throw new ServiceException("这次没有查出结果。请检查数据源能不能连上，再试一次");
-		}
+		String sql = SqlReadOnlyChecker.check(stripSql(sqlRaw), allowed).sql();
+		List<Map<String, Object>> rows = query(ds, datasource, sql);
 		return Map.of("sql", sql, "rows", rows, "message", "已重跑，共 " + rows.size() + " 行");
 	}
 

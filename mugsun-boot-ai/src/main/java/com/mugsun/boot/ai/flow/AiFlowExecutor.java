@@ -15,7 +15,7 @@ import com.mugsun.boot.ai.service.AiKnowledgeBizService;
 import com.mugsun.boot.ai.service.AiMcpBizService;
 import com.mugsun.boot.ai.service.AiModelBizService;
 import com.mugsun.boot.ai.support.AiLlmClient;
-import com.mugsun.boot.ai.support.SqlSafetyGate;
+import com.mugsun.boot.ai.support.SqlReadOnlyChecker;
 import com.mugsun.boot.ai.support.SqlTableGate;
 import com.mugsun.boot.ai.support.UrlSafetyGate;
 import com.mugsun.boot.tenant.TenantContext;
@@ -24,10 +24,6 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -283,9 +279,6 @@ public class AiFlowExecutor {
 					bindOut(vars, data, output);
 				}
 				case "db" -> {
-					String sql = data.path("sql").asText("");
-					sql = render(sql.replace("${", "{{").replace("}", "}}"), vars);
-					sql = SqlSafetyGate.guard(sql);
 					Long dsId = longOrNull(data.path("datasourceId"));
 					if (dsId == null) {
 						throw new ServiceException("db 节点请配置 datasourceId");
@@ -303,27 +296,19 @@ public class AiFlowExecutor {
 							}
 						}
 					}
-					SqlTableGate.assertAllowed(sql, allowed);
-					List<Map<String, Object>> rows = new ArrayList<>();
-					int maxRows = data.path("maxRows").asInt(200);
-					try (Connection c = datasourceBizService.open(ds);
-						 Statement st = c.createStatement()) {
-						st.setMaxRows(Math.max(1, Math.min(maxRows, 2000)));
-						try (ResultSet rs = st.executeQuery(sql)) {
-							ResultSetMetaData meta = rs.getMetaData();
-							int cols = meta.getColumnCount();
-							while (rs.next()) {
-								Map<String, Object> row = new LinkedHashMap<>();
-								for (int i = 1; i <= cols; i++) {
-									row.put(meta.getColumnLabel(i), rs.getObject(i));
-								}
-								rows.add(row);
-							}
-						}
+					// 变量不拼进 SQL：模板先按语法检查，${名字} 的位置换成 ?，值交给 PreparedStatement 绑定
+					SqlReadOnlyChecker.Plan plan = SqlReadOnlyChecker.checkTemplate(data.path("sql").asText(""), allowed);
+					Map<String, Object> values = new HashMap<>();
+					for (String name : plan.slotNames()) {
+						values.put(name, dbNodeValue(vars, name));
 					}
+					SqlReadOnlyChecker.Bound bound = plan.bind(values);
+					int maxRows = Math.max(1, Math.min(data.path("maxRows").asInt(200), 2000));
+					List<Map<String, Object>> rows = datasourceBizService.runQuery(ds, bound.sql(), bound.params(),
+						maxRows, data.path("timeoutMs").asInt(0));
 					ObjectNode dbOut = objectMapper.createObjectNode();
 					dbOut.put("ok", true);
-					dbOut.put("sql", sql);
+					dbOut.put("sql", bound.sql());
 					dbOut.put("rowCount", rows.size());
 					dbOut.set("rows", objectMapper.valueToTree(rows));
 					output = dbOut.toString();
@@ -887,6 +872,53 @@ public class AiFlowExecutor {
 			}
 		}
 		return cur;
+	}
+
+	/** 数据库节点里 ${名字} 的取值：先按名字取，再去掉 input. / global. 前缀取，最后按点号一层层取 */
+	private Object dbNodeValue(Map<String, Object> vars, String name) {
+		if (vars.containsKey(name)) {
+			return plainValue(vars.get(name));
+		}
+		String rest = name.startsWith("input.") ? name.substring(6)
+			: name.startsWith("global.") ? name.substring(7) : null;
+		if (rest != null && vars.containsKey(rest)) {
+			return plainValue(vars.get(rest));
+		}
+		Object value = resolvePath(vars, name);
+		if (value == null && rest != null) {
+			value = resolvePath(vars, rest);
+		}
+		if (value == null) {
+			throw new ServiceException("数据库节点用到的变量「" + name + "」没有值");
+		}
+		return plainValue(value);
+	}
+
+	/** JSON 节点换成普通的文字、数字、布尔或列表；对象原样返回，绑定时会报「不是文字或数字」 */
+	private static Object plainValue(Object value) {
+		if (!(value instanceof JsonNode node)) {
+			return value;
+		}
+		if (node.isNull() || node.isMissingNode()) {
+			return null;
+		}
+		if (node.isTextual()) {
+			return node.asText();
+		}
+		if (node.isBoolean()) {
+			return node.asBoolean();
+		}
+		if (node.isNumber()) {
+			return node.numberValue();
+		}
+		if (node.isArray()) {
+			List<Object> items = new ArrayList<>();
+			for (JsonNode item : node) {
+				items.add(plainValue(item));
+			}
+			return items;
+		}
+		return node;
 	}
 
 	private AiModel resolveModel(JsonNode data, AiApp app) {

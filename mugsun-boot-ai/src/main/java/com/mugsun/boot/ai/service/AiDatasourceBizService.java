@@ -4,20 +4,26 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.AiModuleService;
 import com.mugsun.boot.ai.entity.AiDatasource;
 import com.mugsun.boot.ai.mapper.AiDatasourceMapper;
+import com.mugsun.boot.ai.support.SqlQueryRunner;
+import com.mugsun.boot.ai.support.SqlReadOnlyChecker;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 @Service
@@ -26,6 +32,15 @@ public class AiDatasourceBizService {
 	private static final Set<String> TYPES = Set.of(
 		"postgresql", "mysql", "kingbase", "dm", "mariadb", "starrocks");
 	private static final String FAIL = "这次没有连上。请检查地址、用户名和密码后再试";
+	private static final Logger log = LoggerFactory.getLogger(AiDatasourceBizService.class);
+	/** 一次查询最多取回的行数，调用方填得再大也按这个算 */
+	private static final int MAX_QUERY_ROWS = 10_000;
+	/** PostgreSQL 一次查询的结果在驱动里最多占多少内存，超过就报错，免得一条大结果把应用内存占满 */
+	private static final String PG_RESULT_BUFFER = "32M";
+	/** 连接数据源最多等几秒 */
+	private static final int CONNECT_TIMEOUT_SECONDS = 10;
+	/** 查询时限到了以后，网络上再多等几秒：留给数据库停掉查询、把报错发回来 */
+	private static final int SOCKET_GRACE_SECONDS = 10;
 
 	private final AiModuleService moduleService;
 	private final AiDatasourceMapper mapper;
@@ -192,7 +207,68 @@ public class AiDatasourceBizService {
 		return require(id);
 	}
 
-	public Connection open(AiDatasource row) throws Exception {
+	/**
+	 * 执行一条已经过 {@link SqlReadOnlyChecker} 检查的查询。连接只给这一次查询用，查完就关；
+	 * 只读事务、超时和报错的说法见 {@link SqlQueryRunner}。问数和数据库节点都从这里查，不要自己拿连接。
+	 *
+	 * @param params    sql 里每个 ? 对应的值，没有就传空列表
+	 * @param timeoutMs 没填或填 0 按 30 秒，最长 120 秒
+	 */
+	public List<Map<String, Object>> runQuery(AiDatasource row, String sql, List<SqlReadOnlyChecker.Param> params,
+											  int maxRows, int timeoutMs) {
+		String url = row.getJdbcUrl() == null ? "" : row.getJdbcUrl();
+		boolean postgres = url.startsWith("jdbc:postgresql:");
+		Connection connection;
+		try {
+			connection = connect(row, SqlQueryRunner.timeoutSeconds(timeoutMs));
+		} catch (Exception e) {
+			log.warn("AI 查询连不上数据源 id={} : {} sqlState={}", row.getId(), e.getClass().getSimpleName(),
+				e instanceof SQLException se ? se.getSQLState() : "");
+			throw new ServiceException(SqlQueryRunner.MSG_CONNECT);
+		}
+		try {
+			return SqlQueryRunner.run(connection, sql, params, Math.min(Math.max(maxRows, 1), MAX_QUERY_ROWS),
+				timeoutMs, postgres || url.startsWith("jdbc:kingbase8:"));
+		} finally {
+			try {
+				connection.close();
+			} catch (Exception ignored) {
+				// 关不掉的连接交给驱动回收，查询结果照常返回
+			}
+		}
+	}
+
+	private static Connection connect(AiDatasource row, int timeoutSeconds) throws Exception {
+		if (row.getDriverClass() != null && !row.getDriverClass().isBlank()) {
+			Class.forName(row.getDriverClass());
+		}
+		return DriverManager.getConnection(row.getJdbcUrl(), connectionProperties(row, timeoutSeconds));
+	}
+
+	/**
+	 * 查询用的连接参数。除了账号，再给驱动设上等待上限：查询时限靠驱动给数据库发取消请求，
+	 * 网络断了发不出去，没有这个上限线程会一直等下去。达梦、金仓自己的驱动参数名不同，这里不设。
+	 */
+	static Properties connectionProperties(AiDatasource row, int timeoutSeconds) {
+		String url = row.getJdbcUrl() == null ? "" : row.getJdbcUrl();
+		Properties props = new Properties();
+		props.setProperty("user", row.getUsername() == null ? "" : row.getUsername());
+		props.setProperty("password", row.getPassword() == null ? "" : row.getPassword());
+		int wait = timeoutSeconds + SOCKET_GRACE_SECONDS;
+		if (url.startsWith("jdbc:postgresql:")) {
+			// PostgreSQL 驱动的时间参数单位是秒；地址里自己写了同名参数的，以地址为准
+			props.setProperty("maxResultBuffer", PG_RESULT_BUFFER);
+			props.setProperty("connectTimeout", String.valueOf(CONNECT_TIMEOUT_SECONDS));
+			props.setProperty("socketTimeout", String.valueOf(wait));
+		} else if (url.startsWith("jdbc:mysql:")) {
+			// MySQL 驱动（MariaDB、StarRocks 也用它）的时间参数单位是毫秒
+			props.setProperty("connectTimeout", String.valueOf(CONNECT_TIMEOUT_SECONDS * 1000));
+			props.setProperty("socketTimeout", String.valueOf(wait * 1000));
+		}
+		return props;
+	}
+
+	private Connection open(AiDatasource row) throws Exception {
 		if (row.getDriverClass() != null && !row.getDriverClass().isBlank()) {
 			Class.forName(row.getDriverClass());
 		}

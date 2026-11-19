@@ -163,6 +163,11 @@ mugsun:
       # AI 出站（知识库抓取 / 渠道 Webhook / MCP 远程）SSRF 白名单；默认空 = 一律拒绝内网/回环/元数据地址。
       # 支持精确主机与 *.example.com 通配；命中即放行内网地址，如本地 Ollama：[localhost, ollama.internal]
       allow-hosts: []
+    sql:
+      # 问数和 AI 应用数据库节点的查询里，函数只放行内置清单（聚合、窗口、数学、字符串、日期、类型转换）。
+      # 数据库自己的函数不在清单里时在这里追加，如 [to_days, my_fn]；追加前要确认它不读表、不执行 SQL。
+      # 会执行别的查询、读写文件、改配置、睡眠的函数（query_to_xml、pg_ 开头的等）写了也不生效
+      extra-functions: []
   web:
     # 管理端 origin；e2e :3007 / 反代域名设 MUGSUN_FRONT_URL，禁止代码写死端口
     front-url: ${MUGSUN_FRONT_URL:http://localhost:3006}
