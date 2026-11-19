@@ -158,7 +158,7 @@ class NotifyApiTest extends AbstractIntegrationTest {
 		user.put("nickname", FANOUT_NICKNAME);
 		user.put("email", FANOUT_EMAIL);
 		user.put("phone", FANOUT_PHONE);
-		user.put("password", "123456");
+		user.put("password", NEW_USER_PASSWORD);
 		user.put("status", 1);
 		JsonNode created = readBody(post("/system/user/submit", user, adminToken));
 		assertThat(created.path("code").asInt()).as("建用户：" + created.path("msg").asText()).isEqualTo(200);

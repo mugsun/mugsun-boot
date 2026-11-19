@@ -48,7 +48,7 @@ class TrackAlertSourcemapApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_OFF = "it-g101-off";
 	private static final int ALERT_THRESHOLD = 3;
 	private static final String LOW_USERNAME = "it_g101_lowpriv";
-	private static final String LOW_PASSWORD = "123456";
+	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
 	private static final String ROLE_CODE = "it-g101-noperm";
 	/** 本地存储落盘根（基座动态属性 dromara.x-file-storage.local-plus[0].storage-path） */
 	private static final String STORAGE_ROOT = "target/it-files/";
@@ -427,7 +427,7 @@ class TrackAlertSourcemapApiTest extends AbstractTrackIntegrationTest {
 		long userId = findIdByField("/system/user/page?pageNum=1&pageSize=100", "username", LOW_USERNAME);
 		JsonNode grant = readBody(post("/system/user/grant", Map.of("userId", userId, "roleIds", List.of(roleId)), adminToken));
 		assertThat(grant.path("code").asInt()).as("授权：" + grant.path("msg").asText()).isEqualTo(200);
-		return login(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
+		return loginNewUser(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
 	}
 
 	private long findIdByField(String pageUrl, String field, String value) {

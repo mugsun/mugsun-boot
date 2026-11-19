@@ -43,7 +43,7 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 	private static final ZoneId STATS_ZONE = ZoneId.of("Asia/Shanghai");
 	private static final String APP_B = "ak_test_funnel_b";
 	private static final String LOW_USERNAME = "it_g103_lowpriv";
-	private static final String LOW_PASSWORD = "123456";
+	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
 	private static final String ROLE_CODE = "it-g103-noperm";
 
 	/** 漏斗三步事件名（CUSTOM_EVENT_NAME 合法自定义事件） */
@@ -402,7 +402,7 @@ class TrackFunnelRetentionApiTest extends AbstractTrackIntegrationTest {
 		long userId = findIdByField("/system/user/page?pageNum=1&pageSize=100", "username", LOW_USERNAME);
 		JsonNode grant = readBody(post("/system/user/grant", Map.of("userId", userId, "roleIds", List.of(roleId)), adminToken));
 		assertThat(grant.path("code").asInt()).as("授权：" + grant.path("msg").asText()).isEqualTo(200);
-		return login(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
+		return loginNewUser(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
 	}
 
 	private long findIdByField(String pageUrl, String field, String value) {

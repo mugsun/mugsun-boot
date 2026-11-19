@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class FieldMaskApiTest extends AbstractIntegrationTest {
 
 	private static final String TS = String.valueOf(System.currentTimeMillis());
-	private static final String PWD = "123456";
+	private static final String PWD = NEW_USER_PASSWORD;
 
 	private static final String ROLE_MASKED = "it-fm-mask-" + TS;
 	private static final String ROLE_NOVIEW = "it-fm-noview-" + TS;
@@ -78,8 +78,8 @@ class FieldMaskApiTest extends AbstractIntegrationTest {
 		createUserWithRoles(VIEW_MASKED, maskedRoleId);
 		createUserWithRoles(VIEW_NOVIEW, noViewRoleId);
 
-		tokenMasked = login(PLATFORM_TENANT, VIEW_MASKED, PWD);
-		tokenNoView = login(PLATFORM_TENANT, VIEW_NOVIEW, PWD);
+		tokenMasked = loginNewUser(PLATFORM_TENANT, VIEW_MASKED, PWD);
+		tokenNoView = loginNewUser(PLATFORM_TENANT, VIEW_NOVIEW, PWD);
 	}
 
 	@Test

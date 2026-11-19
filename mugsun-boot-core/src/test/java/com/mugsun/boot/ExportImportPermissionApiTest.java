@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ExportImportPermissionApiTest extends AbstractIntegrationTest {
 
 	private static final String TS = Long.toString(System.currentTimeMillis() % 1_000_000L);
-	private static final String PWD = "123456";
+	private static final String PWD = NEW_USER_PASSWORD;
 
 	private String adminToken;
 	private String listOnlyToken;
@@ -157,7 +157,7 @@ class ExportImportPermissionApiTest extends AbstractIntegrationTest {
 		grant.put("roleIds", List.of(roleId));
 		JsonNode ug = readBody(post("/system/user/grant", grant, adminToken));
 		assertThat(ug.path("code").asInt()).as("用户授权：" + ug.path("msg").asText()).isEqualTo(200);
-		return login(PLATFORM_TENANT, username, PWD);
+		return loginNewUser(PLATFORM_TENANT, username, PWD);
 	}
 
 	private String userWithoutRole(String username) {
@@ -168,7 +168,7 @@ class ExportImportPermissionApiTest extends AbstractIntegrationTest {
 		user.put("status", 1);
 		JsonNode ur = readBody(post("/system/user/submit", user, adminToken));
 		assertThat(ur.path("code").asInt()).as("建用户：" + ur.path("msg").asText()).isEqualTo(200);
-		return login(PLATFORM_TENANT, username, PWD);
+		return loginNewUser(PLATFORM_TENANT, username, PWD);
 	}
 
 	private long findId(String pageUrl, String field, String value) {

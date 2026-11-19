@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DataScopeApiTest extends AbstractIntegrationTest {
 
 	private static final String TS = String.valueOf(System.currentTimeMillis());
-	private static final String PWD = "123456";
+	private static final String PWD = NEW_USER_PASSWORD;
 
 	// 部门与角色码（时间戳后缀唯一化，容器一次性不清理）
 	private static final String DEPT_A_NAME = "IT数据权限部门A-" + TS;
@@ -87,11 +87,11 @@ class DataScopeApiTest extends AbstractIntegrationTest {
 		createUserWithRoles(WORKER_B1, deptBId, null);
 
 		// 5) 各观察员真实登录（同前端链路）
-		tokenAll = login(PLATFORM_TENANT, VIEW_ALL, PWD);
-		tokenDept = login(PLATFORM_TENANT, VIEW_DEPT, PWD);
-		tokenSelf = login(PLATFORM_TENANT, VIEW_SELF, PWD);
-		tokenBoth = login(PLATFORM_TENANT, VIEW_BOTH, PWD);
-		tokenNone = login(PLATFORM_TENANT, VIEW_NONE, PWD);
+		tokenAll = loginNewUser(PLATFORM_TENANT, VIEW_ALL, PWD);
+		tokenDept = loginNewUser(PLATFORM_TENANT, VIEW_DEPT, PWD);
+		tokenSelf = loginNewUser(PLATFORM_TENANT, VIEW_SELF, PWD);
+		tokenBoth = loginNewUser(PLATFORM_TENANT, VIEW_BOTH, PWD);
+		tokenNone = loginNewUser(PLATFORM_TENANT, VIEW_NONE, PWD);
 	}
 
 	@Test

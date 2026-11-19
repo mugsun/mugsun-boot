@@ -6,6 +6,7 @@ import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
 import com.mugsun.boot.system.service.SysUserManageService;
+import com.mugsun.boot.system.service.UserDataScopeGuard;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +34,8 @@ class SysUserManageServiceTest {
 		userMapper = mock(SysUserMapper.class);
 		userRoleMapper = mock(SysUserRoleMapper.class);
 		roleMapper = mock(SysRoleMapper.class);
-		service = new SysUserManageService(userMapper, userRoleMapper, roleMapper, null, null, null, null, null, null);
+		service = new SysUserManageService(userMapper, userRoleMapper, roleMapper, null, null, null, null, null,
+			mock(UserDataScopeGuard.class));
 	}
 
 	@Test
@@ -79,6 +81,46 @@ class SysUserManageServiceTest {
 			order.verify(userRoleMapper).deleteByQuery(any(QueryWrapper.class));
 			order.verify(userMapper).deleteById(5L);
 			stp.verify(() -> cn.dev33.satoken.stp.StpUtil.kickout(5L));
+		}
+	}
+
+	@Test
+	void importOverwrite_disabling_kicksUserOutAfterWrite() {
+		SysUser patch = new SysUser();
+		patch.setId(9L);
+		patch.setStatus(0);
+		try (var stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			service.importOverwrite(patch, null);
+			verify(userMapper).update(patch);
+			stp.verify(() -> cn.dev33.satoken.stp.StpUtil.kickout(9L));
+		}
+	}
+
+	@Test
+	void importOverwrite_withoutDisabling_kicksNobody() {
+		try (var stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			// 状态列没填（null）和填了启用，都不该踢人
+			for (Integer status : Arrays.asList(null, 1)) {
+				SysUser patch = new SysUser();
+				patch.setId(9L);
+				patch.setStatus(status);
+				service.importOverwrite(patch, null);
+			}
+			verify(userMapper, times(2)).update(any(SysUser.class));
+			stp.verify(() -> cn.dev33.satoken.stp.StpUtil.kickout(any()), never());
+		}
+	}
+
+	@Test
+	void importOverwrite_disablingOneself_throwsAndWritesNothing() {
+		SysUser patch = new SysUser();
+		patch.setId(9L);
+		patch.setStatus(0);
+		try (var stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
+			stp.when(cn.dev33.satoken.stp.StpUtil::getLoginIdDefaultNull).thenReturn("9");
+			assertThrows(ServiceException.class, () -> service.importOverwrite(patch, null));
+			verify(userMapper, never()).update(any(SysUser.class));
+			stp.verify(() -> cn.dev33.satoken.stp.StpUtil.kickout(any()), never());
 		}
 	}
 }

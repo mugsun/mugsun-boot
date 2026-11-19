@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class UserWriteDataScopeApiTest extends AbstractIntegrationTest {
 
 	private static final String TS = String.valueOf(System.currentTimeMillis());
-	private static final String PWD = ADMIN_PASSWORD;
+	private static final String PWD = NEW_USER_PASSWORD;
 	private static final String DEPT_A = "IT写范围部门A-" + TS;
 	private static final String DEPT_B = "IT写范围部门B-" + TS;
 	private static final String OPERATOR = "it_wds_op_" + TS;
@@ -69,8 +69,8 @@ class UserWriteDataScopeApiTest extends AbstractIntegrationTest {
 
 		operatorId = createUser(OPERATOR, deptAId, List.of(deptRoleId));
 		createUser(WIDE_OPERATOR, deptAId, List.of(wideRoleId));
-		operatorToken = login(PLATFORM_TENANT, OPERATOR, PWD);
-		wideToken = login(PLATFORM_TENANT, WIDE_OPERATOR, PWD);
+		operatorToken = loginNewUser(PLATFORM_TENANT, OPERATOR, PWD);
+		wideToken = loginNewUser(PLATFORM_TENANT, WIDE_OPERATOR, PWD);
 	}
 
 	@Test

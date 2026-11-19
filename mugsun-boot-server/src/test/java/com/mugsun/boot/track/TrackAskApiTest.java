@@ -35,7 +35,7 @@ class TrackAskApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP = "it-track-ask";
 	private static final String APP_B = "it-track-ask-b";
 	private static final String LOW_USERNAME = "it_track_ask_low";
-	private static final String LOW_PASSWORD = "123456";
+	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
 	private static final String ROLE_CODE = "it-track-ask-noperm";
 	private static final String ASK_ONLY_USER = "it_track_ask_only";
 	private static final String ASK_ONLY_ROLE = "it-track-ask-only";
@@ -309,7 +309,7 @@ class TrackAskApiTest extends AbstractTrackIntegrationTest {
 		long userId = findIdByField("/system/user/page?pageNum=1&pageSize=100", "username", username);
 		assertThat(readBody(post("/system/user/grant",
 			Map.of("userId", userId, "roleIds", List.of(roleId)), adminToken)).path("code").asInt()).isEqualTo(200);
-		return login(PLATFORM_TENANT, username, LOW_PASSWORD);
+		return loginNewUser(PLATFORM_TENANT, username, LOW_PASSWORD);
 	}
 
 	private long findIdByField(String pageUrl, String field, String value) {

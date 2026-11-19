@@ -435,10 +435,13 @@ public class SysUserController {
 			r.setMsg("已创建。一次性口令仅此一次返回，请立刻交给对方；首次登录须改密");
 			return r;
 		}
-		R<java.util.Map<String, Object>> r = R.success(creating
-			? "已创建。请把账号和刚设置的密码交给对方登录"
+		if (creating) {
+			return R.success("已创建。请把账号和刚设置的密码交给对方；首次登录须改密");
+		}
+		boolean disabled = user.getStatus() != null && user.getStatus() == 0;
+		return R.success(disabled
+			? "已保存。这名用户已停用，会被踢下线，启用前不能登录"
 			: "已保存。列表里可以查看这名用户的部门和状态");
-		return r;
 	}
 
 	@PostMapping("/remove")

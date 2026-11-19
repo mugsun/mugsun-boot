@@ -34,6 +34,7 @@ import java.util.List;
  * 权限、字段脱敏、入参规范化、组织归属与目标可操作性校验仍由 Controller 前置完成。
  * <p>新增、编辑、导入写完以后，在同一事务里按操作者的数据范围复核一次（{@link UserDataScopeGuard#assertStillCovers}）：
  * 保存的结果落到范围之外（比如部门选了别人管的部门）就整体回滚。
+ * <p>编辑和导入覆盖把用户停用时，和单独的停用操作同一套规矩：不能停用自己，提交后踢掉这名用户的全部会话。
  */
 @Service
 public class SysUserManageService {
@@ -67,8 +68,9 @@ public class SysUserManageService {
 
 	/**
 	 * 新建用户：配额锁内查重+插入、按数据范围复核、记密码历史、提交后欢迎通知、挂角色（同一事务）。
+	 * <p>口令留空由服务端生成一次性口令；管理员代填的口令要过口令强度规则。两种情况都要求本人首次登录先改密。
 	 * @param operatorScope 操作者保存前的数据范围，取自 {@link UserDataScopeGuard#operatorScope()}
-	 * @return 服务端生成的一次性口令明文（调用方仅通过 API 响应交给管理员；勿打日志）；用户自带口令时返回 null
+	 * @return 服务端生成的一次性口令明文（调用方仅通过 API 响应交给管理员；勿打日志）；管理员代填口令时返回 null
 	 */
 	@Transactional(rollbackFor = Exception.class)
 	public String create(SysUser user, DataScopeContext.Ctx operatorScope) {
@@ -79,13 +81,17 @@ public class SysUserManageService {
 			user.setIsLeader(0);
 		}
 		boolean generated = user.getPassword() == null || user.getPassword().isBlank();
-		String raw = generated ? securityPolicyService.generateOneTimePassword() : user.getPassword();
-		user.setPassword(passwordEncoder.encode(raw));
+		String raw;
 		if (generated) {
-			user.setMustChangePassword(1);
-		} else if (user.getMustChangePassword() == null) {
-			user.setMustChangePassword(0);
+			raw = securityPolicyService.generateOneTimePassword();
+		} else {
+			// 管理员代填的口令和用户自己设的口令过同一套强度规则
+			raw = user.getPassword();
+			securityPolicyService.validateComplexity(raw);
 		}
+		user.setPassword(passwordEncoder.encode(raw));
+		// 系统生成的也好、管理员代填的也好，都不是本人设的口令：首次登录一律先改密，请求里带的值不算数
+		user.setMustChangePassword(1);
 		// 账号配额检查+插入在租户级 Redis 锁内串行（防并发 TOCTOU 超额；集群安全）
 		tenantValidator.quotaLocked(TenantContext.current(), () -> {
 			tenantValidator.assertAccountQuota(TenantContext.current());
@@ -112,9 +118,12 @@ public class SysUserManageService {
 	@Transactional(rollbackFor = Exception.class)
 	public void update(SysUser user, SysUser before, DataScopeContext.Ctx operatorScope) {
 		assertUsernameFree(user.getUsername(), user.getId());
+		// 编辑不改口令：带了口令就拒绝，不悄悄忽略（调用方会以为改成了）。换口令统一走「重置密码」
 		if (user.getPassword() != null && !user.getPassword().isBlank()) {
-			user.setPassword(passwordEncoder.encode(user.getPassword()));
+			throw new ServiceException("编辑用户不能改密码。要给这名用户换密码，请在用户列表里点「重置密码」");
 		}
+		user.setPassword(null);
+		assertNotDisablingSelf(user.getId(), user.getStatus());
 		// #81 B1：must_change_password 仅 reset/create/改密/忘记密码写；编辑一律忽略，防客户端/默认 0 清标记
 		user.setMustChangePassword(null);
 		user.sanitizeForUpdate();
@@ -125,6 +134,7 @@ public class SysUserManageService {
 			throw new ServiceException("账号「" + user.getUsername() + "」已经有人用过。请换一个账号");
 		}
 		dataScopeGuard.assertStillCovers(operatorScope, user.getId());
+		kickoutIfDisabled(user.getId(), user.getStatus());
 		// 审计前后镜像恒脱敏读：与操作者角色无关，敏感字段永不落明文入审计
 		SysUser after = FieldMaskContext.maskedRead(() -> userMapper.selectOneById(user.getId()));
 		if (before != null) {
@@ -161,8 +171,38 @@ public class SysUserManageService {
 	 */
 	@Transactional(rollbackFor = Exception.class)
 	public void importOverwrite(SysUser patch, DataScopeContext.Ctx operatorScope) {
+		assertNotDisablingSelf(patch.getId(), patch.getStatus());
 		userMapper.update(patch);
 		dataScopeGuard.assertStillCovers(operatorScope, patch.getId());
+		kickoutIfDisabled(patch.getId(), patch.getStatus());
+	}
+
+	/**
+	 * 编辑、导入不能把当前登录的账号停用。单独的停用操作本来就不允许对自己用；
+	 * 停用会踢下线，放行的话操作者当场把自己锁在外面。
+	 */
+	private void assertNotDisablingSelf(Long userId, Integer newStatus) {
+		if (!isDisabled(newStatus)) {
+			return;
+		}
+		Object operator = StpUtil.getLoginIdDefaultNull();
+		if (operator != null && operator.toString().equals(String.valueOf(userId))) {
+			throw new ServiceException("不能停用当前登录的账号。请把状态改回启用，或换一个账号登录后再停用");
+		}
+	}
+
+	/**
+	 * 这次保存把状态写成了停用：提交后踢掉这名用户的全部会话，回滚则不踢。
+	 * 停用状态只在登录时检查，不踢的话已登录的会话在令牌过期前一直能用。
+	 */
+	private void kickoutIfDisabled(Long userId, Integer savedStatus) {
+		if (isDisabled(savedStatus)) {
+			AfterCommit.execute(() -> StpUtil.kickout(userId));
+		}
+	}
+
+	private static boolean isDisabled(Integer status) {
+		return status != null && status == 0;
 	}
 
 	/** 删除用户：清角色关联 → 删用户（同一事务）；会话回收在提交后执行，回滚则不踢 */

@@ -75,6 +75,11 @@ public abstract class AbstractIntegrationTest {
 	/** 平台超管账号（DataInitializer 首次启动播种） */
 	protected static final String ADMIN_USERNAME = "admin";
 	protected static final String ADMIN_PASSWORD = "123456";
+	/**
+	 * 测试里给新建用户代填的口令：过得了口令强度规则（8 位以上，大写、小写、数字、符号都有）。
+	 * 管理员代填的口令和用户自己设的口令过同一套规则，弱口令建不了用户。
+	 */
+	protected static final String NEW_USER_PASSWORD = "ItUser@123456";
 	/** 默认登录客户端（V40 播种：验证码开） */
 	protected static final String CLIENT_WEB = "web";
 	/** 租户请求头（伪造越权判定依据） */
@@ -384,6 +389,22 @@ public abstract class AbstractIntegrationTest {
 	protected String loginAdmin() {
 		clearPlatformAdminMustChangeFlag();
 		return login(PLATFORM_TENANT, ADMIN_USERNAME, ADMIN_PASSWORD);
+	}
+
+	/**
+	 * 管理员建出来的用户首次登录要先改密，改密前业务接口都被拦。
+	 * 业务用例不测这一条时，登录前把这个标记清掉（和 loginAdmin() 对平台超管的做法一样）。
+	 */
+	protected void clearMustChangePassword(String tenantId, String username) {
+		jdbc.update(
+			"UPDATE sys_user SET must_change_password = 0 WHERE username = ? AND tenant_id = ? AND is_deleted = 0",
+			username, tenantId);
+	}
+
+	/** 登录一个由管理员建出来的测试用户：先清掉须改密标记，拿到的会话可以直接调业务接口 */
+	protected String loginNewUser(String tenantId, String username, String rawPassword) {
+		clearMustChangePassword(tenantId, username);
+		return login(tenantId, username, rawPassword);
 	}
 
 	/** Testcontainers 主库 JDBC（租户独立源等联调用） */

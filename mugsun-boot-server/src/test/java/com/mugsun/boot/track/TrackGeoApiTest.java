@@ -31,7 +31,7 @@ class TrackGeoApiTest extends AbstractTrackIntegrationTest {
 	private static final String APP_B = "ak_test_geo_b";
 	private static final String APP_IN = "ak_test_geo_in";
 	private static final String LOW_USERNAME = "it_g106_lowpriv";
-	private static final String LOW_PASSWORD = "123456";
+	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
 	private static final String ROLE_CODE = "it-g106-noperm";
 
 	@Autowired
@@ -275,7 +275,7 @@ class TrackGeoApiTest extends AbstractTrackIntegrationTest {
 		long userId = findIdByField("/system/user/page?pageNum=1&pageSize=100", "username", LOW_USERNAME);
 		assertThat(readBody(post("/system/user/grant", Map.of("userId", userId, "roleIds", List.of(roleId)), adminToken))
 			.path("code").asInt()).isEqualTo(200);
-		return login(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
+		return loginNewUser(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
 	}
 
 	private long findIdByField(String pageUrl, String field, String value) {

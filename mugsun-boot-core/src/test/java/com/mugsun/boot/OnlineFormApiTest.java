@@ -28,7 +28,7 @@ class OnlineFormApiTest extends AbstractIntegrationTest {
 	private static final String TITLE_A = "租户A机密-" + TS;
 	private static final String TITLE_B = "租户B数据-" + TS;
 	private static final String LOW_USERNAME = "it_ol_none_" + TS;
-	private static final String LOW_PASSWORD = "123456";
+	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
 
 	private String tokenA;
 	private String tokenB;
@@ -216,6 +216,6 @@ class OnlineFormApiTest extends AbstractIntegrationTest {
 		JsonNode grantResp = readBody(post("/system/user/grant", grant, platformAdmin));
 		assertThat(grantResp.path("code").asInt()).as("授权：" + grantResp.path("msg").asText()).isEqualTo(200);
 
-		lowToken = login(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
+		lowToken = loginNewUser(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
 	}
 }

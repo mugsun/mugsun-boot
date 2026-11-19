@@ -25,7 +25,7 @@ class PermissionGuardApiTest extends AbstractIntegrationTest {
 
 	private static final String ROLE_CODE = "it-no-perm";
 	private static final String LOW_USERNAME = "it_lowpriv";
-	private static final String LOW_PASSWORD = "123456";
+	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
 
 	private String lowToken;
 
@@ -63,7 +63,7 @@ class PermissionGuardApiTest extends AbstractIntegrationTest {
 		assertThat(grantResp.path("code").asInt()).as("授权：" + grantResp.path("msg").asText()).isEqualTo(200);
 
 		// 5) 低权用户真实登录（同前端链路）
-		lowToken = login(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
+		lowToken = loginNewUser(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
 	}
 
 	private long findIdByField(String pageUrl, String field, String value, String token) {

@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class UserRoleAssignGuardApiTest extends AbstractIntegrationTest {
 
-	private static final String PASSWORD = "123456";
+	private static final String PASSWORD = NEW_USER_PASSWORD;
 	private static final String ROLE_PAGE = "/system/role/page?pageNum=1&pageSize=500";
 	private static final String USER_PAGE = "/system/user/page?pageNum=1&pageSize=500";
 
@@ -58,7 +58,7 @@ class UserRoleAssignGuardApiTest extends AbstractIntegrationTest {
 		operatorId = createUser("it_assign_op", List.of(operatorRoleId));
 		targetId = createUser("it_assign_target", List.of());
 		grantedId = createUser("it_assign_granted", List.of());
-		operatorToken = login(PLATFORM_TENANT, "it_assign_op", PASSWORD);
+		operatorToken = loginNewUser(PLATFORM_TENANT, "it_assign_op", PASSWORD);
 	}
 
 	@Test
@@ -138,7 +138,7 @@ class UserRoleAssignGuardApiTest extends AbstractIntegrationTest {
 		assertThat(selectValues(operatorToken)).contains(smallRoleId).doesNotContain(adminRoleId);
 		assertThat(selectValues(adminToken)).contains(adminRoleId);
 
-		String noPermToken = login(PLATFORM_TENANT, "it_assign_target", PASSWORD);
+		String noPermToken = loginNewUser(PLATFORM_TENANT, "it_assign_target", PASSWORD);
 		assertThat(readBody(get("/system/role/select", noPermToken)).path("code").asInt()).isEqualTo(403);
 	}
 

@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RoleGrantMenuIdsApiTest extends AbstractIntegrationTest {
 
 	private static final String TS = Long.toString(System.currentTimeMillis() % 1_000_000L);
-	private static final String PWD = "123456";
+	private static final String PWD = NEW_USER_PASSWORD;
 	private static final String GRANTER_ROLE = "it-rg-gr-" + TS;
 	private static final String GRANTER_USER = "it_rg_g_" + TS;
 	private static final String TARGET_ROLE = "it-rg-tg-" + TS;
@@ -176,7 +176,7 @@ class RoleGrantMenuIdsApiTest extends AbstractIntegrationTest {
 		grant.put("roleIds", List.of(roleId));
 		JsonNode ug = readBody(post("/system/user/grant", grant, adminToken));
 		assertThat(ug.path("code").asInt()).as("用户授权：" + ug.path("msg").asText()).isEqualTo(200);
-		return login(PLATFORM_TENANT, username, PWD);
+		return loginNewUser(PLATFORM_TENANT, username, PWD);
 	}
 
 	private long findId(String pageUrl, String field, String value) {

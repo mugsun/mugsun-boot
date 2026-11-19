@@ -20,7 +20,7 @@ class ReportApiTest extends AbstractIntegrationTest {
 
 	private static final String TS = String.valueOf(System.currentTimeMillis());
 	private static final String LOW_USERNAME = "it_rpt_none_" + TS;
-	private static final String LOW_PASSWORD = "123456";
+	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
 
 	private String adminToken;
 	private String lowToken;
@@ -161,6 +161,6 @@ class ReportApiTest extends AbstractIntegrationTest {
 		grant.put("userId", userId);
 		grant.put("roleIds", List.of(roleId));
 		assertThat(readBody(post("/system/user/grant", grant, platformAdmin)).path("code").asInt()).isEqualTo(200);
-		lowToken = login(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
+		lowToken = loginNewUser(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
 	}
 }

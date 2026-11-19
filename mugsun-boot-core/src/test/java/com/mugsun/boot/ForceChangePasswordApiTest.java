@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * #81：一次性初始口令 + 首次登录强制改密。
  * 重置/新建租户各自随机；改密前业务接口拒绝；改密后旧口令失效。
+ * 管理员新建用户时代填的口令同样要过口令强度规则，本人首次登录也要先改密；编辑接口不接受口令。
  */
 class ForceChangePasswordApiTest extends AbstractIntegrationTest {
 
@@ -167,6 +168,102 @@ class ForceChangePasswordApiTest extends AbstractIntegrationTest {
 		assertThat(blocked.path("msg").asText()).contains("请先修改初始口令");
 		assertThat(jdbc.queryForObject(
 			"SELECT must_change_password FROM sys_user WHERE id = ?", Integer.class, userId)).isEqualTo(1);
+	}
+
+	@Test
+	void adminTypedPasswordMustPassPolicyAndForcesChange() {
+		String admin = loginAdmin();
+		String username = "it_typed_pwd_" + System.nanoTime() % 1_000_000;
+		Map<String, Object> user = new HashMap<>();
+		user.put("username", username);
+		user.put("status", 1);
+
+		// 太短、够长但只有数字：都建不了，库里不留行（每次昵称不同，避开防重复提交）
+		user.put("nickname", "代填口令-太短");
+		user.put("password", "1");
+		JsonNode tooShort = readBody(post("/system/user/submit", user, admin));
+		assertThat(tooShort.path("code").asInt()).as(tooShort.path("msg").asText()).isEqualTo(400);
+		assertThat(tooShort.path("msg").asText()).contains("密码至少");
+		user.put("nickname", "代填口令-只有数字");
+		user.put("password", "1234567890");
+		JsonNode tooSimple = readBody(post("/system/user/submit", user, admin));
+		assertThat(tooSimple.path("code").asInt()).as(tooSimple.path("msg").asText()).isEqualTo(400);
+		assertThat(tooSimple.path("msg").asText()).contains("至少 3 类");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM sys_user WHERE username = ?", Integer.class, username))
+			.isZero();
+
+		// 过了强度规则的口令能建，不返回一次性口令；请求里带 mustChangePassword=0 也不算数
+		user.put("nickname", "代填口令-合规");
+		user.put("password", NEW_USER_PASSWORD);
+		user.put("mustChangePassword", 0);
+		JsonNode created = readBody(post("/system/user/submit", user, admin));
+		assertThat(created.path("code").asInt()).as(created.path("msg").asText()).isEqualTo(200);
+		assertThat(created.path("data").path("initialPassword").asText()).isEmpty();
+		assertThat(jdbc.queryForObject(
+			"SELECT must_change_password FROM sys_user WHERE username = ? AND tenant_id = ?",
+			Integer.class, username, PLATFORM_TENANT)).isEqualTo(1);
+
+		// 代填的口令能登录，但改密前业务接口被拒
+		String token = login(PLATFORM_TENANT, username, NEW_USER_PASSWORD);
+		assertThat(readBody(get("/auth/info", token)).path("data").path("needChangePassword").asBoolean()).isTrue();
+		JsonNode blocked = readBody(post("/auth/update-avatar", Map.of("avatar", "x"), token));
+		assertThat(blocked.path("code").asInt()).as(blocked.path("msg").asText()).isEqualTo(400);
+		assertThat(blocked.path("msg").asText()).contains("请先修改初始口令");
+
+		// 本人改密后放行
+		String publicKey = readBody(get("/auth/sm2-public-key", null)).path("data").path("publicKey").asText();
+		String newPwd = "ItTyped@Done67x";
+		Map<String, Object> body = new HashMap<>();
+		body.put("oldPassword", sm2Encrypt(NEW_USER_PASSWORD, publicKey));
+		body.put("newPassword", sm2Encrypt(newPwd, publicKey));
+		JsonNode changed = readBody(post("/auth/update-password", body, token));
+		assertThat(changed.path("code").asInt()).as(changed.path("msg").asText()).isEqualTo(200);
+		String fresh = login(PLATFORM_TENANT, username, newPwd);
+		assertThat(readBody(get("/auth/info", fresh)).path("data").path("needChangePassword").asBoolean()).isFalse();
+	}
+
+	@Test
+	void editRejectsPasswordAndKeepsTheOldOne() {
+		String admin = loginAdmin();
+		String username = "it_edit_pwd_" + System.nanoTime() % 1_000_000;
+		Map<String, Object> user = new HashMap<>();
+		user.put("username", username);
+		user.put("nickname", "编辑不改口令");
+		user.put("password", NEW_USER_PASSWORD);
+		user.put("status", 1);
+		JsonNode created = readBody(post("/system/user/submit", user, admin));
+		assertThat(created.path("code").asInt()).as(created.path("msg").asText()).isEqualTo(200);
+		long userId = readBody(get("/system/user/page?pageNum=1&pageSize=50&username=" + username, admin))
+			.path("data").path("records").get(0).path("id").asLong();
+
+		// 带了口令：整个保存被拒，同一次请求里的昵称也不生效
+		String smuggled = "ItOther@98765";
+		Map<String, Object> edit = new HashMap<>();
+		edit.put("id", userId);
+		edit.put("nickname", "顺带改口令");
+		edit.put("password", smuggled);
+		JsonNode rejected = readBody(post("/system/user/submit", edit, admin));
+		assertThat(rejected.path("code").asInt()).as(rejected.path("msg").asText()).isEqualTo(400);
+		assertThat(rejected.path("msg").asText()).contains("重置密码");
+		assertThat(jdbc.queryForObject("SELECT nickname FROM sys_user WHERE id = ?", String.class, userId))
+			.isEqualTo("编辑不改口令");
+
+		// 口令传空串（管理端的编辑弹窗就是这么传的）照常保存，口令不动
+		edit.put("nickname", "空口令照常保存");
+		edit.put("password", "");
+		JsonNode saved = readBody(post("/system/user/submit", edit, admin));
+		assertThat(saved.path("code").asInt()).as(saved.path("msg").asText()).isEqualTo(200);
+		assertThat(jdbc.queryForObject("SELECT nickname FROM sys_user WHERE id = ?", String.class, userId))
+			.isEqualTo("空口令照常保存");
+
+		// 原口令还能登录，被拒的那个口令登录不了
+		assertThat(login(PLATFORM_TENANT, username, NEW_USER_PASSWORD)).isNotBlank();
+		String publicKey = readBody(get("/auth/sm2-public-key", null)).path("data").path("publicKey").asText();
+		assertThat(readBody(post("/auth/login", Map.of(
+			"tenantId", PLATFORM_TENANT,
+			"username", username,
+			"password", sm2Encrypt(smuggled, publicKey),
+			"clientId", CLIENT_WEB), null)).path("code").asInt()).isEqualTo(400);
 	}
 
 }

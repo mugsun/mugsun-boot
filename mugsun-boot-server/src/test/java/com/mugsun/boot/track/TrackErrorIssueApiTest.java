@@ -37,7 +37,7 @@ class TrackErrorIssueApiTest extends AbstractTrackIntegrationTest {
 	private static final String RELEASE_A = "2.1.0";
 	private static final String RELEASE_B = "2.2.0";
 	private static final String LOW_USERNAME = "it_err_issue_low";
-	private static final String LOW_PASSWORD = "123456";
+	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
 	private static final String ROLE_CODE = "it-err-issue-noperm";
 	private static final String LIST_ONLY_USERNAME = "it_err_issue_list";
 	private static final String LIST_ONLY_ROLE = "it-err-issue-listonly";
@@ -294,7 +294,7 @@ class TrackErrorIssueApiTest extends AbstractTrackIntegrationTest {
 		JsonNode grant = readBody(post("/system/user/grant",
 			Map.of("userId", userId, "roleIds", List.of(roleId)), adminToken));
 		assertThat(grant.path("code").asInt()).as("授权：" + grant.path("msg").asText()).isEqualTo(200);
-		return login(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
+		return loginNewUser(PLATFORM_TENANT, LOW_USERNAME, LOW_PASSWORD);
 	}
 
 	/** 仅授予 sys:track-error:list，用于验证写码独立拦截 */
@@ -324,7 +324,7 @@ class TrackErrorIssueApiTest extends AbstractTrackIntegrationTest {
 		long userId = findIdByField("/system/user/page?pageNum=1&pageSize=100", "username", LIST_ONLY_USERNAME);
 		assertThat(readBody(post("/system/user/grant",
 			Map.of("userId", userId, "roleIds", List.of(roleId)), adminToken)).path("code").asInt()).isEqualTo(200);
-		return login(PLATFORM_TENANT, LIST_ONLY_USERNAME, LOW_PASSWORD);
+		return loginNewUser(PLATFORM_TENANT, LIST_ONLY_USERNAME, LOW_PASSWORD);
 	}
 
 	private long findIdByField(String pageUrl, String field, String value) {
