@@ -3,6 +3,7 @@ package com.mugsun.boot.ai.support;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -50,6 +51,28 @@ class AiDocumentTextExtractorTest {
 		String[] reason = new String[1];
 		assertThat(extractor.extractOrNull(new byte[0], "a.pdf", "application/pdf", reason)).isNull();
 		assertThat(reason[0]).contains("空");
+	}
+
+	/**
+	 * Tika 解析网页和源代码（比如文档里内嵌的附件）用的是 jsoup。整包只有一份 jsoup，版本由根 pom 统一指定，
+	 * 和 Tika 自己声明的不一样；换版本后这两条路要照常抽得出正文。
+	 */
+	@Test
+	void htmlIsParsedWithTheManagedJsoup() throws Exception {
+		String html = "<html><head><title>标题</title><style>p{color:red}</style></head><body>"
+			+ "<h1>Mugsun KB Html Body</h1><p>库存 &lt; 10 且销量 &gt; 5</p>"
+			+ "<script>var hidden = 1;</script>"
+			+ "<table><tr><td>单元格甲</td><td>单元格乙</td></tr></table></body></html>";
+		String text = extractor.extract(html.getBytes(StandardCharsets.UTF_8), "embedded.html", "text/html");
+		assertThat(text).contains("Mugsun KB Html Body", "库存 < 10 且销量 > 5", "单元格甲", "单元格乙");
+		assertThat(text).doesNotContain("hidden").doesNotContain("color:red");
+	}
+
+	@Test
+	void sourceCodeIsParsedWithTheManagedJsoup() throws Exception {
+		String code = "public class Demo {\n\tint mugsunKbCodeBody = 1 < 2 ? 3 : 4;\n}\n";
+		String text = extractor.extract(code.getBytes(StandardCharsets.UTF_8), "Demo.java", "text/x-java-source");
+		assertThat(text).contains("Demo", "mugsunKbCodeBody", "<");
 	}
 
 	private static byte[] load(String path) throws Exception {

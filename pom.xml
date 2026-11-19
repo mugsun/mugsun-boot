@@ -45,7 +45,9 @@
 		<bucket4j.version>8.21.0</bucket4j.version>
 		<!-- 与已导入的 spring-cloud-circuitbreaker BOM 中的 resilience4j 一致 -->
 		<resilience4j.version>2.2.0</resilience4j.version>
-		<!-- 富文本白名单净化；与 ai 模块经 Tika 带进来的版本一致，整包里只有一份 -->
+		<!-- 富文本白名单净化用。ai 模块的 Tika 3.2.2 解析网页和源代码也用 jsoup（它自己声明的是 1.21.1），
+		     在这里统一成一个版本，整包里只有一份。不能退回 1.21.1：它解析 svg 里的 script 时会把后面的标签吞掉
+		     （jsoup #2374，1.21.2 起修掉）。换版本后跑 RichTextSanitizerTest 和 AiDocumentTextExtractorTest -->
 		<jsoup.version>1.23.2</jsoup.version>
 	</properties>
 
