@@ -248,15 +248,15 @@ public class FlowController {
 	public record LeaveStart(String businessId, String startTime, String endTime, String reason) {
 	}
 
-	/** 发起指定流程码的实例（设计流程发起用）；可选 handlers=发起人自选的首个审批节点办理人、variable=发起业务数据 */
+	/** 发起指定流程码的实例（设计流程发起用）；可选 variable=发起业务数据。各节点由谁审批只按流程设计解析，请求里不能指定 */
 	@PostMapping("/start-by/{flowCode}/{businessId}")
 	public R<Long> startBy(@PathVariable String flowCode, @PathVariable String businessId,
 						   @RequestBody(required = false) StartParam param) {
-		FlowParams flowParams = FlowParams.build().flowCode(flowCode).handler(StpUtil.getLoginIdAsString());
 		if (param != null && param.handlers() != null && !param.handlers().isEmpty()) {
-			// 发起人自选：覆盖首个审批节点办理人
-			flowParams.nextHandler(param.handlers().toArray(new String[0]));
+			// 引擎会拿它整个替换首个审批节点设计的办理人：填自己就能审批自己的申请，填别人就绕开了设计的审批人
+			throw new ServiceException("发起时不能指定审批人，审批人由流程设计决定。请去掉请求里的 handlers 后重新发起");
 		}
+		FlowParams flowParams = FlowParams.build().flowCode(flowCode).handler(StpUtil.getLoginIdAsString());
 		if (param != null && param.variable() != null && !param.variable().isEmpty()) {
 			// 发起携带业务数据 → 落 flow_instance.variable
 			flowParams.variable(param.variable());
@@ -586,7 +586,7 @@ public class FlowController {
 								 Map<String, String> fieldPerms) {
 	}
 
-	/** 发起参数：发起人自选的首个审批节点办理人 + 发起业务数据 */
+	/** 发起参数：variable=发起业务数据。handlers 不再接受，带了会被拒绝；字段留着只为认出这种请求并给出明确提示 */
 	public record StartParam(List<String> handlers, Map<String, Object> variable) {
 	}
 
