@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.constant.MonitorConstants;
 import com.mugsun.boot.log.OperationLog;
 import com.mugsun.boot.monitor.entity.SysApiLog;
-import com.mugsun.boot.security.XssRequestWrapper;
+import com.mugsun.boot.security.CachedBodyRequestWrapper;
 import com.mugsun.boot.system.service.ParamService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,8 +27,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * 全局访问日志过滤器（@Order 紧随 XssFilter 的 -100 之后）：
- * 直接读 {@link XssRequestWrapper#cachedBody()} 的<strong>未净化原文</strong>抓 body（避 Xss 污染），
+ * 全局访问日志过滤器（@Order 紧随 RequestBodyCacheFilter 的 -100 之后）：
+ * 直接读 {@link CachedBodyRequestWrapper#cachedBody()} 缓存的请求体原文抓 body，
  * 全请求覆盖（含 GET）；标题按「@OperationLog value ＞ Swagger @Operation summary ＞ @Tag name ＞ uri」回退解析；
  * 参数经 {@link ApiParamMask} 结构化递归脱敏 + 截断后异步落库。
  * <p>采样仅对 GET 生效（写操作有 oper_log 留痕）；慢接口（超 monitor.access-log.slow-ms）必记且 slow=1，不受采样影响。
@@ -102,9 +102,9 @@ public class ApiLogFilter extends OncePerRequestFilter {
 		apiLogService.saveAsync(record);
 	}
 
-	/** 参数摘要：body 走未净化原文（XssRequestWrapper 缓存）递归脱敏；无 body（GET/form）走参数表脱敏 */
+	/** 参数摘要：body 走请求体原文（CachedBodyRequestWrapper 缓存）递归脱敏；无 body（GET/form）走参数表脱敏 */
 	private String extractParams(HttpServletRequest request) {
-		if (request instanceof XssRequestWrapper wrapper) {
+		if (request instanceof CachedBodyRequestWrapper wrapper) {
 			byte[] body = wrapper.cachedBody();
 			if (body != null && body.length > 0) {
 				return ApiParamMask.maskJson(objectMapper, new String(body, StandardCharsets.UTF_8));

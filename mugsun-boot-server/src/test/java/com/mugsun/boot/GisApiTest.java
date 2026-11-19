@@ -275,12 +275,12 @@ class GisApiTest extends AbstractIntegrationTest {
 	}
 
 	/**
-	 * 带标签的原文入站只有 text/plain 通道能通：JSON body 里的字符串会被全局 XSS 反序列化器
-	 * 按富文本过滤，标签一被剥掉就一个要素都解析不出来。这条链路必须钉住，否则「支持 KML / GPX」
+	 * 带标签的原文两条通道都要能入站：text/plain 直接提交，或者包在 JSON 的 payload 里。
+	 * 请求体里的文字不再被改写（BOOT-117），标签要原样到达解析器。这条链路必须钉住，否则「支持 KML / GPX」
 	 * 只在单测里成立、真实请求全是 400。
 	 */
 	@Test
-	void ingestKeepsTagsOnlyOnTextChannel() {
+	void ingestKeepsTagsOnBothChannels() {
 		String kml = """
 			<?xml version="1.0" encoding="UTF-8"?>
 			<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
@@ -291,9 +291,10 @@ class GisApiTest extends AbstractIntegrationTest {
 		assertThat(viaText.path("code").asInt()).isEqualTo(200);
 		assertThat(viaText.path("data").path("count").asInt()).isEqualTo(2);
 
-		// 同一份原文塞进 JSON body：标签被净化，解析不出要素，接口应明确报错而不是静默存空图层
+		// 同一份原文放进 JSON body：标签原样到达，解析结果和 text/plain 通道一致
 		JsonNode viaJson = readBody(post("/system/gis/layer/ingest", Map.of("payload", kml), adminToken));
-		assertThat(viaJson.path("code").asInt()).isEqualTo(400);
+		assertThat(viaJson.path("code").asInt()).isEqualTo(200);
+		assertThat(viaJson.path("data").path("count").asInt()).isEqualTo(2);
 
 		// 一段文本里多个 WKT：每行一个都要解析出来，不能只认第一个
 		JsonNode multiWkt = readBody(postText("/system/gis/layer/ingest",

@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.feedback.entity.SysChangelog;
 import com.mugsun.boot.feedback.mapper.SysChangelogMapper;
+import com.mugsun.boot.security.RichTextSanitizer;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -146,6 +147,7 @@ public class ChangelogController {
 		if (content.length() > 20000) {
 			throw new ServiceException("内容请控制在 20000 个字以内");
 		}
+		content = RichTextSanitizer.sanitize(content);
 		changelog.setContent(content.isEmpty() ? null : content);
 		Integer sort = changelog.getSort();
 		if (sort == null) {

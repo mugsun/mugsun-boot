@@ -9,6 +9,7 @@ import com.mugsun.boot.help.entity.HelpPageBinding;
 import com.mugsun.boot.help.mapper.HelpCatalogMapper;
 import com.mugsun.boot.help.mapper.HelpDocMapper;
 import com.mugsun.boot.help.mapper.HelpPageBindingMapper;
+import com.mugsun.boot.security.RichTextSanitizer;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.core.tool.tree.TreeUtil;
@@ -168,7 +169,7 @@ public class HelpController {
 			throw new ServiceException("请先选择一个还在的目录。目录被删掉时，刷新左侧后再保存");
 		}
 		doc.setTitle(title);
-		doc.setContent(content);
+		doc.setContent(RichTextSanitizer.sanitize(content));
 		doc.setSort(sort);
 		if (doc.getId() == null) {
 			doc.setViewCount(0L);

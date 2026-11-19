@@ -11,6 +11,7 @@ import com.mugsun.boot.datascope.DataScopeContext;
 import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.RuntimeSql;
 import com.mugsun.boot.gen.SqlDialect;
+import com.mugsun.boot.security.RichTextSanitizer;
 import com.mugsun.boot.system.entity.SysDept;
 import com.mugsun.boot.system.entity.SysNotice;
 import com.mugsun.boot.system.entity.SysNoticeRead;
@@ -155,6 +156,7 @@ public class SysNoticeController {
 		if (notice.getContent() != null && notice.getContent().length() > 20000) {
 			throw new ServiceException("内容请控制在 2 万字以内。请删掉多余部分后再提交");
 		}
+		notice.setContent(RichTextSanitizer.sanitize(notice.getContent()));
 		if (notice.getAllVisible() == null) {
 			notice.setAllVisible(1);
 		}

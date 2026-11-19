@@ -1,6 +1,5 @@
 package com.mugsun.boot.gis;
 
-import com.mugsun.boot.security.XssCleaner;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
@@ -144,9 +143,9 @@ public class GisTextIngest {
 					if (c == lon || c == lat) {
 						continue;
 					}
-					String key = XssCleaner.clean(head[c].trim());
+					String key = head[c].trim();
 					if (!key.isEmpty()) {
-						props.put(key, XssCleaner.clean(cols[c].trim()));
+						props.put(key, cols[c].trim());
 					}
 				}
 				props.putIfAbsent("name", "点");
@@ -163,7 +162,7 @@ public class GisTextIngest {
 	private List<Map<String, Object>> kml(String text) {
 		List<Map<String, Object>> out = new ArrayList<>();
 		Matcher names = KML_NAME.matcher(text);
-		String fallbackName = names.find() ? XssCleaner.clean(names.group(1).trim()) : "KML";
+		String fallbackName = names.find() ? names.group(1).trim() : "KML";
 		Matcher m = KML_COORD.matcher(text);
 		int idx = 0;
 		while (m.find()) {

@@ -311,7 +311,7 @@ public abstract class AbstractIntegrationTest {
 		return rest.exchange(url, HttpMethod.POST, new HttpEntity<>(body, authHeaders(token)), String.class);
 	}
 
-	/** 原文 POST（text/plain）：带标签的 XML 原文必须绕开 JSON 的 XSS 净化才能到达服务端 */
+	/** 原文 POST（text/plain）：KML / GPX 等原文直接作请求体提交，不包成 JSON */
 	protected ResponseEntity<String> postText(String url, String body, String token) {
 		HttpHeaders headers = authHeaders(token);
 		headers.setContentType(new MediaType(MediaType.TEXT_PLAIN, java.nio.charset.StandardCharsets.UTF_8));

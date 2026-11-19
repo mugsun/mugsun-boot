@@ -23,7 +23,7 @@ import java.util.Map;
 
 /**
  * 只读演示模式过滤器（仅 {@code mugsun.demo.enabled=true}，即 demo profile 下装配）。
- * <p>Order -150：在 TraceIdFilter(-200) 之后（拒绝响应也带 traceId），XssFilter(-100) 之前（被拒请求不缓存 body）。
+ * <p>Order -150：在 TraceIdFilter(-200) 之后（拒绝响应也带 traceId），RequestBodyCacheFilter(-100) 之前（被拒请求不缓存 body）。
  * 规则见 {@link DemoReadOnlyPolicy}；被拒返回 HTTP 403 +
  * {@code {"code":403,"success":false,"msg":"演示环境只读","errorCode":"DEMO_READONLY"}}。
  */

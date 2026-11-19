@@ -37,16 +37,16 @@ import java.util.zip.GZIPInputStream;
  * POST /track/api-body 接口响应体摄入（G102，base64+gzip 独立通道，body 永不进事件队列）；
  * POST /track/visual/draft 圈选草稿上报（G104，独立端点：不落事件表、不进实时流，防采样丢失+防污染统计）；
  * GET /track/config SDK 配置下发。
- * <p>刻意不用 Spring 全局 ObjectMapper 与 @RequestBody：XssJacksonConfig 的净化反序列化器会篡改
- * props 文本（事件属性须原样留存、截断入库，渲染侧由前端 DOMPurify 防存储型 XSS）；
- * 请求体经 XssRequestWrapper 缓存后原样读出（压缩体 ≤2MB 由过滤器 413 兜底），自行解压/解析。
+ * <p>刻意不用 Spring 全局 ObjectMapper 与 @RequestBody：事件属性须原样留存、截断入库，解析不受全局
+ * Jackson 配置影响（渲染侧由前端 DOMPurify 防存储型 XSS）；
+ * 请求体经 CachedBodyRequestWrapper 缓存后原样读出（压缩体 ≤2MB 由过滤器 413 兜底），自行解压/解析。
  * <p>appKey 非机密（浏览器必然暴露），安全不依赖其保密——防护靠存在性校验 + 限流 + 背压 + 事件级校验。
  */
 @RestController
 @RequestMapping("/track")
 public class TrackCollectController {
 
-	/** 独立于 Spring 全局实例的原始解析器（规避 XSS 净化反序列化器对 props 文本的改写） */
+	/** 独立于 Spring 全局实例的原始解析器（props 文本原样解析，不受全局 Jackson 配置影响） */
 	private static final ObjectMapper PLAIN_MAPPER = new ObjectMapper();
 	/** gzip 解压分块大小 */
 	private static final int GZIP_CHUNK_BYTES = 8192;
@@ -204,7 +204,7 @@ public class TrackCollectController {
 	 * 圈选草稿上报（G104，SDK inspect 面板独立通道）：同步路径只做令牌校验/限流/字段校验/上限/入 Redis 即返回
 	 * （R 信封 code=200 {received: true}）。协议：{token, event_name, selector, route_path?, match_text?, page_url?,
 	 * element_text?}（application/json 明文，无 gzip——草稿体量小且面板同步提交）。
-	 * 与 collect 同因用原样读体 + PLAIN_MAPPER：XssJacksonConfig 净化会篡改 selector 文本。
+	 * 与 collect 同因用原样读体 + PLAIN_MAPPER：selector 文本须原样解析，不受全局 Jackson 配置影响。
 	 * 草稿不落事件表、不进实时流、不复用事件摄入指标（可见性走服务内 log.debug）。
 	 */
 	@PostMapping("/visual/draft")

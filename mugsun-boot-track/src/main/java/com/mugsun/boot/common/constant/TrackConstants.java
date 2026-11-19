@@ -329,7 +329,7 @@ public interface TrackConstants {
 	/** 回放限流键前缀：INCR mugsun:track:rlr:{ip}:{appKey}:{yyyyMMddHHmm}，首置 EXPIRE 70s（与 collect 同窗口语义） */
 	String REPLAY_RATE_LIMIT_KEY_PREFIX = REDIS_PREFIX + "rlr:";
 
-	/** 回放请求信封上限（字节，1.5MB）：base64 块文本 + 协议字段（XssFilter 的 2MB 硬顶之前先拦） */
+	/** 回放请求信封上限（字节，1.5MB）：base64 块文本 + 协议字段（RequestBodyCacheFilter 的 2MB 硬顶之前先拦） */
 	int REPLAY_ENVELOPE_MAX_BYTES = 1572864;
 	/** 回放单块解压后上限（字节，4MB；超限 413）。首块含 rrweb 全量快照（整页 DOM + 内联样式，管理台页面
 	 *  实测 1~3MB），1MB 会误杀首块致播放器无基座空白；gzip 块 4MB 明文 ≈ 数百 KB 压缩字节，远低 payload 上限 */
@@ -460,7 +460,7 @@ public interface TrackConstants {
 	/** api-body 域 Redis 键统一 TTL（秒）：25h（与事件幂等同口径，覆盖重发窗口） */
 	long API_BODY_KEY_TTL_SECONDS = 90000L;
 
-	/** api-body 请求信封上限（字节，1.5MB）：base64 体文本 + 协议字段（XssFilter 的 2MB 硬顶之前先拦） */
+	/** api-body 请求信封上限（字节，1.5MB）：base64 体文本 + 协议字段（RequestBodyCacheFilter 的 2MB 硬顶之前先拦） */
 	int API_BODY_ENVELOPE_MAX_BYTES = 1572864;
 	/** base64 体文本长度上限（≈1.41MB）：gzip 体压缩字节远低此界（上限以解压后口径判定，见 sys_param
 	 *  {@link #PARAM_API_BODY_MAX_BYTES}）；此界实际钳制 gzip=false 明文体（解码后 ≈1.07MB 封顶，JSON 响应足够） */

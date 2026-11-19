@@ -13,14 +13,16 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * 全局 XSS 净化过滤器：净化 query/form 参数并缓存请求体。多部件（文件上传）与静态资源跳过。
- * <p>JSON 请求体字段的净化由 {@link XssCleaner} 的 Jackson 反序列化器完成（本过滤器只负责参数与 body 缓存）。
+ * 请求体缓存过滤器：把请求体读进内存（上限 2MB，超出回 413），让访问日志、开放接口验签和 @RequestBody
+ * 能各读一遍同一份内容。多部件（文件上传）和下面列出的路径不缓存。
+ * <p>这里不改写请求内容：参数和请求体里的文字原样交给业务代码，富文本字段由 {@link RichTextSanitizer}
+ * 在保存前净化（BOOT-117）。
  */
 @Component
 @Order(-100)
-public class XssFilter extends OncePerRequestFilter {
+public class RequestBodyCacheFilter extends OncePerRequestFilter {
 
-	/** 跳过净化的路径前缀（文件上传/下载、静态资源、监控） */
+	/** 不缓存请求体的路径前缀（文件上传/下载、静态资源、监控） */
 	private static final List<String> EXCLUDES = List.of(
 		"/system/oss", "/system/file", "/actuator", "/warm-flow", "/v3/api-docs", "/doc.html", "/swagger");
 
@@ -34,8 +36,8 @@ public class XssFilter extends OncePerRequestFilter {
 			return;
 		}
 		try {
-			chain.doFilter(new XssRequestWrapper(request), response);
-		} catch (XssRequestWrapper.BodyTooLargeException e) {
+			chain.doFilter(new CachedBodyRequestWrapper(request), response);
+		} catch (CachedBodyRequestWrapper.BodyTooLargeException e) {
 			// 超限 body 直接 413：无界缓存会被未认证大 body 打成内存 DoS
 			response.setStatus(413);
 			response.setContentType("application/json;charset=UTF-8");

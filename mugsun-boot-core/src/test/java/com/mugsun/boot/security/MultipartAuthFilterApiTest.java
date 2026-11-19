@@ -297,7 +297,7 @@ class MultipartAuthFilterApiTest extends AbstractIntegrationTest {
 		assertThat(order.subList(0, me)).as("排在前面的过滤器：" + order)
 			.allMatch(n -> n.endsWith("CharacterEncodingFilter"));
 		for (Class<?> later : List.of(com.mugsun.boot.captcha.CaptchaBodyLimitFilter.class,
-			com.mugsun.boot.monitor.TraceIdFilter.class, XssFilter.class,
+			com.mugsun.boot.monitor.TraceIdFilter.class, RequestBodyCacheFilter.class,
 			com.mugsun.boot.monitor.ApiLogFilter.class, com.mugsun.boot.monitor.ActuatorAuthFilter.class,
 			com.mugsun.boot.system.file.LocalFileAccessFilter.class)) {
 			assertThat(order.indexOf(later.getName())).as(later.getSimpleName() + " 在 " + order).isGreaterThan(me);

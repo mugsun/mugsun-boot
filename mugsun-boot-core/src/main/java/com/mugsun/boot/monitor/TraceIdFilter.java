@@ -15,7 +15,7 @@ import java.io.IOException;
 import java.util.regex.Pattern;
 
 /**
- * 全站链路追踪过滤器（@Order 最前于 XssFilter 的 -100，全站单一 traceId 源头）：
+ * 全站链路追踪过滤器（@Order 最前于 RequestBodyCacheFilter 的 -100，全站单一 traceId 源头）：
  * 入口 {@code X-Trace-Id} 仅当完全匹配 {@code [A-Za-z0-9-]{1,64}} 时沿用（网关预留），
  * 否则丢弃并生成，防日志/MDC 注入；MDC 放入供日志 pattern 输出；
  * 响应头回写供前后端排障对照；finally 严格清除防线程复用串号。

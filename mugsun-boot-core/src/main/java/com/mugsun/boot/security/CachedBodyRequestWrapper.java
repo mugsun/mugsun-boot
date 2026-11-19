@@ -10,19 +10,17 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /**
- * XSS 请求包装：净化 query/form 参数（{@link XssCleaner} 剥标签），并缓存请求体使其可重复读
- * （供 @RequestBody 的 XSS 反序列化器 + 开放接口签名校验共用同一份 body）。
+ * 请求包装：缓存请求体使其可重复读（@RequestBody、访问日志、开放接口签名校验共用同一份 body）。
+ * 参数和请求体的内容不改写。
  */
-public class XssRequestWrapper extends HttpServletRequestWrapper {
+public class CachedBodyRequestWrapper extends HttpServletRequestWrapper {
 
-	/** body 缓存上限：超出即拒绝（413 由 XssFilter 映射），防未认证大 body 内存 DoS */
+	/** body 缓存上限：超出即拒绝（413 由 RequestBodyCacheFilter 映射），防未认证大 body 内存 DoS */
 	private static final int MAX_BODY_BYTES = 2 * 1024 * 1024;
 
-	/** body 超限信号（XssFilter 捕获转 413） */
+	/** body 超限信号（RequestBodyCacheFilter 捕获转 413） */
 	public static final class BodyTooLargeException extends RuntimeException {
 		BodyTooLargeException(String message) {
 			super(message);
@@ -31,10 +29,10 @@ public class XssRequestWrapper extends HttpServletRequestWrapper {
 
 	private final byte[] body;
 
-	public XssRequestWrapper(HttpServletRequest request) throws IOException {
+	public CachedBodyRequestWrapper(HttpServletRequest request) throws IOException {
 		super(request);
 		// 表单请求(application/x-www-form-urlencoded)不缓存 body：否则提前消费流会导致容器解析不到表单参数。
-		// 仅缓存 JSON/原始 body，供 @RequestBody XSS 反序列化器与开放接口签名共用重复读。
+		// 仅缓存 JSON/原始 body，供 @RequestBody、访问日志与开放接口签名共用重复读。
 		String ct = request.getContentType();
 		boolean form = ct != null && ct.toLowerCase().contains("application/x-www-form-urlencoded");
 		if (form) {
@@ -59,7 +57,7 @@ public class XssRequestWrapper extends HttpServletRequestWrapper {
 		this.body = buf.toByteArray();
 	}
 
-	/** 原始请求体字节（未净化，供签名哈希；表单请求返回 null，改由 super 读取） */
+	/** 原始请求体字节（供签名哈希和访问日志；表单请求返回 null，改由 super 读取） */
 	public byte[] cachedBody() {
 		return body;
 	}
@@ -95,37 +93,5 @@ public class XssRequestWrapper extends HttpServletRequestWrapper {
 	@Override
 	public BufferedReader getReader() throws IOException {
 		return new BufferedReader(new InputStreamReader(getInputStream(), StandardCharsets.UTF_8));
-	}
-
-	@Override
-	public String getParameter(String name) {
-		return XssCleaner.clean(super.getParameter(name));
-	}
-
-	@Override
-	public String[] getParameterValues(String name) {
-		String[] values = super.getParameterValues(name);
-		if (values == null) {
-			return null;
-		}
-		String[] out = new String[values.length];
-		for (int i = 0; i < values.length; i++) {
-			out[i] = XssCleaner.clean(values[i]);
-		}
-		return out;
-	}
-
-	@Override
-	public Map<String, String[]> getParameterMap() {
-		Map<String, String[]> src = super.getParameterMap();
-		Map<String, String[]> out = new LinkedHashMap<>();
-		src.forEach((k, vs) -> {
-			String[] c = new String[vs.length];
-			for (int i = 0; i < vs.length; i++) {
-				c[i] = XssCleaner.clean(vs[i]);
-			}
-			out.put(k, c);
-		});
-		return out;
 	}
 }

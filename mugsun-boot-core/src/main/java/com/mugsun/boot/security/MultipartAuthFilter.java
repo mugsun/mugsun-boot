@@ -25,7 +25,7 @@ import java.util.Set;
 /**
  * multipart 前置闸门：在任何会读参数或请求体的 Filter 之前，拒绝未登录或不在白名单的 multipart 请求。
  * <p>背景：Sa-Token 的 {@code SaInterceptor} 是 MVC 拦截器，DispatcherServlet 在 checkMultipart() 里先解析
- * multipart（读满请求体、写临时文件）才轮到它；XssFilter、DemoReadOnlyFilter、LocalFileAccessFilter 等调用
+ * multipart（读满请求体、写临时文件）才轮到它；DemoReadOnlyFilter、LocalFileAccessFilter 等调用
  * getParameter 也会提前触发 Tomcat 解析。所以这里排在 HIGHEST_PRECEDENCE，只看请求行和请求头。
  * <ul>
  *   <li>非 multipart：直接放行。</li>

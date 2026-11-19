@@ -45,6 +45,8 @@
 		<bucket4j.version>8.21.0</bucket4j.version>
 		<!-- 与已导入的 spring-cloud-circuitbreaker BOM 中的 resilience4j 一致 -->
 		<resilience4j.version>2.2.0</resilience4j.version>
+		<!-- 富文本白名单净化；与 ai 模块经 Tika 带进来的版本一致，整包里只有一份 -->
+		<jsoup.version>1.23.2</jsoup.version>
 	</properties>
 
 	<dependencyManagement>
@@ -113,6 +115,11 @@
 				<groupId>net.sf.geographiclib</groupId>
 				<artifactId>GeographicLib-Java</artifactId>
 				<version>${geographiclib.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.jsoup</groupId>
+				<artifactId>jsoup</artifactId>
+				<version>${jsoup.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>com.icegreen</groupId>

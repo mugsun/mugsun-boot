@@ -49,7 +49,7 @@ import java.util.UUID;
 public class TrackVisualService {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackVisualService.class);
-	/** 草稿元素 JSON 的原始解析器（与采集端同因：规避 XSS 净化反序列化器对 selector 文本的改写） */
+	/** 草稿元素 JSON 的原始解析器（与采集端同因：selector 文本原样解析，不受全局 Jackson 配置影响） */
 	private static final ObjectMapper PLAIN_MAPPER = new ObjectMapper();
 	/** 令牌随机源（48 位 hex = 192bit 熵） */
 	private static final SecureRandom RANDOM = new SecureRandom();

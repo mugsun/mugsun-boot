@@ -63,6 +63,26 @@ class GisTextIngestTest {
 		assertThat(props(feats.get(1)).get("name")).isEqualTo("故宫");
 	}
 
+	/** BOOT-117：属性值按原文保存，< > & 和引号不改写（显示时由前端转义） */
+	@Test
+	void csvKeepsSpecialCharactersInValues() {
+		List<Map<String, Object>> feats = ingest.parse("""
+			lon,lat,name,note
+			116.397428,39.90923,A&B <一号店>,库存 < 10 且销量 > 5""");
+		assertThat(feats).hasSize(1);
+		assertThat(props(feats.get(0)).get("name")).isEqualTo("A&B <一号店>");
+		assertThat(props(feats.get(0)).get("note")).isEqualTo("库存 < 10 且销量 > 5");
+	}
+
+	@Test
+	void kmlKeepsQuotesInName() {
+		List<Map<String, Object>> feats = ingest.parse("""
+			<kml><Document><Placemark><name>老张的"一号"店</name>
+			<Point><coordinates>116.3964,39.9253</coordinates></Point></Placemark></Document></kml>""");
+		assertThat(feats).hasSize(1);
+		assertThat(props(feats.get(0)).get("name")).isEqualTo("老张的\"一号\"店");
+	}
+
 	/** 带 XML 声明的 KML：声明行不能把格式识别带偏 */
 	@Test
 	void kmlReadsPlacemarksWithXmlDeclaration() {

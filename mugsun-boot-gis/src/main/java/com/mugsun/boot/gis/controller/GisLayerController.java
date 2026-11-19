@@ -104,9 +104,8 @@ public class GisLayerController {
 	}
 
 	/**
-	 * 原文入站通道：KML / GPX 等带标签的格式必须走 text/plain。
-	 * JSON body 里的字符串会被全局 XSS 反序列化器按富文本过滤，标签一被剥掉就再也解析不出要素；
-	 * text/plain 不经 Jackson，原文完整到达，解析出的属性值再由 {@link com.mugsun.boot.gis.GisTextIngest} 严格净化。
+	 * 原文入站通道：KML / GPX / WKT / CSV 原文直接作 text/plain 请求体提交，不用先包成 JSON 字符串。
+	 * 解析由 {@link com.mugsun.boot.gis.GisTextIngest} 完成，属性值按原文保存，显示时由前端转义。
 	 */
 	@PostMapping(value = "/ingest", consumes = MediaType.TEXT_PLAIN_VALUE)
 	@SaCheckPermission(value = { GisConstants.PERM_LAYER_SAVE, GisConstants.PERM_WORKSPACE }, mode = SaMode.OR)

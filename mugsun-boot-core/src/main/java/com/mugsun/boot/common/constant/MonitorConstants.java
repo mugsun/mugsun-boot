@@ -32,7 +32,7 @@ public interface MonitorConstants {
 	/** 兜底默认：操作审计日志保留 180 天（等保三级审计留存口径） */
 	int DEFAULT_OPER_RETENTION_DAYS = 180;
 
-	/** 访问日志排除路径前缀（监控端点/文档/推送/静态与上传下载/埋点采集，与 XssFilter 跳过集合并集；/track 防埋点自埋点刷屏） */
+	/** 访问日志排除路径前缀（监控端点/文档/推送/静态与上传下载/埋点采集，与 RequestBodyCacheFilter 跳过集合并集；/track 防埋点自埋点刷屏） */
 	List<String> API_LOG_EXCLUDES = List.of(
 		"/actuator", "/v3/api-docs", "/doc.html", "/swagger", "/warm-flow",
 		"/ws", "/file", "/system/oss", "/system/file", "/favicon.ico", "/error", "/track",

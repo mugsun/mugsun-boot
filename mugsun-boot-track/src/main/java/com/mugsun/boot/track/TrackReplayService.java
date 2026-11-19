@@ -45,7 +45,7 @@ public class TrackReplayService {
 
 	private static final Logger log = LoggerFactory.getLogger(TrackReplayService.class);
 
-	/** 独立于 Spring 全局实例的原始解析器（规避 XSS 净化反序列化器改写回放内容） */
+	/** 独立于 Spring 全局实例的原始解析器（回放内容原样解析，不受全局 Jackson 配置影响） */
 	private static final ObjectMapper PLAIN_MAPPER = new ObjectMapper();
 	/** 限流分钟窗格式化（键尾缀 yyyyMMddHHmm，与 collect 同窗口语义） */
 	private static final DateTimeFormatter MINUTE_FORMAT = DateTimeFormatter.ofPattern(TrackConstants.RATE_LIMIT_MINUTE_PATTERN);

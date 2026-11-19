@@ -10,6 +10,7 @@ import com.mugsun.boot.message.mapper.SysMessageMapper;
 import com.mugsun.boot.message.mapper.SysMessageTemplateMapper;
 import com.mugsun.boot.message.mapper.SysMessageUserMapper;
 import com.mugsun.boot.notify.NotifyTemplateRenderer;
+import com.mugsun.boot.security.RichTextSanitizer;
 import com.mugsun.boot.websocket.WsFrame;
 import com.mugsun.boot.websocket.WsMessageSender;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -126,6 +127,8 @@ public class MessageService {
 		if (content != null && content.length() > 20000) {
 			throw new ServiceException("消息内容请控制在 20000 个字以内");
 		}
+		// 正文按 HTML 显示：模板参数替换完再净化，参数里带进来的标记也一并按白名单处理
+		content = RichTextSanitizer.sanitize(content);
 		String type = dto.getType() == null || dto.getType().isBlank() ? "system" : dto.getType().trim();
 		if (!type.equals("system") && !type.equals("notice") && !type.equals("todo")) {
 			throw new ServiceException("类型请选择系统、通知或待办");
