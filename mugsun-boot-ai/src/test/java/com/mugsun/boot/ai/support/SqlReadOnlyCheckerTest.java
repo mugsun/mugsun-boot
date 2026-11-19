@@ -239,6 +239,63 @@ class SqlReadOnlyCheckerTest {
 	}
 
 	@Test
+	void wordsGluedToAStringCannotActAsAPrefix() {
+		// Oracle 一类数据库里 q'Z…Z' 到定界符后面的引号才结束：这里当成字符串的那一段，到了那边是代码
+		assertEquals("查询里有不支持的写法: q'…'",
+			rejected("select q'Za' bZ' as c from sys_user --' from wdx074_sales").getMessage());
+		for (String s : List.of("select q'[a]' from wdx074_sales", "select Q'!a!' from wdx074_sales",
+			"select nq'[a]' from wdx074_sales", "select NQ'[a]' from wdx074_sales",
+			"select s.q'[a]' from wdx074_sales s", "select r'a' from wdx074_sales", "select u'a' from wdx074_sales",
+			"select aq'a' from wdx074_sales", "select _q'a' from wdx074_sales",
+			"select 1 from wdx074_sales where region is'a'")) {
+			rejected(s);
+		}
+		assertThrows(ServiceException.class,
+			() -> SqlReadOnlyChecker.checkTemplate("select q'[${x}]' from wdx074_sales", SALES));
+		// 中间有空格或注释，就只是一个词加一个普通字符串，各家数据库读出来都一样
+		passes("select q, 'a', q 'a' from wdx074_sales");
+		assertEquals("select q 'a' from wdx074_sales", sql("select q/* */'a' from wdx074_sales"));
+		// 不改变字符串在哪里结束的前缀照原样保留
+		assertEquals("select N'华南', e'a', B'01', x'1F', _utf8'a' from wdx074_sales",
+			sql("select N'华南', e'a', B'01', x'1F', _utf8'a' from wdx074_sales"));
+		// 其余的词拼回去时和引号隔开，数据库没法把它当前缀
+		assertEquals("select 1 as 'a', date '2024-01-01', interval '1 day' from wdx074_sales"
+				+ " where region like '华%' or 'a'='a'",
+			sql("select 1 as'a', date'2024-01-01', interval'1 day' from wdx074_sales where region like'华%' or'a'='a'"));
+		assertEquals("select abc 'a' from wdx074_sales", sql("select abc'a' from wdx074_sales"));
+		assertEquals("select region from wdx074_sales where region in('a','b') order by 'a'",
+			sql("select region from wdx074_sales where region in('a','b') order by'a'"));
+	}
+
+	@Test
+	void doubleSlashIsRejected() {
+		// 达梦的手册把 // 当单行注释用；字符串里可以换行，注释吃掉开头的引号以后，引号里的内容就成了代码
+		assertEquals("查询里有不支持的写法: //", rejected("select 1 // '\n from sys_user -- '").getMessage());
+		rejected("select amount // 2 from wdx074_sales");
+		assertEquals("select amount / 2 / 3, amount / 2 from wdx074_sales",
+			sql("select amount / 2 / 3, amount / /* x */ 2 from wdx074_sales"));
+		assertEquals("select 'a // b' from wdx074_sales", sql("select 'a // b' from wdx074_sales"));
+	}
+
+	@Test
+	void sequenceValuesCannotBeTaken() {
+		for (String s : List.of("select s.nextval from wdx074_sales s", "select s.CURRVAL from wdx074_sales s",
+			"select s.\"NEXTVAL\" from wdx074_sales s", "select s.`currval` from wdx074_sales s",
+			"select next value for seq from wdx074_sales",
+			"select substring(next value for seq from 1 for 1) from wdx074_sales",
+			"select overlay(region placing 'a' from next value for seq for 1) from wdx074_sales")) {
+			rejected(s);
+		}
+		assertEquals("查询里有不支持的写法: \"NEXTVAL\"",
+			rejected("select s.\"NEXTVAL\" from wdx074_sales s").getMessage());
+		assertEquals("查询里有不支持的写法: next value for",
+			rejected("select substring(next value for seq from 1 for 1) from wdx074_sales").getMessage());
+		passes("select region from wdx074_sales order by id offset 5 rows fetch next 5 rows only");
+		passes("select value, next, s.\"value\", s.\"next\" from wdx074_sales s");
+		passes("select next value from wdx074_sales");
+	}
+
+	@Test
 	void limitsLengthAndNesting() {
 		assertTrue(rejected("select '" + "x".repeat(20_001) + "'").getMessage().contains("20000"));
 		assertEquals("查询嵌套太深，请简化后再试", rejected("select (".repeat(40) + "1" + ")".repeat(40)).getMessage());

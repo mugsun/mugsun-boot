@@ -27,7 +27,9 @@ import java.util.Set;
  *   <li>函数只放行清单里的聚合、窗口、数学、字符串、日期和类型转换函数，
  *       清单之外的可以用配置项 mugsun.ai.sql.extra-functions 追加；</li>
  *   <li>注释在切词时丢掉，交给数据库执行的是按词重新拼出来的文本，所以检查的和执行的是同一份；</li>
- *   <li>反斜杠、美元符、方括号这类各家数据库切词规则不一样的字符直接拒绝。</li>
+ *   <li>反斜杠、美元符、方括号、双斜杠这类各家数据库切词规则不一样的写法直接拒绝；</li>
+ *   <li>紧贴在字符串前面的词可能被某些数据库当成字符串前缀（Oracle 一类的 q'[…]'），引号在哪里结束就和这里切的不一样：
+ *       只保留 N、E、B、X 和 _字符集 这几种，其余一两个字母的拒绝，更长的词拼回去时和引号隔开。</li>
  * </ul>
  * <p>模板模式（数据库节点）下，{@code ${名字}} 和 {@code {{名字}}} 只能出现在值的位置，编译成 {@code ?}
  * 由 PreparedStatement 绑定；写在引号里的占位符连同引号里的其他文字一起算一个字符串参数。
@@ -94,6 +96,12 @@ public final class SqlReadOnlyChecker {
 	private static final Set<String> FOR_OPENERS = words("substring overlay");
 	private static final Set<String> WITH_FOLLOWERS = words("time ties rollup cube local");
 	private static final Set<String> TYPED_LITERALS = words("date time timestamp timestamptz timetz interval");
+
+	/** 可以紧贴在字符串前面的前缀：N'…'、E'…'、B'…'、X'…'。它们不改变字符串在哪里结束 */
+	private static final Set<String> STRING_PREFIXES = words("n e b x");
+
+	/** 一两个字母、后面可以直接跟字符串的关键字，没留空格也放行 */
+	private static final Set<String> SHORT_KEYWORDS = words("as or in on by to");
 
 	/** 可以写在 FROM 里当表用的函数：只生成数据，不读任何表 */
 	private static final Set<String> TABLE_FUNCTIONS = words(
@@ -476,8 +484,13 @@ public final class SqlReadOnlyChecker {
 				space = true;
 				continue;
 			}
+			if (c == '/' && i + 1 < n && s.charAt(i + 1) == '/') {
+				// 达梦的手册把 // 当单行注释用：按注释读的话，它后面的引号在那边不算数，这里切出来的字符串就对不上了。
+				// 正常的查询用不到 //，直接拒绝
+				throw unsupported("//");
+			}
 			if (c == '\'') {
-				i = lexString(s, i, space, template, out);
+				i = lexString(s, i, spaceBeforeString(out, space), template, out);
 			} else if (c == '"' || c == '`') {
 				i = lexQuoted(s, i, space, template, out);
 			} else if (isDigit(c)) {
@@ -522,6 +535,39 @@ public final class SqlReadOnlyChecker {
 		}
 		out.add(new Token(Kind.EOF, "", "", space, null));
 		return out;
+	}
+
+	/**
+	 * 引号前面紧贴着一个词时，这个词可能是字符串前缀。Oracle 一类的数据库（金仓的 Oracle 兼容写法）有
+	 * q'[…]'、nq'[…]'：字符串到定界符后面的引号才结束，中间的单引号不算数。这里是按引号切的，
+	 * 切出来当成字符串的一段，到了那边是会被执行的 SQL。所以：
+	 * <ul>
+	 *   <li>N、E、B、X 和 MySQL 的 _字符集 不改变字符串在哪里结束，照原样紧贴着；</li>
+	 *   <li>其余一两个字母的词直接拒绝（已知会改变结束位置的前缀都在这个范围里），少数几个关键字除外；</li>
+	 *   <li>更长的词（关键字、类型名）按中间有空格处理：拼回去的语句里它和引号是分开的，数据库没法把它当前缀。</li>
+	 * </ul>
+	 *
+	 * @return 这个字符串前面是否按有空格处理
+	 */
+	private static boolean spaceBeforeString(List<Token> out, boolean space) {
+		if (space || out.isEmpty()) {
+			return space;
+		}
+		Token prev = out.get(out.size() - 1);
+		if (prev.kind != Kind.WORD) {
+			return false;
+		}
+		String word = prev.lower;
+		if (word.length() > 2) {
+			return !word.startsWith("_");
+		}
+		if (STRING_PREFIXES.contains(word)) {
+			return false;
+		}
+		if (SHORT_KEYWORDS.contains(word)) {
+			return true;
+		}
+		throw unsupported(prev.text + "'…'");
 	}
 
 	private static int lexString(String s, int start, boolean space, boolean template, List<Token> out) {
@@ -1175,6 +1221,13 @@ public final class SqlReadOnlyChecker {
 						}
 						next();
 					}
+					case QIDENT -> {
+						// 序列的取值写法加了引号也一样（seq."NEXTVAL"）
+						if (prev.kind == Kind.DOT && (t.lower.equals("nextval") || t.lower.equals("currval"))) {
+							throw unsupported(t.text);
+						}
+						next();
+					}
 					default -> next();
 				}
 			}
@@ -1214,6 +1267,10 @@ public final class SqlReadOnlyChecker {
 					throw unsupported(t.text);
 				}
 				return true;
+			}
+			// next value for 序列名：MariaDB 等数据库取序列值的写法，会推进序列
+			if (w.equals("value") && isWord(prev, "next") && isWord(after, "for")) {
+				throw unsupported("next value for");
 			}
 			boolean top = groups.isEmpty();
 			if (w.equals("from")) {

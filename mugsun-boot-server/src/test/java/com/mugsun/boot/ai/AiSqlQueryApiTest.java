@@ -145,6 +145,15 @@ class AiSqlQueryApiTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("紧贴着引号的词：N'…' 照原样，like'…'、date'…' 拼回去时和引号隔开，查出来的结果不变")
+	void wordsGluedToStringsKeepTheirMeaning() {
+		String sql = SqlReadOnlyChecker.check("select id from " + TABLE + " where region like N'华%' and created between "
+			+ "date'2026-01-01' and date'2026-01-31' or region like'O%' order by id", Set.of(TABLE)).sql();
+		assertThat(sql).contains("like N'华%'", "date '2026-01-01'", "like 'O%'");
+		assertThat(query(sql, 10, 5000)).extracting(row -> row.get("id")).containsExactly(1L, 3L);
+	}
+
+	@Test
 	@DisplayName("查不出来时只说固定的话，不带数据库的报错原文")
 	void failuresUseFixedMessages() {
 		assertThatThrownBy(() -> query("select no_such_column from " + TABLE, 10, 5000))
