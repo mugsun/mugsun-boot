@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,6 +42,9 @@ public class AiChatBizService {
 	private final AiKnowledgeBizService knowledgeBizService;
 	private final AiLlmClient llmClient;
 	private final ObjectMapper objectMapper;
+
+	/** 每次发给模型的历史消息上限（含当前提问）。 */
+	static final int HISTORY_LIMIT = 40;
 
 	private final ConcurrentHashMap<String, AtomicBoolean> stopFlags = new ConcurrentHashMap<>();
 
@@ -336,7 +340,7 @@ public class AiChatBizService {
 		StringBuilder thinkBuf = new StringBuilder();
 		int[] usageHolder = new int[]{0, 0, 0};
 
-		List<Map<String, String>> history = buildHistory(session.getId());
+		List<Map<String, String>> history = buildHistory(session.getId(), asst.getId());
 		List<Map<String, Object>> refs = List.of();
 		if (knowledgeId != null) {
 			try {
@@ -615,14 +619,25 @@ public class AiChatBizService {
 		return out;
 	}
 
-	private List<Map<String, String>> buildHistory(Long sessionId) {
-		List<AiMessage> msgs = messageMapper.selectListByQuery(
-			QueryWrapper.create().eq("session_id", sessionId)
-				.in("status", List.of(AiConstants.MSG_STATUS_DONE, AiConstants.MSG_STATUS_STREAMING))
-				.orderBy("id", true).limit(40));
+	/**
+	 * 发给模型的历史：本次助手消息之前最近的 {@link #HISTORY_LIMIT} 条，按时间正序，所以当前提问一定在最后。
+	 * 窗口开头不是提问的消息丢掉，模型不会拿到一条提问已经被截掉的回复。
+	 */
+	private List<Map<String, String>> buildHistory(Long sessionId, Long beforeMessageId) {
+		QueryWrapper query = QueryWrapper.create().eq("session_id", sessionId)
+			.in("status", List.of(AiConstants.MSG_STATUS_DONE, AiConstants.MSG_STATUS_STREAMING));
+		if (beforeMessageId != null) {
+			query.lt("id", beforeMessageId);
+		}
+		List<AiMessage> msgs = new ArrayList<>(
+			messageMapper.selectListByQuery(query.orderBy("id", false).limit(HISTORY_LIMIT)));
+		Collections.reverse(msgs);
 		List<Map<String, String>> history = new ArrayList<>();
 		for (AiMessage m : msgs) {
 			if (AiConstants.MSG_STATUS_STREAMING.equals(m.getStatus()) && (m.getContent() == null || m.getContent().isEmpty())) {
+				continue;
+			}
+			if (history.isEmpty() && !AiConstants.ROLE_USER.equals(m.getRole())) {
 				continue;
 			}
 			history.add(Map.of("role", m.getRole(), "content", m.getContent() == null ? "" : m.getContent()));
