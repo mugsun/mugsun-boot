@@ -1,10 +1,11 @@
--- openGauss-lite 5.1：V8 手工灌库替代脚本（#102）。
--- 与 db/migration-og/V8__oper_log_chain_guard.sql 同语义；本文件保证不用
--- ADD COLUMN IF NOT EXISTS（lite 5.1 语法错误），改用 information_schema DO 块（同 V9/V10）。
+-- openGauss-lite 5.1：操作日志链头锁（原 V8）的单独脚本（#102）。
+-- 与 db/migration-og 基线里原 V8__oper_log_chain_guard.sql 那一段同语义；本文件保证不用
+-- ADD COLUMN IF NOT EXISTS（lite 5.1 语法错误），改用 information_schema DO 块（同原 V9/V10）。
 --
 -- 用法（gsql，库须 DBCOMPATIBILITY 'PG'）：
 --   gsql -d mugsun -U gaussdb -f scripts/og/V8_oper_log_chain_guard_lite.sql -1 -v ON_ERROR_STOP=1
--- 其它版本仍按 migration-og 目录顺序执行；V8 用本脚本代替原文件。
+-- 0.2 起 migration-og 只有一个基线，基线已经包含这一段：执行了基线，就不用再执行本脚本。
+-- 本脚本保留作 DO 块写法的样例，scripts/pg_to_opengauss.py 的报错信息会引用它。
 -- openGauss 不走 Flyway migrate（社区 PG 插件会 SET ROLE → set role denied），
 -- 故无需补登 flyway_schema_history；关 spring.flyway 或勿把 locations 指到 migration-og。
 

@@ -1,9 +1,5 @@
--- V7 之后：删除再建、删两次、手机号
--- 租户：删 → 建同编号 → 再删 → 再建
-UPDATE sys_tenant SET is_deleted = 1 WHERE id = 9100000000000000001;
-INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (9100000000000000002, '700001', 'T-A2', 0);
-UPDATE sys_tenant SET is_deleted = 1 WHERE id = 9100000000000000002;
-INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (9100000000000000003, '700001', 'T-A3', 0);
+-- 删除后的行不占唯一键：删除再建、删两次、手机号。先灌 scenario.sql 再跑本文件
+-- 租户编号不在这里：它是全量唯一，删掉的编号不能再用
 -- 用户名：删两次后再建
 UPDATE sys_user SET is_deleted = 1 WHERE id = 9100000000000000011;
 INSERT INTO sys_user (id, tenant_id, username, password, nickname, is_deleted) VALUES (9100000000000000017, '700001', 'u1', 'x', 'n', 0);

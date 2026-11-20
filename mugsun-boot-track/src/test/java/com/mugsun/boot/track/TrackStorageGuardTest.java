@@ -11,10 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.mugsun.boot.common.constant.TrackConstants;
+import com.mugsun.boot.db.MigrationBaseline;
 import com.mugsun.boot.system.service.ParamService;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -169,17 +167,13 @@ class TrackStorageGuardTest {
 	}
 
 	@Test
-	void migrationsSeedTheSameDefaultsAsCode() throws IOException {
+	void migrationsSeedTheSameDefaultsAsCode() {
 		Map<String, Long> defaults = Map.of(
 			TrackConstants.PARAM_STORAGE_DAILY_MAX, TrackConstants.DEFAULT_STORAGE_DAILY_MAX_BYTES,
 			TrackConstants.PARAM_STORAGE_APP_DAILY_MAX, TrackConstants.DEFAULT_STORAGE_APP_DAILY_MAX_BYTES,
 			TrackConstants.PARAM_STORAGE_MIN_FREE, TrackConstants.DEFAULT_STORAGE_MIN_FREE_BYTES);
 		for (String dir : List.of("migration", "migration-dm", "migration-og")) {
-			String sql;
-			try (InputStream in = getClass().getResourceAsStream("/db/" + dir + "/V22__track_storage_quota_params.sql")) {
-				assertThat(in).as(dir + " 缺少 V22").isNotNull();
-				sql = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-			}
+			String sql = MigrationBaseline.section(dir, "V22__track_storage_quota_params.sql");
 			defaults.forEach((key, value) ->
 				assertThat(sql).as(dir + " " + key).contains("'" + key + "', '" + value + "'"));
 		}

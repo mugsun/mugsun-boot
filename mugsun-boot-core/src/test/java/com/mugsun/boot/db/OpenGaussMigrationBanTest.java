@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * openGauss-lite 5.1 不支持 {@code ADD COLUMN IF NOT EXISTS}（#102）。
- * 禁止 {@code db/migration-og} 再出现该语法；新增列用 information_schema DO 块（同 V9/V10）。
+ * 禁止 {@code db/migration-og} 再出现该语法；新增列用 information_schema DO 块（同基线里原 V9、V10 两段）。
  */
 class OpenGaussMigrationBanTest {
 
@@ -56,32 +55,21 @@ class OpenGaussMigrationBanTest {
 			}
 		}
 		else {
-			// jar：至少核对已知会改列的版本仍可读且合规
-			for (String name : List.of("V8__oper_log_chain_guard.sql", "V9__tenant_captcha.sql",
-				"V10__tenant_captcha_types.sql")) {
-				String sql = sqlWithoutLineComments(read("db/migration-og/" + name));
-				if (BANNED.matcher(sql).find()) {
-					hits.add(name);
-				}
+			// jar：目录没法遍历，至少核对基线
+			if (BANNED.matcher(sqlWithoutLineComments(MigrationBaseline.main("migration-og"))).find()) {
+				hits.add(MigrationBaseline.MAIN);
 			}
 		}
 		assertThat(hits).as("og 脚本含禁止语法").isEmpty();
 	}
 
 	@Test
-	@DisplayName("V8 已是 DO + information_schema，与 lite 替代脚本同语义")
+	@DisplayName("基线里原 V8 那一段已是 DO + information_schema，与 lite 替代脚本同语义")
 	void v8UsesDoBlockLikeLite() throws Exception {
-		String v8 = read("db/migration-og/V8__oper_log_chain_guard.sql");
+		String v8 = MigrationBaseline.section("migration-og", "V8__oper_log_chain_guard.sql");
 		assertThat(sqlWithoutLineComments(v8)).doesNotContainPattern(BANNED)
 			.contains("information_schema.columns")
 			.contains("chain_prev")
 			.contains("sys_oper_log_chain");
-	}
-
-	private static String read(String path) throws Exception {
-		try (InputStream in = OpenGaussMigrationBanTest.class.getClassLoader().getResourceAsStream(path)) {
-			assertThat(in).as(path).isNotNull();
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-		}
 	}
 }

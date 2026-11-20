@@ -5,8 +5,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -14,23 +12,16 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * V7（openGauss / 达梦）：唯一索引只约束未删除的行。不连库，只核对脚本写法；实库验证见 PR 说明与
- * {@link FlywayUpgradeFrom010Test#deletedRowsDoNotBlockUniqueKeysAfterV7()}（PG）。
+ * 基线里原 V7 那一段（openGauss / 达梦）：唯一索引只约束未删除的行。不连库，只核对脚本写法；实库验证见 PR 说明与
+ * {@link FlywayFreshInstallTest#softDeletedRowsDoNotBlockUniqueKeys()}（PG）。
  */
 class UniqueIndexDeleteFlagMigrationTest {
 
 	private static final List<String> INDEXES = List.of("uk_tenant_code", "uk_user_tenant_username", "uk_user_role",
 		"uk_role_menu", "uk_role_dept", "uk_tenant_ds_code", "uk_user_tenant_phone");
 
-	private static String read(String path) throws Exception {
-		try (InputStream in = UniqueIndexDeleteFlagMigrationTest.class.getClassLoader().getResourceAsStream(path)) {
-			assertThat(in).as(path).isNotNull();
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-		}
-	}
-
-	private static String v7(String dir) throws Exception {
-		return read("db/" + dir + "/V7__unique_index_delete_flag.sql");
+	private static String v7(String dir) {
+		return MigrationBaseline.section(dir, "V7__unique_index_delete_flag.sql");
 	}
 
 	/** 去掉 -- 注释，便于只核对语句 */
@@ -39,7 +30,7 @@ class UniqueIndexDeleteFlagMigrationTest {
 	}
 
 	@Test
-	@DisplayName("三套方言都有 V7（同号）")
+	@DisplayName("三套方言的基线里都有原 V7 这一段")
 	void sameVersionInAllDialects() throws Exception {
 		assertThat(v7("migration")).contains("SELECT 1");
 		assertThat(v7("migration-og")).isNotBlank();
@@ -83,9 +74,9 @@ class UniqueIndexDeleteFlagMigrationTest {
 	}
 
 	@Test
-	@DisplayName("PG 的 V1 已是部分唯一索引，V7 在 PG 上不需要改（口径与 og/dm 一致）")
+	@DisplayName("PG 的 0.1 那一段已是部分唯一索引，原 V7 在 PG 上不需要改（口径与 og/dm 一致）")
 	void pgAlreadyPartial() throws Exception {
-		String v1 = read("db/migration/V1__baseline_0_1.sql");
+		String v1 = MigrationBaseline.section("migration", "V1__baseline_0_1.sql");
 		assertThat(v1).contains("CREATE UNIQUE INDEX IF NOT EXISTS uk_tenant_code ON sys_tenant (tenant_code) WHERE is_deleted = 0;")
 			.contains("CREATE UNIQUE INDEX uk_user_tenant_username ON sys_user (tenant_id, username) WHERE is_deleted = 0;")
 			.contains("uk_user_role ON sys_user_role (user_id, role_id) WHERE is_deleted = 0;")

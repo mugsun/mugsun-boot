@@ -1,8 +1,11 @@
 """已发布迁移守卫的反例测试：在临时 git 仓库里跑真实脚本。"""
-import os, shutil, subprocess, tempfile, unittest
+import os, re, shutil, subprocess, tempfile, unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ZERO = "0" * 40
+# 清单路径以守卫脚本里的 MANIFEST= 为准，换清单时这里不用跟着改
+with open(os.path.join(ROOT, "scripts", "check-released-migrations.sh"), encoding="utf-8") as _f:
+    MANIFEST = re.search(r"^MANIFEST=(\S+)", _f.read(), re.M).group(1)
 
 
 def sh(cwd, *args, env=None, check=True):
@@ -25,7 +28,8 @@ class GuardTest(unittest.TestCase):
         self.mig = "db/migration/V1__init.sql"
         self.write(self.mig, "create table t(id int);\n")
         out = sh(self.repo, "shasum", "-a", "256", self.mig).stdout
-        self.write("db/RELEASED.sha256", out)
+        os.makedirs(os.path.dirname(os.path.join(self.repo, MANIFEST)), exist_ok=True)
+        self.write(MANIFEST, out)
         self.commit("init")
         sh(self.repo, "git", "push", "-q", "origin", "main")
         self.main_sha = self.head()
@@ -83,7 +87,7 @@ class GuardTest(unittest.TestCase):
 
     def test_branch_zero_before_falls_back_to_merge_base(self):
         sh(self.repo, "git", "checkout", "-qb", "feat2")
-        with open(os.path.join(self.repo, "db/RELEASED.sha256"), "w") as f:
+        with open(os.path.join(self.repo, MANIFEST), "w") as f:
             f.write("# truncated\n")
         self.commit("drop manifest line")
         r = self.resolve(EVENT_NAME="push", REF_NAME="feat2", PUSH_BEFORE=ZERO)
@@ -95,7 +99,7 @@ class GuardTest(unittest.TestCase):
 
     def test_manifest_line_modified_fails(self):
         sh(self.repo, "git", "checkout", "-qb", "feat4")
-        with open(os.path.join(self.repo, "db/RELEASED.sha256"), "w") as f:
+        with open(os.path.join(self.repo, MANIFEST), "w") as f:
             f.write("f" * 64 + "  " + self.mig + "\n")
         self.commit("rewrite manifest line")
         r = self.resolve(EVENT_NAME="push", REF_NAME="feat4", PUSH_BEFORE=self.main_sha)
@@ -119,7 +123,7 @@ class GuardTest(unittest.TestCase):
 
     def test_pr_manifest_edit_fails(self):
         sh(self.repo, "git", "checkout", "-qb", "pr-bad")
-        with open(os.path.join(self.repo, "db/RELEASED.sha256"), "w") as f:
+        with open(os.path.join(self.repo, MANIFEST), "w") as f:
             f.write("e" * 64 + "  " + self.mig + "\n")
         self.commit("edit manifest")
         r = self.resolve(EVENT_NAME="pull_request", PR_BASE_SHA=self.main_sha)
@@ -135,6 +139,44 @@ class GuardTest(unittest.TestCase):
         r = self.resolve(EVENT_NAME="workflow_dispatch", REF_NAME="feat3")
         self.assertEqual(r.stdout.strip(), self.main_sha, r.stderr)
         self.assertEqual(self.guard(r.stdout.strip()).returncode, 0)
+
+    def test_manifest_new_since_base_passes(self):
+        """换发布线时清单是新文件：基线提交里没有它，只会出现新增行，不算删改。"""
+        sh(self.repo, "git", "checkout", "-qb", "new-line")
+        with open(os.path.join(self.repo, MANIFEST)) as f:
+            lines = f.read()
+        os.remove(os.path.join(self.repo, MANIFEST))
+        self.commit("base without manifest")
+        base = self.head()
+        self.write(MANIFEST, lines)
+        self.commit("add manifest")
+        g = self.guard(base)
+        self.assertEqual(g.returncode, 0, g.stdout + g.stderr)
+        # 登记进新清单以后照样受保护
+        self.write(self.mig, "create table t(id bigint);\n")
+        self.commit("edit released")
+        g = self.guard(base)
+        self.assertNotEqual(g.returncode, 0)
+        self.assertIn("已发布迁移被修改", g.stdout)
+
+    def test_comment_only_manifest_allows_baseline_edits(self):
+        """版本还没发布：清单只有注释，基线可以直接改。"""
+        sh(self.repo, "git", "checkout", "-qb", "unreleased")
+        os.remove(os.path.join(self.repo, MANIFEST))
+        self.commit("base without manifest")
+        base = self.head()
+        self.write(MANIFEST, "# 还没有发布过迁移\n")
+        self.write(self.mig, "create table t(id bigint);\n")
+        self.commit("empty manifest, edit baseline")
+        g = self.guard(base)
+        self.assertEqual(g.returncode, 0, g.stdout + g.stderr)
+        self.assertIn("(0 files)", g.stdout)
+
+    def test_deleting_manifest_fails(self):
+        sh(self.repo, "git", "checkout", "-qb", "no-manifest")
+        os.remove(os.path.join(self.repo, MANIFEST))
+        self.commit("delete manifest")
+        self.assertNotEqual(self.guard(self.main_sha).returncode, 0)
 
 
 if __name__ == "__main__":

@@ -527,19 +527,19 @@ class TrackUserTimelineApiTest extends AbstractTrackIntegrationTest {
 		assertThat(read.path("msg").asText()).contains("没有采到，或已经清理");
 	}
 
-	/** T2 迁移：时间线两条 (app_key, 身份, ts, id) 复合索引已建在分区父表，且列序与游标排序一致 */
+	/** 时间线两条 (app_key, 身份, ts, id) 复合索引已由基线建在分区父表，列序与游标排序一致；各分区由 T4 挂上 */
 	@Test
 	void timelineIndexesMigrated() {
 		Row user = trackRow("SELECT indexdef FROM pg_indexes WHERE tablename = 'track_event' AND indexname = ?",
 			"idx_event_user_ts_timeline");
-		assertThat(user).as("idx_event_user_ts_timeline 应由 T3 建出").isNotNull();
+		assertThat(user).as("idx_event_user_ts_timeline 应由基线建出").isNotNull();
 		assertThat(user.getString("indexdef")).contains("ON ONLY").contains("(app_key, user_id, ts, id)");
 		Row distinct = trackRow("SELECT indexdef FROM pg_indexes WHERE tablename = 'track_event' AND indexname = ?",
 			"idx_event_distinct_ts_timeline");
-		assertThat(distinct).as("idx_event_distinct_ts_timeline 应由 T3 建出").isNotNull();
+		assertThat(distinct).as("idx_event_distinct_ts_timeline 应由基线建出").isNotNull();
 		assertThat(distinct.getString("indexdef")).contains("ON ONLY").contains("(app_key, distinct_id, ts, id)");
-		assertThat(trackLong("SELECT count(*) AS c FROM flyway_schema_history WHERE version IN ('3', '4') AND success"))
-			.as("T3 + T4 迁移成功").isEqualTo(2L);
+		assertThat(trackLong("SELECT count(*) AS c FROM flyway_schema_history WHERE version IN ('1', '4') AND success"))
+			.as("基线 T1 + T4 迁移成功").isEqualTo(2L);
 		assertTimelineIndexesValid();
 	}
 

@@ -223,7 +223,7 @@ AI 模块没有引入 Spring AI，模型调用和向量检索由模块自己实�
 
 ## 参与贡献
 
-提交前请读[贡献指南](./CONTRIBUTING.md)。改表结构要新增[迁移脚本](./mugsun-boot-core/src/main/resources/db/migration/README.md)，已发布的脚本不能修改。
+提交前请读[贡献指南](./CONTRIBUTING.md)。改表结构的做法见[迁移脚本的说明](./mugsun-boot-core/src/main/resources/db/migration/README.md)：0.2 发布前直接改基线，发布后只新增脚本，已发布的脚本不能修改。
 
 安全问题请按 [SECURITY.md](https://github.com/mugsun/.github/blob/main/SECURITY.md) 私下报告，不要开公开 Issue。
 

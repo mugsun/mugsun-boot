@@ -219,7 +219,7 @@ The `main` branch is at `0.2.0-SNAPSHOT`. Read the [changelog](./CHANGELOG.md) a
 
 ## Contributing
 
-Read the [contributing guide](https://github.com/mugsun/.github/blob/main/CONTRIBUTING_EN.md) before you send a change. Schema changes go into new [migration scripts](./mugsun-boot-core/src/main/resources/db/migration/README.md) (notes in Chinese); released scripts must not be edited.
+Read the [contributing guide](https://github.com/mugsun/.github/blob/main/CONTRIBUTING_EN.md) before you send a change. For schema changes, follow the [migration notes](./mugsun-boot-core/src/main/resources/db/migration/README.md) (in Chinese): until 0.2 is released, edit the baseline script directly; after the release, add new scripts only. Released scripts must not be edited.
 
 Report security issues privately as described in [SECURITY.md](https://github.com/mugsun/.github/blob/main/SECURITY.md). Please do not open a public issue.
 

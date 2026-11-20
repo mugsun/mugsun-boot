@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# 已发布的 Flyway 迁移不可修改：逐个比对 db/RELEASED.sha256 中登记的文件哈希。
+# 已发布的 Flyway 迁移不可修改：逐个比对 db/RELEASED-0.2.sha256 中登记的文件哈希。
+# 清单按基线分线：0.1.0 的迁移并进 0.2 基线后，旧清单 db/RELEASED.sha256 作废，换成这一份。
 # 只允许新增 Vn__*.sql；发版时把新迁移追加进清单（scripts/check-released-migrations.sh --print 生成行）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-MANIFEST=db/RELEASED.sha256
+MANIFEST=db/RELEASED-0.2.sha256
 if [[ "${1:-}" == "--print" ]]; then
   shift; for f in "$@"; do shasum -a 256 "$f"; done; exit 0
 fi

@@ -1,4 +1,4 @@
--- V7 前造出旧索引下就存在的数据（openGauss / 达梦 / PG 通用 SQL）。达梦、openGauss 实测见 PR 说明
+-- 场景数据（openGauss / 达梦 / PG 通用 SQL）：先灌这个，再跑 verify.sql 和 negative.sql。达梦、openGauss 实测见 PR 说明
 INSERT INTO sys_tenant (id, tenant_code, tenant_name, is_deleted) VALUES (9100000000000000001, '700001', 'T-A', 0);
 INSERT INTO sys_user (id, tenant_id, username, password, nickname, phone, is_deleted) VALUES
  (9100000000000000011, '700001', 'u1', 'x', 'n', NULL, 0),

@@ -4,24 +4,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * V21（不连库）：三套方言都给表单两张表补 tenant_id、存量归平台租户，表单标识改为租户内唯一。
- * PG 实库验证见 {@link FlywayUpgradeFrom010Test#v21MovesFormsIntoPlatformTenantAndScopesFormKey()}。
+ * 基线里原 V21 那一段（不连库）：三套方言都给表单两张表补 tenant_id、存量归平台租户，表单标识改为租户内唯一。
+ * PG 实库验证见 {@link FlywayFreshInstallTest#formKeyIsUniquePerTenantAmongLiveRows()}。
  */
 class FormTenantMigrationTest {
 
-	private static String read(String dir) throws Exception {
-		try (InputStream in = FormTenantMigrationTest.class.getResourceAsStream("/db/" + dir + "/V21__form_tenant.sql")) {
-			assertThat(in).as(dir + " 缺少 V21").isNotNull();
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-		}
+	private static String read(String dir) {
+		return MigrationBaseline.section(dir, "V21__form_tenant.sql");
 	}
 
 	/** 去掉 -- 注释，只核对语句 */

@@ -1,3 +1,11 @@
+-- Mugsun 主库 Flyway 基线（PostgreSQL / 金仓）
+-- 0.2 基线：全新安装只跑本文件。由原来的迁移脚本按版本顺序原样拼成，每段前面标了来源文件名。
+-- 0.2 发布前改库直接改本文件；发布后本文件登记进发布清单，不能再改，改库要新增脚本。
+-- 规则见 mugsun-boot-core/src/main/resources/db/migration/README.md；生成方式：scripts/squash_flyway_baseline.py。
+
+-- ====================================================================
+-- 原 V1__baseline_0_1.sql
+-- ====================================================================
 -- Mugsun 主库 Flyway 基线（PostgreSQL / 金仓兼容）
 -- 0.1.0 基线：合并原增量与 AI 模块为单脚本；全新安装只跑本文件。
 -- 0.1 未发布前直接改本文件，不要另起 V2。发布后再追加 V2__*.sql。
@@ -3051,3 +3059,412 @@ ALTER TABLE sys_api_key ADD COLUMN expire_time TIMESTAMP;
 ALTER TABLE sys_api_key ADD COLUMN api_path VARCHAR(255);
 COMMENT ON COLUMN sys_api_key.expire_time IS '到期时间，空表示不限制';
 COMMENT ON COLUMN sys_api_key.api_path IS '允许调用的路径，逗号分隔，空表示不限制';
+
+-- ====================================================================
+-- 原 V2__file_perm.sql
+-- ====================================================================
+-- 0.1.1：附件越权治理（原 B4 / PR #11 误追加进已发布 V1，现移到这里）
+-- 幂等：部分开发库跑过「带 B4 的 V1」并 flyway repair 过，列/权限/授权可能已存在。
+
+-- 附件归属：上传者用户 id（历史行为空，仅 sys:file:manage 可操作其私有文件）
+ALTER TABLE sys_attach ADD COLUMN IF NOT EXISTS create_user BIGINT;
+COMMENT ON COLUMN sys_attach.create_user IS '上传者用户 id';
+
+-- 附件按钮权限（menu_type=F，挂「附件管理」1200000000000000112）
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted) VALUES
+(1077000000000000001, 1200000000000000112, '管理全部附件', 'F', 'sys:file:manage', 1, now(), 0),
+(1077000000000000002, 1200000000000000112, '上传公开附件', 'F', 'sys:file:public', 2, now(), 0),
+(1077000000000000003, 1200000000000000112, '删除附件',     'F', 'sys:file:remove', 3, now(), 0)
+ON CONFLICT (id) DO NOTHING;
+
+-- 授给管理员角色（role_code=admin；运行期 admin 另经 StpInterface 通配 *，此处落库供角色授权页回显）
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT v.rm_id, r.role_id, v.menu_id, now(), 0
+FROM (VALUES (1077000000000000101, 1077000000000000001),
+             (1077000000000000102, 1077000000000000002),
+             (1077000000000000103, 1077000000000000003)) AS v(rm_id, menu_id)
+CROSS JOIN (SELECT MIN(id) AS role_id FROM sys_role WHERE role_code = 'admin' AND is_deleted = 0 HAVING COUNT(*) > 0) r
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x WHERE x.id = v.rm_id
+                  OR (x.role_id = r.role_id AND x.menu_id = v.menu_id))
+ON CONFLICT (id) DO NOTHING;
+
+-- ====================================================================
+-- 原 V3__clean_fake_changelog.sql
+-- ====================================================================
+-- 0.1.1：清掉 V1 里的演示更新日志（v1.2.0 / v1.1.0 / v1.0.0 并非真实版本），换成真实的 0.1.0。
+-- 不改已发布 V1；幂等。
+DELETE FROM sys_changelog
+WHERE id IN (1080000000000000001, 1080000000000000002, 1080000000000000003)
+  AND version IN ('v1.2.0', 'v1.1.0', 'v1.0.0');
+
+INSERT INTO sys_changelog (id, version, type, title, content, publish_time, sort, create_time) VALUES
+(1080000000000000010, '0.1.0', 'feature', 'Mugsun Boot 0.1.0 首个公开版本',
+ '<p>首个公开版本：多租户、权限、组织、附件、消息、日志监控、代码生成、开放平台等基础能力，支持 PostgreSQL / 金仓、达梦、openGauss。</p>',
+ now(), 1, now())
+ON CONFLICT (id) DO NOTHING;
+
+-- ====================================================================
+-- 原 V7__unique_index_delete_flag.sql
+-- ====================================================================
+-- 0.1.1：唯一索引只约束未删除的行。openGauss / 达梦的 V7 改了 6 个唯一索引并把手机号索引改成唯一。
+-- PostgreSQL（及金仓）在 V1 里已经是 WHERE is_deleted = 0 的部分唯一索引，手机号索引也已是
+-- WHERE is_deleted = 0 AND phone IS NOT NULL AND phone <> '' 的部分唯一，本版本号在 PG 上无需改动。
+-- 保留这个文件是为了三套方言同号（见 README）。
+SELECT 1;
+
+-- ====================================================================
+-- 原 V8__oper_log_chain_guard.sql
+-- ====================================================================
+-- 0.1.x：操作日志哈希链多节点防分叉（PostgreSQL / 金仓）。
+-- ① 链头锁行：落库事务内 SELECT ... FOR UPDATE 串行化各实例的「读链头→写新记录」。
+CREATE TABLE IF NOT EXISTS sys_oper_log_chain (
+	id          INT       PRIMARY KEY,
+	update_time TIMESTAMP
+);
+INSERT INTO sys_oper_log_chain (id, update_time)
+SELECT 1, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM sys_oper_log_chain WHERE id = 1);
+COMMENT ON TABLE sys_oper_log_chain IS '操作日志哈希链链头锁（单行 id=1）';
+
+-- ② 唯一兜底：新记录 chain_prev = prev_hash，唯一索引让两条记录无法接在同一链头后。
+--    历史记录保持 NULL（不回填，避免历史分叉/重复的 prev_hash 让本迁移失败；NULL 不参与唯一约束）。
+ALTER TABLE sys_oper_log ADD COLUMN IF NOT EXISTS chain_prev VARCHAR(64);
+COMMENT ON COLUMN sys_oper_log.chain_prev IS '链唯一兜底：新记录等于 prev_hash，历史记录为空';
+CREATE UNIQUE INDEX IF NOT EXISTS uk_oper_log_chain_prev ON sys_oper_log (chain_prev);
+
+-- ====================================================================
+-- 原 V9__tenant_captcha.sql
+-- ====================================================================
+-- 0.1.1：租户级行为验证码开关（默认开；关闭仅平台超管可操作并留审计）。幂等。
+ALTER TABLE sys_tenant ADD COLUMN IF NOT EXISTS captcha_enabled INT DEFAULT 1;
+UPDATE sys_tenant SET captcha_enabled = 1 WHERE captcha_enabled IS NULL;
+COMMENT ON COLUMN sys_tenant.captcha_enabled IS '行为验证码开关（1/NULL 开，0 关）';
+
+-- ====================================================================
+-- 原 V10__tenant_captcha_types.sql
+-- ====================================================================
+-- 0.1.1：租户启用的行为验证码题型（逗号分隔；NULL = 平台默认 mugsun.captcha.default-types）。幂等。
+ALTER TABLE sys_tenant ADD COLUMN IF NOT EXISTS captcha_types VARCHAR(128);
+COMMENT ON COLUMN sys_tenant.captcha_types IS '启用的验证码题型（SLIDER,ROTATE,WORD_CLICK,ICON_CLICK,JIGSAW；NULL 用平台默认）';
+
+-- ====================================================================
+-- 原 V11__tenant_code_full_unique.sql
+-- ====================================================================
+-- 0.1.1：租户编号永不复用。sys_tenant.tenant_code 改回全量唯一（含已删除行）。
+-- uk_tenant_ds_code 不动，仍只约束未删除行（PG 是 V1 的部分唯一，og/dm 是 V7 的 CASE 表达式索引）：
+-- 现存租户可以删掉数据源配置再用同一编号重建；数据源只能挂在现存租户上，由接口校验。
+-- 背景：删租户只逻辑删除组织数据，业务表、凭据、会话、数据源路由仍按编号关联。编号一旦被新租户复用，
+-- 新租户会接手旧租户的残留数据（boot#100 复核 B1）。应用层 genCode 查重已包含已删除行，这里在库层兜底。
+-- PostgreSQL（及金仓）的 uk_tenant_code 在 V1 里是 WHERE is_deleted = 0 的部分唯一，本版本改为全量唯一。
+-- 先查重：已经有编号被复用（同编号多行）就中止，此时还没有改任何索引。
+
+-- 1. 先查重复编号（含已删除行）
+DO $$
+DECLARE
+	dup_tenant INT;
+BEGIN
+	SELECT COUNT(*) INTO dup_tenant FROM (
+		SELECT tenant_code FROM sys_tenant GROUP BY tenant_code HAVING COUNT(*) > 1) d;
+	IF dup_tenant > 0 THEN
+		RAISE EXCEPTION 'V11 升级中止：sys_tenant 有 % 个租户编号被重复使用（含已删除行），全量唯一索引建不了。请按 https://docs.mugsun.com/boot/upgrade 的「V11 中止：租户编号被复用」一节查出并处理，再重新执行迁移', dup_tenant;
+	END IF;
+END $$;
+
+-- 2. uk_tenant_code 改回全量唯一
+DROP INDEX IF EXISTS uk_tenant_code;
+CREATE UNIQUE INDEX uk_tenant_code ON sys_tenant (tenant_code);
+
+-- ====================================================================
+-- 原 V13__export_import_upload_flow_perm.sql
+-- ====================================================================
+-- 0.1.1：导出/导入/上传/表单/流程按钮权限码。幂等。
+-- 1) 用户导出导入拆出 sys:user:export / sys:user:import（原为 sys:user:list / sys:user:add）
+-- 2) 附件上传 sys:file:upload（原先登录即可）
+-- 3) 表单设计保存删除、流程部署设计发布改为方法级注解，权限码与原兜底守卫派生的码一致
+-- 升级不掉权限：
+-- - 已有 sys:user:list 的角色补授导出码，已有 sys:user:add 的角色补授导入码
+-- - sys:file:upload 补授给全部现有角色（意见反馈等页面也在用上传）
+-- - 表单、流程的新按钮只补授给各租户的 admin 角色（原先非管理员本就会被兜底守卫拒绝）。
+--   admin 现在经 MugsunStpInterface 直接拿到通配 *，这条补授当前是冗余的，
+--   为将来收回通配预留；脚本已在测试库执行过，不再改语句，只改注释
+-- 父级按业务键 path 找（全新库与升级库的主键不同）；父菜单不存在时跳过。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000001, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0),
+       '导出用户', 'F', 'sys:user:export', 6, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000001 OR (permission = 'sys:user:export' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000002, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0),
+       '导入用户', 'F', 'sys:user:import', 7, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000002 OR (permission = 'sys:user:import' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000003, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/attach' AND is_deleted = 0),
+       '上传附件', 'F', 'sys:file:upload', 4, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/attach' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000003 OR (permission = 'sys:file:upload' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000004, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0),
+       '保存表单', 'F', 'sys:form:save', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000004 OR (permission = 'sys:form:save' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000005, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0),
+       '删除表单', 'F', 'sys:form:remove', 2, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000005 OR (permission = 'sys:form:remove' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000006, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '部署流程', 'F', 'sys:flow:deploy', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000006 OR (permission = 'sys:flow:deploy' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000007, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '发布/下线流程', 'F', 'sys:flow:definition', 2, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000007 OR (permission = 'sys:flow:definition' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000008, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '设计流程', 'F', 'sys:flow:design', 3, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000008 OR (permission = 'sys:flow:design' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000009, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-graph' AND is_deleted = 0),
+       '图形设计流程', 'F', 'sys:flow:design-graph', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-graph' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000009 OR (permission = 'sys:flow:design-graph' AND is_deleted = 0));
+
+-- 补授。主键用 1078 保留段，从段内已用最大值往后排，不取全表 MAX(id)，避免撞上后续脚本或种子里的固定主键
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1078000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1078000000000100000 AND 1078999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN (SELECT 'sys:user:list' AS src, 'sys:user:export' AS dst
+	      UNION ALL SELECT 'sys:user:add', 'sys:user:import') n ON m.permission = n.src
+	JOIN sys_menu nm ON nm.permission = n.dst AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0
+	UNION
+	SELECT r.id, fm.id
+	FROM sys_role r
+	JOIN sys_menu fm ON fm.permission = 'sys:file:upload' AND fm.is_deleted = 0
+	WHERE r.is_deleted = 0
+	UNION
+	SELECT r.id, am.id
+	FROM sys_role r
+	JOIN sys_menu am ON am.id BETWEEN 1078000000000000004 AND 1078000000000000009
+	                AND am.permission IN ('sys:form:save', 'sys:form:remove', 'sys:flow:deploy', 'sys:flow:definition', 'sys:flow:design', 'sys:flow:design-graph') AND am.is_deleted = 0
+	WHERE r.role_code = 'admin' AND r.is_deleted = 0
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V14__register_role_upload.sql
+-- ====================================================================
+-- 0.1.1：注册用户可上传附件。幂等。
+-- 1) 平台租户内置「普通用户」角色（role_code=user）改由迁移播种；原先由 DataInitializer 启动时补，
+--    全新库在 V13 时还没有这个角色，拿不到 sys:file:upload。DataInitializer 见到已存在即跳过。
+-- 2) 新参数 security.register.register-role-code：自助注册分配的角色，缺省 user；
+--    与 security.register.default-role-code 分开（后者保留给其他默认归属场景）。
+-- 3) user 角色和两个参数指向的角色补授 sys:file:upload。新建角色默认仍无任何权限。
+
+INSERT INTO sys_role (id, role_name, role_code, sort, data_scope, tenant_id, create_time, is_deleted)
+SELECT 1079000000000000001, '普通用户', 'user', 9, 4, '000000', now(), 0
+WHERE NOT EXISTS (SELECT 1 FROM sys_role WHERE role_code = 'user' AND tenant_id = '000000' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_role WHERE id = 1079000000000000001);
+
+INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted)
+SELECT 1079000000000000011, '自助注册分配的角色', 'security.register.register-role-code', 'user',
+       '自助注册成功后挂的角色编码（平台租户内）；置空则不挂角色', now(), 0
+WHERE NOT EXISTS (SELECT 1 FROM sys_param WHERE param_key = 'security.register.register-role-code' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_param WHERE id = 1079000000000000011);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1079000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1079000000000100000 AND 1079999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT DISTINCT r.id AS role_id, fm.id AS menu_id
+	FROM sys_role r
+	JOIN sys_menu fm ON fm.permission = 'sys:file:upload' AND fm.is_deleted = 0
+	WHERE r.is_deleted = 0 AND r.tenant_id = '000000'
+	  AND (r.role_code = 'user'
+	       OR r.role_code IN (SELECT p.param_value FROM sys_param p WHERE p.is_deleted = 0
+	                          AND p.param_key IN ('security.register.register-role-code',
+	                                              'security.register.default-role-code')))
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V15__user_must_change_password.sql
+-- ====================================================================
+-- 0.1.1：首次登录强制改密标记（#81）。重置/默认一次性口令置 1，用户改密后清 0。
+ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS must_change_password SMALLINT NOT NULL DEFAULT 0;
+COMMENT ON COLUMN sys_user.must_change_password IS '首次登录须改密：1 是 / 0 否（重置或发放一次性口令时置 1，用户改密后清 0）';
+
+-- ====================================================================
+-- 原 V16__gis_feature_wraps_antimeridian.sql
+-- ====================================================================
+-- #76：gis_feature 加「是否跨 180°」生成列（判定同 #73）。
+-- ST_XMax / ST_XMin / ST_ShiftLongitude 均为 IMMUTABLE，用 GENERATED ALWAYS AS STORED，
+-- 免应用侧写入维护，也无需分批回填（加列时 PG 按表达式算存量行）。
+-- 无 PostGIS / 无 gis_feature 时整段跳过，与 V1 条件建表口径一致（达梦/og 无扩展也不炸）。
+
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') THEN
+		RAISE NOTICE 'V16：无 PostGIS，跳过 wraps_antimeridian';
+		RETURN;
+	END IF;
+	IF to_regclass('gis_feature') IS NULL THEN
+		RAISE NOTICE 'V16：无 gis_feature 表，跳过 wraps_antimeridian';
+		RETURN;
+	END IF;
+	IF EXISTS (
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'gis_feature'
+		  AND column_name = 'wraps_antimeridian'
+	) THEN
+		RETURN;
+	END IF;
+
+	EXECUTE $c$
+		ALTER TABLE gis_feature ADD COLUMN wraps_antimeridian boolean
+			GENERATED ALWAYS AS (
+				(ST_XMax(geom) - ST_XMin(geom) > 180)
+				AND (ST_XMax(ST_ShiftLongitude(geom)) - ST_XMin(ST_ShiftLongitude(geom)) <= 180)
+			) STORED NOT NULL
+	$c$;
+	EXECUTE $c$
+		COMMENT ON COLUMN gis_feature.wraps_antimeridian IS
+			'跨 180°：平面包络宽于 180° 且 ST_ShiftLongitude 后 ≤180°（#76，与 #73 判定一致；生成列）'
+	$c$;
+END $$;
+
+-- ====================================================================
+-- 原 V18__track_error_issue_perm.sql
+-- ====================================================================
+-- 错误问题单写权限：sys:track-error-issue:edit（读复用 sys:track-error:list）。幂等。
+-- 按钮挂「错误监控」页下；已有错误监控读权的角色补授写权。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1093000000000000016,
+       (SELECT MIN(id) FROM sys_menu WHERE permission = 'sys:track-error:list' AND is_deleted = 0),
+       '错误问题单管理', 'F', 'sys:track-error-issue:edit', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-error:list' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000016
+                  OR (permission = 'sys:track-error-issue:edit' AND is_deleted = 0));
+
+-- 补授：已有 sys:track-error:list 的角色获得写权（主键用 1093 保留段）
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-error-issue:edit' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-error:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V19__track_ask_perm.sql
+-- ====================================================================
+-- 埋点问数据：sys:track-ask:list。幂等。
+-- 菜单挂「埋点分析」目录；已有概览读权的角色补授入口权。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000017, p.id, '问数据', '/track/ask', '/track/ask', 'C', 'sys:track-ask:list', 12, 'ri:chat-search-line', 0, now(), 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000017
+                  OR (permission = 'sys:track-ask:list' AND is_deleted = 0));
+
+-- 补授：已有 sys:track-overview:list 的角色获得问数据入口权（主键用 1093 保留段）
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-ask:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V20__track_spatial_perm.sql
+-- ====================================================================
+-- 空间行为分析：sys:track-spatial:list。幂等。
+-- 菜单挂「埋点分析」目录；已有概览读权的角色补授入口权。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000018, p.id, '空间行为', '/track/spatial', '/track/spatial', 'C', 'sys:track-spatial:list', 13, 'ri:map-2-line', 0, now(), 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000018
+                  OR (permission = 'sys:track-spatial:list' AND is_deleted = 0));
+
+-- 补授：已有 sys:track-overview:list 的角色获得空间行为入口权（主键用 1093 保留段）
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-spatial:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V21__form_tenant.sql
+-- ====================================================================
+-- 0.1.1：低代码表单按租户隔离。sys_form、sys_form_data 补 tenant_id，表单标识改为租户内唯一。幂等。
+-- 背景：两张表没有 tenant_id，持久层不加租户条件，租户管理员能列出、修改、删除别的租户的表单和全部填报，
+--       登录用户能往别的租户的表单里提交。
+-- 存量行看不出原来属于哪个租户，表单和填报一律归平台租户 000000。
+-- 要把某个表单还给租户：按表单标识把两张表的 tenant_id 一起改成该租户编号。
+ALTER TABLE sys_form ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(12);
+ALTER TABLE sys_form_data ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(12);
+UPDATE sys_form SET tenant_id = '000000' WHERE tenant_id IS NULL;
+UPDATE sys_form_data SET tenant_id = '000000' WHERE tenant_id IS NULL;
+
+DROP INDEX IF EXISTS uk_form_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_form_tenant_key ON sys_form (tenant_id, form_key) WHERE is_deleted = 0;
+
+COMMENT ON COLUMN sys_form.tenant_id IS '租户编号';
+COMMENT ON COLUMN sys_form_data.tenant_id IS '租户编号（与所属表单相同）';
+
+-- ====================================================================
+-- 原 V22__track_storage_quota_params.sql
+-- ====================================================================
+-- 0.1.1：埋点回放和接口响应体的存储容量参数。幂等。
+-- 回放块和响应体由匿名接口写进对象存储，写入前按这三个参数检查：单应用、全平台每日落盘上限（超出 429），
+-- 存储盘最低剩余空间（低于它 503）。代码里有同值兜底（TrackConstants），落库是为了能在参数设置里调整；已有同名参数不覆盖。
+INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted) VALUES
+(900023, '回放和响应体全平台每日落盘上限(字节)', 'track.storage.daily-max-bytes', '10737418240', '所有应用合计，按落盘的 gzip 字节、UTC 自然日计；超出后当天拒收（429）', now(), 0),
+(900024, '回放和响应体单应用每日落盘上限(字节)', 'track.storage.app-daily-max-bytes', '2147483648', '每个应用单独计，按落盘的 gzip 字节、UTC 自然日计；超出后该应用当天拒收（429），不影响其它应用', now(), 0),
+(900025, '埋点存储盘最低剩余空间(字节)', 'track.storage.min-free-bytes', '5368709120', '对象存储落本机磁盘时生效：存储目录所在分区剩余空间低于它就暂停接收回放和响应体（503）', now(), 0)
+ON CONFLICT DO NOTHING;

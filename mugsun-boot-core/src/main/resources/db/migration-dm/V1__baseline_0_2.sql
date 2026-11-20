@@ -1,3 +1,12 @@
+-- Mugsun 主库 Flyway 基线（达梦）
+-- 0.2 基线：全新安装只跑本文件。由原来的迁移脚本按版本顺序原样拼成，每段前面标了来源文件名。
+-- 0.2 发布前改库直接改本文件；发布后本文件登记进发布清单，不能再改，改库要新增脚本。
+-- 规则见 mugsun-boot-core/src/main/resources/db/migration/README.md；生成方式：scripts/squash_flyway_baseline.py。
+-- pg2dm: manual（含手写的段，scripts/pg_to_dm.py 不会覆盖本文件；改 PostgreSQL 基线后这里手工同步）
+
+-- ====================================================================
+-- 原 V1__baseline_0_1.sql
+-- ====================================================================
 -- 由 scripts/pg_to_dm.py 从 db/migration 转换（达梦 Oracle 系）。
 -- 不引用 pg_catalog / ON CONFLICT / 部分索引 / VALUES 行构造器。
 
@@ -3313,3 +3322,479 @@ ALTER TABLE sys_api_key ADD expire_time TIMESTAMP;
 ALTER TABLE sys_api_key ADD api_path VARCHAR(255);
 COMMENT ON COLUMN sys_api_key.expire_time IS '到期时间，空表示不限制';
 COMMENT ON COLUMN sys_api_key.api_path IS '允许调用的路径，逗号分隔，空表示不限制';
+
+-- ====================================================================
+-- 原 V2__file_perm.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：附件越权治理（达梦；原 B4 误追加进已发布 V1，现移到这里）。幂等。
+BEGIN
+	EXECUTE IMMEDIATE 'ALTER TABLE sys_attach ADD create_user BIGINT';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+COMMENT ON COLUMN sys_attach.create_user IS '上传者用户 id';
+
+INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_menu(id)) */ INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted) VALUES
+(1077000000000000001, 1200000000000000112, '管理全部附件', 'F', 'sys:file:manage', 1, SYSDATE, 0),
+(1077000000000000002, 1200000000000000112, '上传公开附件', 'F', 'sys:file:public', 2, SYSDATE, 0),
+(1077000000000000003, 1200000000000000112, '删除附件',     'F', 'sys:file:remove', 3, SYSDATE, 0);
+
+INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_role_menu(id)) */ INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT 1077000000000000101, MIN(r.id), 1077000000000000001, SYSDATE, 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_role_menu x WHERE x.role_id = r.id AND x.menu_id = 1077000000000000001) HAVING COUNT(*) > 0;
+INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_role_menu(id)) */ INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT 1077000000000000102, MIN(r.id), 1077000000000000002, SYSDATE, 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_role_menu x WHERE x.role_id = r.id AND x.menu_id = 1077000000000000002) HAVING COUNT(*) > 0;
+INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_role_menu(id)) */ INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT 1077000000000000103, MIN(r.id), 1077000000000000003, SYSDATE, 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_role_menu x WHERE x.role_id = r.id AND x.menu_id = 1077000000000000003) HAVING COUNT(*) > 0;
+
+-- ====================================================================
+-- 原 V3__clean_fake_changelog.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：清掉 V1 演示更新日志，换成真实 0.1.0（达梦）。幂等。
+DELETE FROM sys_changelog
+WHERE id IN (1080000000000000001, 1080000000000000002, 1080000000000000003)
+  AND version IN ('v1.2.0', 'v1.1.0', 'v1.0.0');
+
+INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(sys_changelog(id)) */ INTO sys_changelog (id, version, type, title, content, publish_time, sort, create_time) VALUES
+(1080000000000000010, '0.1.0', 'feature', 'Mugsun Boot 0.1.0 首个公开版本',
+ '<p>首个公开版本：多租户、权限、组织、附件、消息、日志监控、代码生成、开放平台等基础能力，支持 PostgreSQL / 金仓、达梦、openGauss。</p>',
+ SYSDATE, 1, SYSDATE);
+
+-- ====================================================================
+-- 原 V7__unique_index_delete_flag.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：唯一索引只约束未删除的行（达梦）。与 PG V7 同号。
+-- 背景：V1 在达梦上把 6 个唯一索引建成全量唯一（PG 是 WHERE is_deleted = 0 的部分唯一）。
+-- 逻辑删除后的行仍占着键，删租户后再建同编号租户、撤销菜单后再授权都会撞键（#95）。
+-- 做法：函数唯一索引，键列包一层 CASE WHEN is_deleted = 0 THEN 列 END。
+-- 已删除的行整组键都是 NULL。达梦按 Oracle 口径：整组键全为 NULL 的行互不冲突，部分为 NULL 仍会冲突，
+-- 所以每一列都要包 CASE，不能只包一列。同一个键可以反复删除、反复新建；未删除的行与原索引同样唯一。
+-- 不用 (列, is_deleted)：同一个键删两次会有两行 (列, 1)，第二次删除就撞键。
+-- 手机号：V1 在达梦上只是普通索引。改成与 PG 相同的口径：未删除、手机号非空非空串时，同租户内唯一。
+-- 达梦的 DDL 自动提交，所以第 1 步查重放在最前面：有重复就中止，此时还没有改任何索引。
+
+-- 1. 先查重复手机号
+DECLARE
+	dup_groups INT;
+BEGIN
+	SELECT COUNT(*) INTO dup_groups FROM (
+		SELECT tenant_id, phone FROM sys_user
+		WHERE is_deleted = 0 AND phone IS NOT NULL AND phone <> ''
+		GROUP BY tenant_id, phone HAVING COUNT(*) > 1
+	) d;
+	IF dup_groups > 0 THEN
+		RAISE_APPLICATION_ERROR(-20001, 'V7 升级中止：sys_user 有 ' || dup_groups
+			|| ' 组同租户重复手机号（未删除用户），手机号唯一索引建不了。请按 https://docs.mugsun.com/boot/upgrade 的「同租户重复手机号」一节查出并处理，再重新执行迁移');
+	END IF;
+END;
+/
+
+-- 2. 6 个唯一索引改为只约束未删除的行
+DROP INDEX IF EXISTS uk_tenant_code;
+CREATE UNIQUE INDEX uk_tenant_code ON sys_tenant (CASE WHEN is_deleted = 0 THEN tenant_code END);
+
+DROP INDEX IF EXISTS uk_user_tenant_username;
+CREATE UNIQUE INDEX uk_user_tenant_username ON sys_user (
+	CASE WHEN is_deleted = 0 THEN tenant_id END, CASE WHEN is_deleted = 0 THEN username END);
+
+DROP INDEX IF EXISTS uk_user_role;
+CREATE UNIQUE INDEX uk_user_role ON sys_user_role (
+	CASE WHEN is_deleted = 0 THEN user_id END, CASE WHEN is_deleted = 0 THEN role_id END);
+
+DROP INDEX IF EXISTS uk_role_menu;
+CREATE UNIQUE INDEX uk_role_menu ON sys_role_menu (
+	CASE WHEN is_deleted = 0 THEN role_id END, CASE WHEN is_deleted = 0 THEN menu_id END);
+
+DROP INDEX IF EXISTS uk_role_dept;
+CREATE UNIQUE INDEX uk_role_dept ON sys_role_dept (
+	CASE WHEN is_deleted = 0 THEN role_id END, CASE WHEN is_deleted = 0 THEN dept_id END);
+
+DROP INDEX IF EXISTS uk_tenant_ds_code;
+CREATE UNIQUE INDEX uk_tenant_ds_code ON sys_tenant_datasource (CASE WHEN is_deleted = 0 THEN tenant_code END);
+
+-- 3. 手机号：普通索引换成唯一索引。已删除、手机号为 NULL 或空串的行整组键为 NULL，不参与唯一
+DROP INDEX IF EXISTS uk_user_tenant_phone;
+CREATE UNIQUE INDEX uk_user_tenant_phone ON sys_user (
+	CASE WHEN is_deleted = 0 AND phone IS NOT NULL AND phone <> '' THEN tenant_id END,
+	CASE WHEN is_deleted = 0 AND phone IS NOT NULL AND phone <> '' THEN phone END);
+
+-- ====================================================================
+-- 原 V8__oper_log_chain_guard.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.x：操作日志哈希链多节点防分叉（达梦）。
+-- ① 链头锁行：落库事务内 SELECT ... FOR UPDATE 串行化各实例的「读链头→写新记录」。
+CREATE TABLE sys_oper_log_chain (
+	id          INT       PRIMARY KEY,
+	update_time TIMESTAMP
+);
+INSERT INTO sys_oper_log_chain (id, update_time)
+SELECT 1, SYSDATE FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM sys_oper_log_chain WHERE id = 1);
+COMMENT ON TABLE sys_oper_log_chain IS '操作日志哈希链链头锁（单行 id=1）';
+
+-- ② 唯一兜底：新记录 chain_prev = prev_hash，唯一索引让两条记录无法接在同一链头后。
+--    历史记录保持 NULL（不回填，避免历史分叉/重复的 prev_hash 让本迁移失败；达梦唯一索引允许多个 NULL）。
+ALTER TABLE sys_oper_log ADD chain_prev VARCHAR(64);
+COMMENT ON COLUMN sys_oper_log.chain_prev IS '链唯一兜底：新记录等于 prev_hash，历史记录为空';
+CREATE UNIQUE INDEX uk_oper_log_chain_prev ON sys_oper_log (chain_prev);
+
+-- ====================================================================
+-- 原 V9__tenant_captcha.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：租户级行为验证码开关（达梦）。幂等。
+BEGIN
+	EXECUTE IMMEDIATE 'ALTER TABLE sys_tenant ADD captcha_enabled INT DEFAULT 1';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+UPDATE sys_tenant SET captcha_enabled = 1 WHERE captcha_enabled IS NULL;
+COMMENT ON COLUMN sys_tenant.captcha_enabled IS '行为验证码开关（1/NULL 开，0 关）';
+
+-- ====================================================================
+-- 原 V10__tenant_captcha_types.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：租户启用的行为验证码题型（达梦）。幂等：先查列是否存在，不吞其它错误。
+-- 用 ALL_TAB_COLUMNS + OWNER = 当前模式：迁移账号不是表 owner（只授了 ALTER ANY TABLE 等）时也能正确判列。
+DECLARE
+	cnt INT;
+BEGIN
+	SELECT COUNT(*) INTO cnt FROM ALL_TAB_COLUMNS
+	 WHERE OWNER = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+	   AND TABLE_NAME = UPPER('sys_tenant') AND COLUMN_NAME = UPPER('captcha_types');
+	IF cnt = 0 THEN
+		EXECUTE IMMEDIATE 'ALTER TABLE sys_tenant ADD captcha_types VARCHAR(128)';
+	END IF;
+END;
+/
+COMMENT ON COLUMN sys_tenant.captcha_types IS '启用的验证码题型（SLIDER,ROTATE,WORD_CLICK,ICON_CLICK,JIGSAW；NULL 用平台默认）';
+
+-- ====================================================================
+-- 原 V11__tenant_code_full_unique.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：租户编号永不复用（达梦）。与 PG V11 同号。
+-- sys_tenant.tenant_code 改回全量唯一（含已删除行）。
+-- uk_tenant_ds_code 不动，仍是 V7 的 CASE 表达式索引、只约束未删除行：现存租户可以删掉数据源配置再用同一编号重建。
+-- 背景：删租户只逻辑删除组织数据，业务表、凭据、会话、数据源路由仍按编号关联。编号一旦被新租户复用，
+-- 新租户会接手旧租户的残留数据（boot#100 复核 B1）。应用层 genCode 查重已包含已删除行，这里在库层兜底。
+-- V1 是全量唯一，V7 把 uk_tenant_code 改成了只约束未删除行，本版本改回。
+-- 达梦的 DDL 自动提交，所以第 1 步查重放在最前面：已经有编号被复用就中止，此时还没有改任何索引。
+
+-- 1. 先查重复编号（含已删除行）
+DECLARE
+	dup_tenant INT;
+BEGIN
+	SELECT COUNT(*) INTO dup_tenant FROM (
+		SELECT tenant_code FROM sys_tenant GROUP BY tenant_code HAVING COUNT(*) > 1) d;
+	IF dup_tenant > 0 THEN
+		RAISE_APPLICATION_ERROR(-20001, 'V11 升级中止：sys_tenant 有 ' || dup_tenant
+			|| ' 个租户编号被重复使用（含已删除行），全量唯一索引建不了。请按 https://docs.mugsun.com/boot/upgrade 的「V11 中止：租户编号被复用」一节查出并处理，再重新执行迁移');
+	END IF;
+END;
+/
+
+-- 2. uk_tenant_code 改回全量唯一
+DROP INDEX IF EXISTS uk_tenant_code;
+CREATE UNIQUE INDEX uk_tenant_code ON sys_tenant (tenant_code);
+
+-- ====================================================================
+-- 原 V13__export_import_upload_flow_perm.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：导出/导入/上传/表单/流程按钮权限码（达梦）。幂等。
+-- 1) 用户导出导入拆出 sys:user:export / sys:user:import（原为 sys:user:list / sys:user:add）
+-- 2) 附件上传 sys:file:upload（原先登录即可）
+-- 3) 表单设计保存删除、流程部署设计发布改为方法级注解，权限码与原兜底守卫派生的码一致
+-- 升级不掉权限：
+-- - 已有 sys:user:list 的角色补授导出码，已有 sys:user:add 的角色补授导入码
+-- - sys:file:upload 补授给全部现有角色（意见反馈等页面也在用上传）
+-- - 表单、流程的新按钮只补授给各租户的 admin 角色（原先非管理员本就会被兜底守卫拒绝）。
+--   admin 现在经 MugsunStpInterface 直接拿到通配 *，这条补授当前是冗余的，
+--   为将来收回通配预留；脚本已在测试库执行过，不再改语句，只改注释
+-- 父级按业务键 path 找（全新库与升级库的主键不同）；父菜单不存在时跳过。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000001, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0),
+       '导出用户', 'F', 'sys:user:export', 6, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000001 OR (permission = 'sys:user:export' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000002, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0),
+       '导入用户', 'F', 'sys:user:import', 7, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000002 OR (permission = 'sys:user:import' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000003, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/attach' AND is_deleted = 0),
+       '上传附件', 'F', 'sys:file:upload', 4, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/attach' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000003 OR (permission = 'sys:file:upload' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000004, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0),
+       '保存表单', 'F', 'sys:form:save', 1, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000004 OR (permission = 'sys:form:save' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000005, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0),
+       '删除表单', 'F', 'sys:form:remove', 2, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000005 OR (permission = 'sys:form:remove' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000006, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '部署流程', 'F', 'sys:flow:deploy', 1, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000006 OR (permission = 'sys:flow:deploy' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000007, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '发布/下线流程', 'F', 'sys:flow:definition', 2, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000007 OR (permission = 'sys:flow:definition' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000008, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '设计流程', 'F', 'sys:flow:design', 3, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000008 OR (permission = 'sys:flow:design' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000009, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-graph' AND is_deleted = 0),
+       '图形设计流程', 'F', 'sys:flow:design-graph', 1, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-graph' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000009 OR (permission = 'sys:flow:design-graph' AND is_deleted = 0));
+
+-- 补授。主键用 1078 保留段，从段内已用最大值往后排，不取全表 MAX(id)，避免撞上后续脚本或种子里的固定主键
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1078000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1078000000000100000 AND 1078999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, SYSDATE, 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN (SELECT 'sys:user:list' AS src, 'sys:user:export' AS dst FROM DUAL
+	      UNION ALL SELECT 'sys:user:add', 'sys:user:import' FROM DUAL) n ON m.permission = n.src
+	JOIN sys_menu nm ON nm.permission = n.dst AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0
+	UNION
+	SELECT r.id, fm.id
+	FROM sys_role r
+	JOIN sys_menu fm ON fm.permission = 'sys:file:upload' AND fm.is_deleted = 0
+	WHERE r.is_deleted = 0
+	UNION
+	SELECT r.id, am.id
+	FROM sys_role r
+	JOIN sys_menu am ON am.id BETWEEN 1078000000000000004 AND 1078000000000000009
+	                AND am.permission IN ('sys:form:save', 'sys:form:remove', 'sys:flow:deploy', 'sys:flow:definition', 'sys:flow:design', 'sys:flow:design-graph') AND am.is_deleted = 0
+	WHERE r.role_code = 'admin' AND r.is_deleted = 0
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V14__register_role_upload.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：注册用户可上传附件（达梦）。幂等。
+-- 1) 平台租户内置「普通用户」角色（role_code=user）改由迁移播种；原先由 DataInitializer 启动时补，
+--    全新库在 V13 时还没有这个角色，拿不到 sys:file:upload。DataInitializer 见到已存在即跳过。
+-- 2) 新参数 security.register.register-role-code：自助注册分配的角色，缺省 user；
+--    与 security.register.default-role-code 分开（后者保留给其他默认归属场景）。
+-- 3) user 角色和两个参数指向的角色补授 sys:file:upload。新建角色默认仍无任何权限。
+
+INSERT INTO sys_role (id, role_name, role_code, sort, data_scope, tenant_id, create_time, is_deleted)
+SELECT 1079000000000000001, '普通用户', 'user', 9, 4, '000000', SYSDATE, 0 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM sys_role WHERE role_code = 'user' AND tenant_id = '000000' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_role WHERE id = 1079000000000000001);
+
+INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted)
+SELECT 1079000000000000011, '自助注册分配的角色', 'security.register.register-role-code', 'user',
+       '自助注册成功后挂的角色编码（平台租户内）；置空则不挂角色', SYSDATE, 0 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM sys_param WHERE param_key = 'security.register.register-role-code' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_param WHERE id = 1079000000000000011);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1079000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1079000000000100000 AND 1079999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id),
+       g.role_id, g.menu_id, SYSDATE, 0
+FROM (
+	SELECT DISTINCT r.id AS role_id, fm.id AS menu_id
+	FROM sys_role r
+	JOIN sys_menu fm ON fm.permission = 'sys:file:upload' AND fm.is_deleted = 0
+	WHERE r.is_deleted = 0 AND r.tenant_id = '000000'
+	  AND (r.role_code = 'user'
+	       OR r.role_code IN (SELECT p.param_value FROM sys_param p WHERE p.is_deleted = 0
+	                          AND p.param_key IN ('security.register.register-role-code',
+	                                              'security.register.default-role-code')))
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V15__user_must_change_password.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：首次登录强制改密标记（#81，达梦）。幂等。
+BEGIN
+	EXECUTE IMMEDIATE 'ALTER TABLE sys_user ADD must_change_password SMALLINT DEFAULT 0 NOT NULL';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+COMMENT ON COLUMN sys_user.must_change_password IS '首次登录须改密：1 是 / 0 否（重置或发放一次性口令时置 1，用户改密后清 0）';
+
+-- ====================================================================
+-- 原 V16__gis_feature_wraps_antimeridian.sql
+-- ====================================================================
+-- pg2dm: manual
+-- #76：PG 侧给 gis_feature 加 wraps_antimeridian 生成列。
+-- 达梦无 PostGIS / 不建 gis_feature，空间查询走 Java 回落；本文件只占同号。
+SELECT 1 FROM DUAL;
+
+-- ====================================================================
+-- 原 V17__gis_feature_wrap_index.sql
+-- ====================================================================
+-- pg2dm: manual
+-- #76：PG 侧 V17 以非事务 Java 迁移 CREATE INDEX CONCURRENTLY。
+-- 达梦无 gis_feature，占同号。
+SELECT 1 FROM DUAL;
+
+-- ====================================================================
+-- 原 V18__track_error_issue_perm.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 错误问题单写权限：sys:track-error-issue:edit（达梦）。幂等。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1093000000000000016,
+       (SELECT MIN(id) FROM sys_menu WHERE permission = 'sys:track-error:list' AND is_deleted = 0),
+       '错误问题单管理', 'F', 'sys:track-error-issue:edit', 1, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-error:list' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000016)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-error-issue:edit' AND is_deleted = 0);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROWNUM, g.role_id, g.menu_id, SYSDATE, 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-error-issue:edit' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-error:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V19__track_ask_perm.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 埋点问数据：sys:track-ask:list（达梦）。幂等。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000017, p.id, '问数据', '/track/ask', '/track/ask', 'C', 'sys:track-ask:list', 12, 'ri:chat-search-line', 0, SYSDATE, 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000017)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-ask:list' AND is_deleted = 0);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROWNUM, g.role_id, g.menu_id, SYSDATE, 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-ask:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V20__track_spatial_perm.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 空间行为分析：sys:track-spatial:list（达梦）。幂等。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000018, p.id, '空间行为', '/track/spatial', '/track/spatial', 'C', 'sys:track-spatial:list', 13, 'ri:map-2-line', 0, SYSDATE, 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000018)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-spatial:list' AND is_deleted = 0);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROWNUM, g.role_id, g.menu_id, SYSDATE, 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-spatial:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V21__form_tenant.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：低代码表单按租户隔离（达梦）。与 PG V21 同号。幂等：先查列是否存在，不吞其它错误。
+-- 存量的表单和填报一律归平台租户 000000，原因见 PG V21。
+-- 表单标识改为租户内唯一，写法同 V7：每个键列都包 CASE WHEN is_deleted = 0，已删除的表单不占标识。
+DECLARE
+	cnt INT;
+BEGIN
+	SELECT COUNT(*) INTO cnt FROM ALL_TAB_COLUMNS
+	 WHERE OWNER = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+	   AND TABLE_NAME = UPPER('sys_form') AND COLUMN_NAME = UPPER('tenant_id');
+	IF cnt = 0 THEN
+		EXECUTE IMMEDIATE 'ALTER TABLE sys_form ADD tenant_id VARCHAR(12)';
+	END IF;
+	SELECT COUNT(*) INTO cnt FROM ALL_TAB_COLUMNS
+	 WHERE OWNER = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+	   AND TABLE_NAME = UPPER('sys_form_data') AND COLUMN_NAME = UPPER('tenant_id');
+	IF cnt = 0 THEN
+		EXECUTE IMMEDIATE 'ALTER TABLE sys_form_data ADD tenant_id VARCHAR(12)';
+	END IF;
+END;
+/
+UPDATE sys_form SET tenant_id = '000000' WHERE tenant_id IS NULL;
+UPDATE sys_form_data SET tenant_id = '000000' WHERE tenant_id IS NULL;
+
+DROP INDEX IF EXISTS uk_form_key;
+DROP INDEX IF EXISTS uk_form_tenant_key;
+CREATE UNIQUE INDEX uk_form_tenant_key ON sys_form (
+	CASE WHEN is_deleted = 0 THEN tenant_id END, CASE WHEN is_deleted = 0 THEN form_key END);
+
+COMMENT ON COLUMN sys_form.tenant_id IS '租户编号';
+COMMENT ON COLUMN sys_form_data.tenant_id IS '租户编号（与所属表单相同）';
+
+-- ====================================================================
+-- 原 V22__track_storage_quota_params.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 0.1.1：埋点回放和接口响应体的存储容量参数（达梦）。与 PG V22 同号同义。幂等：同 id 或同参数键已存在就跳过。
+-- 参数含义见 PG V22；已有同名参数不覆盖。
+INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted)
+SELECT 900023, '回放和响应体全平台每日落盘上限(字节)', 'track.storage.daily-max-bytes', '10737418240', '所有应用合计，按落盘的 gzip 字节、UTC 自然日计；超出后当天拒收（429）', SYSDATE, 0 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM sys_param WHERE id = 900023 OR param_key = 'track.storage.daily-max-bytes');
+
+INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted)
+SELECT 900024, '回放和响应体单应用每日落盘上限(字节)', 'track.storage.app-daily-max-bytes', '2147483648', '每个应用单独计，按落盘的 gzip 字节、UTC 自然日计；超出后该应用当天拒收（429），不影响其它应用', SYSDATE, 0 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM sys_param WHERE id = 900024 OR param_key = 'track.storage.app-daily-max-bytes');
+
+INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted)
+SELECT 900025, '埋点存储盘最低剩余空间(字节)', 'track.storage.min-free-bytes', '5368709120', '对象存储落本机磁盘时生效：存储目录所在分区剩余空间低于它就暂停接收回放和响应体（503）', SYSDATE, 0 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM sys_param WHERE id = 900025 OR param_key = 'track.storage.min-free-bytes');

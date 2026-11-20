@@ -36,7 +36,7 @@ import java.util.zip.GZIPInputStream;
  * <p><b>游标分页</b>：按 (ts, id) 倒序游标——ts 即页面上显示的发生时间（校时后），同 ts 以 id 定序保证翻页稳定
  * （防 offset 跳变——时间线持续写入，offset 分页会重复/漏行）；received_at 只作范围过滤（分区裁剪）；
  * 范围硬限 ≤{@value TrackConstants#TIMELINE_RANGE_MAX_MS}ms（7 天），索引 idx_event_user_ts_timeline /
- * idx_event_distinct_ts_timeline（均为 (app_key, 身份, ts, id)；父表 ON ONLY 见 T3__track_event_timeline_index.sql，
+ * idx_event_distinct_ts_timeline（均为 (app_key, 身份, ts, id)；父表 ON ONLY 见埋点库基线里原 T3 那一段，
  * 分区侧由 T4 迁移 CONCURRENTLY 建并 ATTACH）按游标序倒扫。
  * <p><b>租户隔离</b>：JdbcTemplate 原生 SQL + 显式租户条件（与 TrackAnalysisService 同语义：
  * null=超管查看全部；无上下文 fail-closed）。

@@ -2,6 +2,7 @@ package com.mugsun.boot.track;
 
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.common.constant.TrackConstants;
+import com.mugsun.boot.db.MigrationBaseline;
 import com.mybatisflex.core.datasource.DataSourceKey;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
@@ -22,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TrackSchemaTest extends AbstractTrackIntegrationTest {
 
-	/** ① track 库 Flyway 迁移成功：11 张 track_* 基表齐备，0.1 基线 T1 历史 + 地理列 */
+	/** ① track 库 Flyway 迁移成功：11 张 track_* 基表齐备，基线 T1 记进迁移历史 + 地理列 */
 	@Test
 	void trackFlywayMigrated() {
 		List<Row> tables = DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.selectListBySql(
@@ -38,8 +39,8 @@ class TrackSchemaTest extends AbstractTrackIntegrationTest {
 
 		Row history = DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.selectOneBySql(
 			"SELECT count(*) AS c FROM flyway_schema_history WHERE script = ? AND success",
-			"T1__baseline_0_1.sql"));
-		assertThat(history.getLong("c")).as("track 库独立 Flyway 历史应记录 0.1 基线 T1").isEqualTo(1L);
+			MigrationBaseline.TRACK));
+		assertThat(history.getLong("c")).as("track 库独立 Flyway 历史应记录基线 T1").isEqualTo(1L);
 
 		Row geoCols = DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.selectOneBySql(
 			"SELECT count(*) AS c FROM information_schema.columns WHERE table_schema = 'public'"
@@ -48,10 +49,6 @@ class TrackSchemaTest extends AbstractTrackIntegrationTest {
 		assertThat(geoCols.getLong("c")).as("G106 三列：geo_lon/geo_lat/geo_enabled").isEqualTo(3L);
 
 		assertThat(names).as("错误问题单表").contains("track_error_issue");
-		Row issueMig = DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.selectOneBySql(
-			"SELECT count(*) AS c FROM flyway_schema_history WHERE script = ? AND success",
-			"T5__track_error_issue.sql"));
-		assertThat(issueMig.getLong("c")).as("T5 错误问题单迁移应成功").isEqualTo(1L);
 	}
 
 	/** ② track_event 插入落到正确月分区（tableoid 反证实际落点） */

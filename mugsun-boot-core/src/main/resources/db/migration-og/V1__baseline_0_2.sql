@@ -1,3 +1,12 @@
+-- Mugsun 主库 Flyway 基线（openGauss）
+-- 0.2 基线：全新安装只跑本文件。由原来的迁移脚本按版本顺序原样拼成，每段前面标了来源文件名。
+-- 0.2 发布前改库直接改本文件；发布后本文件登记进发布清单，不能再改，改库要新增脚本。
+-- 规则见 mugsun-boot-core/src/main/resources/db/migration/README.md；生成方式：scripts/squash_flyway_baseline.py。
+-- openGauss 不走 Flyway，用 gsql 执行本文件，步骤见同目录 README.md。
+
+-- ====================================================================
+-- 原 V1__baseline_0_1.sql
+-- ====================================================================
 -- Mugsun 主库 Flyway 基线（PostgreSQL / 金仓兼容）
 -- 0.1.0 基线：合并原增量与 AI 模块为单脚本；全新安装只跑本文件。
 -- 0.1 未发布前直接改本文件，不要另起 V2。发布后再追加 V2__*.sql。
@@ -164,7 +173,7 @@ CREATE TABLE sys_tenant (
 
 ALTER TABLE sys_user ADD COLUMN tenant_id VARCHAR(12);
 ALTER TABLE sys_user DROP CONSTRAINT IF EXISTS sys_user_username_key;
-CREATE UNIQUE INDEX uk_user_tenant_username ON sys_user (tenant_id, username) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_user_tenant_username ON sys_user (tenant_id, username);
 ALTER TABLE sys_dept ADD COLUMN tenant_id VARCHAR(12);
 ALTER TABLE sys_post ADD COLUMN tenant_id VARCHAR(12);
 ALTER TABLE sys_role ADD COLUMN tenant_id VARCHAR(12);
@@ -636,8 +645,7 @@ COMMENT ON COLUMN sys_data_audit.change_content IS '字段级变更内容 JSON�
 INSERT INTO sys_dict (id, parent_id, code, dict_key, dict_value, sort, is_sealed, create_time, is_deleted) VALUES
 (1050000000000000001, 0,                   'user_status', 'user_status', '用户状态', 0, 1, now(), 0),
 (1050000000000000002, 1050000000000000001, 'user_status', '1',           '正常',     1, 0, now(), 0),
-(1050000000000000003, 1050000000000000001, 'user_status', '0',           '停用',     2, 0, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1050000000000000003, 1050000000000000001, 'user_status', '0',           '停用',     2, 0, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V22__serial_number.sql ==========
 -- 单号生成器：规则定义表 + 生成记录表
@@ -656,7 +664,7 @@ CREATE TABLE sys_serial_number (
 	update_time       TIMESTAMP,
 	is_deleted        INT          NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_serial_code ON sys_serial_number (code) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_serial_code ON sys_serial_number (code);
 
 COMMENT ON TABLE sys_serial_number IS '单号生成规则';
 COMMENT ON COLUMN sys_serial_number.format IS '格式：[yyyy]年 [mm]月 [dd]日 [n..n]数字位';
@@ -693,7 +701,7 @@ CREATE TABLE sys_table_column (
 	update_time TIMESTAMP,
 	is_deleted  INT          NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_table_column_user ON sys_table_column (user_id, table_key) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_table_column_user ON sys_table_column (user_id, table_key);
 
 COMMENT ON TABLE sys_table_column IS '表格自定义列配置（每用户每表一条）';
 COMMENT ON COLUMN sys_table_column.table_key IS '表格标识：前端页面唯一 key';
@@ -723,7 +731,7 @@ CREATE TABLE help_doc (
 	update_time TIMESTAMP,
 	is_deleted  INT           NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_help_doc_catalog ON help_doc (catalog_id) WHERE is_deleted = 0;
+CREATE INDEX idx_help_doc_catalog ON help_doc (catalog_id);
 COMMENT ON TABLE help_doc IS '帮助文档（富文本内容，view_count 累计浏览量）';
 
 CREATE TABLE help_page_binding (
@@ -735,8 +743,8 @@ CREATE TABLE help_page_binding (
 	update_time TIMESTAMP,
 	is_deleted  INT           NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_help_binding_route ON help_page_binding (route_path) WHERE is_deleted = 0;
-CREATE UNIQUE INDEX uk_help_binding ON help_page_binding (route_path, doc_id) WHERE is_deleted = 0;
+CREATE INDEX idx_help_binding_route ON help_page_binding (route_path);
+CREATE UNIQUE INDEX uk_help_binding ON help_page_binding (route_path, doc_id);
 COMMENT ON TABLE help_page_binding IS '帮助文档与前端路由的绑定（一页可绑多文档）';
 
 -- 示例种子：系统管理帮助 → 如何新增用户，绑定 /system/user
@@ -812,8 +820,8 @@ CREATE TABLE sys_message_user (
 	update_time TIMESTAMP,
 	is_deleted  INT       NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_message_user_unread ON sys_message_user (user_id, is_read) WHERE is_deleted = 0;
-CREATE UNIQUE INDEX uk_message_user ON sys_message_user (message_id, user_id) WHERE is_deleted = 0;
+CREATE INDEX idx_message_user_unread ON sys_message_user (user_id, is_read);
+CREATE UNIQUE INDEX uk_message_user ON sys_message_user (message_id, user_id);
 COMMENT ON TABLE sys_message_user IS '站内信收件人（每收件人一条读未读状态）';
 
 CREATE TABLE sys_message_template (
@@ -825,7 +833,7 @@ CREATE TABLE sys_message_template (
 	update_time TIMESTAMP,
 	is_deleted  INT          NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_message_template_code ON sys_message_template (code) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_message_template_code ON sys_message_template (code);
 COMMENT ON TABLE sys_message_template IS '站内信模板（title/content 含 ${key} 占位）';
 
 -- 模板种子（${} 占位）
@@ -848,7 +856,7 @@ CREATE TABLE gen_config (
 	update_time  TIMESTAMP,
 	is_deleted   INT          NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_gen_config_table ON gen_config (table_name) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_gen_config_table ON gen_config (table_name);
 COMMENT ON TABLE gen_config IS '代码生成表配置（按表名持久化）';
 
 -- ========== 原 V28__notice_enhance.sql ==========
@@ -870,8 +878,8 @@ CREATE TABLE sys_notice_scope (
 	update_time TIMESTAMP,
 	is_deleted  INT    NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_notice_scope ON sys_notice_scope (notice_id, scope_type, scope_id) WHERE is_deleted = 0;
-CREATE INDEX idx_notice_scope_lookup ON sys_notice_scope (scope_type, scope_id) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_notice_scope ON sys_notice_scope (notice_id, scope_type, scope_id);
+CREATE INDEX idx_notice_scope_lookup ON sys_notice_scope (scope_type, scope_id);
 COMMENT ON TABLE sys_notice_scope IS '通知可见范围（scope_type 1员工/2部门）';
 
 -- 阅读记录（每用户一行，read_count 累加）
@@ -886,7 +894,7 @@ CREATE TABLE sys_notice_read (
 	update_time TIMESTAMP,
 	is_deleted  INT    NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_notice_read ON sys_notice_read (notice_id, user_id) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_notice_read ON sys_notice_read (notice_id, user_id);
 COMMENT ON TABLE sys_notice_read IS '通知阅读记录（每用户一行，read_count 累加）';
 
 -- ========== 原 V29__workbench_shortcut.sql ==========
@@ -899,7 +907,7 @@ CREATE TABLE sys_workbench_shortcut (
 	update_time TIMESTAMP,
 	is_deleted  INT    NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_workbench_shortcut_user ON sys_workbench_shortcut (user_id) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_workbench_shortcut_user ON sys_workbench_shortcut (user_id);
 COMMENT ON TABLE sys_workbench_shortcut IS '工作台快捷入口（每用户一行，config_json 存 [{name,path}]）';
 
 -- ========== 原 V30__role_dept.sql ==========
@@ -912,7 +920,7 @@ CREATE TABLE sys_role_dept (
 	update_time TIMESTAMP,
 	is_deleted  INT    NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_role_dept_role ON sys_role_dept (role_id) WHERE is_deleted = 0;
+CREATE INDEX idx_role_dept_role ON sys_role_dept (role_id);
 COMMENT ON TABLE sys_role_dept IS '角色自定义数据部门（角色 data_scope=5 时的可见部门集合）';
 
 -- ========== 原 V31__user_oauth.sql ==========
@@ -927,7 +935,7 @@ CREATE TABLE sys_user_oauth (
 	update_time TIMESTAMP,
 	is_deleted  INT NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_user_oauth_source_openid ON sys_user_oauth (source, open_id) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_user_oauth_source_openid ON sys_user_oauth (source, open_id);
 COMMENT ON TABLE sys_user_oauth IS '用户第三方账号绑定（社交登录 source+open_id 唯一）';
 
 -- ========== 原 V32__oauth_client.sql ==========
@@ -948,7 +956,7 @@ CREATE TABLE sys_oauth_client (
 	is_deleted            INT          NOT NULL DEFAULT 0
 );
 
-CREATE UNIQUE INDEX uk_oauth_client_id ON sys_oauth_client (client_id) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_oauth_client_id ON sys_oauth_client (client_id);
 
 CREATE TABLE sys_oauth_log (
 	id          BIGINT       PRIMARY KEY,
@@ -1010,7 +1018,7 @@ CREATE TABLE sys_tenant_datasource (
 	is_deleted  INT          NOT NULL DEFAULT 0
 );
 
-CREATE UNIQUE INDEX uk_tenant_ds_code ON sys_tenant_datasource (tenant_code) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_tenant_ds_code ON sys_tenant_datasource (tenant_code);
 
 CREATE TABLE biz_customer (
 	id          BIGINT       PRIMARY KEY,
@@ -1043,7 +1051,7 @@ CREATE TABLE sys_form (
 	is_deleted  INT          NOT NULL DEFAULT 0
 );
 
-CREATE UNIQUE INDEX uk_form_key ON sys_form (form_key) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_form_key ON sys_form (form_key);
 
 CREATE TABLE sys_form_data (
 	id          BIGINT       PRIMARY KEY,
@@ -1083,8 +1091,7 @@ UPDATE sys_dict SET color = '#F56C6C' WHERE code = 'user_status' AND dict_key = 
 INSERT INTO sys_dict (id, parent_id, code, dict_key, dict_value, sort, is_sealed, color, create_time, is_deleted) VALUES
 (1050000000000000010, 0,                   'login_result', 'login_result', '登录结果', 0, 1, NULL,      now(), 0),
 (1050000000000000011, 1050000000000000010, 'login_result', '1',            '成功',     1, 0, '#67C23A', now(), 0),
-(1050000000000000012, 1050000000000000010, 'login_result', '0',            '失败',     2, 0, '#F56C6C', now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1050000000000000012, 1050000000000000010, 'login_result', '0',            '失败',     2, 0, '#F56C6C', now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V39__user_button_perms.sql ==========
 -- G61 权限双通道：用户管理下按钮权限（menu_type=F）+ 授予 datatest 角色部分按钮，供非超管按钮门控实测
@@ -1094,13 +1101,11 @@ INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, cre
 (1061000000000000002, 102821679786000104, '编辑用户', 'F', 'sys:user:edit',   2, now(), 0),
 (1061000000000000003, 102821679786000104, '删除用户', 'F', 'sys:user:remove', 3, now(), 0),
 (1061000000000000004, 102821679786000104, '用户授权', 'F', 'sys:user:grant',  4, now(), 0),
-(1061000000000000005, 102821679786000104, '重置密码', 'F', 'sys:user:reset',  5, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1061000000000000005, 102821679786000104, '重置密码', 'F', 'sys:user:reset',  5, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- datatest 角色（id=102852046756000121）仅授予「新增用户」，演示非超管按真实权限码显隐按钮
 INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted) VALUES
-(1061000000000000101, 102852046756000121, 1061000000000000001, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1061000000000000101, 102852046756000121, 1061000000000000001, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V40__client_policy_login_log.sql ==========
 -- G67 登录客户端差异化策略 + 登录日志增强
@@ -1118,7 +1123,7 @@ CREATE TABLE sys_client (
 	update_time     TIMESTAMP,
 	is_deleted      INT NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_sys_client_id ON sys_client (client_id) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_sys_client_id ON sys_client (client_id);
 COMMENT ON TABLE sys_client IS '登录客户端差异化策略（验证码开关/并发在线数/令牌有效期，一 client 一套）';
 
 -- 内置客户端：web 管理后台（验证码开、不限在线、30 天）
@@ -1166,14 +1171,12 @@ INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, cre
 (1074000000000000001, 102821679786000104, '查看手机号', 'F', 'sys:user:phone',        10, now(), 0),
 (1074000000000000002, 102821679786000104, '手机号明文', 'F', 'sys:user:phone:plain',  11, now(), 0),
 (1074000000000000003, 102821679786000104, '查看身份证', 'F', 'sys:user:idcard',       12, now(), 0),
-(1074000000000000004, 102821679786000104, '身份证明文', 'F', 'sys:user:idcard:plain', 13, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1074000000000000004, 102821679786000104, '身份证明文', 'F', 'sys:user:idcard:plain', 13, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- datatest 角色（id=102852046756000121）仅授予「查看手机号（脱敏）」：演示非超管按字段权限
 -- 手机号见脱敏、身份证不可见（无 idcard 权），与超管全明文形成对照
 INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted) VALUES
-(1074000000000000101, 102852046756000121, 1074000000000000001, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1074000000000000101, 102852046756000121, 1074000000000000001, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V46__gen_metadata.sql ==========
 -- G75 代码生成器企业级重写：双表元数据（gen_table 表级 + gen_column 字段级在线配置）
@@ -1196,7 +1199,7 @@ CREATE TABLE gen_table (
 	update_time     TIMESTAMP,
 	is_deleted      INT          NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_gen_table_name ON gen_table (table_name) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_gen_table_name ON gen_table (table_name);
 
 CREATE TABLE gen_column (
 	id             BIGINT       PRIMARY KEY,
@@ -1221,15 +1224,14 @@ CREATE TABLE gen_column (
 	update_time    TIMESTAMP,
 	is_deleted     INT          NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_gen_column_table ON gen_column (table_id) WHERE is_deleted = 0;
+CREATE INDEX idx_gen_column_table ON gen_column (table_id);
 
 -- 代码生成菜单权限码（配 GenController 写端点 @SaCheckPermission，挂系统管理下；admin 通配天然放行）
 INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted) VALUES
 (1075000000000000001, 102821679785000176, '代码生成', 'C', 'sys:gen:list',   90, now(), 0),
 (1075000000000000002, 1075000000000000001, '导入表',  'F', 'sys:gen:import', 1,  now(), 0),
 (1075000000000000003, 1075000000000000001, '配置',    'F', 'sys:gen:edit',   2,  now(), 0),
-(1075000000000000004, 1075000000000000001, '预览生成','F', 'sys:gen:preview',3,  now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1075000000000000004, 1075000000000000001, '预览生成','F', 'sys:gen:preview',3,  now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V47__drop_gen_config.sql ==========
 -- G75 代码生成器重写：移除旧生成器的单表配置 gen_config（已由 gen_table + gen_column 双表元数据取代）
@@ -1238,12 +1240,12 @@ DROP TABLE IF EXISTS gen_config;
 -- ========== 原 V48__gen_tpl_category.sql ==========
 -- G76 主子表 + 树表生成：gen_table 扩展模板类别与关联配置
 -- tpl_category：crud（单表，默认）/ tree（树表）/ master（主子表一对多）
-ALTER TABLE gen_table ADD COLUMN IF NOT EXISTS tpl_category      VARCHAR(16)  NOT NULL DEFAULT 'crud';
+ALTER TABLE gen_table ADD COLUMN tpl_category      VARCHAR(16)  NOT NULL DEFAULT 'crud';
 -- 树表：父级字段列名（如 parent_id），导入时自动识别
-ALTER TABLE gen_table ADD COLUMN IF NOT EXISTS tree_parent_field VARCHAR(64);
+ALTER TABLE gen_table ADD COLUMN tree_parent_field VARCHAR(64);
 -- 主子表：子表名 + 子表中指向主表的外键列 + 子表功能名
-ALTER TABLE gen_table ADD COLUMN IF NOT EXISTS sub_table_name    VARCHAR(128);
-ALTER TABLE gen_table ADD COLUMN IF NOT EXISTS sub_join_field    VARCHAR(64);
+ALTER TABLE gen_table ADD COLUMN sub_table_name    VARCHAR(128);
+ALTER TABLE gen_table ADD COLUMN sub_join_field    VARCHAR(64);
 
 -- ========== 原 V49__gen_demo_tree_master.sql ==========
 -- G76 代码生成器 树表 / 主子表 生成演示目标表（供导入→配置→生成→drop-in 验收）
@@ -1284,8 +1286,7 @@ CREATE TABLE gen_order_item (
 ALTER TABLE gen_column ADD COLUMN column_name_old VARCHAR(128);
 
 INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted) VALUES
-(1075000000000000005, 1075000000000000001, '动态建表', 'F', 'sys:gen:ddl', 4, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1075000000000000005, 1075000000000000001, '动态建表', 'F', 'sys:gen:ddl', 4, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V51__dept_leader.sql ==========
 -- G80 多候选人：部门负责人字段，供"发起人部门负责人"候选人解析（assignment 监听器读取）。
@@ -1320,7 +1321,7 @@ CREATE TABLE sys_notify_template (
 	update_time     TIMESTAMP,
 	is_deleted      INT          NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_notify_template_code ON sys_notify_template (code) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_notify_template_code ON sys_notify_template (code);
 COMMENT ON TABLE sys_notify_template IS '统一通知模板（渠道无关，${key} 占位，缺参发送期 fail-fast）';
 COMMENT ON COLUMN sys_notify_template.required_params IS '必传占位参数（保存期正则从 subject/content 抽取，逗号分隔）';
 COMMENT ON COLUMN sys_notify_template.channels IS '默认投递渠道（逗号分隔：in_app/mail/sms，wechat_mp 预留）';
@@ -1338,7 +1339,7 @@ CREATE TABLE sys_notify_channel (
 	update_time TIMESTAMP,
 	is_deleted  INT          NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX uk_notify_channel ON sys_notify_channel (channel) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_notify_channel ON sys_notify_channel (channel);
 COMMENT ON TABLE sys_notify_channel IS '通知渠道配置（库表驱动热更新；secret 列 SM4 加密存凭据，如 SMTP 密码）';
 COMMENT ON COLUMN sys_notify_channel.config IS '渠道非敏感配置 JSON（mail: host/port/username/from；in_app/sms 为空）';
 
@@ -1412,7 +1413,7 @@ CREATE TABLE sys_attach_part (
 	update_time   TIMESTAMP,
 	is_deleted    INT          NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_attach_part_upload ON sys_attach_part (upload_id) WHERE is_deleted = 0;
+CREATE INDEX idx_attach_part_upload ON sys_attach_part (upload_id);
 COMMENT ON TABLE sys_attach_part IS '附件分片登记（x-file-storage 分片上传会话的分片追踪，upload_id 级联清理）';
 COMMENT ON COLUMN sys_attach_part.upload_id IS '分片上传会话标识（平台侧 multipart uploadId）';
 COMMENT ON COLUMN sys_attach_part.e_tag IS '分片 ETag（completeMultipartUpload 合并凭证）';
@@ -1421,8 +1422,7 @@ COMMENT ON COLUMN sys_attach_part.hash_info IS '分片摘要 JSON（x-file-stora
 -- 私有附件预签名下载 URL 有效期（秒）：云平台私有附件 download/{id} 签发限时 URL 用
 INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted) VALUES
 (1091000000000000001, '私有下载签名URL有效期', 'oss.presigned-url-expire-seconds', '300',
- '云平台私有附件 download/{id} 签发的预签名 URL 有效期（秒），过期须重新授权获取', now(), 0)
-ON CONFLICT (id) DO NOTHING;
+ '云平台私有附件 download/{id} 签发的预签名 URL 有效期（秒），过期须重新授权获取', now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V55__monitor_observability.sql ==========
 -- G90 全局可观测：访问日志（轻表无哈希链）+ 错误日志处理闭环 + 监控参数种子 + 权限锚点
@@ -1451,7 +1451,7 @@ CREATE TABLE sys_api_log (
 );
 CREATE INDEX idx_api_log_trace ON sys_api_log (trace_id);
 CREATE INDEX idx_api_log_time ON sys_api_log (create_time);
-CREATE INDEX idx_api_log_slow ON sys_api_log (slow) WHERE is_deleted = 0 AND slow = 1;
+CREATE INDEX idx_api_log_slow ON sys_api_log (slow);
 COMMENT ON TABLE sys_api_log IS '访问日志（全量请求流水；慢接口 slow=1 必记不受采样影响；params 结构化递归脱敏截断）';
 COMMENT ON COLUMN sys_api_log.trace_id IS '全站链路追踪号（与响应头 X-Trace-Id 一致）';
 COMMENT ON COLUMN sys_api_log.title IS '接口标题（@OperationLog ＞ @Operation ＞ @Tag ＞ uri 回退链）';
@@ -1482,7 +1482,7 @@ CREATE TABLE sys_error_log (
 	is_deleted      INT          NOT NULL DEFAULT 0
 );
 CREATE INDEX idx_error_log_trace ON sys_error_log (trace_id);
-CREATE INDEX idx_error_log_status ON sys_error_log (status) WHERE is_deleted = 0;
+CREATE INDEX idx_error_log_status ON sys_error_log (status);
 COMMENT ON TABLE sys_error_log IS '错误日志（未捕获异常；栈顶四元组定位；处理闭环 0 未处理/1 已处理/2 已忽略）';
 COMMENT ON COLUMN sys_error_log.location_class IS '栈顶定位：首个 com.mugsun 业务栈帧类名（无则首帧）';
 COMMENT ON COLUMN sys_error_log.stacktrace IS '完整堆栈（截断 8000）';
@@ -1491,8 +1491,7 @@ COMMENT ON COLUMN sys_error_log.stacktrace IS '完整堆栈（截断 8000）';
 INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted) VALUES
 (900015, '访问日志采样率(%)', 'monitor.access-log.sample-rate', '100', '仅对 GET 生效（写操作有 oper_log 留痕）；慢接口必记不受采样影响', now(), 0),
 (900016, '慢接口阈值(毫秒)', 'monitor.access-log.slow-ms', '1000', '超过必记且 slow=1 标记', now(), 0),
-(900017, '日志保留天数', 'monitor.log.retention-days', '30', 'api_log/error_log/oper_log 超期物理清理', now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(900017, '日志保留天数', 'monitor.log.retention-days', '30', 'api_log/error_log/oper_log 超期物理清理', now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- 监控权限锚点：页面菜单为前端静态路由驱动（不走 DB），此处仅作权限码载体供角色→菜单派生 buttons
 INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted) VALUES
@@ -1501,8 +1500,7 @@ INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, cre
 (1092000000000000003, 1092000000000000002, '处理错误', 'F', 'sys:error-log:handle', 1, now(), 0),
 (1092000000000000004, 1092000000000000002, '删除错误', 'F', 'sys:error-log:remove', 2, now(), 0),
 (1092000000000000005, 0, '服务监控', 'C', 'sys:monitor:list', 92, now(), 0),
-(1092000000000000006, 1092000000000000005, '数据库文档', 'F', 'sys:monitor:db-doc', 1, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1092000000000000006, 1092000000000000005, '数据库文档', 'F', 'sys:monitor:db-doc', 1, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V56__production_hardening.sql ==========
 -- V56 生产就绪加固：存量数据回填 + 唯一约束补齐 + 查询索引 + 脏数据清洗
@@ -1517,18 +1515,17 @@ UPDATE sys_oauth_client SET redirect_uri = 'http://localhost:3006/#/oauth-debug'
 WHERE (redirect_uri IS NULL OR redirect_uri = '') AND is_deleted = 0;
 
 -- ③ 核心唯一约束（部分索引 WHERE is_deleted=0，与平台逻辑删除规约一致）
-CREATE UNIQUE INDEX IF NOT EXISTS uk_tenant_code ON sys_tenant (tenant_code) WHERE is_deleted = 0;
-CREATE UNIQUE INDEX IF NOT EXISTS uk_param_key ON sys_param (param_key) WHERE is_deleted = 0;
-CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_code_key ON sys_dict (code, dict_key) WHERE is_deleted = 0;
-CREATE UNIQUE INDEX IF NOT EXISTS uk_user_role ON sys_user_role (user_id, role_id) WHERE is_deleted = 0;
-CREATE UNIQUE INDEX IF NOT EXISTS uk_role_menu ON sys_role_menu (role_id, menu_id) WHERE is_deleted = 0;
-CREATE UNIQUE INDEX IF NOT EXISTS uk_role_dept ON sys_role_dept (role_id, dept_id) WHERE is_deleted = 0;
-CREATE UNIQUE INDEX IF NOT EXISTS uk_user_tenant_phone ON sys_user (tenant_id, phone)
-  WHERE is_deleted = 0 AND phone IS NOT NULL AND phone <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS uk_tenant_code ON sys_tenant (tenant_code);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_param_key ON sys_param (param_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_code_key ON sys_dict (code, dict_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_user_role ON sys_user_role (user_id, role_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_role_menu ON sys_role_menu (role_id, menu_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_role_dept ON sys_role_dept (role_id, dept_id);
+CREATE INDEX IF NOT EXISTS uk_user_tenant_phone ON sys_user (tenant_id, phone);
 
 -- ④ uk_serial_record 改部分唯一：原全量唯一使逻辑删除的旧记录永久阻塞同 code+date 新记录
 DROP INDEX IF EXISTS uk_serial_record;
-CREATE UNIQUE INDEX uk_serial_record ON sys_serial_number_record (serial_code, record_date) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_serial_record ON sys_serial_number_record (serial_code, record_date);
 
 -- ⑤ 高频日志表查询索引（Flex 租户过滤 + id 倒序分页场景）
 CREATE INDEX IF NOT EXISTS idx_oper_log_tenant_id ON sys_oper_log (tenant_id, id DESC);
@@ -1578,12 +1575,12 @@ END $$;
 
 -- ========== 原 V58__menu_enhance.sql ==========
 -- V58 菜单管理字段补齐：图标 / 隐藏 / 页面缓存(keep-alive) / 外链新窗口
--- 全部幂等（ADD COLUMN IF NOT EXISTS）；存量行由 DEFAULT 回填：默认显示、缓存、非外链
+-- 全部幂等（ADD COLUMN）；存量行由 DEFAULT 回填：默认显示、缓存、非外链
 
-ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS icon          VARCHAR(64);
-ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS is_hide       INT NOT NULL DEFAULT 0;
-ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS is_keep_alive INT NOT NULL DEFAULT 1;
-ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS is_external   INT NOT NULL DEFAULT 0;
+ALTER TABLE sys_menu ADD COLUMN icon          VARCHAR(64);
+ALTER TABLE sys_menu ADD COLUMN is_hide       INT NOT NULL DEFAULT 0;
+ALTER TABLE sys_menu ADD COLUMN is_keep_alive INT NOT NULL DEFAULT 1;
+ALTER TABLE sys_menu ADD COLUMN is_external   INT NOT NULL DEFAULT 0;
 
 COMMENT ON COLUMN sys_menu.icon IS '图标（Iconify 名，如 ri:user-line，与前端路由 meta.icon 同体系）';
 COMMENT ON COLUMN sys_menu.is_hide IS '是否隐藏（0 显示 / 1 隐藏，隐藏后不出现在侧边栏）';
@@ -1608,8 +1605,7 @@ COMMENT ON COLUMN sys_login_log.login_location IS 'IP 归属地（ip2region 离�
 -- component：前端动态路由的视图路径（ComponentLoader 兼容），代码生成 menu.sql 产物已引用此列
 -- is_public：公共菜单（任意登录用户可见：工作台/我的通知/我的消息/待办/审批/个人中心）
 
-ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS component VARCHAR(128);
-ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS is_public INT NOT NULL DEFAULT 0;
+ALTER TABLE sys_menu ADD COLUMN is_public INT NOT NULL DEFAULT 0;
 COMMENT ON COLUMN sys_menu.component IS '前端视图路径（如 /system/user → views/system/user/index.vue；目录为 /index/index）';
 COMMENT ON COLUMN sys_menu.is_public IS '是否公共菜单（0 按角色授权 / 1 任意登录可见）';
 
@@ -1772,8 +1768,7 @@ INSERT INTO sys_dict (id, parent_id, code, dict_key, dict_value, sort, is_sealed
 (1050000000000000141, 0,                   'error_log_status', 'error_log_status', '错误日志处理状态', 0, 1, NULL,      now(), 0),
 (1050000000000000142, 1050000000000000141, 'error_log_status', '0',               '未处理',        1, 0, '#E6A23C', now(), 0),
 (1050000000000000143, 1050000000000000141, 'error_log_status', '1',               '已处理',        2, 0, '#67C23A', now(), 0),
-(1050000000000000144, 1050000000000000141, 'error_log_status', '2',               '已忽略',        3, 0, '#909399', now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1050000000000000144, 1050000000000000141, 'error_log_status', '2',               '已忽略',        3, 0, '#909399', now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V63__track.sql ==========
 -- G99 埋点：业务库权限锚点与参数种子（埋点业务表在独立 track 库，见 db/track/migration/T1 起）
@@ -1806,8 +1801,7 @@ WHERE NOT EXISTS (SELECT 1 FROM sys_menu x WHERE x.permission = v.perm AND x.is_
 INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted) VALUES
 (900018, '埋点摄入限流(次/分/IP)', 'track.collect.rate-limit', '600', 'collect 端点单 IP 滑窗限流', now(), 0),
 (900019, '埋点单批最大事件数', 'track.collect.batch-max', '100', '超过截断并计数', now(), 0),
-(900020, '埋点明细保留天数(默认)', 'track.retention-days', '90', '新应用默认值；分区清理依据', now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(900020, '埋点明细保留天数(默认)', 'track.retention-days', '90', '新应用默认值；分区清理依据', now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V64__track_menu_top.sql ==========
 -- 埋点看板菜单升级：「埋点分析」从系统管理子菜单提升为顶级菜单（与工作台/系统管理同级，幂等）
@@ -1863,8 +1857,7 @@ WHERE id = 1093000000000000008 AND permission = 'sys:track-replay:view' AND is_d
 
 -- 回放参数种子（代码常量兜底默认见 TrackConstants，此处落库支持运行时调整）
 INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted) VALUES
-(900021, '回放单会话累计上限(字节)', 'track.replay.session-max-bytes', '20971520', '解压后口径；超限 413 并封禁该会话后续块', now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(900021, '回放单会话累计上限(字节)', 'track.replay.session-max-bytes', '20971520', '解压后口径；超限 413 并封禁该会话后续块', now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V66__track_user_api.sql ==========
 -- G102 用户细查：业务库权限锚点与参数种子（时间线索引/应用开关列在 track 库，见 T7）
@@ -1883,8 +1876,7 @@ WHERE NOT EXISTS (SELECT 1 FROM sys_menu x WHERE x.permission = 'sys:track-user:
 
 -- 响应体参数种子（代码常量兜底默认见 TrackConstants，此处落库支持运行时调整）
 INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted) VALUES
-(900022, '接口响应体上限(字节)', 'track.api-body.max-bytes', '1048576', '单个接口响应体采集上限（安全阀，防大导出响应打爆存储）；解压后口径，超限 413 不采', now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(900022, '接口响应体上限(字节)', 'track.api-body.max-bytes', '1048576', '单个接口响应体采集上限（安全阀，防大导出响应打爆存储）；解压后口径，超限 413 不采', now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V67__track_funnel_retention.sql ==========
 -- G103 漏斗分析 + 留存分析：业务库权限锚点（两能力走埋点库明细限窗即席查询，无新表）
@@ -1937,7 +1929,7 @@ CREATE TABLE gis_map_provider (
 	is_deleted  INT          NOT NULL DEFAULT 0
 );
 
-CREATE UNIQUE INDEX uk_gis_map_provider ON gis_map_provider (tenant_id, provider) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX uk_gis_map_provider ON gis_map_provider (tenant_id, provider);
 
 CREATE TABLE gis_scene (
 	id          BIGINT       PRIMARY KEY,
@@ -1951,7 +1943,7 @@ CREATE TABLE gis_scene (
 	is_deleted  INT          NOT NULL DEFAULT 0
 );
 
-CREATE INDEX idx_gis_scene_tenant ON gis_scene (tenant_id) WHERE is_deleted = 0;
+CREATE INDEX idx_gis_scene_tenant ON gis_scene (tenant_id);
 
 COMMENT ON TABLE gis_map_provider IS 'GIS 底图供应商密钥（租户隔离，密钥密文）';
 COMMENT ON COLUMN gis_map_provider.provider IS 'tianditu/amap/baidu/google';
@@ -1981,8 +1973,7 @@ FROM (VALUES
 WHERE NOT EXISTS (SELECT 1 FROM sys_menu x WHERE x.permission = v.perm AND x.is_deleted = 0);
 
 INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted) VALUES
-(900030, '地理信息模块开关', 'gis.module.enabled', 'true', 'false 时隐藏 GIS 菜单并拒绝 /system/gis 接口；无需任何底图 Key 即可关', now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(900030, '地理信息模块开关', 'gis.module.enabled', 'true', 'false 时隐藏 GIS 菜单并拒绝 /system/gis 接口；无需任何底图 Key 即可关', now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V70__gis_layer.sql ==========
 -- GIS 图层库 + 独立模块菜单（与埋点同级：工作台 / 图层 / 场景 / 底图）
@@ -2003,7 +1994,7 @@ CREATE TABLE gis_layer (
 	is_deleted     INT           NOT NULL DEFAULT 0
 );
 
-CREATE INDEX idx_gis_layer_tenant ON gis_layer (tenant_id) WHERE is_deleted = 0;
+CREATE INDEX idx_gis_layer_tenant ON gis_layer (tenant_id);
 
 COMMENT ON TABLE gis_layer IS '通用 GIS 图层（WGS84 GeoJSON，跨模块叠加）';
 COMMENT ON COLUMN gis_layer.kind IS 'vector/heatmap';
@@ -2106,12 +2097,12 @@ VALUES (7500000000000001, 'app', '移动工作台', 1, 0, 2592000, 1, now(), 0);
 
 -- ========== 原 V76__user_profile_leader.sql ==========
 -- 用户档案对齐：真实姓名/性别/生日/工号/直属主管/是否主管（头像列已在 V61）
-ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS real_name VARCHAR(64);
-ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS sex SMALLINT;
-ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS birthday DATE;
-ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS code VARCHAR(64);
-ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS leader_id BIGINT;
-ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS is_leader SMALLINT NOT NULL DEFAULT 0;
+ALTER TABLE sys_user ADD COLUMN real_name VARCHAR(64);
+ALTER TABLE sys_user ADD COLUMN sex SMALLINT;
+ALTER TABLE sys_user ADD COLUMN birthday DATE;
+ALTER TABLE sys_user ADD COLUMN code VARCHAR(64);
+ALTER TABLE sys_user ADD COLUMN leader_id BIGINT;
+ALTER TABLE sys_user ADD COLUMN is_leader SMALLINT NOT NULL DEFAULT 0;
 
 COMMENT ON COLUMN sys_user.real_name IS '真实姓名';
 COMMENT ON COLUMN sys_user.sex IS '性别：0 未知 / 1 男 / 2 女';
@@ -2125,8 +2116,7 @@ INSERT INTO sys_dict (id, parent_id, code, dict_key, dict_value, sort, is_sealed
 (1050000000000000101, 0,                   'user_sex', 'user_sex', '用户性别', 0, 1, now(), 0),
 (1050000000000000102, 1050000000000000101, 'user_sex', '0',        '未知',     1, 0, now(), 0),
 (1050000000000000103, 1050000000000000101, 'user_sex', '1',        '男',       2, 0, now(), 0),
-(1050000000000000104, 1050000000000000101, 'user_sex', '2',        '女',       3, 0, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1050000000000000104, 1050000000000000101, 'user_sex', '2',        '女',       3, 0, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V77__user_sex_dict.sql ==========
 -- 用户性别字典（V76 误用 id 与 notice_category 冲突，ON CONFLICT 跳过；此处用空闲 id 补种）
@@ -2134,8 +2124,7 @@ INSERT INTO sys_dict (id, parent_id, code, dict_key, dict_value, sort, is_sealed
 (1050000000000000151, 0,                   'user_sex', 'user_sex', '用户性别', 0, 1, now(), 0),
 (1050000000000000152, 1050000000000000151, 'user_sex', '0',        '未知',     1, 0, now(), 0),
 (1050000000000000153, 1050000000000000151, 'user_sex', '1',        '男',       2, 0, now(), 0),
-(1050000000000000154, 1050000000000000151, 'user_sex', '2',        '女',       3, 0, now(), 0)
-ON CONFLICT (id) DO NOTHING;
+(1050000000000000154, 1050000000000000151, 'user_sex', '2',        '女',       3, 0, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
 
 -- ========== 原 V78__gis_3dtiles.sql ==========
 -- 三维切片图层：kind 增加 3dtiles（倾斜摄影 / 实景模型），data_json 存 tileset 入口与渲染参数。
@@ -2157,32 +2146,8 @@ EXCEPTION WHEN OTHERS THEN
 	RAISE NOTICE 'PostGIS 扩展不可用（%），gis_feature 不创建，GIS 空间查询回落 Java 侧', SQLERRM;
 END $$;
 
-DO $$
-BEGIN
-	IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') THEN
-		RETURN;
-	END IF;
+-- openGauss-lite 无 PostGIS：不建 gis_feature，空间查询走 Java 回落
 
-	EXECUTE '
-		CREATE TABLE IF NOT EXISTS gis_feature (
-			id           BIGINT        GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-			tenant_id    VARCHAR(12),
-			layer_id     BIGINT        NOT NULL,
-			geom         geometry(Geometry, 4326) NOT NULL,
-			props_json   TEXT,
-			create_time  TIMESTAMP,
-			update_time  TIMESTAMP,
-			is_deleted   INT           NOT NULL DEFAULT 0
-		)';
-
-	EXECUTE 'CREATE INDEX IF NOT EXISTS idx_gis_feature_geom ON gis_feature USING GIST (geom)';
-	EXECUTE 'CREATE INDEX IF NOT EXISTS idx_gis_feature_layer ON gis_feature (layer_id) WHERE is_deleted = 0';
-	EXECUTE 'CREATE INDEX IF NOT EXISTS idx_gis_feature_tenant ON gis_feature (tenant_id) WHERE is_deleted = 0';
-
-	EXECUTE 'COMMENT ON TABLE gis_feature IS ''GIS 要素行（WGS84 geometry + GiST，gis_layer.data_json 的空间查询加速副本）''';
-	EXECUTE 'COMMENT ON COLUMN gis_feature.geom IS ''EPSG:4326，与 gis_layer.crs 同口径''';
-	EXECUTE 'COMMENT ON COLUMN gis_feature.props_json IS ''GeoJSON Feature 的 properties 原文''';
-END $$;
 
 -- ========== 0.1 收口：V2__ai_module.sql ==========
 -- Mugsun AI 可选模块（PostgreSQL / 金仓兼容）
@@ -2224,7 +2189,7 @@ CREATE TABLE IF NOT EXISTS ai_model (
 	update_time     TIMESTAMP,
 	is_deleted      INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_model_tenant ON ai_model (tenant_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_model_tenant ON ai_model (tenant_id);
 
 CREATE TABLE IF NOT EXISTS ai_prompt (
 	id              BIGINT PRIMARY KEY,
@@ -2241,7 +2206,7 @@ CREATE TABLE IF NOT EXISTS ai_prompt (
 	update_time     TIMESTAMP,
 	is_deleted      INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_prompt_tenant ON ai_prompt (tenant_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_prompt_tenant ON ai_prompt (tenant_id);
 
 CREATE TABLE IF NOT EXISTS ai_mcp_tool (
 	id              BIGINT PRIMARY KEY,
@@ -2361,7 +2326,7 @@ CREATE TABLE IF NOT EXISTS ai_app_run (
 	update_time     TIMESTAMP,
 	is_deleted      INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_app_run_app ON ai_app_run (app_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_app_run_app ON ai_app_run (app_id);
 
 CREATE TABLE IF NOT EXISTS ai_app_node_run (
 	id                  BIGINT PRIMARY KEY,
@@ -2381,7 +2346,7 @@ CREATE TABLE IF NOT EXISTS ai_app_node_run (
 	update_time         TIMESTAMP,
 	is_deleted          INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_app_node_run_run ON ai_app_node_run (run_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_app_node_run_run ON ai_app_node_run (run_id);
 
 CREATE TABLE IF NOT EXISTS ai_session (
 	id              BIGINT PRIMARY KEY,
@@ -2398,7 +2363,7 @@ CREATE TABLE IF NOT EXISTS ai_session (
 	update_time     TIMESTAMP,
 	is_deleted      INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_session_user ON ai_session (tenant_id, user_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_session_user ON ai_session (tenant_id, user_id);
 
 CREATE TABLE IF NOT EXISTS ai_message (
 	id                  BIGINT PRIMARY KEY,
@@ -2422,7 +2387,7 @@ CREATE TABLE IF NOT EXISTS ai_message (
 	update_time         TIMESTAMP,
 	is_deleted          INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_message_session ON ai_message (session_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_message_session ON ai_message (session_id);
 
 CREATE TABLE IF NOT EXISTS ai_knowledge (
 	id                  BIGINT PRIMARY KEY,
@@ -2471,7 +2436,7 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_asset (
 	update_time         TIMESTAMP,
 	is_deleted          INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_kb_asset_kb ON ai_knowledge_asset (knowledge_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_kb_asset_kb ON ai_knowledge_asset (knowledge_id);
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_segment (
 	id              BIGINT PRIMARY KEY,
@@ -2490,7 +2455,7 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_segment (
 	update_time     TIMESTAMP,
 	is_deleted      INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_kb_seg_kb ON ai_knowledge_segment (knowledge_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_kb_seg_kb ON ai_knowledge_segment (knowledge_id);
 
 CREATE TABLE IF NOT EXISTS ai_dataset (
 	id              BIGINT PRIMARY KEY,
@@ -2521,7 +2486,7 @@ CREATE TABLE IF NOT EXISTS ai_dataset_table (
 	update_time     TIMESTAMP,
 	is_deleted      INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_dataset_table_ds ON ai_dataset_table (dataset_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_dataset_table_ds ON ai_dataset_table (dataset_id);
 
 CREATE TABLE IF NOT EXISTS ai_terminology (
 	id              BIGINT PRIMARY KEY,
@@ -2578,7 +2543,7 @@ CREATE TABLE IF NOT EXISTS ai_secret (
 	update_time     TIMESTAMP,
 	is_deleted      INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_secret_prefix ON ai_secret (secret_prefix) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_secret_prefix ON ai_secret (secret_prefix);
 
 CREATE TABLE IF NOT EXISTS ai_bill (
 	id                  BIGINT PRIMARY KEY,
@@ -2599,7 +2564,7 @@ CREATE TABLE IF NOT EXISTS ai_bill (
 	update_time         TIMESTAMP,
 	is_deleted          INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_ai_bill_tenant_time ON ai_bill (tenant_id, call_time) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_ai_bill_tenant_time ON ai_bill (tenant_id, call_time);
 
 CREATE TABLE IF NOT EXISTS ai_quota (
 	id              BIGINT PRIMARY KEY,
@@ -2782,68 +2747,21 @@ WHERE NOT EXISTS (SELECT 1 FROM sys_menu x WHERE x.permission = v.perm AND x.is_
 -- 有 pgvector 才建 embedding 列与 HNSW；没有扩展时表仍建成，检索回落关键词。
 -- 不能在扩展失败后无条件使用 vector 类型，否则 Flyway 整次失败（basic 也会跑本脚本）。
 
-DO $$
-DECLARE
-	has_vector boolean;
-BEGIN
-	BEGIN
-		CREATE EXTENSION IF NOT EXISTS vector;
-	EXCEPTION WHEN OTHERS THEN
-		RAISE NOTICE 'pgvector 扩展不可用（%），向量检索将回落关键词', SQLERRM;
-	END;
-
-	SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') INTO has_vector;
-
-	IF NOT EXISTS (
-		SELECT 1 FROM information_schema.columns
-		WHERE table_schema = current_schema()
-		  AND table_name = 'ai_knowledge_asset'
-		  AND column_name = 'content_text'
-	) THEN
-		ALTER TABLE ai_knowledge_asset ADD COLUMN content_text TEXT;
-	END IF;
-
-	IF has_vector THEN
-		EXECUTE $ddl$
-			CREATE TABLE IF NOT EXISTS ai_kb_vector (
-				id              BIGINT PRIMARY KEY,
-				tenant_id       VARCHAR(12),
-				knowledge_id    BIGINT NOT NULL,
-				segment_id      BIGINT NOT NULL,
-				asset_id        BIGINT,
-				dims            INT NOT NULL DEFAULT 768,
-				embedding       vector(768),
-				content_preview VARCHAR(512),
-				create_time     TIMESTAMP,
-				update_time     TIMESTAMP,
-				is_deleted      INT NOT NULL DEFAULT 0
-			)
-		$ddl$;
-		BEGIN
-			EXECUTE 'CREATE INDEX IF NOT EXISTS idx_ai_kb_vector_hnsw ON ai_kb_vector USING hnsw (embedding vector_cosine_ops)';
-		EXCEPTION WHEN OTHERS THEN
-			RAISE NOTICE 'HNSW 索引未创建（%），将使用顺序扫描', SQLERRM;
-		END;
-	ELSE
-		EXECUTE $ddl$
-			CREATE TABLE IF NOT EXISTS ai_kb_vector (
-				id              BIGINT PRIMARY KEY,
-				tenant_id       VARCHAR(12),
-				knowledge_id    BIGINT NOT NULL,
-				segment_id      BIGINT NOT NULL,
-				asset_id        BIGINT,
-				dims            INT NOT NULL DEFAULT 768,
-				content_preview VARCHAR(512),
-				create_time     TIMESTAMP,
-				update_time     TIMESTAMP,
-				is_deleted      INT NOT NULL DEFAULT 0
-			)
-		$ddl$;
-	END IF;
-
-	EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uk_ai_kb_vector_seg ON ai_kb_vector (segment_id) WHERE is_deleted = 0';
-	EXECUTE 'CREATE INDEX IF NOT EXISTS idx_ai_kb_vector_kb ON ai_kb_vector (knowledge_id) WHERE is_deleted = 0';
-END $$;
+ALTER TABLE ai_knowledge_asset ADD COLUMN content_text TEXT;
+CREATE TABLE ai_kb_vector (
+	id              BIGINT PRIMARY KEY,
+	tenant_id       VARCHAR(12),
+	knowledge_id    BIGINT NOT NULL,
+	segment_id      BIGINT NOT NULL,
+	asset_id        BIGINT,
+	dims            INT NOT NULL DEFAULT 768,
+	content_preview VARCHAR(512),
+	create_time     TIMESTAMP,
+	update_time     TIMESTAMP,
+	is_deleted      INT NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX uk_ai_kb_vector_seg ON ai_kb_vector (segment_id);
+CREATE INDEX idx_ai_kb_vector_kb ON ai_kb_vector (knowledge_id);
 
 -- ========== 0.1 收口：V4__fix_nested_menu_layout.sql ==========
 -- 修复 AI（及任意）二级目录误配 /index/index 导致内容区嵌套双菜单
@@ -3051,3 +2969,461 @@ ALTER TABLE sys_api_key ADD COLUMN expire_time TIMESTAMP;
 ALTER TABLE sys_api_key ADD COLUMN api_path VARCHAR(255);
 COMMENT ON COLUMN sys_api_key.expire_time IS '到期时间，空表示不限制';
 COMMENT ON COLUMN sys_api_key.api_path IS '允许调用的路径，逗号分隔，空表示不限制';
+
+-- ====================================================================
+-- 原 V2__file_perm.sql
+-- ====================================================================
+-- 0.1.1：附件越权治理（openGauss-lite 5.1；原 B4 误追加进已发布 V1，现移到这里）。幂等。
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+	               WHERE table_schema = current_schema() AND table_name = 'sys_attach' AND column_name = 'create_user') THEN
+		ALTER TABLE sys_attach ADD COLUMN create_user BIGINT;
+	END IF;
+END $$;
+COMMENT ON COLUMN sys_attach.create_user IS '上传者用户 id';
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted) VALUES
+(1077000000000000001, 1200000000000000112, '管理全部附件', 'F', 'sys:file:manage', 1, now(), 0),
+(1077000000000000002, 1200000000000000112, '上传公开附件', 'F', 'sys:file:public', 2, now(), 0),
+(1077000000000000003, 1200000000000000112, '删除附件',     'F', 'sys:file:remove', 3, now(), 0) ON DUPLICATE KEY UPDATE NOTHING;
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT 1077000000000000101, MIN(r.id), 1077000000000000001, now(), 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_role_menu x WHERE x.id = 1077000000000000101 OR (x.role_id = r.id AND x.menu_id = 1077000000000000001)) HAVING COUNT(*) > 0;
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT 1077000000000000102, MIN(r.id), 1077000000000000002, now(), 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_role_menu x WHERE x.id = 1077000000000000102 OR (x.role_id = r.id AND x.menu_id = 1077000000000000002)) HAVING COUNT(*) > 0;
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT 1077000000000000103, MIN(r.id), 1077000000000000003, now(), 0 FROM sys_role r WHERE r.role_code = 'admin' AND r.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_role_menu x WHERE x.id = 1077000000000000103 OR (x.role_id = r.id AND x.menu_id = 1077000000000000003)) HAVING COUNT(*) > 0;
+
+-- ====================================================================
+-- 原 V3__clean_fake_changelog.sql
+-- ====================================================================
+-- 0.1.1：清掉 V1 演示更新日志，换成真实 0.1.0（openGauss-lite 5.1）。幂等。
+DELETE FROM sys_changelog
+WHERE id IN (1080000000000000001, 1080000000000000002, 1080000000000000003)
+  AND version IN ('v1.2.0', 'v1.1.0', 'v1.0.0');
+
+INSERT INTO sys_changelog (id, version, type, title, content, publish_time, sort, create_time) VALUES
+(1080000000000000010, '0.1.0', 'feature', 'Mugsun Boot 0.1.0 首个公开版本',
+ '<p>首个公开版本：多租户、权限、组织、附件、消息、日志监控、代码生成、开放平台等基础能力，支持 PostgreSQL / 金仓、达梦、openGauss。</p>',
+ now(), 1, now()) ON DUPLICATE KEY UPDATE NOTHING;
+
+-- ====================================================================
+-- 原 V7__unique_index_delete_flag.sql
+-- ====================================================================
+-- 0.1.1：唯一索引只约束未删除的行（openGauss-lite 5.1）。与 PG V7 同号。
+-- 背景：V1 在 og 上把 6 个唯一索引建成全量唯一（PG 是 WHERE is_deleted = 0 的部分唯一）。
+-- 逻辑删除后的行仍占着键，删租户后再建同编号租户、撤销菜单后再授权都会撞键（#95）。
+-- 做法：表达式唯一索引，键列包一层 CASE WHEN is_deleted = 0 THEN 列 END。
+-- 已删除的行整组键都是 NULL，NULL 互不冲突，所以同一个键可以反复删除、反复新建；未删除的行与原索引同样唯一。
+-- 不用 (列, is_deleted)：同一个键删两次会有两行 (列, 1)，第二次删除就撞键。
+-- 手机号：V1 在 og 上只是普通索引。改成与 PG 相同的口径：未删除、手机号非空非空串时，同租户内唯一。
+
+-- 1. 先查重复手机号。有重复就中止，此时还没有改任何索引。
+DO $$
+DECLARE
+	dup_groups INT;
+BEGIN
+	SELECT count(*) INTO dup_groups FROM (
+		SELECT tenant_id, phone FROM sys_user
+		WHERE is_deleted = 0 AND phone IS NOT NULL AND phone <> ''
+		GROUP BY tenant_id, phone HAVING count(*) > 1
+	) d;
+	IF dup_groups > 0 THEN
+		RAISE EXCEPTION 'V7 升级中止：sys_user 有 % 组同租户重复手机号（未删除用户），手机号唯一索引建不了。请按 https://docs.mugsun.com/boot/upgrade 的「同租户重复手机号」一节查出并处理，再重新执行迁移', dup_groups;
+	END IF;
+END $$;
+
+-- 2. 6 个唯一索引改为只约束未删除的行
+DROP INDEX IF EXISTS uk_tenant_code;
+CREATE UNIQUE INDEX uk_tenant_code ON sys_tenant ((CASE WHEN is_deleted = 0 THEN tenant_code END));
+
+DROP INDEX IF EXISTS uk_user_tenant_username;
+CREATE UNIQUE INDEX uk_user_tenant_username ON sys_user (
+	(CASE WHEN is_deleted = 0 THEN tenant_id END), (CASE WHEN is_deleted = 0 THEN username END));
+
+DROP INDEX IF EXISTS uk_user_role;
+CREATE UNIQUE INDEX uk_user_role ON sys_user_role (
+	(CASE WHEN is_deleted = 0 THEN user_id END), (CASE WHEN is_deleted = 0 THEN role_id END));
+
+DROP INDEX IF EXISTS uk_role_menu;
+CREATE UNIQUE INDEX uk_role_menu ON sys_role_menu (
+	(CASE WHEN is_deleted = 0 THEN role_id END), (CASE WHEN is_deleted = 0 THEN menu_id END));
+
+DROP INDEX IF EXISTS uk_role_dept;
+CREATE UNIQUE INDEX uk_role_dept ON sys_role_dept (
+	(CASE WHEN is_deleted = 0 THEN role_id END), (CASE WHEN is_deleted = 0 THEN dept_id END));
+
+DROP INDEX IF EXISTS uk_tenant_ds_code;
+CREATE UNIQUE INDEX uk_tenant_ds_code ON sys_tenant_datasource ((CASE WHEN is_deleted = 0 THEN tenant_code END));
+
+-- 3. 手机号：普通索引换成唯一索引。已删除、手机号为 NULL 或空串的行整组键为 NULL，不参与唯一
+DROP INDEX IF EXISTS uk_user_tenant_phone;
+CREATE UNIQUE INDEX uk_user_tenant_phone ON sys_user (
+	(CASE WHEN is_deleted = 0 AND phone IS NOT NULL AND phone <> '' THEN tenant_id END),
+	(CASE WHEN is_deleted = 0 AND phone IS NOT NULL AND phone <> '' THEN phone END));
+
+-- ====================================================================
+-- 原 V8__oper_log_chain_guard.sql
+-- ====================================================================
+-- 0.1.x：操作日志哈希链多节点防分叉（openGauss）。
+-- ① 链头锁行：落库事务内 SELECT ... FOR UPDATE 串行化各实例的「读链头→写新记录」。
+CREATE TABLE IF NOT EXISTS sys_oper_log_chain (
+	id          INT       PRIMARY KEY,
+	update_time TIMESTAMP
+);
+INSERT INTO sys_oper_log_chain (id, update_time)
+SELECT 1, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM sys_oper_log_chain WHERE id = 1);
+COMMENT ON TABLE sys_oper_log_chain IS '操作日志哈希链链头锁（单行 id=1）';
+
+-- ② 唯一兜底：新记录 chain_prev = prev_hash，唯一索引让两条记录无法接在同一链头后。
+--    历史记录保持 NULL（不回填，避免历史分叉/重复的 prev_hash 让本迁移失败；NULL 不参与唯一约束）。
+--    openGauss-lite 5.1 不支持 ADD COLUMN IF NOT EXISTS，用 information_schema 判断（同 V2/V9/V10 写法）。
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+	               WHERE table_schema = current_schema() AND table_name = 'sys_oper_log' AND column_name = 'chain_prev') THEN
+		ALTER TABLE sys_oper_log ADD COLUMN chain_prev VARCHAR(64);
+	END IF;
+END $$;
+COMMENT ON COLUMN sys_oper_log.chain_prev IS '链唯一兜底：新记录等于 prev_hash，历史记录为空';
+CREATE UNIQUE INDEX IF NOT EXISTS uk_oper_log_chain_prev ON sys_oper_log (chain_prev);
+
+-- ====================================================================
+-- 原 V9__tenant_captcha.sql
+-- ====================================================================
+-- 0.1.1：租户级行为验证码开关（openGauss-lite 5.1）。幂等。
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+	               WHERE table_schema = current_schema() AND table_name = 'sys_tenant' AND column_name = 'captcha_enabled') THEN
+		ALTER TABLE sys_tenant ADD COLUMN captcha_enabled INT DEFAULT 1;
+	END IF;
+END $$;
+UPDATE sys_tenant SET captcha_enabled = 1 WHERE captcha_enabled IS NULL;
+COMMENT ON COLUMN sys_tenant.captcha_enabled IS '行为验证码开关（1/NULL 开，0 关）';
+
+-- ====================================================================
+-- 原 V10__tenant_captcha_types.sql
+-- ====================================================================
+-- 0.1.1：租户启用的行为验证码题型（openGauss-lite 5.1）。幂等。
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+	               WHERE table_schema = current_schema() AND table_name = 'sys_tenant' AND column_name = 'captcha_types') THEN
+		ALTER TABLE sys_tenant ADD COLUMN captcha_types VARCHAR(128);
+	END IF;
+END $$;
+COMMENT ON COLUMN sys_tenant.captcha_types IS '启用的验证码题型（SLIDER,ROTATE,WORD_CLICK,ICON_CLICK,JIGSAW；NULL 用平台默认）';
+
+-- ====================================================================
+-- 原 V11__tenant_code_full_unique.sql
+-- ====================================================================
+-- 0.1.1：租户编号永不复用。sys_tenant.tenant_code 改回全量唯一（含已删除行）。
+-- uk_tenant_ds_code 不动，仍只约束未删除行（PG 是 V1 的部分唯一，og/dm 是 V7 的 CASE 表达式索引）：
+-- 现存租户可以删掉数据源配置再用同一编号重建；数据源只能挂在现存租户上，由接口校验。
+-- 背景：删租户只逻辑删除组织数据，业务表、凭据、会话、数据源路由仍按编号关联。编号一旦被新租户复用，
+-- 新租户会接手旧租户的残留数据（boot#100 复核 B1）。应用层 genCode 查重已包含已删除行，这里在库层兜底。
+-- openGauss：V1 是全量唯一，V7 把 uk_tenant_code 改成了只约束未删除行，本版本改回全量唯一。与 PG V11 同号。
+-- 先查重：已经有编号被复用（同编号多行）就中止，此时还没有改任何索引。
+
+-- 1. 先查重复编号（含已删除行）
+DO $$
+DECLARE
+	dup_tenant INT;
+BEGIN
+	SELECT COUNT(*) INTO dup_tenant FROM (
+		SELECT tenant_code FROM sys_tenant GROUP BY tenant_code HAVING COUNT(*) > 1) d;
+	IF dup_tenant > 0 THEN
+		RAISE EXCEPTION 'V11 升级中止：sys_tenant 有 % 个租户编号被重复使用（含已删除行），全量唯一索引建不了。请按 https://docs.mugsun.com/boot/upgrade 的「V11 中止：租户编号被复用」一节查出并处理，再重新执行迁移', dup_tenant;
+	END IF;
+END $$;
+
+-- 2. uk_tenant_code 改回全量唯一
+DROP INDEX IF EXISTS uk_tenant_code;
+CREATE UNIQUE INDEX uk_tenant_code ON sys_tenant (tenant_code);
+
+-- ====================================================================
+-- 原 V13__export_import_upload_flow_perm.sql
+-- ====================================================================
+-- 0.1.1：导出/导入/上传/表单/流程按钮权限码（openGauss-lite 5.1）。幂等。
+-- 1) 用户导出导入拆出 sys:user:export / sys:user:import（原为 sys:user:list / sys:user:add）
+-- 2) 附件上传 sys:file:upload（原先登录即可）
+-- 3) 表单设计保存删除、流程部署设计发布改为方法级注解，权限码与原兜底守卫派生的码一致
+-- 升级不掉权限：
+-- - 已有 sys:user:list 的角色补授导出码，已有 sys:user:add 的角色补授导入码
+-- - sys:file:upload 补授给全部现有角色（意见反馈等页面也在用上传）
+-- - 表单、流程的新按钮只补授给各租户的 admin 角色（原先非管理员本就会被兜底守卫拒绝）。
+--   admin 现在经 MugsunStpInterface 直接拿到通配 *，这条补授当前是冗余的，
+--   为将来收回通配预留；脚本已在测试库执行过，不再改语句，只改注释
+-- 父级按业务键 path 找（全新库与升级库的主键不同）；父菜单不存在时跳过。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000001, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0),
+       '导出用户', 'F', 'sys:user:export', 6, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000001 OR (permission = 'sys:user:export' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000002, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0),
+       '导入用户', 'F', 'sys:user:import', 7, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/user' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000002 OR (permission = 'sys:user:import' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000003, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/attach' AND is_deleted = 0),
+       '上传附件', 'F', 'sys:file:upload', 4, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/attach' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000003 OR (permission = 'sys:file:upload' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000004, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0),
+       '保存表单', 'F', 'sys:form:save', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000004 OR (permission = 'sys:form:save' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000005, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0),
+       '删除表单', 'F', 'sys:form:remove', 2, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/form-designer' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000005 OR (permission = 'sys:form:remove' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000006, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '部署流程', 'F', 'sys:flow:deploy', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000006 OR (permission = 'sys:flow:deploy' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000007, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '发布/下线流程', 'F', 'sys:flow:definition', 2, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000007 OR (permission = 'sys:flow:definition' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000008, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0),
+       '设计流程', 'F', 'sys:flow:design', 3, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-def' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000008 OR (permission = 'sys:flow:design' AND is_deleted = 0));
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1078000000000000009, (SELECT MIN(id) FROM sys_menu WHERE path = '/system/flow-graph' AND is_deleted = 0),
+       '图形设计流程', 'F', 'sys:flow:design-graph', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE path = '/system/flow-graph' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1078000000000000009 OR (permission = 'sys:flow:design-graph' AND is_deleted = 0));
+
+-- 补授。主键用 1078 保留段，从段内已用最大值往后排，不取全表 MAX(id)，避免撞上后续脚本或种子里的固定主键
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1078000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1078000000000100000 AND 1078999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN (SELECT 'sys:user:list' AS src, 'sys:user:export' AS dst
+	      UNION ALL SELECT 'sys:user:add', 'sys:user:import') n ON m.permission = n.src
+	JOIN sys_menu nm ON nm.permission = n.dst AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0
+	UNION
+	SELECT r.id, fm.id
+	FROM sys_role r
+	JOIN sys_menu fm ON fm.permission = 'sys:file:upload' AND fm.is_deleted = 0
+	WHERE r.is_deleted = 0
+	UNION
+	SELECT r.id, am.id
+	FROM sys_role r
+	JOIN sys_menu am ON am.id BETWEEN 1078000000000000004 AND 1078000000000000009
+	                AND am.permission IN ('sys:form:save', 'sys:form:remove', 'sys:flow:deploy', 'sys:flow:definition', 'sys:flow:design', 'sys:flow:design-graph') AND am.is_deleted = 0
+	WHERE r.role_code = 'admin' AND r.is_deleted = 0
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V14__register_role_upload.sql
+-- ====================================================================
+-- 0.1.1：注册用户可上传附件（openGauss-lite 5.1）。幂等。
+-- 1) 平台租户内置「普通用户」角色（role_code=user）改由迁移播种；原先由 DataInitializer 启动时补，
+--    全新库在 V13 时还没有这个角色，拿不到 sys:file:upload。DataInitializer 见到已存在即跳过。
+-- 2) 新参数 security.register.register-role-code：自助注册分配的角色，缺省 user；
+--    与 security.register.default-role-code 分开（后者保留给其他默认归属场景）。
+-- 3) user 角色和两个参数指向的角色补授 sys:file:upload。新建角色默认仍无任何权限。
+
+INSERT INTO sys_role (id, role_name, role_code, sort, data_scope, tenant_id, create_time, is_deleted)
+SELECT 1079000000000000001, '普通用户', 'user', 9, 4, '000000', now(), 0
+WHERE NOT EXISTS (SELECT 1 FROM sys_role WHERE role_code = 'user' AND tenant_id = '000000' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_role WHERE id = 1079000000000000001);
+
+INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted)
+SELECT 1079000000000000011, '自助注册分配的角色', 'security.register.register-role-code', 'user',
+       '自助注册成功后挂的角色编码（平台租户内）；置空则不挂角色', now(), 0
+WHERE NOT EXISTS (SELECT 1 FROM sys_param WHERE param_key = 'security.register.register-role-code' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_param WHERE id = 1079000000000000011);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1079000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1079000000000100000 AND 1079999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT DISTINCT r.id AS role_id, fm.id AS menu_id
+	FROM sys_role r
+	JOIN sys_menu fm ON fm.permission = 'sys:file:upload' AND fm.is_deleted = 0
+	WHERE r.is_deleted = 0 AND r.tenant_id = '000000'
+	  AND (r.role_code = 'user'
+	       OR r.role_code IN (SELECT p.param_value FROM sys_param p WHERE p.is_deleted = 0
+	                          AND p.param_key IN ('security.register.register-role-code',
+	                                              'security.register.default-role-code')))
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V15__user_must_change_password.sql
+-- ====================================================================
+-- 0.1.1：首次登录强制改密标记（#81，openGauss-lite 5.1）。幂等。
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+	               WHERE table_schema = current_schema() AND table_name = 'sys_user' AND column_name = 'must_change_password') THEN
+		ALTER TABLE sys_user ADD COLUMN must_change_password SMALLINT NOT NULL DEFAULT 0;
+	END IF;
+END $$;
+COMMENT ON COLUMN sys_user.must_change_password IS '首次登录须改密：1 是 / 0 否（重置或发放一次性口令时置 1，用户改密后清 0）';
+
+-- ====================================================================
+-- 原 V16__gis_feature_wraps_antimeridian.sql
+-- ====================================================================
+-- #76：PG 侧给 gis_feature 加 wraps_antimeridian 生成列。
+-- openGauss-lite 无 PostGIS / 不建 gis_feature，空间查询走 Java 回落；本文件只占同号。
+SELECT 1;
+
+-- ====================================================================
+-- 原 V17__gis_feature_wrap_index.sql
+-- ====================================================================
+-- #76：PG 侧 V17 以非事务 Java 迁移 CREATE INDEX CONCURRENTLY。
+-- openGauss-lite 无 gis_feature，占同号。
+SELECT 1;
+
+-- ====================================================================
+-- 原 V18__track_error_issue_perm.sql
+-- ====================================================================
+-- 错误问题单写权限：sys:track-error-issue:edit（openGauss-lite 5.1）。幂等。
+-- 按钮挂「错误监控」页下；已有错误监控读权的角色补授写权。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1093000000000000016,
+       (SELECT MIN(id) FROM sys_menu WHERE permission = 'sys:track-error:list' AND is_deleted = 0),
+       '错误问题单管理', 'F', 'sys:track-error-issue:edit', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-error:list' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000016
+                  OR (permission = 'sys:track-error-issue:edit' AND is_deleted = 0));
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-error-issue:edit' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-error:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V19__track_ask_perm.sql
+-- ====================================================================
+-- 埋点问数据：sys:track-ask:list（openGauss-lite 5.1）。幂等。
+-- 菜单挂「埋点分析」目录；已有概览读权的角色补授入口权。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000017, p.id, '问数据', '/track/ask', '/track/ask', 'C', 'sys:track-ask:list', 12, 'ri:chat-search-line', 0, now(), 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000017
+                  OR (permission = 'sys:track-ask:list' AND is_deleted = 0));
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-ask:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V20__track_spatial_perm.sql
+-- ====================================================================
+-- 空间行为分析：sys:track-spatial:list（openGauss-lite 5.1）。幂等。
+-- 菜单挂「埋点分析」目录；已有概览读权的角色补授入口权。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000018, p.id, '空间行为', '/track/spatial', '/track/spatial', 'C', 'sys:track-spatial:list', 13, 'ri:map-2-line', 0, now(), 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000018
+                  OR (permission = 'sys:track-spatial:list' AND is_deleted = 0));
+
+-- 补授：已有 sys:track-overview:list 的角色获得空间行为入口权（主键用 1093 保留段）
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-spatial:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V21__form_tenant.sql
+-- ====================================================================
+-- 0.1.1：低代码表单按租户隔离（openGauss-lite 5.1）。与 PG V21 同号。幂等。
+-- 存量的表单和填报一律归平台租户 000000，原因见 PG V21。
+-- 表单标识改为租户内唯一，写法同 V7：每个键列都包 CASE WHEN is_deleted = 0，已删除的表单不占标识。
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+	               WHERE table_schema = current_schema() AND table_name = 'sys_form' AND column_name = 'tenant_id') THEN
+		ALTER TABLE sys_form ADD COLUMN tenant_id VARCHAR(12);
+	END IF;
+	IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+	               WHERE table_schema = current_schema() AND table_name = 'sys_form_data' AND column_name = 'tenant_id') THEN
+		ALTER TABLE sys_form_data ADD COLUMN tenant_id VARCHAR(12);
+	END IF;
+END $$;
+UPDATE sys_form SET tenant_id = '000000' WHERE tenant_id IS NULL;
+UPDATE sys_form_data SET tenant_id = '000000' WHERE tenant_id IS NULL;
+
+DROP INDEX IF EXISTS uk_form_key;
+DROP INDEX IF EXISTS uk_form_tenant_key;
+CREATE UNIQUE INDEX uk_form_tenant_key ON sys_form (
+	(CASE WHEN is_deleted = 0 THEN tenant_id END), (CASE WHEN is_deleted = 0 THEN form_key END));
+
+COMMENT ON COLUMN sys_form.tenant_id IS '租户编号';
+COMMENT ON COLUMN sys_form_data.tenant_id IS '租户编号（与所属表单相同）';
+
+-- ====================================================================
+-- 原 V22__track_storage_quota_params.sql
+-- ====================================================================
+-- 0.1.1：埋点回放和接口响应体的存储容量参数（openGauss-lite 5.1）。与 PG V22 同号同义。幂等。
+-- 参数含义见 PG V22；已有同名参数不覆盖。
+INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted) VALUES
+(900023, '回放和响应体全平台每日落盘上限(字节)', 'track.storage.daily-max-bytes', '10737418240', '所有应用合计，按落盘的 gzip 字节、UTC 自然日计；超出后当天拒收（429）', now(), 0),
+(900024, '回放和响应体单应用每日落盘上限(字节)', 'track.storage.app-daily-max-bytes', '2147483648', '每个应用单独计，按落盘的 gzip 字节、UTC 自然日计；超出后该应用当天拒收（429），不影响其它应用', now(), 0),
+(900025, '埋点存储盘最低剩余空间(字节)', 'track.storage.min-free-bytes', '5368709120', '对象存储落本机磁盘时生效：存储目录所在分区剩余空间低于它就暂停接收回放和响应体（503）', now(), 0)
+ON DUPLICATE KEY UPDATE NOTHING;

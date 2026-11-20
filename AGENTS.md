@@ -67,17 +67,22 @@ insert / update 前调用实体的 `sanitizeForInsert()` / `sanitizeForUpdate()`
 
 ## Flyway
 
-三套方言同号同义：
+三套方言同号同义，每套一个基线 `V1__baseline_0_2.sql`：
 
 - PostgreSQL / 金仓：`mugsun-boot-core/src/main/resources/db/migration/`
 - 达梦：`…/db/migration-dm/`
 - openGauss：`…/db/migration-og/`
 
+埋点库单独一套：`mugsun-boot-track/src/main/resources/db/track/migration/T1__baseline_0_2.sql`。
+
 规则（见同目录 `README.md` 与根 `CONTRIBUTING.md`）：
 
-1. **已发布的迁移不可修改**（一个字节都不行）。清单：`db/RELEASED.sha256`；校验：`scripts/check-released-migrations.sh`（CI 步骤 `Guard released migrations`）。
-2. 改库只新增 `Vn__说明.sql`，三套方言同号；尽量幂等。
-3. 发版时把新文件追加进 `db/RELEASED.sha256`（`scripts/check-released-migrations.sh --print <文件…>` 生成行），清单只能追加。
+1. **0.2 发布前改库直接改基线**，三套方言一起改，目录里不留增量脚本；改完重建库（旧库校验和对不上，应用不会启动）。
+2. **已发布的迁移不可修改**（一个字节都不行）。清单：`db/RELEASED-0.2.sha256`，现在还没有登记项；校验：`scripts/check-released-migrations.sh`（CI 步骤 `Guard released migrations`）。
+3. 发布后改库只新增 `Vn__说明.sql`，三套方言同号；尽量幂等。版本号取 `main` 上最大的号加 1，Java 迁移也占号：主库下一个是 V18，埋点库下一个是 T5。
+4. 发版时把新文件追加进清单（`scripts/check-released-migrations.sh --print <文件…>` 生成行），清单只能追加。0.2.0 发布时登记四个基线。
+5. 删掉或改名迁移脚本后先 `mvn clean`：Maven 不清 `target` 里的旧资源，残留的脚本会让 Flyway 报 `Found more than one migration with version N`。
+6. 测试按段头（`-- 原 <文件名>`）读基线里的各段，工具类是 `MigrationBaseline`；段头不要删、不要改名。
 
 ## 组件速查
 

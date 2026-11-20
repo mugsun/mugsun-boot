@@ -1,5 +1,6 @@
 package com.mugsun.boot.gis;
 
+import com.mugsun.boot.db.MigrationBaseline;
 import db.migration.V17__gis_feature_wrap_index;
 import org.flywaydb.core.api.migration.Context;
 import org.junit.jupiter.api.AfterAll;
@@ -12,11 +13,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Connection;
-import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** #76：V16 生成列 + V17 CONCURRENTLY 部分索引在 PostGIS 上可执行 */
+/** #76：基线里原 V16 那一段（生成列）+ V17 CONCURRENTLY 部分索引在 PostGIS 上可执行 */
 class GisWrapsAntimeridianMigrationTest {
 
 	private static PostgreSQLContainer<?> postgis;
@@ -48,11 +48,7 @@ class GisWrapsAntimeridianMigrationTest {
 		jdbc.execute("INSERT INTO gis_feature (tenant_id, layer_id, geom, is_deleted) VALUES"
 			+ " ('000000', 1, ST_GeomFromText('LINESTRING(179.9 0, -179.9 0)', 4326), 0),"
 			+ " ('000000', 1, ST_GeomFromText('POINT(0 0)', 4326), 0)");
-		String v16 = new String(
-			GisWrapsAntimeridianMigrationTest.class.getClassLoader()
-				.getResourceAsStream("db/migration/V16__gis_feature_wraps_antimeridian.sql").readAllBytes(),
-			StandardCharsets.UTF_8);
-		jdbc.execute(v16);
+		jdbc.execute(MigrationBaseline.section("migration", "V16__gis_feature_wraps_antimeridian.sql"));
 	}
 
 	@AfterAll
@@ -63,7 +59,7 @@ class GisWrapsAntimeridianMigrationTest {
 	}
 
 	@Test
-	@DisplayName("V16 生成列回填跨 180° 行；V17 建 valid 部分索引")
+	@DisplayName("生成列回填跨 180° 行；V17 建 valid 部分索引")
 	void generatedColumnAndConcurrentIndex() throws Exception {
 		assertThat(jdbc.queryForObject(
 			"SELECT wraps_antimeridian FROM gis_feature WHERE ST_GeometryType(geom)='ST_LineString'",

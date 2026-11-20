@@ -2,7 +2,14 @@
 
 这个目录是主库迁移脚本的达梦版本，用达梦的 Oracle 语法编写。版本号和含义与 [`../migration/`](../migration/README.md) 里的 PostgreSQL 脚本一一对应。
 
-脚本先由 `scripts/pg_to_dm.py` 从 PostgreSQL 脚本转换，再在达梦实例上校验。
+目录里现在只有一个基线 `V1__baseline_0_2.sql`，全新安装只执行这一个文件。
+
+基线由 0.1.0 的基线和它之后的脚本按版本号顺序拼成，语句没有改动。每一段前面有一行 `-- 原 <文件名>`。
+
+各段最初由 `scripts/pg_to_dm.py` 从 PostgreSQL 脚本转换，再在达梦实例上校验。
+
+> [!NOTE]
+> 合并成一个文件以后，基线还没有在达梦实例上整体执行过。目前只核对过各段和原来的脚本逐字相同。
 
 ## 启用
 
@@ -32,27 +39,33 @@ mvn -Pfull,dameng package -DskipTests
 
 ## 规则
 
-- `V1__baseline_0_1.sql` 是 0.1.0 的发布基线。它已经发布，不能修改。
-- 之后每次改库都新增 `Vn__*.sql`，版本号和 PostgreSQL 的相同。
+- 0.2 发布之前，改库直接改基线，和 PostgreSQL、openGauss 的基线一起改。改完要重建库。
+- 0.2 发布之后，基线不能修改，每次改库都新增 `Vn__*.sql`，版本号和 PostgreSQL 的相同。
 - 手工改过的脚本要保留 `-- pg2dm: manual` 这一行。带这个标记的文件，`pg_to_dm.py` 再运行时不会覆盖。
 
-现在目录里的脚本都带 `pg2dm: manual` 标记。
+基线带 `pg2dm: manual` 标记，所以转换器不会改动它。PostgreSQL 的基线改了以后，这里要手工同步。
 
-完整的规则见 [`../migration/README.md`](../migration/README.md)，已发布的清单是仓库根目录的 `db/RELEASED.sha256`。
+新增的内容可以先在 PostgreSQL 目录写成 `V18__说明.sql`，运行 `pg_to_dm.py` 转出达梦版本，人工检查以后再并进基线。
+
+完整的规则和合并的命令见 [`../migration/README.md`](../migration/README.md)，发布清单是仓库根目录的 `db/RELEASED-0.2.sha256`。
 
 ### 版本号
 
-新脚本的版本号取合入时 `main` 上最大的号加 1。
+版本号和 PostgreSQL 的相同。基线之后的第一个新脚本是 `V18`，原因见 PostgreSQL 目录的说明。
 
-版本号只增不补，所以中间会跳号，例如没有 V4 到 V6，也没有 V12。这是正常的，不要回填空号。
+版本号只增不补。中间跳号是正常的，不要回填空号。
 
 库里已经执行过更高的版本时，再遇到低版本的新脚本，Flyway 的默认校验会拒绝启动。
 
-### 占位的脚本
+### 已有的库要重建
 
-V16 和 V17 在 PostgreSQL 上给 `gis_feature` 加列和索引，背景见 [#76](https://github.com/mugsun/mugsun-boot/issues/76)。
+用合并之前的脚本建的库，迁移历史和现在的基线对不上，Flyway 校验会失败。这些库不能原地升级，要重建。
 
-达梦没有 PostGIS，也不建 `gis_feature` 表，所以这里的 V16 和 V17 只是同号的占位文件。
+### 占位的段
+
+原 V16 和 V17 在 PostgreSQL 上给 `gis_feature` 加列和索引，背景见 [#76](https://github.com/mugsun/mugsun-boot/issues/76)。
+
+达梦没有 PostGIS，也不建 `gis_feature` 表，所以基线里这两段只有一句 `SELECT 1 FROM DUAL`，是占位用的。
 
 ## 为什么目录和 migration 并列
 
@@ -79,7 +92,7 @@ Flyway 默认会递归扫描 `db/migration/**`，放在里面会和 PostgreSQL �
 
 ### 唯一索引
 
-从 V7 起，PostgreSQL 里 `WHERE is_deleted = 0` 的部分唯一索引，在这里写成函数唯一索引。每个键列都要包一层：
+PostgreSQL 里 `WHERE is_deleted = 0` 的部分唯一索引，在这里写成函数唯一索引，见基线里原 V7 那一段。每个键列都要包一层：
 
 ```sql
 CASE WHEN is_deleted = 0 THEN 列 END
@@ -91,7 +104,9 @@ CASE WHEN is_deleted = 0 THEN 列 END
 
 ### DDL 不会回滚
 
-达梦的 DDL 是自动提交的，迁移失败时不会回滚。需要中止迁移的检查要放在所有 DDL 之前，例如 V7 里对重复手机号的检查。
+达梦的 DDL 是自动提交的，迁移失败时不会回滚。
+
+发布之后新增的脚本里，需要中止迁移的检查要放在这个脚本的所有 DDL 之前。基线里原 V7 那一段对重复手机号的检查就是这样写的。
 
 迁移失败后，`flyway_schema_history` 里会留下一条 `success = 0` 的记录。
 

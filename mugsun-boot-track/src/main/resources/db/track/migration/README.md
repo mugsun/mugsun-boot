@@ -15,37 +15,49 @@
 
 把 `mugsun.track.flyway-enabled` 设为 `false`，可以跳过建库和迁移。这时埋点库要事先手工建好。
 
-## 规则
+## 目录里有什么
 
-- `T1__baseline_0_1.sql` 是 0.1.0 的发布基线，合并了更早的 T1 到 T9。它已经发布，不能修改。
-- 之后每次改库都新增一个 `Tn__说明.sql`，版本号从 T2 起递增。
-
-已发布的清单和主库共用，是仓库根目录的 `db/RELEASED.sha256`。
-
-## 脚本清单
-
-| 脚本 | 内容 |
+| 迁移 | 内容 |
 | --- | --- |
-| `T1__baseline_0_1.sql` | 0.1.0 的发布基线 |
+| `T1__baseline_0_2.sql` | 0.2 的基线。全新安装只执行这一个 SQL 文件 |
+| `T4__track_event_timeline_index_partitions` | Java 迁移，在 `db.track.migration` 包里。给各个分区建时间线索引 |
+
+全新的埋点库迁移完，`flyway_schema_history` 里只有这两条记录。
+
+基线由 0.1.0 的基线和它之后的 T2、T3、T5 按版本号顺序拼成，语句没有改动。每一段前面有一行 `-- 原 <文件名>`。
+
+| 原脚本 | 内容 |
+| --- | --- |
+| `T1__baseline_0_1.sql` | 0.1.0 的发布基线，合并了更早的 T1 到 T9 |
 | `T2__track_stats_day_uv_backup.sql` | 备份表 `track_stats_day_uv_backup`。回填历史 UV 之前，把要改的行的旧值存在这里 |
 | `T3__track_event_timeline_index.sql` | 用户时间线用的两个索引，只建在父表上 |
-| `T4__track_event_timeline_index_partitions` | Java 迁移，在 `db.track.migration` 包里。给各个分区建时间线索引 |
 | `T5__track_error_issue.sql` | 错误问题单表 `track_error_issue`，支持指派、解决和复发 |
 
-新增迁移时，请在这张表里加一行。
+T4 不在基线里。它不能在事务里执行，所以仍是单独的 Java 迁移，在基线之后执行。
 
-### T3 和 T4：时间线索引
+## 规则
 
-T3 建两个索引：
+- 0.2 发布之前，改库直接改基线，改完要重建埋点库。
+- 0.2 发布之后，基线不能修改，每次改库都新增一个 `Tn__说明.sql`。
+- 新脚本的版本号取 `main` 上最大的号加 1。Java 迁移 T4 也占号，所以基线之后的第一个新脚本是 `T5`。
+- 用合并之前的脚本建的埋点库不能原地升级，要重建。
+
+发布清单和主库共用，是仓库根目录的 `db/RELEASED-0.2.sha256`。
+
+完整的规则、重建库的做法和合并脚本的用法，见主库迁移目录的说明：`mugsun-boot-core/src/main/resources/db/migration/README.md`。
+
+### 原 T3 和 T4：时间线索引
+
+基线里原 T3 那一段建两个索引：
 
 | 索引 | 列 |
 | --- | --- |
 | `idx_event_user_ts_timeline` | `(app_key, user_id, ts, id)` |
 | `idx_event_distinct_ts_timeline` | `(app_key, distinct_id, ts, id)` |
 
-`track_event` 是按月分区的表。T3 用 `ON ONLY` 只在父表上建索引，这样不会锁住写入。
+`track_event` 是按月分区的表。这一段用 `ON ONLY` 只在父表上建索引，这样不会锁住写入。
 
-T1 里的两个旧索引保留不动，它们的最后一列是 `received_at`：
+原 T1 那一段里的两个旧索引保留不动，它们的最后一列是 `received_at`：
 
 - `idx_event_user_timeline`
 - `idx_event_distinct_timeline`

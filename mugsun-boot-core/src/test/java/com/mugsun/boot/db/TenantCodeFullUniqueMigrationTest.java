@@ -3,20 +3,13 @@ package com.mugsun.boot.db;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** V11（不连库）：三套方言都把 uk_tenant_code 改回全量唯一（uk_tenant_ds_code 不动），查重在任何 DDL 之前（B1） */
+/** 基线里原 V11 那一段（不连库）：三套方言都把 uk_tenant_code 改回全量唯一（uk_tenant_ds_code 不动），查重在任何 DDL 之前（B1） */
 class TenantCodeFullUniqueMigrationTest {
 
-	private static String read(String dir) throws Exception {
-		try (InputStream in = TenantCodeFullUniqueMigrationTest.class.getResourceAsStream(
-			"/db/" + dir + "/V11__tenant_code_full_unique.sql")) {
-			assertThat(in).as(dir + " 缺少 V11").isNotNull();
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-		}
+	private static String read(String dir) {
+		return MigrationBaseline.section(dir, "V11__tenant_code_full_unique.sql");
 	}
 
 	@ParameterizedTest
