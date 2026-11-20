@@ -112,12 +112,7 @@ public class FileController {
 			log.warn("附件上传失败");
 			throw new ServiceException("文件没有上传成功。请到存储配置里检查当前启用的目录或地址，然后再试");
 		}
-		SysAttach attach = toAttach(info, isPublic);
-		// 私有文件不在响应中直接暴露可访问 url，需走授权下载
-		if (!isPublic) {
-			attach.setUrl(null);
-		}
-		return R.data(attach);
+		return R.data(toAttach(info, isPublic));
 	}
 
 	/**
@@ -211,23 +206,24 @@ public class FileController {
 		// 先在服务端复制到客户端不知道的新 key，再对新 key 回验并登记：校验的就是最终登记的那份字节，
 		// 不存在「校验完原 key 后又被覆盖」的竞态。原 key 在暂存前缀，复制后立即删，签名过期后再删一次
 		FileInfo stored = relocateAndVerify(info, isPublic ? OssConstants.PATH_PUBLIC : OssConstants.PATH_PRIVATE);
-		SysAttach attach = toAttach(stored, isPublic);
-		if (!isPublic) {
-			attach.setUrl(null);
-		}
-		return R.data(attach);
+		return R.data(toAttach(stored, isPublic));
 	}
 
 	/**
 	 * 授权下载：登录后按 id 获取可访问 url。
 	 * 云平台私有附件签发限时预签名 GET URL（有效期走 sys_param，过期须重新授权）；
-	 * 本地平台/公开附件返回登记 url（本地私有走 download-stream 授权流式下载）。
+	 * 本地平台/公开附件返回登记 url（本地私有的加短时签名）。
+	 * 配置文件里的本地存储没开直出（prod 默认）时没有能打开的 url，这里直接说明改用 download-stream。
 	 */
 	@GetMapping("/download/{id}")
 	public R<String> download(@PathVariable Long id) {
 		// 租户过滤 + 归属/公开/manage 裁决；跨租户、不存在、无权一律 404
 		SysAttach attach = fileAccessService.requireDownloadable(id, TenantContext.current(),
 			StpUtil.getLoginIdAsLong(), StpUtil::hasPermission);
+		if (!localFileUrlSigner.directAccessEnabled(attach.getPlatform())) {
+			throw new ServiceException("这个文件存在服务器本机，没有可以直接打开的地址。请改用 /system/file/download-stream/"
+				+ id + " 下载");
+		}
 		boolean cloudPrivate = OssConstants.ACCESS_PRIVATE.equals(attach.getAccess())
 			&& !OssConstants.CATEGORY_LOCAL.equals(ossService.categoryOf(attach.getPlatform()));
 		if (cloudPrivate) {
@@ -368,12 +364,16 @@ public class FileController {
 		return R.success("已删除。列表里不会再出现这些附件");
 	}
 
-	/** FileInfo → 响应附件（登记行已由 recorder 落库，主键经 FileInfo.id 回传） */
+	/**
+	 * FileInfo → 响应附件（登记行已由 recorder 落库，主键经 FileInfo.id 回传）。
+	 * 响应里的 url 只在拿去就能打开时才给：私有文件要走授权下载；公开文件存在没开直出的本地存储上时登记 url 是 404，
+	 * 也不给（登记表里照常存着，开了直出就能用）。
+	 */
 	private SysAttach toAttach(FileInfo info, boolean isPublic) {
 		SysAttach attach = new SysAttach();
 		attach.setId(info.getId() == null ? null : Long.valueOf(info.getId()));
 		attach.setName(info.getOriginalFilename());
-		attach.setUrl(info.getUrl());
+		attach.setUrl(isPublic && localFileUrlSigner.directAccessEnabled(info.getPlatform()) ? info.getUrl() : null);
 		attach.setPath(info.getPath());
 		attach.setFilename(info.getFilename());
 		attach.setExt(info.getExt());

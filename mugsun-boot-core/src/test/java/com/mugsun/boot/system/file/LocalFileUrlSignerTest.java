@@ -136,6 +136,38 @@ class LocalFileUrlSignerTest {
 	}
 
 	@Test
+	void directAccessFollowsEnableAccessOfConfiguredLocalPlatforms() {
+		String prefix = "dromara.x-file-storage.local-plus";
+		// prod 默认：配置文件里的本地存储关着直出，登记 url 打不开
+		MockEnvironment off = new MockEnvironment();
+		off.setProperty(prefix + "[0].platform", "local-plus-1");
+		off.setProperty(prefix + "[0].enable-access", "false");
+		LocalFileUrlSigner closed = new LocalFileUrlSigner(props(SECRET), off);
+		assertThat(closed.directAccessEnabled("local-plus-1")).isFalse();
+		// 不在配置文件里的平台（存储配置页加的云存储、自建本地存储）：地址由它自己的域名提供
+		assertThat(closed.directAccessEnabled("minio-1")).isTrue();
+		assertThat(closed.directAccessEnabled(null)).isTrue();
+
+		// 没写 enable-access：存储组件的默认值是不直出
+		MockEnvironment unset = new MockEnvironment();
+		unset.setProperty(prefix + "[0].platform", "local-plus-1");
+		assertThat(new LocalFileUrlSigner(props(SECRET), unset).directAccessEnabled("local-plus-1")).isFalse();
+
+		// 按平台各算各的
+		MockEnvironment mixed = new MockEnvironment();
+		mixed.setProperty(prefix + "[0].platform", "local-plus-1");
+		mixed.setProperty(prefix + "[0].enable-access", "true");
+		mixed.setProperty(prefix + "[1].platform", "local-plus-2");
+		mixed.setProperty(prefix + "[1].enable-access", "false");
+		LocalFileUrlSigner signer = new LocalFileUrlSigner(props(SECRET), mixed);
+		assertThat(signer.directAccessEnabled("local-plus-1")).isTrue();
+		assertThat(signer.directAccessEnabled("local-plus-2")).isFalse();
+
+		// 拿不到配置（直接 new）：不做限制
+		assertThat(new LocalFileUrlSigner(props(SECRET)).directAccessEnabled("local-plus-1")).isTrue();
+	}
+
+	@Test
 	void servedFilesGetNosniffAndActiveTypesForcedToDownload() throws Exception {
 		LocalFileAccessProperties p = props(SECRET);
 		LocalFileUrlSigner signer = new LocalFileUrlSigner(p);

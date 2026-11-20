@@ -15,6 +15,8 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.util.Base64;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 本地存储直出链接的短时签名：s = base64url(HMAC-SHA256(secret, relPath + "\n" + e))。
@@ -30,6 +32,8 @@ public class LocalFileUrlSigner {
 
 	private final LocalFileAccessProperties properties;
 	private final byte[] key;
+	/** 配置文件里没开直出（enable-access 不是 true）的本地存储平台名 */
+	private final Set<String> closedPlatforms;
 	private Clock clock = Clock.systemUTC();
 
 	public LocalFileUrlSigner(LocalFileAccessProperties properties) {
@@ -39,6 +43,7 @@ public class LocalFileUrlSigner {
 	@org.springframework.beans.factory.annotation.Autowired
 	public LocalFileUrlSigner(LocalFileAccessProperties properties, Environment env) {
 		this.properties = properties;
+		this.closedPlatforms = closedPlatformsOf(env);
 		String secret = properties.getSignSecret() == null ? null : properties.getSignSecret().strip();
 		boolean prodDirect = env != null && env.acceptsProfiles(Profiles.of("prod")) && localAccessEnabled(env);
 		if (prodDirect && secret != null && !secret.isEmpty() && secret.length() < MIN_SECRET_LEN) {
@@ -109,6 +114,31 @@ public class LocalFileUrlSigner {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * 这个存储平台上的文件，登记 url 能不能直接打开。配置文件里的本地存储没开直出（prod 默认）时不能：
+	 * {@code /file/**} 后面没有东西输出文件，公开文件和签了名的私有地址都是 404，这时要走授权流式下载。
+	 * 不在配置文件里的平台（存储配置页加的云存储、自建本地存储）地址由它自己的域名提供，一律算能打开。
+	 */
+	public boolean directAccessEnabled(String platform) {
+		return platform == null || !closedPlatforms.contains(platform);
+	}
+
+	private static Set<String> closedPlatformsOf(Environment env) {
+		Set<String> closed = new HashSet<>();
+		if (env == null) {
+			return closed;
+		}
+		for (int i = 0; i < 16; i++) {
+			String prefix = "dromara.x-file-storage.local-plus[" + i + "].";
+			String platform = env.getProperty(prefix + "platform");
+			if (platform != null && !platform.isBlank()
+				&& !Boolean.TRUE.equals(env.getProperty(prefix + "enable-access", Boolean.class))) {
+				closed.add(platform.trim());
+			}
+		}
+		return closed;
 	}
 
 	/** 校验签名与过期；任何解析失败一律 false */
