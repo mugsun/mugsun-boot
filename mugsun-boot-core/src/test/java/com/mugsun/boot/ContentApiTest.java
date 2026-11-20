@@ -4,8 +4,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 内容域回归：帮助文档目录/文档/浏览量、更新日志、意见反馈提交与管理；低权写 403。
+ * 正文图片：有内容管理权限的人能上传，不登录能读，读取口只认正文图片。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ContentApiTest extends AbstractIntegrationTest {
@@ -21,6 +31,10 @@ class ContentApiTest extends AbstractIntegrationTest {
 	private static final String TS = String.valueOf(System.currentTimeMillis());
 	private static final String LOW_USERNAME = "it_cnt_none_" + TS;
 	private static final String LOW_PASSWORD = NEW_USER_PASSWORD;
+
+	private static final String IMAGE_UPLOAD = "/system/richtext/image/upload";
+	private static final String IMAGE_RAW = "/system/richtext/image/raw/";
+	private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 'I', 'H', 'D', 'R'};
 
 	private String adminToken;
 	private String lowToken;
@@ -161,6 +175,88 @@ class ContentApiTest extends AbstractIntegrationTest {
 		JsonNode ok = readBody(post("/system/feedback/submit",
 			Map.of("content", "低权用户合法反馈-" + TS), lowToken));
 		assertThat(ok.path("code").asInt()).isEqualTo(200);
+	}
+
+	@Test
+	void richTextImageUploadThenAnonymousRead() {
+		JsonNode upload = readBody(uploadFile(IMAGE_UPLOAD, adminToken, "diagram.png", PNG, null));
+		assertThat(upload.path("code").asInt()).as("上传：" + upload.path("msg").asText()).isEqualTo(200);
+		JsonNode attach = upload.path("data");
+		String url = attach.path("url").asText();
+		assertThat(url).matches("/system/richtext/image/raw/\\d+/[0-9a-f]{32}\\.png");
+		assertThat(attach.path("access").asText()).isEqualTo("public");
+		assertThat(attach.path("name").asText()).isEqualTo("diagram.png");
+
+		// 不带登录令牌就能读到，可以直接放进 <img src>
+		ResponseEntity<byte[]> image = rest.exchange(URI.create("http://127.0.0.1:" + port + url), HttpMethod.GET,
+			HttpEntity.EMPTY, byte[].class);
+		assertThat(image.getStatusCode().value()).isEqualTo(200);
+		assertThat(image.getBody()).isEqualTo(PNG);
+		assertThat(image.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE)).startsWith("image/png");
+		assertThat(image.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+		assertThat(image.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL)).contains("max-age=86400");
+		assertThat(image.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION)).as("图片要能直接显示，不能当附件下载").isNull();
+
+		// 编号是递增的，只知道编号读不到：文件名必须对得上
+		String id = attach.path("id").asText();
+		assertThat(anonymousStatus(IMAGE_RAW + id + "/00000000000000000000000000000000.png")).isEqualTo(404);
+		assertThat(anonymousStatus(IMAGE_RAW + "not-a-number/x.png")).isEqualTo(404);
+		// 头像的读取口读不到正文图片
+		assertThat(anonymousStatus("/auth/avatar/raw/" + id)).isEqualTo(404);
+	}
+
+	@Test
+	void richTextImageReadRefusesOrdinaryPublicAttachment() {
+		// 普通的公开附件不在正文图片区，编号和文件名都对也读不到
+		JsonNode upload = readBody(uploadFile("/system/file/upload", adminToken, "plain.png", PNG, "public"));
+		assertThat(upload.path("code").asInt()).as("上传：" + upload.path("msg").asText()).isEqualTo(200);
+		JsonNode attach = upload.path("data");
+		assertThat(attach.path("access").asText()).isEqualTo("public");
+		assertThat(anonymousStatus(IMAGE_RAW + attach.path("id").asText() + "/" + attach.path("filename").asText()))
+			.isEqualTo(404);
+	}
+
+	@Test
+	void richTextImageUploadAcceptsOnlyRealPictures() {
+		JsonNode text = readBody(uploadFile(IMAGE_UPLOAD, adminToken, "note.txt",
+			"hello".getBytes(StandardCharsets.UTF_8), null));
+		assertThat(text.path("code").asInt()).isNotEqualTo(200);
+		assertThat(text.path("msg").asText()).contains("png");
+
+		JsonNode svg = readBody(uploadFile(IMAGE_UPLOAD, adminToken, "x.svg",
+			"<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>".getBytes(StandardCharsets.UTF_8), null));
+		assertThat(svg.path("code").asInt()).isNotEqualTo(200);
+
+		// 改了扩展名的网页：文件头对不上
+		JsonNode renamed = readBody(uploadFile(IMAGE_UPLOAD, adminToken, "page.png",
+			"<html><script>alert(1)</script></html>".getBytes(StandardCharsets.UTF_8), null));
+		assertThat(renamed.path("code").asInt()).isNotEqualTo(200);
+	}
+
+	@Test
+	void lowPermissionCannotUploadRichTextImage() {
+		assertThat(uploadFile(IMAGE_UPLOAD, lowToken, "a.png", PNG, null).getStatusCode().value()).isEqualTo(403);
+	}
+
+	private ResponseEntity<String> uploadFile(String path, String token, String filename, byte[] content, String access) {
+		HttpHeaders headers = authHeaders(token);
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+		MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+		body.add("file", new ByteArrayResource(content) {
+			@Override
+			public String getFilename() {
+				return filename;
+			}
+		});
+		if (access != null) {
+			body.add("access", access);
+		}
+		return rest.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+	}
+
+	private int anonymousStatus(String path) {
+		return rest.exchange(URI.create("http://127.0.0.1:" + port + path), HttpMethod.GET, HttpEntity.EMPTY, String.class)
+			.getStatusCode().value();
 	}
 
 	private long findCatalogId(JsonNode nodes, String name) {

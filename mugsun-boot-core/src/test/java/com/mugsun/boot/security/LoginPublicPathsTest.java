@@ -22,6 +22,7 @@ class LoginPublicPathsTest {
 		"/actuator/health", "/actuator/health/liveness", "/actuator/info",
 		"/auth/captcha/config", "/app/captcha/generate",
 		"/auth/avatar/raw/42",
+		"/system/richtext/image/raw/42/0123456789abcdef0123456789abcdef.png",
 		"/auth/social/render/github",
 		"/open/ping", "/open/user/list",
 		"/v1/models", "/v1/chat/completions",
@@ -52,7 +53,9 @@ class LoginPublicPathsTest {
 		"/v1x/models",
 		"/system/user/list",
 		"/system/track/app/list",
-		"/auth/avatar/upload"
+		"/auth/avatar/upload",
+		"/system/richtext/image/upload",
+		"/system/richtext/image"
 	})
 	@DisplayName("非白名单须登录")
 	void protectedPaths(String path) {

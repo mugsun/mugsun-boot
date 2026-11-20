@@ -117,8 +117,8 @@ class MultipartAuthFilterApiTest extends AbstractIntegrationTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"/system/file/upload", "/auth/avatar/upload", "/system/user/import",
-		"/system/region/import"})
+	@ValueSource(strings = {"/system/file/upload", "/auth/avatar/upload", "/system/richtext/image/upload",
+		"/system/user/import", "/system/region/import"})
 	@DisplayName("未登录 multipart 到上传接口：401，不解析")
 	void anonymousUploadIs401(String path) throws Exception {
 		HttpResponse<String> r = send(path, "multipart/form-data", null);
@@ -309,8 +309,8 @@ class MultipartAuthFilterApiTest extends AbstractIntegrationTest {
 	@DisplayName("从注解推导的上传接口都在白名单里（core 单模块缺 sourcemap 接口）")
 	void whitelistMatchesAnnotatedEndpoints() {
 		assertThat(audit.multipartEndpoints())
-			.containsExactlyInAnyOrder("/system/file/upload", "/auth/avatar/upload", "/system/user/import",
-				"/system/region/import");
+			.containsExactlyInAnyOrder("/system/file/upload", "/auth/avatar/upload", "/system/richtext/image/upload",
+				"/system/user/import", "/system/region/import");
 		assertThat(MultipartGuardProperties.DEFAULT_ALLOWED_PATHS).containsAll(audit.multipartEndpoints());
 	}
 }

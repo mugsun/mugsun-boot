@@ -55,7 +55,7 @@ public final class LoginPublicPaths {
 	 *   <li>{@code /v1}：AI OpenAPI，Bearer sk- 自鉴权</li>
 	 *   <li>{@code /file}：本地直出，由 {@code LocalFileAccessFilter} 签名/公开前缀守卫</li>
 	 *   <li>{@code /track}：埋点 SDK 采集（管理台在 {@code /system/track}）</li>
-	 *   <li>验证码 / 头像 raw / 社交 authorize URL / actuator 探活 / OpenAPI 文档</li>
+	 *   <li>验证码 / 头像 raw / 正文图片 raw / 社交 authorize URL / actuator 探活 / OpenAPI 文档</li>
 	 * </ul>
 	 */
 	public static final List<String> PREFIXES = List.of(
@@ -66,6 +66,7 @@ public final class LoginPublicPaths {
 		"/auth/captcha",
 		"/app/captcha",
 		"/auth/avatar/raw",
+		"/system/richtext/image/raw",
 		"/auth/social/render",
 		"/actuator/health",
 		"/actuator/info",

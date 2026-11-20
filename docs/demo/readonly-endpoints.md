@@ -267,6 +267,7 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/system/report/remove` | SysReportController#removeBatch | 拒绝 |
 | POST | `/system/report/remove/{id}` | SysReportController#remove | 拒绝 |
 | POST | `/system/report/submit` | SysReportController#submit | 拒绝 |
+| POST | `/system/richtext/image/upload` | RichTextImageController#upload | 拒绝 |
 | POST | `/system/role/grant` | SysRoleController#grant | 拒绝 |
 | POST | `/system/role/remove` | SysRoleController#remove | 拒绝 |
 | POST | `/system/role/submit` | SysRoleController#submit | 拒绝 |
