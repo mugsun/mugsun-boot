@@ -17,6 +17,7 @@ import com.mugsun.boot.system.excel.SysUserExcel;
 import com.mugsun.boot.system.excel.SysUserExportExcel;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
+import com.mugsun.boot.system.service.UserSelectOptions;
 import com.mugsun.boot.system.payload.StatusParam;
 import com.mugsun.boot.system.payload.UserGrantParam;
 import com.mugsun.boot.system.payload.UserImportResult;
@@ -286,27 +287,7 @@ public class SysUserController {
 	@DataScope
 	public R<List<java.util.Map<String, Object>>> select(@RequestParam(required = false) String keyword,
 			@RequestParam(required = false) List<Long> ids) {
-		QueryWrapper query = QueryWrapper.create();
-		if (ids != null && !ids.isEmpty()) {
-			query.in("id", ids);
-		} else {
-			query.eq("status", 1);
-			if (keyword != null && !keyword.isBlank()) {
-				String kw = keyword.trim();
-				// QueryCondition.or 自动加 Brackets 分组（同 DataScopeEngine 惯用法），生成 AND (username LIKE ? OR nickname LIKE ?)
-				query.and(new QueryColumn("username").like(kw).or(new QueryColumn("nickname").like(kw)));
-			}
-			query.orderBy("id", false).limit(UserConstants.USER_SELECT_LIMIT);
-		}
-		return R.data(userMapper.selectListByQuery(query).stream()
-			.map(u -> {
-				java.util.Map<String, Object> option = new java.util.HashMap<>();
-				option.put("value", u.getId());
-				option.put("label", (u.getNickname() == null ? u.getUsername() : u.getNickname())
-					+ "（" + u.getUsername() + "）");
-				return option;
-			})
-			.toList());
+		return R.data(UserSelectOptions.of(userMapper.selectListByQuery(UserSelectOptions.query(keyword, ids))));
 	}
 
 	/**

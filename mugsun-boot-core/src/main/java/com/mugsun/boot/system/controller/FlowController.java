@@ -394,6 +394,16 @@ public class FlowController {
 		return R.data(flowService.taskButtons(taskId));
 	}
 
+	/**
+	 * 转办、委派、加签、减签、抄送的选人列表（value=用户 id / label=昵称（用户名），keyword 按用户名或昵称搜）。
+	 * 只给这条待办的办理人，不要求用户管理的权限码：只有审批菜单的普通员工也要能把待办转给同事。
+	 */
+	@GetMapping("/task/user-select")
+	public R<List<Map<String, Object>>> taskUserSelect(@RequestParam Long taskId,
+			@RequestParam(required = false) String keyword) {
+		return R.data(flowService.taskUserOptions(taskId, keyword));
+	}
+
 	// ==================== 审批动作（任务办理，鉴权由 warm-flow 办理人校验，豁免 RBAC 码守卫） ====================
 
 	/** 办理（通过）：可携带办理阶段表单数据合并进流程变量 */

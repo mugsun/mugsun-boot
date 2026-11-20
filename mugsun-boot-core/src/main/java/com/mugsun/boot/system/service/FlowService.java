@@ -6,6 +6,7 @@ import com.mugsun.boot.common.constant.FlowConstants;
 import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.RuntimeSql;
+import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
@@ -43,6 +44,7 @@ public class FlowService {
 
 	private final HandlerSelectService selectService;
 	private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+	private final SysUserMapper userMapper;
 
 	/**
 	 * 金仓：裸名 {@code sys_*} 会命中 SYS_CATALOG，裸 SQL 须 schema 限定业务表。
@@ -50,9 +52,11 @@ public class FlowService {
 	@Value("${mugsun.db.default-schema:}")
 	private String defaultDbSchema;
 
-	public FlowService(HandlerSelectService selectService, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+	public FlowService(HandlerSelectService selectService, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+			SysUserMapper userMapper) {
 		this.selectService = selectService;
 		this.objectMapper = objectMapper;
+		this.userMapper = userMapper;
 	}
 
 	/** 业务表名（可带 default-schema；金仓裸 sys_* 会进 SYS_CATALOG） */
@@ -752,12 +756,7 @@ public class FlowService {
 			throw new ServiceException("一次最多抄送 20 人。请减少后再提交");
 		}
 		Task task = requireTaskInTenant(taskId);
-		List<String> flags = userFlags();
-		List<String> handlers = Db.selectListBySql(
-			"select u.processed_by as \"v\" from flow_user u "
-				+ "where u.associated = ? and u.type in ('1','2','3') and coalesce(u.del_flag,'0') <> '1'", taskId)
-			.stream().map(r -> r.getString("v")).collect(Collectors.toList());
-		if (handlers.stream().noneMatch(flags::contains) && !com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin()) {
+		if (!isHandlerOrPlatformAdmin(taskId)) {
 			throw new ServiceException("只有这条待办的办理人可以抄送。请刷新列表，确认它还在你的待办里");
 		}
 		assertHandlersInTenant(people);
@@ -767,6 +766,29 @@ public class FlowService {
 				IdUtil.getSnowflakeNextId(), USER_TYPE_COPY, u, instanceId);
 		}
 		return "已抄送给 " + people.size() + " 人。他们可以在我的抄送里看到";
+	}
+
+	/**
+	 * 转办、委派、加签、减签、抄送的候选人：只有这条待办的当前办理人（或平台超管）能取，不看用户管理的权限码，也不套数据范围。
+	 * 范围是当前租户的启用用户，和办理时对目标人的校验（{@link #assertHandlersInTenant}）一致：
+	 * 办理人本来就能把待办交给本租户任何一个人，这里只是让他按名字选，不用手填用户 id。
+	 */
+	public List<Map<String, Object>> taskUserOptions(Long taskId, String keyword) {
+		requireTaskInTenant(taskId);
+		if (!isHandlerOrPlatformAdmin(taskId)) {
+			throw new ServiceException("只有这条待办的办理人可以选人。请刷新列表，确认它还在你的待办里");
+		}
+		return UserSelectOptions.of(userMapper.selectListByQuery(UserSelectOptions.query(keyword, null)));
+	}
+
+	/** 当前用户是这条待办的办理人（审批人、被转办人、被委派人，按角色码或用户 id 对上），或者是平台超管 */
+	private boolean isHandlerOrPlatformAdmin(Long taskId) {
+		List<String> flags = userFlags();
+		boolean handler = Db.selectListBySql(
+			"select u.processed_by as \"v\" from flow_user u "
+				+ "where u.associated = ? and u.type in ('1','2','3') and coalesce(u.del_flag,'0') <> '1'", taskId)
+			.stream().map(r -> r.getString("v")).anyMatch(flags::contains);
+		return handler || com.mugsun.boot.tenant.TenantContext.isPlatformSuperAdmin();
 	}
 
 	/** 目标办理人/被抄送人归属校验：数字 id 须为本租户用户（角色码等非 id 标识交引擎匹配，租户边界由实例归属保证） */
