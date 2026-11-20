@@ -14,10 +14,11 @@ public final class AuditMask {
 
 	private static final int MAX_LEN = 2000;
 	// 名单与 ApiParamMask 同源：密码/密钥/令牌/凭据类 + PII（手机号/身份证）+ 验证码类（一次性码亦不落明文）
+	// paramsSample 是 AI 渠道的 Webhook 地址，地址里带着群机器人的 key
 	private static final String SENSITIVE_KEYS = "password|oldPassword|newPassword|initialPassword|adminPassword|oneTimePassword|dsPassword|pwd|passwd|"
 		+ "secret|clientSecret|client_secret|apiKey|api_key|apikey|secretKey|secret_key|appSecret|app_secret|"
 		+ "accessKeySecret|accessToken|access_token|refreshToken|refresh_token|"
-		+ "token|credential|credentials|privateKey|sign|"
+		+ "token|credential|credentials|privateKey|sign|paramsSample|params_sample|"
 		+ "phone|mobile|idCard|idcard|id_card|code|smsCode|captchaCode|captcha_code";
 	private static final Pattern MASK = Pattern.compile(
 		"(?i)(\"(?:" + SENSITIVE_KEYS + ")\"\\s*:\\s*)\"[^\"]*\"");

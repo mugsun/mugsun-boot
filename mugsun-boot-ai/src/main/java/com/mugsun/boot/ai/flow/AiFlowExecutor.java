@@ -393,7 +393,10 @@ public class AiFlowExecutor {
 					if (channelId == null) {
 						throw new ServiceException("notice 节点请配置 channelId");
 					}
-					Map<String, Object> sent = channelBizService.send(channelId, content, vars);
+					Map<String, Object> sent = channelBizService.send(channelId, content, noticeVars(data, vars));
+					if (!Boolean.TRUE.equals(sent.get("ok"))) {
+						throw new ServiceException(String.valueOf(sent.get("message")));
+					}
 					output = objectMapper.writeValueAsString(sent);
 					bindOut(vars, data, output);
 				}
@@ -955,6 +958,28 @@ public class AiFlowExecutor {
 		if (!outVar.isBlank()) {
 			vars.put(outVar, output);
 		}
+	}
+
+	/**
+	 * 通知节点带给 Webhook 的变量：默认一个都不带，流程变量里可能有不该发到外面的内容；
+	 * 节点配置了 vars（变量名数组，或用逗号分开的一串）时，只带点了名的那几个。
+	 */
+	static Map<String, Object> noticeVars(JsonNode data, Map<String, Object> vars) {
+		JsonNode cfg = data.path("vars");
+		List<String> names = new ArrayList<>();
+		if (cfg.isArray()) {
+			cfg.forEach(n -> names.add(n.asText("")));
+		} else if (cfg.isTextual()) {
+			names.addAll(Arrays.asList(cfg.asText().split("[,，\\s]+")));
+		}
+		Map<String, Object> picked = new LinkedHashMap<>();
+		for (String raw : names) {
+			String name = raw.trim();
+			if (!name.isEmpty() && vars.containsKey(name)) {
+				picked.put(name, vars.get(name));
+			}
+		}
+		return picked;
 	}
 
 	private long toLong(Object v) {

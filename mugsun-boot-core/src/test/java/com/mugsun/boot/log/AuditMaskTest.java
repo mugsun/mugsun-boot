@@ -25,6 +25,15 @@ class AuditMaskTest {
 	}
 
 	@Test
+	void aiChannelWebhookAddressIsMasked() {
+		Map<String, Object> body = Map.of("alias", "发布通知群", "channelCode", "wecom",
+			"paramsSample", "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=plain-key-666");
+		String logged = AuditMask.maskAndTruncate(om, new Object[]{body});
+		assertThat(logged).doesNotContain("plain-key-666", "qyapi.weixin.qq.com");
+		assertThat(logged).contains("发布通知群", "wecom");
+	}
+
+	@Test
 	void escapedValueWithInnerEscapesIsFullyMasked() {
 		String dsl = "{\"apiKey\":\"a\\\\b-sk-plain-555\"}";
 		String logged = AuditMask.maskAndTruncate(om, new Object[]{Map.of("dsl", dsl)});

@@ -18,13 +18,16 @@ import java.util.Set;
  */
 public final class ApiParamMask {
 
-	/** 敏感 key 名单（小写比较）：密码/密钥/令牌/凭据/签名类 + PII（手机号/身份证）+ 验证码类（与 AuditMask 同源） */
+	/**
+	 * 敏感 key 名单（小写比较）：密码/密钥/令牌/凭据/签名类 + PII（手机号/身份证）+ 验证码类（与 AuditMask 同源）。
+	 * paramssample 是 AI 渠道的 Webhook 地址，地址里带着群机器人的 key。
+	 */
 	private static final Set<String> SENSITIVE = Set.of(
 		"password", "oldpassword", "newpassword", "initialpassword", "adminpassword", "onetimepassword",
 		"dspassword", "pwd", "passwd",
 		"secret", "clientsecret", "client_secret", "apikey", "accesstoken", "access_token",
 		"refreshtoken", "refresh_token", "token",
-		"credential", "credentials", "privatekey", "sign",
+		"credential", "credentials", "privatekey", "sign", "paramssample", "params_sample",
 		"phone", "mobile", "idcard", "id_card", "code", "smscode", "captchacode", "captcha_code");
 
 	private ApiParamMask() {
