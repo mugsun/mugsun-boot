@@ -140,6 +140,11 @@ public class AiDatasourceBizService {
 			return body;
 		}
 		AiDatasource db = require(body.getId());
+		// 地址变了就不沿用库里的密码：否则把地址改成自己的服务器，测试连接和读表清单时会带着原来的密码连过去
+		if (!url.equals(db.getJdbcUrl() == null ? "" : db.getJdbcUrl().trim()) && password.isEmpty()
+			&& db.getPassword() != null && !db.getPassword().isEmpty()) {
+			throw new ServiceException("JDBC 地址改了，请同时重新填写密码。保存过的密码只用于原来的地址，不会带到新地址");
+		}
 		db.setName(name);
 		db.setDbType(type);
 		db.setJdbcUrl(url);

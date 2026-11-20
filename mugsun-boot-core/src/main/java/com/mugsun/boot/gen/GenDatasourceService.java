@@ -97,7 +97,7 @@ public class GenDatasourceService {
 		}
 		GenDatasource row;
 		if (id == null) {
-			String secret = requireText(password, "请填写数据库口令。保存后不会再显示，修改时留空则沿用原来的口令", 128,
+			String secret = requireText(password, "请填写数据库口令。保存后不会再显示，修改时留空则沿用原来的口令（改了连接地址要重新填）", 128,
 				"数据库口令请控制在 128 字以内");
 			row = new GenDatasource();
 			row.setTenantId(TenantContext.current());
@@ -112,6 +112,11 @@ public class GenDatasourceService {
 			datasourceMapper.insert(row);
 		} else {
 			row = require(id);
+			// 地址变了就不沿用库里的口令：否则把地址改成自己的服务器，下面的连通性检查会带着原来的口令连过去
+			if ((password == null || password.isBlank()) && !jdbcUrl.equals(row.getJdbcUrl())
+				&& row.getPassword() != null && !row.getPassword().isBlank()) {
+				throw new ServiceException("连接地址改了，请同时重新填写数据库口令。保存过的口令只用于原来的地址，不会带到新地址");
+			}
 			if (password != null && !password.isBlank()) {
 				if (password.trim().length() > 128) {
 					throw new ServiceException("数据库口令请控制在 128 字以内");

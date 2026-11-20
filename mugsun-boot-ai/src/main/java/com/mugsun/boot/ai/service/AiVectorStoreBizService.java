@@ -127,6 +127,13 @@ public class AiVectorStoreBizService {
 			return body;
 		}
 		AiVectorStore db = require(body.getId());
+		// 主机或端口变了就不沿用库里的密码：否则把地址改成自己的服务器，测试连接时会带着原来的密码连过去。
+		// 库名不比：换库名连的还是同一台服务器
+		boolean sameServer = host.equals(db.getHost() == null ? "" : db.getHost().trim())
+			&& java.util.Objects.equals(body.getPort(), db.getPort());
+		if (!sameServer && password.isEmpty() && db.getPassword() != null && !db.getPassword().isEmpty()) {
+			throw new ServiceException("地址改了，请同时重新填写密码。保存过的密码只用于原来的地址，不会带到新地址");
+		}
 		db.setName(name);
 		db.setStoreType(type);
 		db.setHost(host);

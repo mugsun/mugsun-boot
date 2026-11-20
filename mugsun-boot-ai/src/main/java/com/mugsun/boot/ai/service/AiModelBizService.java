@@ -163,6 +163,20 @@ public class AiModelBizService {
 		AiModel db = require(body.getId());
 		String keepApi = db.getApiKey();
 		String keepSecret = db.getSecretKey();
+		// 地址变了就不沿用库里的密钥：否则把地址改成自己的服务器，下面的探活和之后的调用会把原来的密钥带过去
+		if (!baseUrl.equals(db.getBaseUrl() == null ? "" : db.getBaseUrl().trim())) {
+			List<String> missing = new java.util.ArrayList<>();
+			if (hasText(keepApi) && !hasText(body.getApiKey())) {
+				missing.add("API Key");
+			}
+			if (hasText(keepSecret) && !hasText(body.getSecretKey())) {
+				missing.add("Secret Key");
+			}
+			if (!missing.isEmpty()) {
+				throw new ServiceException("接口地址改了，请同时重新填写 " + String.join(" 和 ", missing)
+					+ "。保存过的密钥只用于原来的地址，不会带到新地址");
+			}
+		}
 		body.sanitizeForUpdate();
 		if (body.getApiKey() == null || body.getApiKey().isBlank()) {
 			body.setApiKey(keepApi);
@@ -177,6 +191,10 @@ public class AiModelBizService {
 		modelMapper.update(body);
 		mask(body);
 		return body;
+	}
+
+	private static boolean hasText(String s) {
+		return s != null && !s.isBlank();
 	}
 
 	public List<AiModel> remove(List<Long> ids) {

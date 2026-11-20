@@ -150,6 +150,11 @@ public class AiMcpBizService {
 		if (db.getLockFlag() != null && db.getLockFlag() == AiConstants.FLAG_YES) {
 			throw new ServiceException("这个工具已锁定。请先解锁再改");
 		}
+		// 地址变了就不沿用库里的密钥：否则把地址改成自己的服务器，解析和调用时会把原来的密钥放在请求头里带过去
+		if (!sseUrl.isEmpty() && !sseUrl.equals(db.getSseUrl() == null ? "" : db.getSseUrl().trim())
+			&& apiKey.isEmpty() && db.getApiKey() != null && !db.getApiKey().isBlank()) {
+			throw new ServiceException("地址改了，请同时重新填写密钥。保存过的密钥只用于原来的地址，不会带到新地址");
+		}
 		db.setName(name);
 		db.setDescription(description);
 		db.setCategory(category);
