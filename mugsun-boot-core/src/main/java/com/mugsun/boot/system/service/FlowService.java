@@ -17,15 +17,19 @@ import org.dromara.warm.flow.core.entity.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -42,9 +46,16 @@ public class FlowService {
 	/** 抄送用户类型（warm-flow 引擎不识别，仅应用层读写；引擎办理人为 1/2/3） */
 	private static final String USER_TYPE_COPY = "C";
 
+	private static final String START_LOCK_PREFIX = "mugsun:flow:start:";
+	/** 发起请求要同步跑完后面的自动节点，AI 预审一个节点最长等 5 分钟；锁留得比它长，请求结束时会主动释放 */
+	private static final Duration START_LOCK_TTL = Duration.ofMinutes(10);
+	private static final String RELEASE_LOCK =
+		"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
 	private final HandlerSelectService selectService;
 	private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 	private final SysUserMapper userMapper;
+	private final StringRedisTemplate redis;
 
 	/**
 	 * 金仓：裸名 {@code sys_*} 会命中 SYS_CATALOG，裸 SQL 须 schema 限定业务表。
@@ -53,10 +64,11 @@ public class FlowService {
 	private String defaultDbSchema;
 
 	public FlowService(HandlerSelectService selectService, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-			SysUserMapper userMapper) {
+			SysUserMapper userMapper, StringRedisTemplate redis) {
 		this.selectService = selectService;
 		this.objectMapper = objectMapper;
 		this.userMapper = userMapper;
+		this.redis = redis;
 	}
 
 	/** 业务表名（可带 default-schema；金仓裸 sys_* 会进 SYS_CATALOG） */
@@ -523,6 +535,72 @@ public class FlowService {
 		}
 	}
 
+	/**
+	 * 按流程码发起。同一个流程码 + 业务单号已经有没办完的流程时不再发起：发起请求可能要等很久（后面跟着 AI 预审时），
+	 * 等不及的人会再点一次，不拦的话同一份申请会起出两条流程。
+	 */
+	public Instance startByCode(String flowCode, String businessId, Map<String, Object> variable) {
+		return startLocked(flowCode, businessId, () -> {
+			assertBusinessNotRunning(flowCode, businessId);
+			FlowParams flowParams = FlowParams.build().flowCode(flowCode).handler(uid());
+			if (variable != null && !variable.isEmpty()) {
+				// 发起携带业务数据 → 落 flow_instance.variable
+				flowParams.variable(variable);
+			}
+			return FlowEngine.insService().start(businessId, flowParams);
+		});
+	}
+
+	/**
+	 * 同一个流程码 + 业务单号的发起一次只放行一个，后到的直接拒绝：两个请求同时进来时，会都先查到「还没有」再各自发起，
+	 * 光靠查库拦不住。
+	 */
+	public <T> T startLocked(String flowCode, String businessId, Supplier<T> action) {
+		String tenant = starterTenant();
+		String key = START_LOCK_PREFIX + (tenant == null ? "-" : tenant) + ":" + flowCode + ":" + businessId;
+		String token = IdUtil.fastSimpleUUID();
+		Boolean acquired = redis.opsForValue().setIfAbsent(key, token, START_LOCK_TTL);
+		if (!Boolean.TRUE.equals(acquired)) {
+			throw new ServiceException("这张单子正在发起，还没有处理完。请不要重复提交，稍后到审批中心的我发起里查看");
+		}
+		try {
+			return action.get();
+		} finally {
+			redis.execute(new DefaultRedisScript<>(RELEASE_LOCK, Long.class), List.of(key), token);
+		}
+	}
+
+	/**
+	 * 同一个流程码 + 业务单号已经有还在办的流程时拒绝再发起。已终止 4、已作废 5、已撤销 6、已完成 8、已失效 10 不算：
+	 * 发起人撤回以后自己没有待办可以处理，得让他能用原来的单号重新提交。
+	 */
+	private void assertBusinessNotRunning(String flowCode, String businessId) {
+		String tenant = starterTenant();
+		List<Object> args = new ArrayList<>(List.of(businessId, flowCode));
+		if (tenant != null) {
+			args.add(tenant);
+		}
+		Row row = firstRow("select i.id from flow_instance i "
+			+ "join flow_definition d on d.id = i.definition_id "
+			+ "where i.business_id = ? and d.flow_code = ? and coalesce(i.del_flag,'0') <> '1' "
+			+ "and i.flow_status not in ('4','5','6','8','10')"
+			+ (tenant == null ? "" : " and " + creatorInTenantSql())
+			+ DbDialects.current().limitOne(),
+			args.toArray());
+		if (row != null) {
+			throw new ServiceException("这个业务单号已经发起过这个流程，还没有办完。请到审批中心的我发起里查看，不用重复提交");
+		}
+	}
+
+	/**
+	 * 发起人自己所在的租户。流程实例归发起人所在的租户，所以这里不看平台管理员切换的查看范围：
+	 * 切到别的租户或「查看全部」时发起的单子，仍然和他自己租户里的单子比。
+	 */
+	private String starterTenant() {
+		Object tenant = StpUtil.getSession().get(com.mugsun.boot.tenant.TenantContext.TENANT_SESSION_KEY);
+		return tenant == null || tenant.toString().isBlank() ? null : tenant.toString();
+	}
+
 	private Row firstRow(String sql, Object... args) {
 		List<Row> rows = Db.selectListBySql(sql, args);
 		return rows.isEmpty() ? null : rows.get(0);
@@ -898,6 +976,11 @@ public class FlowService {
 		if (tenant == null) {
 			return null;
 		}
+		return creatorInTenantSql();
+	}
+
+	/** 「发起人属于某个租户」的 SQL 片段，租户号由调用方作为参数传入 */
+	private String creatorInTenantSql() {
 		// 子查询列必须表别名限定：金仓/PG 在多表 JOIN 下裸 id 会报「字段关联不明确」
 		return "i.create_by in (select " + DbDialects.current().castVarchar("su.id") + " from " + sysUserTable()
 			+ " su where su.tenant_id = ? and su.is_deleted = 0)";

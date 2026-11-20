@@ -184,9 +184,7 @@ public class FlowController {
 	/** 发起流程实例（沿用请假流程码 leave，兼容旧入口） */
 	@PostMapping("/start/{businessId}")
 	public R<Long> start(@PathVariable String businessId) {
-		Instance ins = FlowEngine.insService().start(businessId,
-			FlowParams.build().flowCode("leave").handler(StpUtil.getLoginIdAsString()));
-		return R.data(ins.getId());
+		return R.data(flowService.startByCode("leave", businessId, null).getId());
 	}
 
 	/** 发起请假：必须填写起止时间和理由，并随流程记下，方便审批时查看。 */
@@ -212,16 +210,18 @@ public class FlowController {
 		if (reason.length() > 500) {
 			throw new ServiceException("请假理由请控制在 500 字以内");
 		}
-		flowService.assertLeaveBusinessFree(businessId);
 		Map<String, Object> variable = new LinkedHashMap<>();
 		variable.put("startTime", leave.startTime().trim());
 		variable.put("endTime", leave.endTime().trim());
 		variable.put("reason", reason);
 		try {
-			Instance ins = FlowEngine.insService().start(businessId, FlowParams.build()
-				.flowCode("leave")
-				.handler(StpUtil.getLoginIdAsString())
-				.variable(variable));
+			Instance ins = flowService.startLocked("leave", businessId, () -> {
+				flowService.assertLeaveBusinessFree(businessId);
+				return FlowEngine.insService().start(businessId, FlowParams.build()
+					.flowCode("leave")
+					.handler(StpUtil.getLoginIdAsString())
+					.variable(variable));
+			});
 			return R.data(ins.getId());
 		} catch (ServiceException ex) {
 			throw ex;
@@ -256,12 +256,7 @@ public class FlowController {
 			// 引擎会拿它整个替换首个审批节点设计的办理人：填自己就能审批自己的申请，填别人就绕开了设计的审批人
 			throw new ServiceException("发起时不能指定审批人，审批人由流程设计决定。请去掉请求里的 handlers 后重新发起");
 		}
-		FlowParams flowParams = FlowParams.build().flowCode(flowCode).handler(StpUtil.getLoginIdAsString());
-		if (param != null && param.variable() != null && !param.variable().isEmpty()) {
-			// 发起携带业务数据 → 落 flow_instance.variable
-			flowParams.variable(param.variable());
-		}
-		Instance ins = FlowEngine.insService().start(businessId, flowParams);
+		Instance ins = flowService.startByCode(flowCode, businessId, param == null ? null : param.variable());
 		return R.data(ins.getId());
 	}
 
