@@ -62,6 +62,11 @@
 
 ### 修复
 
+- 修 JetCache 远程缓存写得进、读不出（no decoder for identity number）
+  - 2.7.9 默认解码表没登记 Fastjson2；改用不带编号的 JSON 编解码
+  - 多实例缓存失效广播恢复可解；不再按编号落到 JDK 反序列化
+  - 测试 `JetCacheJsonCodecConfigTest`，`ParamCacheSyncApiTest` 加断言
+
 - 修 tika-parsers 污染 x-file-storage 探测致埋点上传 500
   - ContentTypeDetect 固定 MimeTypes，不加载 parsers Detector SPI
   - 知识库 AutoDetectParser 抽文不变；Track gzip 落储不再 ArchiveException

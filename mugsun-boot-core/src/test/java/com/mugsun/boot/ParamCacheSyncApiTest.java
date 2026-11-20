@@ -5,6 +5,7 @@ import com.alicp.jetcache.CacheManager;
 import com.alicp.jetcache.MultiLevelCache;
 import com.alicp.jetcache.ProxyCache;
 import com.mugsun.boot.system.service.ParamService;
+import com.mugsun.boot.tenant.TenantContext;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -16,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * #90：系统参数 BOTH+syncLocal——绕过服务改库后本地仍命中旧值，evict 后各层失效并读到新值。
  * <p>单 JVM 用「直写 DB + 本地仍脏」模拟多机本地未失效；evict（与写/删同路径）应清掉本地与远程。
  * <p>另断言 {@code broadcastChannel} 已装上 BroadcastManager，避免 channel 为空时静默假绿。
+ * <p>还断言远程一级读得回：远程值解不开时 JetCache 只记日志并回源，功能上看不出来。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ParamCacheSyncApiTest extends AbstractIntegrationTest {
@@ -51,6 +53,11 @@ class ParamCacheSyncApiTest extends AbstractIntegrationTest {
 			"v2", KEY);
 		assertThat(updated).isEqualTo(1);
 		assertThat(paramService.getValue(KEY)).as("未 evict 前应仍命中缓存旧值").isEqualTo("v1");
+
+		@SuppressWarnings("unchecked")
+		Cache<Object, Object> local = (Cache<Object, Object>) ((MultiLevelCache<?, ?>) target).caches()[0];
+		TenantContext.ignore(() -> local.remove(KEY));
+		assertThat(paramService.getValue(KEY)).as("清掉本地一级后应从远程读回旧值，而不是回源读到 v2").isEqualTo("v1");
 
 		paramService.evict(KEY);
 		assertThat(paramService.getValue(KEY)).as("evict 后应读库新值").isEqualTo("v2");
