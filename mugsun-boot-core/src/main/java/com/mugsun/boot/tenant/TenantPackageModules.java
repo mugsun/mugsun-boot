@@ -118,7 +118,9 @@ public final class TenantPackageModules {
 		"/system/feedback/page",
 		"/system/feedback/detail",
 		"/system/feedback/status",
-		"/system/feedback/remove"
+		"/system/feedback/remove",
+		// 反馈附件读取：不看租户取附件，只能给平台超管
+		"/system/feedback/attachment"
 	);
 
 	/**
