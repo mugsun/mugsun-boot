@@ -77,8 +77,14 @@ public class AiApprovalNodeListener implements Listener {
 			return;
 		}
 
+		String instanceTenant = instanceTenant(instance);
+		if (instanceTenant == null) {
+			fail(task, instance, variable, cfg.aiFlowId(), null, AiApprovalConstants.ERR_TENANT_DENIED,
+				"查不到流程发起人所属的租户，AI 预审没有运行", t0, cfg.onFailure(), Map.of());
+			return;
+		}
 		AiApprovalAppGate.GateResult gate = AiApprovalAppGate.load(
-			appMapper, objectMapper, cfg.aiFlowId(), instance.getTenantId());
+			appMapper, objectMapper, cfg.aiFlowId(), instanceTenant);
 		if (!gate.ok()) {
 			fail(task, instance, variable, cfg.aiFlowId(), null, gate.errorCode(), gate.errorMsg(),
 				t0, cfg.onFailure(), Map.of());
@@ -91,12 +97,6 @@ public class AiApprovalNodeListener implements Listener {
 		String inputSummary = summarizeInput(input);
 		Long initiatorId = parseLong(instance.getCreateBy());
 
-		String instanceTenant = instance.getTenantId();
-		if (instanceTenant == null || instanceTenant.isBlank()) {
-			fail(task, instance, variable, cfg.aiFlowId(), null, AiApprovalConstants.ERR_TENANT_DENIED,
-				"流程实例缺少租户（fail-closed）", t0, cfg.onFailure(), inputSummaryMap(inputSummary));
-			return;
-		}
 		long timeoutMs = AiApprovalConstants.clampTimeoutMs(cfg.timeoutMs());
 		Map<String, Object> result;
 		try {
@@ -164,8 +164,25 @@ public class AiApprovalNodeListener implements Listener {
 		}
 	}
 
+	/**
+	 * 实例属于哪个租户。流程引擎的表目前不写租户，实例上取不到时按发起人所属租户算，
+	 * 和 FlowService 判断实例归属的口径一致；发起人也查不到租户就返回 null，由调用方拒绝运行。
+	 */
+	String instanceTenant(Instance instance) {
+		String own = instance.getTenantId();
+		if (own != null && !own.isBlank()) {
+			return own.trim();
+		}
+		String byInitiator = selectService.tenantOfUser(instance.getCreateBy());
+		return byInitiator == null || byInitiator.isBlank() ? null : byInitiator.trim();
+	}
+
 	private void fail(Task task, Instance instance, ListenerVariable variable, Long aiFlowId, Long runId,
 					  String code, String msg, long t0, String onFailure, Map<String, Object> extra) {
+		// 失败策略是留在待办时页面上没有任何提示，日志是唯一能查到原因的地方
+		log.warn("[ai-approval] failed: instance={} node={} app={} code={} msg={} onFailure={}",
+			instance.getId(), task.getNodeCode(), aiFlowId, code,
+			msg == null ? "" : msg.replaceAll("[\\r\\n]+", " "), onFailure);
 		Map<String, Object> merge = new LinkedHashMap<>();
 		if (extra != null) {
 			merge.putAll(extra);

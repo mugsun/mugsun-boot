@@ -96,6 +96,19 @@ public class HandlerSelectService {
 			+ "where u.id = ? and u.is_deleted = 0 and d.leader_id is not null", asLong(userId));
 	}
 
+	/**
+	 * 某用户所属的租户号，查不到返回 null。流程引擎的表不写租户，流程实例属于哪个租户一律按发起人算
+	 * （FlowService.assertInstanceTenant 也是这个口径）。
+	 */
+	public String tenantOfUser(String userId) {
+		if (userId == null || userId.isBlank()) {
+			return null;
+		}
+		List<String> tenants = column("select tenant_id as \"v\" from " + BizTables.of("sys_user")
+			+ " where id = ? and is_deleted = 0", asLong(userId));
+		return tenants.isEmpty() ? null : tenants.get(0).trim();
+	}
+
 	/** 兜底办理人：超管用户 id 集（空候选/审批人==发起人时用，fail-closed） */
 	public List<String> fallbackHandlers() {
 		return byRole(RoleConstants.ADMIN);
