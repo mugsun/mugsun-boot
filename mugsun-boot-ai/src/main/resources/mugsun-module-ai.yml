@@ -5,6 +5,8 @@ mugsun:
     # sys_param ai.module.enabled=false 可运行时关闭
     enabled: ${MUGSUN_AI_ENABLED:true}
 
-  # 知识库资料上传（pdf/docx/pptx）；单文件默认 20MB
-  # kb:
-  #   max-upload-bytes: 20971520
+    # 知识库资料上传（pdf/docx/pptx）：单文件默认 20MB，直接贴正文也按这个上限；
+    # 一份资料最多切成多少段默认 5000（分段在上传请求里同步入库、向量化，段数太多会一直占着请求）
+    # kb:
+    #   max-upload-bytes: 20971520
+    #   max-segments-per-asset: 5000

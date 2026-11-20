@@ -15,6 +15,7 @@ import com.mugsun.boot.ai.support.AiKbProperties;
 import com.mugsun.boot.ai.support.AiKbVectorStore;
 import com.mugsun.boot.ai.support.AiLlmClient;
 import com.mugsun.boot.ai.support.AiRrfFusion;
+import com.mugsun.boot.ai.support.AiSegmentOptions;
 import com.mugsun.boot.ai.support.AiTextSplitter;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -258,6 +259,10 @@ public class AiKnowledgeBizService {
 		AiKnowledge kb = require(body.getKnowledgeId());
 		body.sanitizeForInsert();
 		body.setTenantId(TenantContext.current());
+		AiSegmentOptions options = AiSegmentOptions.strict(body.getSegmentType(), body.getSegmentLength(),
+			body.getSegmentOverlap(), body.getSegmentSymbol());
+		applyOptions(body, options);
+		requirePastedTextWithinLimit(body.getContentText());
 		if (body.getVectorStatus() == null) {
 			body.setVectorStatus("pending");
 		}
@@ -273,7 +278,7 @@ public class AiKnowledgeBizService {
 			}
 			throw new ServiceException(resolved.reason());
 		}
-		return ingestSuccess(kb, body, resolved.text());
+		return ingestSuccess(kb, body, resolved.text(), options);
 	}
 
 	/**
@@ -290,6 +295,7 @@ public class AiKnowledgeBizService {
 			throw new ServiceException("请选择要上传的文件");
 		}
 		AiKnowledge kb = require(knowledgeId);
+		AiSegmentOptions options = AiSegmentOptions.strict(segmentType, segmentLength, segmentOverlap, segmentSymbol);
 		String filename = file.getOriginalFilename();
 		long max = kbProperties.getMaxUploadBytes();
 		if (file.getSize() > max) {
@@ -316,10 +322,7 @@ public class AiKnowledgeBizService {
 		body.setFileName(filename == null || filename.isBlank() ? ("document." + ext) : filename.trim());
 		body.setFileSize((long) bytes.length);
 		body.setFileType(ext);
-		body.setSegmentLength(segmentLength);
-		body.setSegmentOverlap(segmentOverlap);
-		body.setSegmentType(segmentType);
-		body.setSegmentSymbol(segmentSymbol);
+		applyOptions(body, options);
 		body.setVectorStatus("pending");
 		body.setProgress(0);
 		body.setSegmentCount(0);
@@ -331,10 +334,12 @@ public class AiKnowledgeBizService {
 				: "没从文件里抽出正文。可能是扫描件或空文档，当前不支持 OCR");
 			throw new ServiceException(body.getFailReason());
 		}
-		return ingestSuccess(kb, body, text);
+		return ingestSuccess(kb, body, text, options);
 	}
 
-	private AiKnowledgeAsset ingestSuccess(AiKnowledge kb, AiKnowledgeAsset body, String text) {
+	private AiKnowledgeAsset ingestSuccess(AiKnowledge kb, AiKnowledgeAsset body, String text, AiSegmentOptions options) {
+		// 先切段再入库：段数超限时直接拒绝，不留下资料行和半截分段
+		List<String> chunks = chunkWithinLimit(text, options);
 		body.setContentText(text);
 		body.setFailReason(null);
 		body.setVectorStatus("pending");
@@ -345,9 +350,6 @@ public class AiKnowledgeBizService {
 			assetMapper.update(body);
 		}
 
-		int len = body.getSegmentLength() == null || body.getSegmentLength() <= 0 ? 500 : body.getSegmentLength();
-		int overlap = body.getSegmentOverlap() == null ? 50 : Math.max(0, body.getSegmentOverlap());
-		List<String> chunks = chunk(text, len, overlap, body.getSegmentType(), body.getSegmentSymbol());
 		int seq = 0;
 		List<AiKnowledgeSegment> segs = new ArrayList<>();
 		for (String part : chunks) {
@@ -533,21 +535,22 @@ public class AiKnowledgeBizService {
 			throw new ServiceException("这份资料不存在。请刷新列表后再试");
 		}
 		AiKnowledge kb = require(asset.getKnowledgeId());
+		ResolvedContent resolved = resolveContent(asset);
+		if (!resolved.ok()) {
+			throw new ServiceException(resolved.reason() != null ? resolved.reason()
+				: "这份资料还没有正文。请重新上传后再分段");
+		}
+		AiSegmentOptions options = AiSegmentOptions.lenient(asset.getSegmentType(), asset.getSegmentLength(),
+			asset.getSegmentOverlap(), asset.getSegmentSymbol());
+		List<String> chunks = chunkWithinLimit(resolved.text(), options);
+		// 新分段切出来了再删旧的：正文取不到或段数超限时，原来的分段原样保留
 		List<AiKnowledgeSegment> old = segmentMapper.selectListByQuery(
 			QueryWrapper.create().eq("asset_id", assetId));
 		for (AiKnowledgeSegment s : old) {
 			vectorStore.deleteBySegment(s.getId());
 			segmentMapper.deleteById(s.getId());
 		}
-		ResolvedContent resolved = resolveContent(asset);
-		if (!resolved.ok()) {
-			throw new ServiceException(resolved.reason() != null ? resolved.reason()
-				: "这份资料还没有正文。请重新上传后再分段");
-		}
-		String text = resolved.text();
-		int len = asset.getSegmentLength() == null || asset.getSegmentLength() <= 0 ? 500 : asset.getSegmentLength();
-		int overlap = asset.getSegmentOverlap() == null ? 50 : Math.max(0, asset.getSegmentOverlap());
-		List<String> chunks = chunk(text, len, overlap, asset.getSegmentType(), asset.getSegmentSymbol());
+		applyOptions(asset, options);
 		int seq = 0;
 		List<AiKnowledgeSegment> segs = new ArrayList<>();
 		for (String part : chunks) {
@@ -590,8 +593,18 @@ public class AiKnowledgeBizService {
 			throw new ServiceException("这个分段不存在。请刷新列表后再试");
 		}
 		if (body.getContent() != null) {
-			db.setContent(body.getContent());
-			db.setTokenCount(Math.max(1, body.getContent().length() / 2));
+			String content = body.getContent().trim();
+			if (content.isEmpty()) {
+				throw new ServiceException("分段内容不能为空。不想让这段参与检索，可以把它停用");
+			}
+			// 早先按段落、按行切出来的分段可能本来就超长：不变长就允许改，只拦继续变长
+			int limit = Math.max(AiSegmentOptions.MAX_SEGMENT_CHARS, db.getContent() == null ? 0 : db.getContent().length());
+			if (content.length() > limit) {
+				throw new ServiceException("分段内容请控制在 " + limit + " 字以内，现在是 " + content.length()
+					+ " 字。内容多的话请拆成几段，或者作为一份新资料上传");
+			}
+			db.setContent(content);
+			db.setTokenCount(Math.max(1, content.length() / 2));
 			db.setVectorStatus("pending");
 		}
 		db.sanitizeForUpdate();
@@ -986,8 +999,40 @@ public class AiKnowledgeBizService {
 		}
 	}
 
-	static List<String> chunk(String text, int length, int overlap, String type, String symbol) {
-		return AiTextSplitter.split(text, length, overlap, type, symbol);
+	/** 把校验过的分段设置写回资料行，库里存的就是实际用的值 */
+	private static void applyOptions(AiKnowledgeAsset asset, AiSegmentOptions options) {
+		asset.setSegmentType(options.type());
+		asset.setSegmentLength(options.length());
+		asset.setSegmentOverlap(options.overlap());
+		asset.setSegmentSymbol(options.symbol());
+	}
+
+	/** 按分段设置切段；段数超过 {@code mugsun.ai.kb.max-segments-per-asset} 时拒绝，切到上限就停 */
+	private List<String> chunkWithinLimit(String text, AiSegmentOptions options) {
+		int max = kbProperties.getMaxSegmentsPerAsset();
+		try {
+			return AiTextSplitter.split(text, options.length(), options.overlap(), options.type(), options.symbol(), max);
+		} catch (AiTextSplitter.TooManyPiecesException e) {
+			throw new ServiceException("这份资料按当前设置会切出超过 " + max
+				+ " 段。请调大分段长度、换一种分段方式，或把资料拆成几份再上传");
+		}
+	}
+
+	/** 直接贴正文和传文件用同一个大小上限（按 UTF-8 字节数），不然不走文件就能绕过上限 */
+	private void requirePastedTextWithinLimit(String text) {
+		if (text == null) {
+			return;
+		}
+		long max = kbProperties.getMaxUploadBytes();
+		long bytes = 0;
+		for (int i = 0; i < text.length() && bytes <= max; i++) {
+			char c = text.charAt(i);
+			// 代理对的两个 char 合起来是 4 字节，各算 2
+			bytes += c < 0x80 ? 1 : (c < 0x800 || Character.isSurrogate(c) ? 2 : 3);
+		}
+		if (bytes > max) {
+			throw new ServiceException("正文超过 " + (max / (1024 * 1024)) + "MB。请拆成几份再上传");
+		}
 	}
 
 	private void requireUniqueName(String name, Long excludeId) {
