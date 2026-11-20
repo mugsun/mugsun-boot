@@ -170,13 +170,13 @@ public class AiKnowledgeController {
 	}
 
 	@PostMapping("/segment/submit")
-	@SaCheckPermission(AiConstants.PERM_KB_DETAIL)
+	@SaCheckPermission(AiConstants.PERM_KB_SEG_EDIT)
 	public R<AiKnowledgeSegment> saveSegment(@RequestBody AiKnowledgeSegment body) {
 		return R.data(service.saveSegment(body));
 	}
 
 	@PostMapping("/segment/status")
-	@SaCheckPermission(AiConstants.PERM_KB_DETAIL)
+	@SaCheckPermission(AiConstants.PERM_KB_SEG_EDIT)
 	public R<Void> segmentStatus(@RequestBody(required = false) Map<String, Object> body) {
 		if (body == null || body.get("id") == null || String.valueOf(body.get("id")).isBlank()
 			|| "null".equals(String.valueOf(body.get("id")))) {
