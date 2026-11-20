@@ -23,8 +23,11 @@ import java.util.List;
  * ② 消费批跨租户混合，原生 SQL 不经 MyBatis 拦截器，天然绕开租户行级插件对混合批写的条件改写
  * （配合调用方 {@code TenantContext.ignore} 双保险，每行 tenant_id 显式自带）；
  * ③ 会话 upsert 写死 LEAST/GREATEST/CASE WHEN/累加/置位语义（乱序安全，绝不用裸 EXCLUDED 覆盖）。
- * <p>时间绑定规约：TIMESTAMPTZ 列一律 {@link OffsetDateTime}（UTC）；TIMESTAMP 列一律 UTC 墙钟
- * {@link LocalDateTime}——与库内 now()（容器 UTC）口径一致，会话时长差值计算无时区漂移。
+ * <p>时间绑定规约：TIMESTAMPTZ 列一律 {@link OffsetDateTime}（UTC）；应用绑定的 TIMESTAMP 列一律 UTC 墙钟
+ * {@link LocalDateTime}，同一列只有一种口径，会话时长差值计算无时区漂移。
+ * <p>库内 now() 写进 TIMESTAMP 列的是连接时区（即 JVM 默认时区，镜像默认 Asia/Shanghai）的钟点，不是 UTC 墙钟：
+ * 只用于 create_time / update_time、track_identity 的 first_bind_time / last_seen_time、
+ * track_event_def 的 first_seen_time / last_seen_time。读这些列要按 JVM 默认时区换算，也不要拿它们和 UTC 墙钟列比较。
  */
 @Component
 @TrackDS

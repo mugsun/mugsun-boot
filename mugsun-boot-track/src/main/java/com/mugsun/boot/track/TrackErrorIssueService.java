@@ -20,6 +20,7 @@ import javax.sql.DataSource;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -198,6 +199,8 @@ public class TrackErrorIssueService {
 
 		Long total = jdbc.queryForObject("SELECT count(*)" + cond, Long.class, args.toArray());
 		List<Object> pageArgs = new ArrayList<>(args);
+		// 时间列都不带时区，口径有两种：首末次出现、解决时间是应用写的 UTC 墙钟，直接取秒数；
+		// update_time 是 now() 按连接时区写的，先按连接时区还原成时刻（转 TIMESTAMPTZ）再取秒数
 		String sql = "SELECT id, app_key AS \"appKey\", fingerprint, title, status,"
 			+ " assignee_id AS \"assigneeId\", first_release AS \"firstRelease\","
 			+ " last_release AS \"lastRelease\","
@@ -206,7 +209,7 @@ public class TrackErrorIssueService {
 			+ " CAST(EXTRACT(EPOCH FROM resolved_at) * 1000 AS BIGINT) AS \"resolvedAt\","
 			+ " event_count AS \"eventCount\", session_count AS \"sessionCount\","
 			+ " user_count AS \"userCount\", regressed,"
-			+ " CAST(EXTRACT(EPOCH FROM update_time) * 1000 AS BIGINT) AS \"updateTime\""
+			+ " CAST(EXTRACT(EPOCH FROM CAST(update_time AS TIMESTAMPTZ)) * 1000 AS BIGINT) AS \"updateTime\""
 			+ cond + " ORDER BY last_seen_at DESC, id DESC LIMIT ? OFFSET ?";
 		pageArgs.add(size);
 		pageArgs.add((page - 1) * size);
@@ -349,7 +352,7 @@ public class TrackErrorIssueService {
 		row.put("sessionCount", issue.getSessionCount());
 		row.put("userCount", issue.getUserCount());
 		row.put("regressed", issue.getRegressed() != null && issue.getRegressed() == 1);
-		row.put("updateTime", epochMs(issue.getUpdateTime()));
+		row.put("updateTime", dbNowEpochMs(issue.getUpdateTime()));
 		row.put("latestSessionId", issue.getLatestSessionId());
 		row.put("latestUserId", issue.getLatestUserId());
 		row.put("latestDistinctId", issue.getLatestDistinctId());
@@ -422,11 +425,24 @@ public class TrackErrorIssueService {
 		return Math.min(pageSize, TrackConstants.QUERY_PAGE_SIZE_MAX);
 	}
 
+	/** 应用按 UTC 墙钟写入的列（首末次出现、解决时间）转毫秒时间戳 */
 	private static Long epochMs(LocalDateTime t) {
 		if (t == null) {
 			return null;
 		}
 		return t.toInstant(ZoneOffset.UTC).toEpochMilli();
+	}
+
+	/**
+	 * 数据库 now() 写入的列（update_time）转毫秒时间戳。now() 落进不带时区的列时取的是连接时区的钟点，
+	 * 连接时区由 PostgreSQL 驱动在建连时设成 JVM 默认时区，所以按 JVM 默认时区换算；当成 UTC 换算的话，
+	 * JVM 不在 UTC 时结果会偏出整段时区偏移。
+	 */
+	private static Long dbNowEpochMs(LocalDateTime t) {
+		if (t == null) {
+			return null;
+		}
+		return t.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
 	}
 
 	private static String textOf(Object value) {

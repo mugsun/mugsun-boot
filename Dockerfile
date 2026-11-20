@@ -46,8 +46,11 @@ USER mugsun
 WORKDIR /app
 
 # 容器内内存按 cgroup 配额自适应；JAVA_OPTS 可在 compose / k8s 覆盖追加
+# 时区默认东八区：库里的时间列不带时区，按 JVM 的时区写入、页面原样显示，留在 UTC 时页面上的时间会比本地慢 8 小时。
+# 部署在别的时区用 -e TZ=<IANA 名称> 覆盖（docker-compose.full.yml 里对应 MUGSUN_TZ）
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/./urandom" \
-    SPRING_PROFILES_ACTIVE=prod
+    SPRING_PROFILES_ACTIVE=prod \
+    TZ=Asia/Shanghai
 
 EXPOSE 8080
 

@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * 错误问题单闭环：带 release 的 $error → 问题单出现 → 指派 → 解决 → 同指纹再报显示复发；
@@ -41,6 +42,8 @@ class TrackErrorIssueApiTest extends AbstractTrackIntegrationTest {
 	private static final String ROLE_CODE = "it-err-issue-noperm";
 	private static final String LIST_ONLY_USERNAME = "it_err_issue_list";
 	private static final String LIST_ONLY_ROLE = "it-err-issue-listonly";
+	/** “刚才”的容差：比时区偏移的最小粒度（15 分钟）小，又留够用例自己等待落库的时间 */
+	private static final long JUST_NOW_TOLERANCE_MS = 5 * 60 * 1000L;
 
 	private String adminToken;
 	private Long adminId;
@@ -100,6 +103,9 @@ class TrackErrorIssueApiTest extends AbstractTrackIntegrationTest {
 		assertThat(row.path("lastRelease").asText()).isEqualTo(RELEASE_A);
 		assertThat(row.path("eventCount").asLong()).isEqualTo(1L);
 		assertThat(row.path("regressed").asBoolean()).isFalse();
+		assertJustNow(row, "firstSeenAt");
+		assertJustNow(row, "lastSeenAt");
+		assertJustNow(row, "updateTime");
 		issueId = row.path("id").asLong();
 
 		JsonNode byRelease = readBodyAssertOk(get("/system/track/error-issues/page?appKey=" + APP
@@ -132,6 +138,8 @@ class TrackErrorIssueApiTest extends AbstractTrackIntegrationTest {
 			Map.of("id", issueId, "appKey", APP), adminToken));
 		assertThat(resolved.path("status").asText()).isEqualTo(TrackConstants.ERROR_ISSUE_STATUS_RESOLVED);
 		assertThat(resolved.path("resolvedAt").isNull()).isFalse();
+		assertJustNow(resolved, "resolvedAt");
+		assertJustNow(resolved, "updateTime");
 
 		// 同指纹新 release 再报 → 复发
 		pushError(APP, FP, RELEASE_B, "boom-b", "/err-b");
@@ -154,6 +162,8 @@ class TrackErrorIssueApiTest extends AbstractTrackIntegrationTest {
 		assertThat(detail.path("latestSessionId").asText()).isNotBlank();
 		assertThat(detail.path("latestDistinctId").asText()).isNotBlank();
 		assertThat(detail.path("eventCount").asLong()).isGreaterThanOrEqualTo(2L);
+		assertJustNow(detail, "lastSeenAt");
+		assertJustNow(detail, "updateTime");
 
 		JsonNode regPage = readBodyAssertOk(get("/system/track/error-issues/page?appKey=" + APP
 			+ "&release=" + RELEASE_B + "&regressedOnly=true&pageNum=1&pageSize=20", adminToken));
@@ -242,6 +252,16 @@ class TrackErrorIssueApiTest extends AbstractTrackIntegrationTest {
 			Map.of("id", issueId, "appKey", APP), adminToken));
 		assertThat(reopened.path("status").asText()).isEqualTo(TrackConstants.ERROR_ISSUE_STATUS_OPEN);
 		assertThat(reopened.path("resolvedAt").isNull()).isTrue();
+	}
+
+	/**
+	 * 接口返回的毫秒时间戳应是“刚才”。这张表的时间列都不带时区，却有两种写法：首末次出现、解决时间由应用按 UTC
+	 * 写入，更新时间由数据库 now() 按连接时区（即 JVM 默认时区）写入。换算时用错口径，JVM 不在 UTC 时结果会偏出
+	 * 整段时区偏移（东八区偏 8 小时）。本地或 CI 用 -DargLine=-Duser.timezone=Asia/Shanghai 可以跑到这种情况。
+	 */
+	private void assertJustNow(JsonNode node, String field) {
+		assertThat(node.path(field).asLong()).as(field + " 应是刚才")
+			.isCloseTo(System.currentTimeMillis(), within(JUST_NOW_TOLERANCE_MS));
 	}
 
 	private void pushError(String appKey, String fingerprint, String release, String message, String urlPath) {

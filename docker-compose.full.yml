@@ -16,6 +16,9 @@
 # 按服务拆进三个 secrets 卷（每个文件 0600、属主是对应服务用户），每个服务只挂自己的卷；重启不变。
 # 后端以 prod 配置运行（strict-keys、验证码开启、OpenAPI 关闭）。
 # 管理台端口默认只绑 127.0.0.1:8088；要给局域网访问显式设 MUGSUN_HTTP_BIND=0.0.0.0。数据库和 Redis 不映射到宿主机。
+# 时区：四个常驻容器（postgres / redis / boot / pc）默认都是 Asia/Shanghai，换时区设 MUGSUN_TZ=<IANA 名称>（如 UTC）。
+# 库里的时间列不带时区，按后端 JVM 的时区写入、页面原样显示，所以后端容器的时区就是页面上看到的时区。
+# 给已经在跑的环境改时区不会改写旧数据：之前写入的时间保持原来的钟点。
 # 清空重来只能用（会删数据和密钥）：docker compose -f docker-compose.full.yml down -v
 # 不要单删 secrets 卷而保留 pg-data：库口令只在首次初始化时写入，新生成的口令会对不上。
 name: mugsun-full
@@ -42,6 +45,9 @@ services:
     entrypoint: ["sh", "-c", ". /secrets/db.env && export POSTGRES_PASSWORD=\"$$MUGSUN_DB_PASSWORD\" && exec docker-entrypoint.sh postgres"]
     environment:
       POSTGRES_USER: postgres
+      # TZ：首次初始化时 initdb 按它写库的默认时区（已有数据卷的库默认时区不变）；PGTZ：容器里 psql 等客户端的会话时区
+      TZ: ${MUGSUN_TZ:-Asia/Shanghai}
+      PGTZ: ${MUGSUN_TZ:-Asia/Shanghai}
     volumes:
       - secrets-postgres:/secrets:ro
       - pg-data:/var/lib/postgresql/data
@@ -62,6 +68,8 @@ services:
     image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     # 口令不进进程参数：gen-secrets 生成 /secrets/redis.conf（requirepass，0600 属 redis），这里只传配置文件路径
     command: ["redis-server", "/secrets/redis.conf"]
+    environment:
+      TZ: ${MUGSUN_TZ:-Asia/Shanghai}
     volumes:
       - secrets-redis:/secrets:ro
       - redis-data:/data
@@ -82,6 +90,8 @@ services:
     image: mugsun-full-boot:local
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      # JVM 默认时区：应用取的当前时间和数据库会话的 now() 都跟它走（PostgreSQL 驱动建连时把会话时区设成 JVM 时区）
+      TZ: ${MUGSUN_TZ:-Asia/Shanghai}
       JDBC_URL: jdbc:postgresql://postgres:5432/mugsun
       JDBC_USERNAME: mugsun
       TRACK_JDBC_URL: jdbc:postgresql://postgres:5432/mugsun_track
@@ -129,6 +139,7 @@ services:
     image: mugsun-full-pc:local
     environment:
       MUGSUN_API_UPSTREAM: http://boot:8080
+      TZ: ${MUGSUN_TZ:-Asia/Shanghai}
       # 前置网关（TLS 终端/负载均衡）网段，逗号分隔；默认空 = 不信任任何前置代理传来的 XFF
       MUGSUN_GATEWAY_CIDRS: ${MUGSUN_GATEWAY_CIDRS:-}
       MUGSUN_CSP_TILE_HOSTS: ${MUGSUN_CSP_TILE_HOSTS:-}

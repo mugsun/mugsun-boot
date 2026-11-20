@@ -84,5 +84,22 @@ docker run --rm --network "${COMPOSE_PROJECT_NAME}_default" \
 after_line=$("${DC[@]}" run --rm -T init show)
 [[ "$after_line" == *"初始密码已失效"* ]] || fail "改密后 init show 仍未提示初始密码已失效：${after_line%%：*}"
 [[ "$after_line" != *"$admin_pw"* ]] || fail "改密后 init show 仍打印了初始口令"
+# 时区（默认 Asia/Shanghai，MUGSUN_TZ 可改）：库里的时间列不带时区，按后端 JVM 的时区写入、页面原样显示。
+# 四个常驻容器的时区偏移要一致；上面刚登录过，最新一条登录日志里应用写的 login_time 和数据库 now() 写的
+# create_time 都得是这个时区“刚才”的钟点（后端没跟上设定的时区时，会差出整段时区偏移）
+tz=$("${DC[@]}" exec -T boot printenv TZ || true)
+[ -n "$tz" ] || fail "boot 容器没有设置 TZ"
+offset=$("${DC[@]}" exec -T boot date +%z)
+for svc in postgres redis pc; do
+  got=$("${DC[@]}" exec -T "$svc" date +%z)
+  [ "$got" = "$offset" ] || fail "$svc 容器的时区偏移是 $got，boot 是 $offset（$tz）"
+done
+lag=$("${DC[@]}" exec -T postgres psql -U postgres -d mugsun -At -F ' ' -c \
+  "SELECT round(extract(epoch FROM (now() AT TIME ZONE '$tz') - login_time)), round(extract(epoch FROM (now() AT TIME ZONE '$tz') - create_time)) FROM sys_login_log ORDER BY id DESC LIMIT 1")
+read -r lag_login lag_create <<<"$lag" || true
+for v in "$lag_login" "$lag_create"; do
+  { [[ "$v" =~ ^-?[0-9]+$ ]] && [ "$v" -ge -60 ] && [ "$v" -le 600 ]; } \
+    || fail "最新一条登录日志的时间不是 $tz 的当前时间（login_time、create_time 落后的秒数：${lag:-查不到记录}）"
+done
 end=$(date +%s)
 echo ">> PASS 从零到登录并看到第一条埋点：$((end-start)) 秒"

@@ -34,7 +34,8 @@ RUN groupadd -r -g 10001 mugsun && useradd -r -u 10001 -g mugsun -d /app mugsun 
 COPY --from=build --chown=mugsun:mugsun /build/mugsun-boot-server/target/mugsun-boot.jar /app/app.jar
 USER mugsun
 WORKDIR /app
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0" SPRING_PROFILES_ACTIVE=prod
+# 时区默认东八区，compose 里用 MUGSUN_TZ 覆盖（说明见 docker-compose.full.yml 开头）
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0" SPRING_PROFILES_ACTIVE=prod TZ=Asia/Shanghai
 EXPOSE 8080
 # 先读首启生成的后端专用密钥文件（只读挂载、0600 属 mugsun），再以 java 为 PID 1 启动
 ENTRYPOINT ["sh", "-c", ". /secrets/boot.env && exec java $JAVA_OPTS -jar /app/app.jar"]

@@ -17,6 +17,8 @@ services:
       dockerfile: docker/full/boot.Dockerfile
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      # 和 boot 同一个时区：迁移和初始化写入的时间要和之后应用写入的一致
+      TZ: ${MUGSUN_TZ:-Asia/Shanghai}
       JDBC_URL: jdbc:postgresql://postgres:5432/mugsun
       JDBC_USERNAME: mugsun
       TRACK_JDBC_URL: jdbc:postgresql://postgres:5432/mugsun_track
