@@ -38,13 +38,14 @@ public final class UserSelectOptions {
 		return query;
 	}
 
-	/** value=用户 id，label=昵称（用户名）；没填昵称的两处都用用户名 */
+	/** value=用户 id，label=昵称（用户名）；没填昵称（空值、空串、只有空格）的两处都用用户名 */
 	public static List<Map<String, Object>> of(List<SysUser> users) {
 		return users.stream()
 			.map(u -> {
 				Map<String, Object> option = new HashMap<>();
 				option.put("value", u.getId());
-				option.put("label", (u.getNickname() == null ? u.getUsername() : u.getNickname())
+				String nickname = u.getNickname() == null ? "" : u.getNickname().trim();
+				option.put("label", (nickname.isEmpty() ? u.getUsername() : nickname)
 					+ "（" + u.getUsername() + "）");
 				return option;
 			})
