@@ -45,6 +45,10 @@
 
 ### 变更
 
+- README 中英文重写，源码目录里的六份说明一并重写
+  - 首屏给出 Docker 试用命令和截图，补功能表、模块图和限制说明
+  - 迁移脚本清单补全 V13、V14、V15、V19，按版本号排序
+  - 修正 `db/migration/dm` 说明里失效的链接
 - full compose 钉升 mugsun-pc 构建 tip（零配置收口）
   - `4d6d018…` → `8b123c5db7b75fa48c1c2f2d5f2736d911278df1`
   - 含 npm @mugsun/track-web；仍勿用 additional_contexts.track

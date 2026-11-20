@@ -1,9 +1,15 @@
-# 达梦迁移脚本说明（重定向）
+# 这个目录不放迁移脚本
 
-**请勿在本子目录放置 `V*__*.sql`。**
+不要在这个子目录里放 `V*__*.sql`。
 
-Flyway 默认 `classpath:db/migration` 会**递归**扫描子目录，与 PG 同版本号脚本冲突（`Found more than one migration with version 1`）。
+Flyway 默认扫描 `classpath:db/migration`，而且会递归扫描子目录。
 
-达梦 Oracle 语法脚本与启用方式见并列目录：
+脚本放在这里，会和上一级目录里同版本号的 PostgreSQL 脚本冲突，启动时报错：
 
-→ [`../migration-dm/README.md`](../migration-dm/README.md)（`spring.flyway.locations=classpath:db/migration-dm`）
+```text
+Found more than one migration with version 1
+```
+
+达梦的脚本在和 `migration` 并列的 `db/migration-dm` 目录里，说明见[那里的 README](../../migration-dm/README.md)。
+
+启用时把 `spring.flyway.locations` 设为 `classpath:db/migration-dm`。

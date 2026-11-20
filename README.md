@@ -1,192 +1,232 @@
-![mugsun-boot](https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/banners/repos/mugsun-boot.png)
-
 # mugsun-boot
 
-**中文** | [English](./README_EN.md)
+[English](./README_EN.md) | [文档](https://docs.mugsun.com/boot/) | [更新日志](./CHANGELOG.md)
 
-本仓库为 mugsun 中后台单体后端。基础设施由 Docker Compose 提供，应用以可执行 JAR 对外服务。系统管理与工作流位于核心模块；地理信息、行为分析与人工智能能力以可选模块装配。
-
-[文档](https://docs.mugsun.com/boot/) · [快速开始](https://docs.mugsun.com/guide/getting-started) · [安全清单](https://docs.mugsun.com/boot/security-checklist)
-
-![Version](https://img.shields.io/badge/version-0.2.0--SNAPSHOT-blue)
-![JDK](https://img.shields.io/badge/JDK-21-blue)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.13-brightgreen)
+[![CI](https://github.com/mugsun/mugsun-boot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mugsun/mugsun-boot/actions/workflows/ci.yml)
+[![compose-full smoke](https://github.com/mugsun/mugsun-boot/actions/workflows/compose-full.yml/badge.svg?branch=main)](https://github.com/mugsun/mugsun-boot/actions/workflows/compose-full.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-## 概述
+mugsun 的后端，一个 Spring Boot 3 单体应用。打包后是一个可执行 JAR，运行时需要 PostgreSQL 和 Redis。
 
-| 项 | 说明 |
-| --- | --- |
-| 坐标 | tip / 开发版 `com.mugsun:mugsun-boot:0.2.0-SNAPSHOT`（以根 `pom.xml` 为准） |
-| 运行时 | JDK 21；Maven 3.9+ |
-| 框架 | Spring Boot 3.5.13 |
-| 数据层 | PostgreSQL 16（PostGIS + pgvector）；Redis 7（默认库号 `3`） |
-| 依赖工程 | [mugsun-core](https://github.com/mugsun/mugsun-core) `0.2.0-SNAPSHOT`（Central 没有；须先平级 clone 并 `mvn install`） |
-| 许可 | [MIT](./LICENSE) |
-| 文档 | [docs.mugsun.com/boot](https://docs.mugsun.com/boot/) |
+它自带中后台项目常用的功能，比如账号权限、多租户和工作流。GIS、埋点分析和 AI 是三个可选模块，用不到的可以不打进包。
 
-技术组件（以当前 POM 为准）：MyBatis-Flex、Sa-Token、JetCache、Warm-Flow、Flyway。AI 模块不依赖 Spring AI：模型、向量检索与 MCP 工具调用均由模块内的 HTTP 客户端和 pgvector 查询实现。
+下图是管理后台的「埋点分析 → 数据概览」页。
 
-## 快速开始
+![管理后台的埋点数据概览页](https://docs.mugsun.com/readme/track-overview.png)
 
-只需 Docker（Compose v2.17+）。一条命令拉起数据库、Redis、后端与管理台：
+## 用 Docker 试用
+
+只需要安装 Docker（Compose v2.17+）。数据库、Redis、后端和管理后台都在容器里启动。
 
 ```bash
 git clone https://github.com/mugsun/mugsun-boot.git && cd mugsun-boot
 docker compose -f docker-compose.full.yml up -d --build
-```
-
-就绪后打开 http://127.0.0.1:8088 ，账号 `admin`。查看口令（口令不写日志、不进镜像）：
-
-```bash
 docker compose -f docker-compose.full.yml run --rm init show
 ```
 
-也可看 `docker compose -f docker-compose.full.yml logs ready` 里的登录提示。管理台默认只绑 `127.0.0.1`；局域网访问先设 `MUGSUN_HTTP_BIND=0.0.0.0`。清空重来：`docker compose -f docker-compose.full.yml down -v`（会删数据与密钥）。
+最后一条命令打印管理员口令。打开 <http://127.0.0.1:8088>，用 `admin` 登录。
 
-> 数据库镜像默认从 GHCR 拉取多架构 `ghcr.io/mugsun/postgis-pgvector:16-3.4`（amd64 + arm64），`docker compose up -d` 即可，不必本机构建，也不必设 `MUGSUN_PG_*`。钉 digest 可复现：`MUGSUN_PG_IMAGE=ghcr.io/mugsun/postgis-pgvector@sha256:...`（`docker buildx imagetools inspect` 查 digest）。改 `docker/postgres/Dockerfile` 时本地 `docker compose build postgres`。
+Compose 文件里没有默认口令。数据库口令、管理员口令和加密密钥在首次启动时随机生成，保存在 Docker 卷里。
+
+管理后台默认只能在本机访问。要从其他机器访问，启动前设置 `MUGSUN_HTTP_BIND=0.0.0.0`。
+
+这组命令每周在 CI 里从零执行一次，包括登录和上报第一条埋点。它只用于试用，生产环境的配置见[配置](https://docs.mugsun.com/boot/configuration)和[上线安全清单](https://docs.mugsun.com/boot/security-checklist)。
+
+<details>
+<summary>其他启动选项</summary>
+
+| 需求 | 做法 |
+| --- | --- |
+| 换端口 | 启动前设置 `MUGSUN_HTTP_PORT`，默认 `8088` |
+| 换时区 | 启动前设置 `MUGSUN_TZ`，默认 `Asia/Shanghai`，例如 `MUGSUN_TZ=UTC` |
+| 查看登录提示 | `docker compose -f docker-compose.full.yml logs ready` |
+| 清空数据重新开始 | `docker compose -f docker-compose.full.yml down -v`，数据和密钥都会删除 |
+| 用本地的管理后台源码 | 平级放好 `mugsun-pc`，启动时加 `MUGSUN_PC_SRC=../mugsun-pc` |
+| 固定数据库镜像版本 | 设置 `MUGSUN_PG_IMAGE=ghcr.io/mugsun/postgis-pgvector@sha256:...` |
+
+数据库镜像默认是 `ghcr.io/mugsun/postgis-pgvector:16-3.4`，支持 amd64 和 arm64，不需要在本机构建。
+
+</details>
+
+## 有哪些功能
+
+| 部分 | 内容 |
+| --- | --- |
+| 账号与权限 | 用户、角色和部门。菜单和按钮权限在后台配置，数据权限按角色限定能看到哪些行。 |
+| 多租户 | 一个库、一套表服务多个租户，业务表按 `tenant_id` 自动隔离。 |
+| 工作流 | 基于 Warm-Flow。在后台画流程，支持条件、并行和会签。 |
+| 代码生成 | 把一张表变成后端代码、管理后台页面和菜单 SQL。 |
+| 表单 | 拖拽设计表单，或直接对业务表做在线增删改查。 |
+| 开放平台 | OAuth2（含 PKCE）和 API Key 两种接入方式。 |
+| 消息与文件 | 站内信、短信和邮件。附件可以存本地、MinIO 或阿里云 OSS。 |
+| 任务与日志 | 定时任务基于 PowerJob。操作日志防篡改，登录和接口访问各有日志。 |
+| 安全 | 登录有[行为验证码](https://docs.mugsun.com/pc/captcha)和双因子。支持国密 SM2 和 SM4，接口可以加解密，字段可以脱敏。 |
+| 埋点分析（可选） | 接收 [@mugsun/track-web](https://github.com/mugsun/mugsun-track) 上报的数据，提供看板、错误监控和会话回放。 |
+| GIS（可选） | 图层、场景和空间查询，可以输出矢量瓦片。底图可以接天地图和高德等地图服务。 |
+| AI（可选） | 模型接入、对话和知识库，检索使用 pgvector。另有 OpenAI 格式的对话接口。 |
+
+每项功能的用法见[功能特性](https://docs.mugsun.com/boot/features/)。等保 2.0 三级的条款对照见 [docs/security](./docs/security/等保2.0三级条款映射.md)。
+
+菜单、按钮和权限标识都是数据，在菜单管理页里维护。
+
+![菜单管理页](https://docs.mugsun.com/readme/system-menu.png)
 
 ## 本地开发
 
-前置：JDK 21、Maven 3.9+、Docker。当前 tip 依赖 `mugsun-core` `0.2.0-SNAPSHOT`，Maven Central 上没有，本地开发须先平级安装 core：
+需要 JDK 21、Maven 3.9+ 和 Docker。
+
+`main` 分支依赖 [mugsun-core](https://github.com/mugsun/mugsun-core) 的 `0.2.0-SNAPSHOT`。Maven Central 上没有这个版本，要先装到本地。
 
 ```bash
-cd ../mugsun-core && mvn -B clean install -DskipTests && cd -
-docker compose up -d
+git clone https://github.com/mugsun/mugsun-core.git
+cd mugsun-core && mvn -B clean install -DskipTests && cd ..
+
+git clone https://github.com/mugsun/mugsun-boot.git && cd mugsun-boot
+docker compose up -d    # PostgreSQL 5432、Redis 6379
 ./mvnw -pl mugsun-boot-server -am package -DskipTests
+export MUGSUN_INIT_PASSWORD='<admin 的初始口令>'
 java -jar mugsun-boot-server/target/mugsun-boot.jar --spring.profiles.active=dev
 ```
 
-仓库自带 Maven Wrapper（`./mvnw`，Maven 3.9.16）；本机已装 Maven 3.9+ 时也可直接用 `mvn`。
+`curl http://localhost:8080/ping` 有响应就是启动成功。接口文档在 <http://localhost:8080/swagger-ui/index.html>，`prod` 配置下关闭。
 
+`MUGSUN_INIT_PASSWORD` 只在首次建库时用来创建 `admin`。`prod` 配置下不设置它，后端会拒绝启动。
 
-`config/application-local.yml` 为可选覆盖（`optional:file:./config/application-local.yml`，已列入 `.gitignore`）；需要时再参考 `config/application-local.yml.example` 自行创建，example 无必填项。须在仓库根目录执行 `java -jar`，否则读不到该文件。也可：`./mvnw -pl mugsun-boot-server -am spring-boot:run`。
+管理后台在 [mugsun-pc](https://github.com/mugsun/mugsun-pc)，执行 `pnpm dev` 后打开 <http://localhost:3006>。
 
-> **请始终在仓库根目录、带 `-am` 构建**（或用 `./mvnw clean package -DskipTests` 构建整个工程）。只构建 server 模块（`-pl mugsun-boot-server` 不带 `-am`、在 `mugsun-boot-server` 目录里执行 `./mvnw package` 或系统 `mvn package`，或 IDE 只构建该模块）时，`mugsun-boot-core` 会从本地 Maven 仓库里该版本的 jar 取（当前 tip 为 `0.2.0-SNAPSHOT`）。所有分支和工作区共用该坐标下最后一次 `./mvnw install` 的产物，打出的 jar 会带上别的分支的旧代码（例如旧的验证码返回结构），这跟加不加 `clean` 无关。拿不准时先在根目录执行一次 `./mvnw -B install -DskipTests`。
+构建和启动都要在仓库根目录执行，构建要带 `-am`。
 
-**本地 install core（默认前置步骤）：** 平级克隆 [mugsun-core](https://github.com/mugsun/mugsun-core) 后，在 core 仓库用本机 Maven 执行 `cd ../mugsun-core && mvn -B clean install -DskipTests`（core 无 Maven Wrapper），再返回本仓库用 `./mvnw` 构建。Docker Compose full 一键试用仍可不经本机 Maven 安装 core。
+不带 `-am` 时，`mugsun-boot-core` 取的是本地 Maven 仓库里的 jar，里面可能是其他分支的旧代码。
 
-健康检查：http://localhost:8080/ping
+<details>
+<summary>端口被占用、连不上 Redis、改数据库地址</summary>
 
-默认账号 `admin`。平台种子口令由 `mugsun.security.init-password` 或环境变量 `MUGSUN_INIT_PASSWORD` 注入（见 `SecurityPolicyService`）；勿把明文口令写进仓库。未注入时，非 prod 有内置缺省口令（仅本地）；本地也可显式 `export MUGSUN_INIT_PASSWORD=…`。`application.yml` 故意不写该项：prod 启动守卫据此判断是否已注入。生产必须注入；`prod` 未注入时拒绝启动。重置口令、新建租户管理员与导入默认口令均为各自随机的一次性口令（仅创建/重置响应返回），首次登录须改密后方可使用系统。
-
-管理端见 [mugsun-pc](https://github.com/mugsun/mugsun-pc)（开发默认端口 `3006`，代理至本服务 `8080`）。逐步说明见 [文档 · 快速开始](https://docs.mugsun.com/guide/getting-started)。
-
-打包产物：`mugsun-boot-server/target/mugsun-boot.jar`。
-
-仅基础设施的 Compose 暴露：`5432`（PostgreSQL）、`6379`（Redis）。本地以 `--spring.profiles.active=dev`（或 test/local，且不含 prod/production/prd/staging）启动且探测不到 Redis 时，会自动降级为进程内会话/验证码/登录锁（WebSocket local、单号 db、JetCache remote=mock）并打 WARN，仍可登录；生产必须提供 Redis。强制不降级：`mugsun.redis.mode=redis`。降级后注册限流等仍依赖 Redis 的入口会拒绝或放行（见各模块既有行为），不要把降级当生产替代。本机已占用这两个端口时，换端口并让后端用同一变量：
+5432 或 6379 被占用时换一个宿主机端口，后端启动时读同一组变量：
 
 ```bash
 export MUGSUN_DB_PORT=55432 MUGSUN_REDIS_PORT=56379
 docker compose up -d
-java -jar mugsun-boot-server/target/mugsun-boot.jar
 ```
 
-后端可用的环境变量：`MUGSUN_DB_HOST`、`MUGSUN_DB_PORT`、`MUGSUN_DB_NAME`、`MUGSUN_DB_USERNAME`、`MUGSUN_DB_PASSWORD`（或整条 `MUGSUN_DB_URL`）、`MUGSUN_REDIS_HOST`、`MUGSUN_REDIS_PORT`；埋点库 `mugsun_track` 默认跟随同一主机端口，仍可用 `TRACK_JDBC_URL` 单独覆盖。`prod` 配置不读这些变量，仍用 `JDBC_URL`、`REDIS_HOST` 等。开发库账号默认与 JDBC 配置一致（`mugsun` / `mugsun`）。无 Docker 时可参考 `scripts/init-db.sql`。
+用 `dev` 配置启动时如果连不上 Redis，后端会改用进程内存储并在日志里告警，仍然可以登录。
 
-生产配置注入说明见 [配置](https://docs.mugsun.com/boot/configuration)。
+设置 `mugsun.redis.mode=redis` 可以禁止这种降级。生产环境必须有 Redis。
 
-OpenAPI：http://localhost:8080/swagger-ui/index.html（`prod` 下关闭）。
+| 变量 | 作用 |
+| --- | --- |
+| `MUGSUN_DB_HOST` `MUGSUN_DB_PORT` `MUGSUN_DB_NAME` | 数据库地址 |
+| `MUGSUN_DB_USERNAME` `MUGSUN_DB_PASSWORD` | 数据库账号 |
+| `MUGSUN_DB_URL` | 直接给整条 JDBC 地址 |
+| `MUGSUN_REDIS_HOST` `MUGSUN_REDIS_PORT` | Redis 地址，默认使用 3 号库 |
+| `TRACK_JDBC_URL` | 埋点库 `mugsun_track` 的地址，默认和主库在同一台 |
+| `MUGSUN_FRONT_URL` | 管理后台的地址，用于跨域和 OAuth 回跳，默认 `http://localhost:3006` |
 
-## 安全验证（行为验证码）
+`prod` 配置不读上面这些变量，用的是 `JDBC_URL`、`REDIS_HOST` 等，见[配置](https://docs.mugsun.com/boot/configuration)。
 
-登录、注册、忘记密码发码、发送短信验证码默认需要行为验证（自研，无第三方依赖；平台默认题型为滑块拼图与词语点选，服务端随机出一种）。流程：`GET /auth/captcha/config` 提示是否需要 → `POST /auth/captcha/challenge` 取题 → `POST /auth/captcha/verify` 换一次性 `captchaToken` → 业务接口请求体带 `captchaToken`。业务接口按服务端解析的租户与客户端重新判定，`config` 只是提示。错误码（HTTP 200 + `R.code`）：`40010` 过期、`40011` 未通过、`40012` 限流（`data.retryAfter` 秒）、`40013` 缺少有效令牌、`40014` 当前无需验证。
+本地的个性化配置写在 `config/application-local.yml` 里，这个文件不进仓库。
 
-| 配置键 | 默认 | 说明 |
-|---|---|---|
-| `mugsun.captcha.enabled` | `true` | 全局开关；`false` 时所有场景都不要验证码（prod 配置为 true） |
-| `mugsun.captcha.default-types` | `SLIDER,WORD_CLICK,ROTATE,ICON_CLICK,JIGSAW` | 租户未单独设置时启用的题型：`SLIDER`、`ROTATE`、`WORD_CLICK`、`ICON_CLICK`、`JIGSAW`（不区分大小写）。默认五种全开、随机出题。非法值启动失败 |
-| `mugsun.captcha.type` | 不设 | 已废弃：只认 `SLIDER`（不起作用，启动打 WARN）。旧数字码 `IMAGE` 已在 v0.6.3 移除，写 `IMAGE` 或其它值启动失败 |
-| `mugsun.captcha.store` | `redis` | `redis` 或 `memory`；`memory` 仅单机开发，`prod` profile 下启动失败 |
-| `mugsun.captcha.slider.width` / `height` | `320` / `180` | 底图原始尺寸 |
-| `mugsun.captcha.slider.tolerance-px` | `6` | 落点与轨迹位移容差（原始像素） |
-| `mugsun.captcha.slider.expire-seconds` / `token-expire-seconds` | `120` / `120` | 挑战与令牌有效期 |
-| `mugsun.captcha.slider.min-duration-ms` | `300` | 服务端计时下限（签发→校验） |
-| `mugsun.captcha.slider.decoy-count` | `1` | 假缺口数量（0–2） |
-| `mugsun.captcha.slider.keyboard-step-px` | `4` | 键盘模式每次按键移动的原始像素（challenge 返回 `keyboardStep`） |
-| `mugsun.captcha.slider.bind-ip` / `bind-ua` | `false` / `false`（prod 的 `bind-ua` 为 `true`） | 令牌强制绑定 IP / UA 哈希（关闭时只记录） |
-| `mugsun.captcha.click.seed-warp-strength` | `0.14` | ICON_CLICK 每题 seed-warp 强度（相对短边）；`0`=关；约钳 `[0, 0.35]`（与渲染一致） |
-| `mugsun.captcha.background.dir` | `classpath:captcha/bg/` | 背景图目录（`file:` 亦可），jpg/png，推荐 640×360；为空用纯色占位 |
-| `mugsun.captcha.background.rotate` | `random` | `random` 或 `round-robin` |
-| `mugsun.captcha.background.reload-seconds` | `600` | 目录重扫间隔，0 只在启动时加载 |
-| `mugsun.captcha.rate-limit.*` | 见 `application.yml` | 单 IP 取挑战/分钟、全局每秒上限（Redis 跨节点）、失败锁定（键盘模式更严） |
-| `mugsun.captcha.rate-limit.sms-phone-per-day` / `sms-ip-per-hour` | `10` / `20` | 发送短信验证码频控（叠加同号 60 秒节流），与验证码开关无关 |
+模板是同目录下的 `application-local.yml.example`。
 
-租户开关：`sys_tenant.captcha_enabled`（`V9__tenant_captcha.sql`，默认 1，新建租户一律开启），仅平台超管可通过 `POST /system/tenant/captcha` 修改并写入审计日志；多节点时其他节点最多 60 秒后生效。发送短信验证码与租户无关，只看全局开关。客户端开关 `sys_client.captcha_enabled` 不参与判定（clientId 由请求方自选）。输入方式（`inputMode`）在取题时声明，校验时不一致即失败。App 端 `/app/captcha/*` 接口形状不变，内部共用同一引擎。
+没有 Docker 时，可以参考 `scripts/init-db.sql` 手工建库。
 
-## 组成
+</details>
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/mugsun/mugsun-docs/main/public/brand/arch/boot-iso-zh.jpg" alt="架构示意" width="100%" />
-</p>
+## 只打包需要的模块
 
-```text
-mugsun-boot/
-  mugsun-boot-core/     # 认证、系统、流程、租户、开放平台等
-  mugsun-boot-gis/      # 可选：图层、空间查询、矢量瓦片
-  mugsun-boot-track/    # 可选：采集摄入、聚合、回放相关 API
-  mugsun-boot-ai/       # 可选：模型、对话、知识库、调用外部 MCP 工具
-  mugsun-boot-server/   # 装配壳；默认 profile = full
+默认把四个模块都打进 JAR。只要其中一部分时，用 Maven Profile 选择：
+
+```bash
+./mvnw -pl mugsun-boot-server -am package -DskipTests -Pbasic,'!full'
 ```
 
-Maven Profile：
-
-| Profile | 说明 |
+| Profile | 打进 JAR 的模块 |
 | --- | --- |
-| `full`（默认） | 装配 core + gis + track + ai |
-| `basic` | 仅核心；须同时关闭 full：`-Pbasic,'!full'` |
-| `gis-only` / `track-only` / `ai-only` | 核心 + 单一可选模块；须关闭 full |
-| `kingbase` / `dameng` | 信创数据库驱动 |
+| `full`（默认） | core、gis、track 和 ai |
+| `basic` | 只有 core |
+| `gis-only` `track-only` `ai-only` | core 加一个可选模块 |
+| `kingbase` `dameng` | 追加人大金仓或达梦的 JDBC 驱动 |
 
-运行时可通过环境变量关闭能力（JAR 仍可能包含对应类路径）。不设置按开启；设置时只接受 `true` 或 `false`（不区分大小写，前后不能有空格），空值、`1` / `0`、`yes` / `no` 等其它值都会启动失败：
+`basic` 和三个 `*-only` 都要同时写上 `'!full'`。
 
-- `MUGSUN_GIS_ENABLED=false`
-- `MUGSUN_TRACK_ENABLED=false`
-- `MUGSUN_AI_ENABLED=false`
+不重新打包也可以关掉模块。启动时把对应的变量设为 `false`：
 
-内置 MCP Server 暂时下线，正在加鉴权后恢复。下线期间 `/sse`、`/mcp` 返回 404，`MUGSUN_AI_MCP_SERVER` 不起作用；根 POM 的 maven-enforcer 规则暂时拦下 Spring AI（`org.springframework.ai:*`）与 MCP SDK（`io.modelcontextprotocol*`），包括传递依赖。
-
-模块装配说明见 [docs/可选模块装配.md](docs/可选模块装配.md)。
-
-## 能力范围
-
-**核心模块（mugsun-boot-core）**
-
-- 认证与权限：用户、角色、菜单、部门、数据权限；登录与操作审计
-- 多租户、消息、文件存储、代码生成、在线表单
-- 工作流（Warm-Flow）
-- 开放平台：OAuth2（含 PKCE）、API Key
-- 传输与审计链路含国密相关能力；上线前须对照 [安全清单](https://docs.mugsun.com/boot/security-checklist)
-
-**可选模块**
-
-- `mugsun-boot-track`：`/track/collect`、配置下发与分析相关 API，与浏览器 SDK、管理端看板构成完整链路
-- `mugsun-boot-gis`：空间数据与矢量瓦片（依赖 PostGIS）
-- `mugsun-boot-ai`：模型、对话、知识库，以及在编排中调用外部 MCP 工具（内置 MCP Server 暂时下线，正在加鉴权后恢复）
-
-**运行约定**
-
-- PowerJob Worker 默认关闭；启用须独立部署 Server，并设置 `POWERJOB_ENABLED=true`
-- 演示口令仅用于本地；`fronttest` 实验室数据须显式打开开关后方可播种，默认关闭
-
-**暂未提供**
-
-- 已开源的微服务 `cloud` 发行版
-- 可公开访问的在线演示环境（见 [演示说明](https://docs.mugsun.com/demo)）
-
-接口与配置键以源码及文档为准。
-
-## 关联项目
-
-开源主线：`boot` · `core` · `pc` · `track` · [mugsun-docs](https://github.com/mugsun/mugsun-docs)。
-
-| 仓库 | 与本仓库的关系 |
+| 变量 | 模块 |
 | --- | --- |
-| [mugsun-core](https://github.com/mugsun/mugsun-core) | BOM 与 starter；当前 tip 依赖 `0.2.0-SNAPSHOT`，本地须先 `mvn install` |
-| [mugsun-pc](https://github.com/mugsun/mugsun-pc) | 管理端；CORS / OAuth 回跳默认 `MUGSUN_FRONT_URL=http://localhost:3006` |
-| [mugsun-track](https://github.com/mugsun/mugsun-track) | 浏览器 SDK；由本仓库 track 模块接收采集流量 |
-| cloud / uniappx-ui | 规划或商业意向，非本仓库已开源依赖 |
+| `MUGSUN_GIS_ENABLED` | GIS |
+| `MUGSUN_TRACK_ENABLED` | 埋点分析 |
+| `MUGSUN_AI_ENABLED` | AI |
+
+这三个变量只接受 `true` 和 `false`。
+
+开关的完整规则见[架构](https://docs.mugsun.com/guide/architecture)，模块的拆分方式见[可选模块的设计说明](./docs/可选模块装配.md)。
+
+## 换数据库
+
+默认使用 PostgreSQL 16，带 PostGIS 和 pgvector 两个扩展。表结构由 Flyway 管理，启动时自动升级。
+
+人大金仓和达梦各有一个 Maven Profile，openGauss 有单独的建库脚本。适配范围和部署步骤见[信创国产库适配指南](./docs/信创国产库适配指南.md)。
+
+埋点数据单独保存在 `mugsun_track` 库里，和业务库分开。
+
+## 代码结构
+
+```mermaid
+flowchart LR
+    PC["管理后台<br/>mugsun-pc"]
+    SDK["业务页面<br/>@mugsun/track-web"]
+
+    subgraph BOOT["mugsun-boot（一个 JAR）"]
+        CORE["core<br/>账号权限、租户、工作流"]
+        TRACK["track（可选）<br/>埋点分析"]
+        GIS["gis（可选）<br/>地图和空间查询"]
+        AI["ai（可选）<br/>模型和知识库"]
+    end
+
+    PG[("PostgreSQL 16<br/>PostGIS + pgvector")]
+    REDIS[("Redis 7")]
+
+    PC -->|"/api"| BOOT
+    SDK -->|"/track/collect"| TRACK
+    BOOT --> PG
+    BOOT --> REDIS
+```
+
+| 目录 | 内容 |
+| --- | --- |
+| `mugsun-boot-core` | 账号权限、租户和工作流等核心功能 |
+| `mugsun-boot-track` | 埋点数据的接收、聚合和回放 |
+| `mugsun-boot-gis` | 图层、空间查询和矢量瓦片 |
+| `mugsun-boot-ai` | 模型、对话和知识库 |
+| `mugsun-boot-server` | 只负责打包，把上面的模块合成一个可执行 JAR |
+
+数据访问用 MyBatis-Flex，鉴权用 Sa-Token，缓存用 JetCache。
+
+AI 模块没有引入 Spring AI，模型调用和向量检索由模块自己实现。
+
+## 目前的限制
+
+`main` 分支的版本是 `0.2.0-SNAPSHOT`。升级前请看[更新日志](./CHANGELOG.md)和[升级指南](https://docs.mugsun.com/boot/upgrade)。
+
+- 没有公网演示环境，按上面的命令可以在本地完整启动。
+- 只有单体版本，没有微服务版本。
+- 内置的 MCP Server 暂时下线，加上鉴权后恢复。`/sse` 和 `/mcp` 返回 404，`MUGSUN_AI_MCP_SERVER` 不起作用。
+- 定时任务需要另外部署 PowerJob Server，并设置 `POWERJOB_ENABLED=true`。默认的 Compose 里没有它。
+
+## 相关仓库
+
+| 仓库 | 说明 |
+| --- | --- |
+| [mugsun-pc](https://github.com/mugsun/mugsun-pc) | 管理后台，菜单和按钮权限由本仓库的接口返回 |
+| [mugsun-core](https://github.com/mugsun/mugsun-core) | 公共依赖，包括统一响应体、全局异常处理和接口加解密 |
+| [mugsun-track](https://github.com/mugsun/mugsun-track) | 浏览器埋点 SDK，数据上报到本仓库的埋点模块 |
+| [mugsun-docs](https://github.com/mugsun/mugsun-docs) | 文档站 [docs.mugsun.com](https://docs.mugsun.com/) 的源码 |
+
+## 参与贡献
+
+提交前请读[贡献指南](./CONTRIBUTING.md)。改表结构要新增[迁移脚本](./mugsun-boot-core/src/main/resources/db/migration/README.md)，已发布的脚本不能修改。
+
+安全问题请按 [SECURITY.md](https://github.com/mugsun/.github/blob/main/SECURITY.md) 私下报告，不要开公开 Issue。
 
 ## 许可
 
-[MIT](./LICENSE) · 版权见 [NOTICE](./NOTICE) · © 2026 北京定旭晨 / mugsun
+MIT，见 [LICENSE](./LICENSE)。第三方组件的声明见 [NOTICE](./NOTICE)。

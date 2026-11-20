@@ -1,51 +1,120 @@
-# openGauss-lite 5.1 迁移脚本
+# openGauss 的迁移脚本
 
-与 `classpath:db/migration` 同版本号。由 `scripts/pg_to_opengauss.py` 按 5.1 SQL 参考改写，不要手改 PG 原脚本。
+这个目录是主库迁移脚本的 openGauss-lite 5.1 版本，版本号和 [`../migration/`](../migration/README.md) 里的 PostgreSQL 脚本相同。
 
-目录与 PG 并列，避免 Flyway 递归扫进 `db/migration/**`。
+脚本由 `scripts/pg_to_opengauss.py` 按 5.1 的 SQL 参考改写而来。
 
-## 怎么灌（只用 gsql，不要 Flyway migrate）
+不要为了适配 openGauss 去改 PostgreSQL 的原脚本。
 
-**openGauss 只支持 gsql 手工灌库。** 社区 Flyway PostgreSQL 插件在恢复连接时会发 `SET ROLE`，openGauss 要求带密码 → `Invalid username/password, set role denied`，`flyway_schema_history` 建不出来，一个迁移都不会执行（见 #102）。因此：
+> [!WARNING]
+> openGauss 不能用 Flyway 迁移，只能用 gsql 手工执行这里的脚本。
 
-- 应用侧关掉 `spring.flyway`，或不要把 `locations` 指到 `classpath:db/migration-og`
-- **不要**指望 Flyway `migrate()`；也不必为 og 补登 `flyway_schema_history`（与金仓社区手工灌库同口径）
-- 用镜像自带 `gsql` 按版本号顺序执行本目录脚本
+## 为什么不能用 Flyway
 
-先建 PG 兼容库（默认库是 Oracle 兼容，原脚本会失败）：
+社区版 Flyway 的 PostgreSQL 插件在恢复连接时会发送 `SET ROLE`。openGauss 要求这条语句带密码，于是报错：
+
+```text
+Invalid username/password, set role denied
+```
+
+结果是 `flyway_schema_history` 建不出来，一个迁移都不会执行。详情见 [#102](https://github.com/mugsun/mugsun-boot/issues/102)。
+
+所以要这样做：
+
+- 在应用里关掉 `spring.flyway`，或者不要把 `locations` 指向 `classpath:db/migration-og`。
+- 不用给 openGauss 补 `flyway_schema_history` 的记录。金仓社区版手工执行脚本时也是这样处理的。
+- 用镜像自带的 gsql，按版本号从小到大执行这个目录里的脚本。
+
+## 执行脚本
+
+镜像用 `enmotech/opengauss-lite:5.1.0`，启动容器时要加 `--privileged`。
+
+不要用企业版的 `enmotech/opengauss:5.0.0`。
+
+先建一个 PG 兼容的库。默认建出来的库是 Oracle 兼容的，脚本在里面会失败：
 
 ```sql
 CREATE DATABASE mugsun DBCOMPATIBILITY 'PG';
 ```
 
-示例（端口、口令按环境替换；每个文件带 `-1 -v ON_ERROR_STOP=1`）：
+再逐个执行脚本。下面的例子里，容器的端口映射到了宿主机的 15432，端口和账号请按你的环境替换：
 
 ```bash
-# V1 → V2 → V3 → V7 → …；目录 V8 已合规（DO 语义），与 scripts/og/V8_*_lite.sql 任选其一
-gsql -d mugsun -U gaussdb -h 127.0.0.1 -p 15432 -f …/V1__baseline_0_1.sql -1 -v ON_ERROR_STOP=1
-# …
-gsql -d mugsun -U gaussdb -h 127.0.0.1 -p 15432 -f scripts/og/V8_oper_log_chain_guard_lite.sql -1 -v ON_ERROR_STOP=1
-# 再继续 V9、V10…
+OG=mugsun-boot-core/src/main/resources/db/migration-og
+
+gsql -d mugsun -U gaussdb -h 127.0.0.1 -p 15432 -f $OG/V1__baseline_0_1.sql -1 -v ON_ERROR_STOP=1
+gsql -d mugsun -U gaussdb -h 127.0.0.1 -p 15432 -f $OG/V2__file_perm.sql -1 -v ON_ERROR_STOP=1
+# 接着按版本号执行 V3、V7、V8，一直到最大的版本
 ```
 
-### V8（DO 语义，任选其一）
+每个文件都要带 `-1 -v ON_ERROR_STOP=1`。
 
-lite 5.1 不支持 `ADD COLUMN IF NOT EXISTS`。本目录
-`V8__oper_log_chain_guard.sql` **已合规**（DO 块查 `information_schema.columns`，
-与 V9/V10 一致），也可改用仓库根下 `scripts/og/V8_oper_log_chain_guard_lite.sql`
-——二者同语义，任选其一。从 PG 重新转换时转换器会把 `ADD COLUMN IF NOT EXISTS`
-改成 DO 块，静态测试禁止本目录再出现该语法。
+`-1` 让整个文件在一个事务里执行，`ON_ERROR_STOP=1` 让 gsql 遇到错误就停下。
 
-`V1__baseline_0_1.sql` 是 0.1.0 发布基线，**已发布，不可修改**；之后每次改库新增 `Vn__*.sql`，与 PG 同号（规则见 [`../migration/README.md`](../migration/README.md)）。5.1 的改写点：
+### V8 有两个文件可以选
 
-- `ON CONFLICT DO NOTHING` → `ON DUPLICATE KEY UPDATE NOTHING`
-- **禁止** `ADD COLUMN IF NOT EXISTS`：列已在 `CREATE TABLE` 里的整句删掉；否则改成 information_schema DO 块（转换器与 `scripts/ci/test_og_migration_ban.py` / `OpenGaussMigrationBanTest` 会拦）
-- 去掉部分索引的 `WHERE`（带 `IS NOT NULL` 的唯一索引降成普通索引）
-- V7 起：PG 里 `WHERE is_deleted = 0` 的部分唯一索引，在这里写成表达式唯一索引，每个键列包 `CASE WHEN is_deleted = 0 THEN 列 END`（已删除的行整组键为 NULL，不参与唯一）。不要写成 `(列, is_deleted)`：同一个键删两次就会撞键。注：2026-10-18 实测 openGauss-lite 5.1 也支持部分唯一索引，为与达梦同一写法仍用表达式索引
-- lite 没有 PostGIS / pgvector：不建 `gis_feature`，向量表没有 embedding 列
+openGauss-lite 5.1 不支持 `ADD COLUMN IF NOT EXISTS`。
 
-镜像：`enmotech/opengauss-lite:5.1.0`，`--privileged`，宿主机端口 15432。不要用企业版 `enmotech/opengauss:5.0.0`。
+这个目录里的 V8 是 `V8__oper_log_chain_guard.sql`，可以直接执行。
 
-版本号只增不补，可能跳号（如没有 V4–V6、V12），属正常。新脚本取合入时 main 上的最大号加 1，不要回填空号：已执行过更高版本的库再遇到低版本新脚本，Flyway 默认校验会拒绝启动（og 虽不走 Flyway，仍与 PG/达梦同号纪律对齐）。
-- `V16` / `V17`：PG 侧 #76（wraps_antimeridian + CONCURRENTLY 部分索引）；本方言无 PostGIS / 无 gis_feature，脚本为同号占位。
+它已经改用 DO 块，加列之前先查 `information_schema.columns`，写法和 V9、V10 一样。
 
+仓库根目录下的 `scripts/og/V8_oper_log_chain_guard_lite.sql` 和它含义相同。两个文件任选一个执行。
+
+## 规则
+
+- `V1__baseline_0_1.sql` 是 0.1.0 的发布基线。它已经发布，不能修改。
+- 之后每次改库都新增 `Vn__*.sql`，版本号和 PostgreSQL 的相同。
+- 脚本里不能出现 `ADD COLUMN IF NOT EXISTS`。
+
+完整的规则见 [`../migration/README.md`](../migration/README.md)。
+
+第三条由下面几处保证：
+
+- 从 PostgreSQL 脚本重新转换时，转换器会把这种语法改成 DO 块。
+- `scripts/ci/test_og_migration_ban.py` 会扫描这个目录里的脚本。
+- `OpenGaussMigrationBanTest` 做同样的检查。
+
+### 版本号
+
+新脚本的版本号取合入时 `main` 上最大的号加 1。
+
+版本号只增不补，所以中间会跳号，例如没有 V4 到 V6，也没有 V12。这是正常的，不要回填空号。
+
+openGauss 不走 Flyway，版本号仍然和 PostgreSQL、达梦的保持一致。
+
+### 占位的脚本
+
+V16 和 V17 在 PostgreSQL 上给 `gis_feature` 加列和索引，背景见 [#76](https://github.com/mugsun/mugsun-boot/issues/76)。
+
+这里没有 PostGIS，也不建 `gis_feature` 表，所以 V16 和 V17 只是同号的占位文件。
+
+## 为什么目录和 migration 并列
+
+目录是 `db/migration-og`，没有放在 `db/migration` 下面。
+
+Flyway 默认会递归扫描 `db/migration/**`，放在里面会被当成 PostgreSQL 的迁移扫到。
+
+## 和 PostgreSQL 脚本的差别
+
+| PostgreSQL 的写法 | 这里的写法 |
+| --- | --- |
+| `ON CONFLICT DO NOTHING` | `ON DUPLICATE KEY UPDATE NOTHING` |
+| `ADD COLUMN IF NOT EXISTS` | 列已经在 `CREATE TABLE` 里时，删掉整句。否则改成查 `information_schema` 的 DO 块 |
+| 带 `WHERE` 的部分索引 | 去掉 `WHERE`。带 `IS NOT NULL` 条件的唯一索引降为普通索引 |
+| `WHERE is_deleted = 0` 的部分唯一索引 | 从 V7 起写成表达式唯一索引，见下文 |
+| PostGIS 和 pgvector | lite 版没有这两个扩展。不建 `gis_feature` 表，向量表也没有 embedding 列 |
+
+### 唯一索引
+
+每个键列都包一层：
+
+```sql
+CASE WHEN is_deleted = 0 THEN 列 END
+```
+
+已删除的行整组键都是 NULL，不参与唯一约束。
+
+不要写成 `(列, is_deleted)`。那样同一个键删除两次就会冲突。
+
+2026 年 10 月 18 日实测过，openGauss-lite 5.1 也支持部分唯一索引。这里仍然用表达式索引，是为了和达梦的写法一致。
