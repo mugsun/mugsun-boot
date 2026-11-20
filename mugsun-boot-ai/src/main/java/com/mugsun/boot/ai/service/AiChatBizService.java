@@ -344,7 +344,7 @@ public class AiChatBizService {
 		List<Map<String, Object>> refs = List.of();
 		if (knowledgeId != null) {
 			try {
-				refs = knowledgeBizService.hitTest(knowledgeId, userText, 0);
+				refs = knowledgeBizService.retrieve(knowledgeId, userText, 0);
 				if (!refs.isEmpty()) {
 					StringBuilder ctx = new StringBuilder("以下是相关知识库片段，请优先依据片段回答；若片段不足请明确说明。\n");
 					int i = 1;

@@ -133,7 +133,10 @@ public class AiKnowledgeController {
 			segmentType, segmentSymbol);
 		R<AiKnowledgeAsset> result = R.data(saved);
 		String name = saved.getFileName();
-		result.setMsg("已上传「" + (name == null || name.isBlank() ? "这份资料" : name) + "」。可以在分段列表里查看");
+		String shown = name == null || name.isBlank() ? "这份资料" : name;
+		result.setMsg("failed".equals(saved.getVectorStatus())
+			? "已上传「" + shown + "」并分好段，但没有向量化成功。原因见资料列表"
+			: "已上传「" + shown + "」。可以在分段列表里查看");
 		return result;
 	}
 

@@ -21,6 +21,8 @@ import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -72,6 +74,27 @@ public class AiKnowledgeBizService {
 	}
 
 	private static final java.util.Set<String> MODES = java.util.Set.of("hybrid", "vector", "keyword");
+
+	private static final Logger log = LoggerFactory.getLogger(AiKnowledgeBizService.class);
+
+	/** 关键词检索每次从库里读多少个分段 */
+	static final int KEYWORD_PAGE_SIZE = 500;
+
+	private static final String EMBED_CALL_FAILED = "向量模型调用失败，这些分段没有向量化。"
+		+ "请检查向量模型的地址、密钥和额度，改好后点「开始向量化」重试";
+	private static final String EMBED_MODEL_MISSING = "知识库选的向量模型已经不存在，这些分段没有向量化。"
+		+ "请在知识库设置里重新选择向量模型，再点「开始向量化」";
+	private static final String EMBED_COUNT_MISMATCH = "向量模型返回的向量条数和分段数对不上，这些分段没有向量化。"
+		+ "请换一个向量模型，或稍后点「开始向量化」重试";
+
+	/** 知识库该用的向量模型。model 和 problem 都为空表示没有配任何向量模型，入库和查询都用本地哈希向量 */
+	private record EmbeddingChoice(AiModel model, String problem) {
+	}
+
+	/** 一次向量化的结果：写进向量表几段、失败几段、失败时给用户看的原因 */
+	private record VectorizeResult(int ok, int failed, String problem) {
+		static final VectorizeResult NONE = new VectorizeResult(0, 0, null);
+	}
 
 	public Page<AiKnowledge> page(long pageNum, long pageSize, String name) {
 		moduleService.requireEnabled();
@@ -374,13 +397,26 @@ public class AiKnowledgeBizService {
 		body.sanitizeForUpdate();
 		assetMapper.update(body);
 
-		vectorizeSegments(kb, segs);
-		body.setVectorStatus("success");
-		body.setProgress(100);
-		body.setFailReason(null);
+		applyVectorResult(body, vectorizeSegments(kb, segs));
 		body.sanitizeForUpdate();
 		assetMapper.update(body);
 		return body;
+	}
+
+	/** 把向量化结果写到资料上：有分段没向量化成功就如实标 failed 并带上原因，不再一律写 success */
+	private static void applyVectorResult(AiKnowledgeAsset asset, VectorizeResult result) {
+		if (result.failed() > 0) {
+			asset.setVectorStatus("failed");
+			asset.setProgress(40);
+			asset.setFailReason(truncateFail(result.problem()));
+			return;
+		}
+		asset.setVectorStatus("success");
+		asset.setProgress(100);
+		if (asset.getFailReason() != null) {
+			// 更新时空值不落库，要清掉上一次的失败原因只能写空串
+			asset.setFailReason("");
+		}
 	}
 
 	private void persistFailedAsset(AiKnowledgeAsset body, String reason) {
@@ -441,29 +477,45 @@ public class AiKnowledgeBizService {
 				}
 			}
 		}
-		int n = vectorizeSegments(kb, segs);
+		VectorizeResult result = vectorizeSegments(kb, segs);
+		int n = result.ok();
 		boolean vectorOn = vectorStore.isVectorAvailable();
-		if (rebuild || n > 0) {
+		if (rebuild || n > 0 || result.failed() > 0) {
 			List<AiKnowledgeAsset> assets = assets(knowledgeId);
 			for (AiKnowledgeAsset a : assets) {
 				List<AiKnowledgeSegment> assetSegs = segmentMapper.selectListByQuery(
 					QueryWrapper.create().eq("asset_id", a.getId()).eq("enabled", AiConstants.FLAG_YES));
+				long failed = assetSegs.stream()
+					.filter(s -> "failed".equalsIgnoreCase(s.getVectorStatus()))
+					.count();
 				long pending = assetSegs.stream()
 					.filter(s -> s.getVectorStatus() == null || !"success".equalsIgnoreCase(s.getVectorStatus()))
 					.count();
-				a.setVectorStatus(pending == 0 && !assetSegs.isEmpty() ? "success" : "pending");
-				a.setProgress(pending == 0 && !assetSegs.isEmpty() ? 100 : 40);
+				if (failed > 0) {
+					a.setVectorStatus("failed");
+					a.setProgress(40);
+					a.setFailReason(truncateFail(result.problem() != null ? result.problem() : EMBED_CALL_FAILED));
+				} else {
+					boolean done = pending == 0 && !assetSegs.isEmpty();
+					a.setVectorStatus(done ? "success" : "pending");
+					a.setProgress(done ? 100 : 40);
+					if (done && a.getFailReason() != null) {
+						a.setFailReason("");
+					}
+				}
 				a.sanitizeForUpdate();
 				assetMapper.update(a);
 			}
 		}
 		Map<String, Object> stats = vectorStats(knowledgeId);
-		stats.put("ok", true);
+		stats.put("ok", result.failed() == 0);
 		stats.put("count", n);
 		stats.put("rebuild", rebuild);
 		stats.put("vectorAvailable", vectorOn);
 		if (!vectorOn) {
 			stats.put("message", "未安装向量扩展，已回落关键词检索，未写入向量");
+		} else if (result.failed() > 0) {
+			stats.put("message", result.problem());
 		}
 		return stats;
 	}
@@ -575,9 +627,7 @@ public class AiKnowledgeBizService {
 		asset.setVectorStatus("pending");
 		asset.sanitizeForUpdate();
 		assetMapper.update(asset);
-		vectorizeSegments(kb, segs);
-		asset.setVectorStatus("success");
-		asset.setProgress(100);
+		applyVectorResult(asset, vectorizeSegments(kb, segs));
 		asset.sanitizeForUpdate();
 		assetMapper.update(asset);
 		return asset;
@@ -610,7 +660,16 @@ public class AiKnowledgeBizService {
 		db.sanitizeForUpdate();
 		segmentMapper.update(db);
 		AiKnowledge kb = require(db.getKnowledgeId());
-		vectorizeSegments(kb, List.of(db));
+		VectorizeResult result = vectorizeSegments(kb, List.of(db));
+		if (result.failed() > 0 && db.getAssetId() != null) {
+			// 这一段没向量化成功，所属资料也要如实标出来；成功时不动资料状态（别的分段可能还是失败的）
+			AiKnowledgeAsset asset = assetMapper.selectOneById(db.getAssetId());
+			if (asset != null) {
+				applyVectorResult(asset, result);
+				asset.sanitizeForUpdate();
+				assetMapper.update(asset);
+			}
+		}
 		return db;
 	}
 
@@ -647,13 +706,36 @@ public class AiKnowledgeBizService {
 		return segmentMapper.selectListByQuery(q);
 	}
 
-	/**
-	 * 命中测试 / 对话 RAG：按知识库 retrievalMode 做 vector / keyword / hybrid(RRF)。
-	 * 尊重 minScore；rerankFlag=1 时做轻量词面加权（无外部 rerank 模型）。
-	 */
+	/** 管理端的命中测试：停用的知识库直接报错，和停用时「检索不会再使用这个知识库」的提示一致 */
 	public List<Map<String, Object>> hitTest(Long knowledgeId, String query, int topK) {
 		moduleService.requireEnabled();
 		AiKnowledge kb = require(knowledgeId);
+		if (disabled(kb)) {
+			throw new ServiceException("这个知识库已停用，对话和工作流都不会检索它。要测试命中效果，请先启用");
+		}
+		return search(kb, query, topK);
+	}
+
+	/** 对话、工作流运行时的检索：停用的知识库当作没有资料，返回空，不打断对话 */
+	public List<Map<String, Object>> retrieve(Long knowledgeId, String query, int topK) {
+		moduleService.requireEnabled();
+		AiKnowledge kb = require(knowledgeId);
+		if (disabled(kb)) {
+			return List.of();
+		}
+		return search(kb, query, topK);
+	}
+
+	private static boolean disabled(AiKnowledge kb) {
+		return kb.getStatus() != null && kb.getStatus() == AiConstants.STATUS_DISABLE;
+	}
+
+	/**
+	 * 按知识库 retrievalMode 做 vector / keyword / hybrid(RRF)。
+	 * 尊重 minScore；rerankFlag=1 时做轻量词面加权（无外部 rerank 模型）。
+	 */
+	private List<Map<String, Object>> search(AiKnowledge kb, String query, int topK) {
+		Long knowledgeId = kb.getId();
 		if (query == null || query.isBlank()) {
 			return List.of();
 		}
@@ -668,16 +750,22 @@ public class AiKnowledgeBizService {
 		List<Map<String, Object>> vectorHits = List.of();
 		List<Map<String, Object>> keywordHits = keywordSearch(knowledgeId, query.trim(), pool);
 
+		// 向量这条路这次有没有真的走：没装向量扩展、或者向量模型调不通时都算没走
+		boolean vectorRan = false;
 		if (!"keyword".equals(mode) && vectorStore.isVectorAvailable()) {
-			float[] qv = embedText(kb, query);
-			// 向量路在入库前按 minScore 过滤；hybrid 融合分与余弦分不可比，不再对 RRF 分二次卡阈值
-			List<Map<String, Object>> raw = vectorStore.search(knowledgeId, qv, pool, minScore);
-			vectorHits = enrichHits(raw);
+			float[] qv = queryVector(kb, query);
+			if (qv != null) {
+				// 向量路在入库前按 minScore 过滤；hybrid 融合分与余弦分不可比，不再对 RRF 分二次卡阈值
+				List<Map<String, Object>> raw = vectorStore.search(knowledgeId, qv, pool, minScore);
+				vectorHits = enrichHits(raw);
+				vectorRan = true;
+			}
 		}
 
 		List<Map<String, Object>> hits;
 		switch (mode) {
-			case "vector" -> hits = vectorHits;
+			// 纯向量模式下向量这条路走不了，就用关键词结果，不返回空
+			case "vector" -> hits = vectorRan ? vectorHits : keywordHits;
 			case "keyword" -> hits = keywordHits;
 			default -> {
 				if (vectorHits.isEmpty()) {
@@ -727,54 +815,76 @@ public class AiKnowledgeBizService {
 
 	private List<Map<String, Object>> keywordSearch(Long knowledgeId, String query, int topK) {
 		List<String> tokens = tokenizeQuery(query);
-		// 知识库规模通常不大：拉启用分段在内存里按词面覆盖率打分（避免 Flex OR 歧义 + 整句 LIKE 永不命中）
-		List<AiKnowledgeSegment> segs = segmentMapper.selectListByQuery(
-			QueryWrapper.create().eq("knowledge_id", knowledgeId)
-				.eq("enabled", AiConstants.FLAG_YES)
-				.orderBy("id", true)
-				.limit(500));
-		List<String> terms = tokens.isEmpty()
-			? List.of(query.trim().toLowerCase(Locale.ROOT))
-			: tokens;
+		List<String> terms = new ArrayList<>();
+		for (String t : tokens.isEmpty() ? List.of(query.trim()) : tokens) {
+			String tl = t.toLowerCase(Locale.ROOT);
+			if (!tl.isBlank()) {
+				terms.add(tl);
+			}
+		}
+		// 稳定排序：同分时 id 小的在前，和一次取全再排序的结果一样
+		Comparator<Map<String, Object>> byScoreDesc = Comparator.comparingDouble((Map<String, Object> h) ->
+			h.get("score") instanceof Number n ? n.doubleValue() : 0).reversed();
+		int keep = Math.max(1, topK);
 		List<Map<String, Object>> hits = new ArrayList<>();
-		for (AiKnowledgeSegment s : segs) {
-			String content = s.getContent() == null ? "" : s.getContent();
-			String lower = content.toLowerCase(Locale.ROOT);
-			int matched = 0;
-			int firstIdx = Integer.MAX_VALUE;
-			for (String t : terms) {
-				String tl = t.toLowerCase(Locale.ROOT);
-				if (tl.isBlank()) {
-					continue;
-				}
-				int idx = lower.indexOf(tl);
-				if (idx >= 0) {
-					matched++;
-					firstIdx = Math.min(firstIdx, idx);
+		Long afterId = null;
+		while (true) {
+			// 按 id 一页一页把启用的分段全部看一遍，在内存里按词面覆盖率打分
+			// （不用 Flex 的 OR + LIKE：有歧义，整句 LIKE 也命中不了）。
+			// 只取最早的 500 段的话，知识库一大，后面的分段永远搜不到
+			QueryWrapper pageQuery = QueryWrapper.create().eq("knowledge_id", knowledgeId)
+				.eq("enabled", AiConstants.FLAG_YES);
+			if (afterId != null) {
+				pageQuery.gt("id", afterId);
+			}
+			List<AiKnowledgeSegment> page = segmentMapper.selectListByQuery(
+				pageQuery.orderBy("id", true).limit(KEYWORD_PAGE_SIZE));
+			for (AiKnowledgeSegment s : page) {
+				Map<String, Object> hit = keywordHit(s, terms);
+				if (hit != null) {
+					hits.add(hit);
 				}
 			}
-			int denom = Math.max(1, terms.size());
-			double cover = matched / (double) denom;
-			if (cover <= 0) {
-				continue;
+			// 内存里只留分数最高的一小批，知识库再大也不会把所有命中的正文都攒着
+			if (hits.size() > keep * 4) {
+				hits.sort(byScoreDesc);
+				hits = new ArrayList<>(hits.subList(0, keep));
 			}
-			double pos = firstIdx == Integer.MAX_VALUE ? 0
-				: (1.0 - Math.min(1.0, firstIdx / (double) Math.max(1, lower.length())));
-			double score = 0.35 + 0.45 * cover + 0.2 * pos;
-			Map<String, Object> m = new HashMap<>();
-			m.put("segmentId", s.getId());
-			m.put("assetId", s.getAssetId());
-			m.put("content", content);
-			m.put("score", Math.round(score * 1_000_000d) / 1_000_000d);
-			m.put("source", "keyword");
-			hits.add(m);
+			if (page.size() < KEYWORD_PAGE_SIZE) {
+				break;
+			}
+			afterId = page.get(page.size() - 1).getId();
 		}
-		hits.sort(Comparator.comparingDouble((Map<String, Object> h) ->
-			h.get("score") instanceof Number n ? n.doubleValue() : 0).reversed());
-		if (hits.size() > topK) {
-			return new ArrayList<>(hits.subList(0, topK));
+		hits.sort(byScoreDesc);
+		return hits.size() > keep ? new ArrayList<>(hits.subList(0, keep)) : hits;
+	}
+
+	/** 一个分段的关键词得分：命中的词越多、出现得越靠前分越高；一个词都没命中返回 null */
+	private static Map<String, Object> keywordHit(AiKnowledgeSegment s, List<String> terms) {
+		String content = s.getContent() == null ? "" : s.getContent();
+		String lower = content.toLowerCase(Locale.ROOT);
+		int matched = 0;
+		int firstIdx = Integer.MAX_VALUE;
+		for (String t : terms) {
+			int idx = lower.indexOf(t);
+			if (idx >= 0) {
+				matched++;
+				firstIdx = Math.min(firstIdx, idx);
+			}
 		}
-		return hits;
+		if (matched == 0) {
+			return null;
+		}
+		double cover = matched / (double) Math.max(1, terms.size());
+		double pos = 1.0 - Math.min(1.0, firstIdx / (double) Math.max(1, lower.length()));
+		double score = 0.35 + 0.45 * cover + 0.2 * pos;
+		Map<String, Object> m = new HashMap<>();
+		m.put("segmentId", s.getId());
+		m.put("assetId", s.getAssetId());
+		m.put("content", content);
+		m.put("score", Math.round(score * 1_000_000d) / 1_000_000d);
+		m.put("source", "keyword");
+		return m;
 	}
 
 	/** 拆中英关键词；过滤过短停用词，保证「检索模式」「创建知识库」等能命中 */
@@ -812,57 +922,71 @@ public class AiKnowledgeBizService {
 		return uniq.size() > 24 ? uniq.subList(0, 24) : uniq;
 	}
 
-	private int vectorizeSegments(AiKnowledge kb, List<AiKnowledgeSegment> segs) {
+	/**
+	 * 给分段写向量。配了向量模型却调不通时，分段标成 failed、旧向量删掉，不拿本地哈希向量顶替：
+	 * 哈希向量和模型算的向量不在一个空间里，混在一起检索结果基本是随机的，界面上还显示成功。
+	 */
+	private VectorizeResult vectorizeSegments(AiKnowledge kb, List<AiKnowledgeSegment> segs) {
 		if (segs == null || segs.isEmpty()) {
-			return 0;
+			return VectorizeResult.NONE;
 		}
-		int ok = 0;
-		AiModel embModel = resolveEmbeddingModel(kb);
-		List<String> batch = new ArrayList<>();
-		List<AiKnowledgeSegment> batchSegs = new ArrayList<>();
-		int batchSize = 8;
-		for (AiKnowledgeSegment seg : segs) {
-			batch.add(seg.getContent());
-			batchSegs.add(seg);
-			if (batch.size() >= batchSize) {
-				ok += flushEmbedBatch(kb, embModel, batch, batchSegs);
-				batch.clear();
-				batchSegs.clear();
-			}
-		}
-		if (!batch.isEmpty()) {
-			ok += flushEmbedBatch(kb, embModel, batch, batchSegs);
-		}
-		return ok;
-	}
-
-	private int flushEmbedBatch(AiKnowledge kb, AiModel embModel, List<String> texts, List<AiKnowledgeSegment> segs) {
 		if (!vectorStore.isVectorAvailable()) {
 			for (AiKnowledgeSegment seg : segs) {
 				seg.setVectorStatus("keyword");
 				seg.sanitizeForUpdate();
 				segmentMapper.update(seg);
 			}
-			return 0;
+			return VectorizeResult.NONE;
+		}
+		EmbeddingChoice emb = chooseEmbedding(kb);
+		String problem = emb.problem();
+		int ok = 0;
+		int failed = 0;
+		int batchSize = 8;
+		for (int from = 0; from < segs.size(); from += batchSize) {
+			List<AiKnowledgeSegment> batch = segs.subList(from, Math.min(segs.size(), from + batchSize));
+			// 已经失败过就不再调模型：同一个原因会让后面每一批都失败，一批一批等超时没有意义
+			if (problem == null) {
+				problem = flushEmbedBatch(kb, emb.model(), batch);
+			}
+			if (problem == null) {
+				ok += batch.size();
+			} else {
+				markFailed(batch);
+				failed += batch.size();
+			}
+		}
+		return new VectorizeResult(ok, failed, problem);
+	}
+
+	/** 成功返回 null；失败返回给用户看的原因。模型返回的原始报错只进日志，不给用户看 */
+	private String flushEmbedBatch(AiKnowledge kb, AiModel embModel, List<AiKnowledgeSegment> segs) {
+		List<String> texts = new ArrayList<>(segs.size());
+		for (AiKnowledgeSegment seg : segs) {
+			texts.add(seg.getContent());
 		}
 		List<float[]> vectors;
-		try {
-			if (embModel != null) {
-				vectors = llmClient.embedBatch(embModel, texts);
-			} else {
-				vectors = new ArrayList<>();
-				for (String t : texts) {
-					vectors.add(AiKbVectorStore.localHashEmbed(t));
-				}
-			}
-		} catch (Exception e) {
-			vectors = new ArrayList<>();
+		if (embModel == null) {
+			// 整个系统一个向量模型都没配：入库和查询两边都用本地哈希，是一致的
+			vectors = new ArrayList<>(texts.size());
 			for (String t : texts) {
 				vectors.add(AiKbVectorStore.localHashEmbed(t));
 			}
+		} else {
+			try {
+				vectors = llmClient.embedBatch(embModel, texts);
+			} catch (Exception e) {
+				log.warn("[ai-kb] embedding failed: kb={} model={} segments={} cause={}",
+					kb.getId(), embModel.getId(), segs.size(), briefCause(e));
+				return EMBED_CALL_FAILED;
+			}
+			if (!sameCount(vectors, segs.size())) {
+				log.warn("[ai-kb] embedding count mismatch: kb={} model={} segments={} vectors={}",
+					kb.getId(), embModel.getId(), segs.size(), vectors == null ? 0 : vectors.size());
+				return EMBED_COUNT_MISMATCH;
+			}
 		}
-		int n = Math.min(vectors.size(), segs.size());
-		for (int i = 0; i < n; i++) {
+		for (int i = 0; i < segs.size(); i++) {
 			AiKnowledgeSegment seg = segs.get(i);
 			String preview = seg.getContent() == null ? "" :
 				(seg.getContent().length() > 200 ? seg.getContent().substring(0, 200) : seg.getContent());
@@ -872,29 +996,83 @@ public class AiKnowledgeBizService {
 			seg.sanitizeForUpdate();
 			segmentMapper.update(seg);
 		}
-		return n;
+		return null;
 	}
 
-	private float[] embedText(AiKnowledge kb, String text) {
-		AiModel embModel = resolveEmbeddingModel(kb);
-		try {
-			if (embModel != null) {
-				return llmClient.embed(embModel, text);
-			}
-		} catch (Exception ignored) {
+	private static boolean sameCount(List<float[]> vectors, int expected) {
+		if (vectors == null || vectors.size() != expected) {
+			return false;
 		}
-		return AiKbVectorStore.localHashEmbed(text);
+		for (float[] v : vectors) {
+			if (v == null || v.length == 0) {
+				return false;
+			}
+		}
+		return true;
 	}
 
-	private AiModel resolveEmbeddingModel(AiKnowledge kb) {
-		try {
-			if (kb.getEmbeddingModelId() != null) {
-				return modelBizService.requireRaw(kb.getEmbeddingModelId());
-			}
-			return modelBizService.requireDefaultEmbedding();
-		} catch (Exception e) {
+	private void markFailed(List<AiKnowledgeSegment> segs) {
+		for (AiKnowledgeSegment seg : segs) {
+			// 留着的旧向量可能是换模型之前算的，和以后的查询向量对不上，一并删掉
+			vectorStore.deleteBySegment(seg.getId());
+			seg.setVectorStatus("failed");
+			seg.sanitizeForUpdate();
+			segmentMapper.update(seg);
+		}
+	}
+
+	/**
+	 * 查询用的向量，要和入库时来自同一个模型。配了向量模型却调不通时返回 null（这次只走关键词），
+	 * 不拿本地哈希向量去比模型算出来的向量。
+	 */
+	private float[] queryVector(AiKnowledge kb, String text) {
+		EmbeddingChoice emb = chooseEmbedding(kb);
+		if (emb.problem() != null) {
+			log.warn("[ai-kb] query embedding skipped, embedding model is gone: kb={} model={}",
+				kb.getId(), kb.getEmbeddingModelId());
 			return null;
 		}
+		if (emb.model() == null) {
+			return AiKbVectorStore.localHashEmbed(text);
+		}
+		try {
+			float[] v = llmClient.embed(emb.model(), text);
+			if (v != null && v.length > 0) {
+				return v;
+			}
+			log.warn("[ai-kb] query embedding is empty: kb={} model={}", kb.getId(), emb.model().getId());
+		} catch (Exception e) {
+			log.warn("[ai-kb] query embedding failed: kb={} model={} cause={}",
+				kb.getId(), emb.model().getId(), briefCause(e));
+		}
+		return null;
+	}
+
+	/**
+	 * 知识库用哪个向量模型：知识库自己选的优先，没选就用系统默认的。
+	 * 整个系统一个向量模型都没配时 model 为空，入库和查询都用本地哈希；
+	 * 知识库选的模型已经被删掉时给出 problem，不悄悄换成本地哈希。
+	 */
+	private EmbeddingChoice chooseEmbedding(AiKnowledge kb) {
+		if (kb.getEmbeddingModelId() != null) {
+			try {
+				return new EmbeddingChoice(modelBizService.requireRaw(kb.getEmbeddingModelId()), null);
+			} catch (ServiceException e) {
+				return new EmbeddingChoice(null, EMBED_MODEL_MISSING);
+			}
+		}
+		try {
+			return new EmbeddingChoice(modelBizService.requireDefaultEmbedding(), null);
+		} catch (ServiceException e) {
+			return new EmbeddingChoice(null, null);
+		}
+	}
+
+	/** 写日志用的失败原因：压成一行、去掉网址里问号后面的部分（有的厂商把密钥放在那里）、限长 */
+	private static String briefCause(Throwable e) {
+		String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+		msg = msg.replaceAll("[\\r\\n]+", " ").replaceAll("\\?[^\\s\"']*", "?...");
+		return msg.length() > 300 ? msg.substring(0, 300) : msg;
 	}
 
 	/**

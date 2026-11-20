@@ -223,7 +223,7 @@ public class AiFlowExecutor {
 						String.valueOf(vars.getOrDefault("input", vars.getOrDefault("query", "")))), vars);
 					int topK = data.path("topK").asInt(4);
 					if (kbId != null) {
-						List<Map<String, Object>> hits = knowledgeBizService.hitTest(kbId, q, topK);
+						List<Map<String, Object>> hits = knowledgeBizService.retrieve(kbId, q, topK);
 						output = objectMapper.writeValueAsString(hits);
 						vars.put("ragRefs", hits);
 						bindOut(vars, data, output);
