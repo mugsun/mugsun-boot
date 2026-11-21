@@ -46,7 +46,8 @@ services:
     restart: "no"
 
   demo-accounts:
-    image: mugsun-full-postgres:local
+    # 和 postgres 服务用同一个镜像（只用里面的 psql），换镜像时跟着 MUGSUN_PG_IMAGE 一起换
+    image: ${MUGSUN_PG_IMAGE:-ghcr.io/mugsun/postgis-pgvector:16-3.4}
     environment:
       RO: ${MUGSUN_DEMO_RO_DB_PASSWORD:?设置只读业务账号口令 MUGSUN_DEMO_RO_DB_PASSWORD}
       LOG: ${MUGSUN_DEMO_LOG_DB_PASSWORD:?设置日志账号口令 MUGSUN_DEMO_LOG_DB_PASSWORD}

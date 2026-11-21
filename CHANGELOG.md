@@ -76,6 +76,11 @@
     `MUGSUN_PC_IP` 改过网段的，要再把 `MUGSUN_NET_PREFIX` 设成同一网段，
     不设时 `up` 直接报错 `no configured subnet contains IP address`
 
+- 修 demo 叠加文件在没有旧镜像的机器上起不来
+  - `demo-accounts` 用的 `mugsun-full-postgres:local`，数据库改用 GHCR
+    镜像以后已经没有地方构建，只有留着旧镜像的机器不报错
+  - 改成和 postgres 服务同一个镜像，跟随 `MUGSUN_PG_IMAGE`
+
 - 修 JetCache 远程缓存写得进、读不出（no decoder for identity number）
   - 2.7.9 默认解码表没登记 Fastjson2；改用不带编号的 JSON 编解码
   - 多实例缓存失效广播恢复可解；不再按编号落到 JDK 反序列化
