@@ -39,6 +39,7 @@ Compose 文件里没有默认口令。数据库口令、管理员口令和加密
 | --- | --- |
 | 换端口 | 启动前设置 `MUGSUN_HTTP_PORT`，默认 `8088` |
 | 换时区 | 启动前设置 `MUGSUN_TZ`，默认 `Asia/Shanghai`，例如 `MUGSUN_TZ=UTC` |
+| 换网段 | 启动前设置 `MUGSUN_NET_PREFIX`，写网段的前三段，默认 `172.30.88`，例如 `MUGSUN_NET_PREFIX=10.88.0`。已经启动过的先 `down`（不带 `-v`）再启动 |
 | 查看登录提示 | `docker compose -f docker-compose.full.yml logs ready` |
 | 清空数据重新开始 | `docker compose -f docker-compose.full.yml down -v`，数据和密钥都会删除 |
 | 用本地的管理后台源码 | 平级放好 `mugsun-pc`，启动时加 `MUGSUN_PC_SRC=../mugsun-pc` |

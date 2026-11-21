@@ -39,6 +39,7 @@ CI runs these commands from scratch every week, including the sign-in and the fi
 | --- | --- |
 | Change the port | Set `MUGSUN_HTTP_PORT` before starting (default `8088`) |
 | Change the time zone | Set `MUGSUN_TZ` before starting (default `Asia/Shanghai`), for example `MUGSUN_TZ=UTC` |
+| Change the subnet | Set `MUGSUN_NET_PREFIX` to the first three octets before starting (default `172.30.88`), for example `MUGSUN_NET_PREFIX=10.88.0`. If the stack already exists, run `down` (without `-v`) first, then start it again |
 | See the sign-in hint | `docker compose -f docker-compose.full.yml logs ready` |
 | Start over with empty data | `docker compose -f docker-compose.full.yml down -v`, which deletes data and keys |
 | Build the admin console from local source | Put `mugsun-pc` next to this repository and start with `MUGSUN_PC_SRC=../mugsun-pc` |

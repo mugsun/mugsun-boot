@@ -4,7 +4,8 @@
 # 启动顺序：init → postgres/redis → boot-migrate（owner 账号、prod profile、--mugsun.demo.migrate-only=true，迁移+初始化后退出）
 #   → demo-accounts（超级用户执行 docs/demo/sql/demo-accounts.sql，建三个低权限账号并授权）→ boot（prod,demo，低权限账号）→ pc。
 # 三个低权限口令只允许字母和数字（16 位以上），由部署方生成并自行保管。
-# 网络：沿用 full 的固定子网 172.30.88.0/24，pc（Nginx）固定 172.30.88.10；后端只信任这一个地址传来的 X-Forwarded-For。
+# 网络：沿用 full 的网段和固定地址（MUGSUN_NET_PREFIX，默认 172.30.88），容器之间按地址连，原因见 full 文件开头；
+#   后端只信任管理台（.10）这一个地址传来的 X-Forwarded-For。
 # - 管理台 CSP 改为强制拦截，违规报告发到后端收集端 POST /api/csp-report（经 pc 的 Nginx 反代到 boot 的 /csp-report）。
 #   MUGSUN_CSP_MODE / MUGSUN_CSP_REPORT_URI 需要 mugsun-pc#61 及以后的 pc 镜像（full 文件钉的 tip 已含）。
 # - 收集端只在后端开了只读演示模式（mugsun.demo.enabled=true，prod,demo profile）时存在，并按 IP 限流
@@ -19,11 +20,11 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       # 和 boot 同一个时区：迁移和初始化写入的时间要和之后应用写入的一致
       TZ: ${MUGSUN_TZ:-Asia/Shanghai}
-      JDBC_URL: jdbc:postgresql://postgres:5432/mugsun
+      JDBC_URL: jdbc:postgresql://${MUGSUN_NET_PREFIX:-172.30.88}.13:5432/mugsun
       JDBC_USERNAME: mugsun
-      TRACK_JDBC_URL: jdbc:postgresql://postgres:5432/mugsun_track
+      TRACK_JDBC_URL: jdbc:postgresql://${MUGSUN_NET_PREFIX:-172.30.88}.13:5432/mugsun_track
       TRACK_JDBC_USERNAME: mugsun
-      REDIS_HOST: redis
+      REDIS_HOST: ${MUGSUN_NET_PREFIX:-172.30.88}.14
       REDIS_DB: ${MUGSUN_DEMO_REDIS_DB:-4}
       MUGSUN_FRONT_URL: ${MUGSUN_DEMO_FRONT_URL:-http://localhost:${MUGSUN_HTTP_PORT:-8088}}
       FILE_DOMAIN: ${MUGSUN_DEMO_FRONT_URL:-http://localhost:${MUGSUN_HTTP_PORT:-8088}}/api/file/
@@ -50,6 +51,8 @@ services:
       RO: ${MUGSUN_DEMO_RO_DB_PASSWORD:?设置只读业务账号口令 MUGSUN_DEMO_RO_DB_PASSWORD}
       LOG: ${MUGSUN_DEMO_LOG_DB_PASSWORD:?设置日志账号口令 MUGSUN_DEMO_LOG_DB_PASSWORD}
       TRK: ${MUGSUN_DEMO_TRACK_DB_PASSWORD:?设置埋点账号口令 MUGSUN_DEMO_TRACK_DB_PASSWORD}
+      # psql 按这个地址连库（full 里数据库的固定地址）
+      PGHOST: ${MUGSUN_NET_PREFIX:-172.30.88}.13
     entrypoint:
       - sh
       - -c
@@ -63,9 +66,9 @@ services:
         sed -e "s/{{RO_PASSWORD}}/$$RO/" -e "s/{{LOG_PASSWORD}}/$$LOG/" -e "s/{{TRACK_PASSWORD}}/$$TRK/" \
             -e "s/{{BIZ_DB}}/mugsun/" -e "s/{{TRACK_DB}}/mugsun_track/" -e "s/{{OWNER}}/mugsun/" \
             /sql/demo-accounts.sql > /tmp/demo-accounts.sql
-        psql -h postgres -U postgres -d mugsun -v ON_ERROR_STOP=1 -q -f /tmp/demo-accounts.sql
+        psql -U postgres -d mugsun -v ON_ERROR_STOP=1 -q -f /tmp/demo-accounts.sql
         # 口令以 SQL 里的为准：已存在的账号也同步一次（重复执行幂等）
-        psql -h postgres -U postgres -d mugsun -v ON_ERROR_STOP=1 -q \
+        psql -U postgres -d mugsun -v ON_ERROR_STOP=1 -q \
           -c "ALTER ROLE mugsun_demo_ro PASSWORD '$$RO'" -c "ALTER ROLE mugsun_demo_log PASSWORD '$$LOG'" \
           -c "ALTER ROLE mugsun_demo_track PASSWORD '$$TRK'"
         echo "demo accounts ready"
@@ -91,7 +94,7 @@ services:
       MUGSUN_FRONT_URL: ${MUGSUN_DEMO_FRONT_URL:-http://localhost:${MUGSUN_HTTP_PORT:-8088}}
       FILE_DOMAIN: ${MUGSUN_DEMO_FRONT_URL:-http://localhost:${MUGSUN_HTTP_PORT:-8088}}/api/file/
       # 显式只信任 pc（Nginx）的固定地址
-      MUGSUN_OPENAPI_TRUSTED_PROXIES: ${MUGSUN_PC_IP:-172.30.88.10}/32
+      MUGSUN_OPENAPI_TRUSTED_PROXIES: ${MUGSUN_PC_IP:-${MUGSUN_NET_PREFIX:-172.30.88}.10}/32
     # boot.env 里是 owner 口令：读完后换成低权限账号口令
     entrypoint: ["sh", "-c", ". /secrets/boot.env && export JDBC_PASSWORD=\"$$MUGSUN_DEMO_RO_DB_PASSWORD\" TRACK_JDBC_PASSWORD=\"$$MUGSUN_DEMO_TRACK_DB_PASSWORD\" && exec java $$JAVA_OPTS -jar /app/app.jar"]
     volumes:
@@ -109,8 +112,9 @@ networks:
   default:
     ipam:
       config:
-        - subnet: ${MUGSUN_COMPOSE_SUBNET:-172.30.88.0/24}
-          ip_range: ${MUGSUN_COMPOSE_IP_RANGE:-172.30.88.128/25}
+        # 和 full 里的写法保持一致：叠加时这一段会盖掉 full 的同名段
+        - subnet: ${MUGSUN_COMPOSE_SUBNET:-${MUGSUN_NET_PREFIX:-172.30.88}.0/24}
+          ip_range: ${MUGSUN_COMPOSE_IP_RANGE:-${MUGSUN_NET_PREFIX:-172.30.88}.128/25}
 
 volumes:
   boot-logs:

@@ -62,6 +62,20 @@
 
 ### 修复
 
+- 修一键全栈重启顺序不对时管理台一直 502、停止时后端被强杀
+  - 全部停掉后管理台先起来时，`boot` 这个名字被交给宿主机 DNS 去查；
+    Nginx 只在启动时查一次，之后的请求一直发到查到的地址，重启管理台才恢复
+  - 管理台、后端、数据库、Redis 改用固定地址互连（.10、.12、.13、.14），
+    demo 叠加文件同步；默认网段不变
+  - 四个常驻容器写明 `stop_grace_period`（60s、40s、30s、10s）；
+    Docker 默认只等 1 秒的环境里，停止时后端退出码 137
+  - 新增 `MUGSUN_NET_PREFIX` 换网段（写前三段，默认 `172.30.88`）
+  - `compose-full-smoke.sh` 加三项：地址固定、停止时没被强杀、
+    全部停掉后乱序重启能自己恢复
+  - 升级：原地 `up -d` 即可，数据和密钥不变。用 `MUGSUN_COMPOSE_SUBNET`、
+    `MUGSUN_PC_IP` 改过网段的，要再把 `MUGSUN_NET_PREFIX` 设成同一网段，
+    不设时 `up` 直接报错 `no configured subnet contains IP address`
+
 - 修 JetCache 远程缓存写得进、读不出（no decoder for identity number）
   - 2.7.9 默认解码表没登记 Fastjson2；改用不带编号的 JSON 编解码
   - 多实例缓存失效广播恢复可解；不再按编号落到 JDK 反序列化

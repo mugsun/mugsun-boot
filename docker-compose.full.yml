@@ -16,6 +16,13 @@
 # 按服务拆进三个 secrets 卷（每个文件 0600、属主是对应服务用户），每个服务只挂自己的卷；重启不变。
 # 后端以 prod 配置运行（strict-keys、验证码开启、OpenAPI 关闭）。
 # 管理台端口默认只绑 127.0.0.1:8088；要给局域网访问显式设 MUGSUN_HTTP_BIND=0.0.0.0。数据库和 Redis 不映射到宿主机。
+# 网段默认占 172.30.88.0/24，和宿主机上别的网段冲突时改 MUGSUN_NET_PREFIX（写前三段，比如 10.88.0）。
+# 管理台、后端、数据库、Redis 用网段里的固定地址（.10、.12、.13、.14，和微服务版 mugsun-cloud 的编号对应），
+# 容器之间按地址找对方，不按名字：一个容器没在运行时，Docker 会把它的名字交给宿主机的 DNS 去查，
+# 查到什么地址，请求和口令就发到哪里；管理台的 Nginx 还只在启动时查一次，查错了要等重启才改得过来。
+# 以前用 MUGSUN_COMPOSE_SUBNET / MUGSUN_COMPOSE_IP_RANGE / MUGSUN_PC_IP 改过网段的：这三个变量照旧生效，
+# 但后端、数据库、Redis 的地址只跟 MUGSUN_NET_PREFIX 走，要把它设成同一个网段的前三段。
+# 已经起过的环境换网段：先 down（不带 -v，数据和密钥都留着），再带着新的 MUGSUN_NET_PREFIX 执行 up -d。
 # 时区：四个常驻容器（postgres / redis / boot / pc）默认都是 Asia/Shanghai，换时区设 MUGSUN_TZ=<IANA 名称>（如 UTC）。
 # 库里的时间列不带时区，按后端 JVM 的时区写入、页面原样显示，所以后端容器的时区就是页面上看到的时区。
 # 给已经在跑的环境改时区不会改写旧数据：之前写入的时间保持原来的钟点。
@@ -61,6 +68,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+    networks:
+      default:
+        ipv4_address: ${MUGSUN_NET_PREFIX:-172.30.88}.13
+    # 停止时等进程自己收尾退出，到时间还没退才强杀。四个常驻服务都写明这个时间：不写就按 Docker 的默认值，
+    # 有的环境里默认只有 1 秒，数据库和后端来不及收尾就被杀掉
+    stop_grace_period: 60s
     restart: unless-stopped
 
   redis:
@@ -81,6 +94,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    networks:
+      default:
+        ipv4_address: ${MUGSUN_NET_PREFIX:-172.30.88}.14
+    stop_grace_period: 30s
     restart: unless-stopped
 
   boot:
@@ -92,11 +109,12 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       # JVM 默认时区：应用取的当前时间和数据库会话的 now() 都跟它走（PostgreSQL 驱动建连时把会话时区设成 JVM 时区）
       TZ: ${MUGSUN_TZ:-Asia/Shanghai}
-      JDBC_URL: jdbc:postgresql://postgres:5432/mugsun
+      # 数据库和 Redis 按固定地址连，原因见文件开头
+      JDBC_URL: jdbc:postgresql://${MUGSUN_NET_PREFIX:-172.30.88}.13:5432/mugsun
       JDBC_USERNAME: mugsun
-      TRACK_JDBC_URL: jdbc:postgresql://postgres:5432/mugsun_track
+      TRACK_JDBC_URL: jdbc:postgresql://${MUGSUN_NET_PREFIX:-172.30.88}.13:5432/mugsun_track
       TRACK_JDBC_USERNAME: mugsun
-      REDIS_HOST: redis
+      REDIS_HOST: ${MUGSUN_NET_PREFIX:-172.30.88}.14
       REDIS_DB: "3"
       MUGSUN_FRONT_URL: http://localhost:${MUGSUN_HTTP_PORT:-8088}
       FILE_DOMAIN: http://localhost:${MUGSUN_HTTP_PORT:-8088}/api/file/
@@ -110,7 +128,7 @@ services:
       SMS_TEMPLATE_ID: unset
       # 只信任 pc（Nginx）容器的固定 IP 传来的 X-Forwarded-For，不信任整个子网；
       # pc 的 nginx 用 $remote_addr 覆盖 XFF（不保留客户端自带的），前置网关由 pc 侧 MUGSUN_GATEWAY_CIDRS 处理
-      MUGSUN_OPENAPI_TRUSTED_PROXIES: ${MUGSUN_PC_IP:-172.30.88.10}/32
+      MUGSUN_OPENAPI_TRUSTED_PROXIES: ${MUGSUN_PC_IP:-${MUGSUN_NET_PREFIX:-172.30.88}.10}/32
     volumes:
       - secrets-boot:/secrets:ro
       - files:/var/lib/mugsun/files
@@ -125,6 +143,12 @@ services:
       timeout: 5s
       start_period: 60s
       retries: 30
+    networks:
+      default:
+        # 固定地址：管理台按这个地址把请求转过来
+        ipv4_address: ${MUGSUN_NET_PREFIX:-172.30.88}.12
+    # 应用自己的优雅停机最多等 20 秒（spring.lifecycle.timeout-per-shutdown-phase），这里留一倍
+    stop_grace_period: 40s
     restart: unless-stopped
 
   pc:
@@ -138,7 +162,9 @@ services:
       dockerfile: Dockerfile
     image: mugsun-full-pc:local
     environment:
-      MUGSUN_API_UPSTREAM: http://boot:8080
+      # 写后端的固定地址，不写名字：Nginx 只在启动时把名字解析一次，那时后端要是没在运行，
+      # 查到的是宿主机的 DNS 给的地址，之后的请求一直发到那里，重启管理台才改得过来
+      MUGSUN_API_UPSTREAM: http://${MUGSUN_NET_PREFIX:-172.30.88}.12:8080
       TZ: ${MUGSUN_TZ:-Asia/Shanghai}
       # 前置网关（TLS 终端/负载均衡）网段，逗号分隔；默认空 = 不信任任何前置代理传来的 XFF
       MUGSUN_GATEWAY_CIDRS: ${MUGSUN_GATEWAY_CIDRS:-}
@@ -149,10 +175,12 @@ services:
       - "${MUGSUN_HTTP_BIND:-127.0.0.1}:${MUGSUN_HTTP_PORT:-8088}:8080"
     networks:
       default:
-        ipv4_address: ${MUGSUN_PC_IP:-172.30.88.10}
+        ipv4_address: ${MUGSUN_PC_IP:-${MUGSUN_NET_PREFIX:-172.30.88}.10}
     depends_on:
       boot:
         condition: service_healthy
+    # 页面开着的时候有一条长连接，Nginx 等不到它自己断开，所以这里只等 10 秒
+    stop_grace_period: 10s
     restart: unless-stopped
 
   ready:
@@ -187,10 +215,11 @@ networks:
   default:
     ipam:
       config:
-        # 与 mugsun-pc 的 compose 一致：固定子网，pc 用固定 IP .10 供后端信任；
-        # 动态分配只在 .128/25，任何其它容器都拿不到 .10。与宿主机网段冲突时同时改这三个变量
-        - subnet: ${MUGSUN_COMPOSE_SUBNET:-172.30.88.0/24}
-          ip_range: ${MUGSUN_COMPOSE_IP_RANGE:-172.30.88.128/25}
+        # 固定地址：.10 管理台（后端只信任它传来的客户端地址）、.12 后端、.13 PostgreSQL、.14 Redis。
+        # 一次性的容器只在 .128/25 里分配地址，拿不到上面这几个。网段和这些地址默认都由 MUGSUN_NET_PREFIX 决定；
+        # 旧的三个变量（网段、动态段、管理台地址，和 mugsun-pc 的 compose 同名）设了就以它们为准
+        - subnet: ${MUGSUN_COMPOSE_SUBNET:-${MUGSUN_NET_PREFIX:-172.30.88}.0/24}
+          ip_range: ${MUGSUN_COMPOSE_IP_RANGE:-${MUGSUN_NET_PREFIX:-172.30.88}.128/25}
 
 volumes:
   secrets-boot:

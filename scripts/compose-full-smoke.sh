@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键全栈验收：从零 up → 登录 → 上报并查到第一条埋点 → 打印耗时 → down -v 清理。
+# 一键全栈验收：从零 up → 登录 → 上报并查到第一条埋点 → 全部停掉、打乱顺序重启后自己恢复 → 打印耗时 → down -v 清理。
 # 用独立 compose 项目名（默认 mugsun-full-smoke），不碰本机其它容器与卷。
 #   scripts/compose-full-smoke.sh            # 本地/CI
 #   KEEP=1 scripts/compose-full-smoke.sh     # 验完不清理
@@ -47,20 +47,34 @@ hdr=$(curl -fsSI "http://127.0.0.1:${MUGSUN_HTTP_PORT}/")
 ngx=$("${DC[@]}" exec -T pc nginx -T 2>/dev/null)
 [[ "$ngx" == *'X-Forwarded-For $remote_addr'* ]] || fail "pc nginx 没有用 \$remote_addr 覆盖 X-Forwarded-For"
 [[ "$ngx" != *proxy_add_x_forwarded_for* ]] || fail "pc nginx 仍在追加客户端自带的 X-Forwarded-For"
-# pc#37：非法网关网段（在 compose 网络里跑，upstream boot 才能解析）
-# / CSP 域名必须让 nginx 拒绝启动
-docker run --rm --network "${COMPOSE_PROJECT_NAME}_default" -e MUGSUN_API_UPSTREAM=http://boot:8080 mugsun-full-pc:local nginx -t >/dev/null 2>&1 || fail "pc 默认配置 nginx -t 不通过"
+# 网段前三段：和 docker-compose.full.yml 用同一个变量、同一个默认值
+net="${MUGSUN_NET_PREFIX:-172.30.88}"
+# pc#37：非法网关网段 / CSP 域名必须让 nginx 拒绝启动（upstream 和 compose 里一样写后端的固定地址）
+docker run --rm --network "${COMPOSE_PROJECT_NAME}_default" -e "MUGSUN_API_UPSTREAM=http://${net}.12:8080" mugsun-full-pc:local nginx -t >/dev/null 2>&1 || fail "pc 默认配置 nginx -t 不通过"
 for bad in "MUGSUN_GATEWAY_CIDRS=0.0.0.0/0" "MUGSUN_CSP_TILE_HOSTS=a;b"; do
-  ! docker run --rm --network "${COMPOSE_PROJECT_NAME}_default" -e MUGSUN_API_UPSTREAM=http://boot:8080 -e "$bad" mugsun-full-pc:local nginx -t >/dev/null 2>&1 || fail "pc 没有拒绝 $bad"
+  ! docker run --rm --network "${COMPOSE_PROJECT_NAME}_default" -e "MUGSUN_API_UPSTREAM=http://${net}.12:8080" -e "$bad" mugsun-full-pc:local nginx -t >/dev/null 2>&1 || fail "pc 没有拒绝 $bad"
 done
-# 网络与 pc 仓一致：pc 固定 .10，动态段 .128/25
-pcip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$("${DC[@]}" ps -q pc)")
-[ "$pcip" = 172.30.88.10 ] || fail "pc IP 不是 172.30.88.10：$pcip"
+# 网络：四个常驻容器用网段里的固定地址（.10 管理台、.12 后端、.13 数据库、.14 Redis），动态段 .128/25
+cid() { "${DC[@]}" ps -aq "$1"; }
+ip_of() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(cid "$1")"; }
+for pair in pc:10 boot:12 postgres:13 redis:14; do
+  svc=${pair%%:*}
+  want="${net}.${pair##*:}"
+  got=$(ip_of "$svc")
+  [ "$got" = "$want" ] || fail "${svc} 的地址不是 ${want}：${got}"
+done
 iprange=$(docker network inspect -f '{{range .IPAM.Config}}{{.IPRange}}{{end}}' "${COMPOSE_PROJECT_NAME}_default")
-[ "$iprange" = 172.30.88.128/25 ] || fail "网络 ip_range 不是 172.30.88.128/25：$iprange"
+[ "$iprange" = "${net}.128/25" ] || fail "网络 ip_range 不是 ${net}.128/25：$iprange"
 # 后端只信任 pc 的固定 IP
 trusted=$("${DC[@]}" exec -T boot printenv MUGSUN_OPENAPI_TRUSTED_PROXIES)
-[ "$trusted" = 172.30.88.10/32 ] || fail "MUGSUN_OPENAPI_TRUSTED_PROXIES 不是 pc 的单个 IP：$trusted"
+[ "$trusted" = "${net}.10/32" ] || fail "MUGSUN_OPENAPI_TRUSTED_PROXIES 不是 pc 的单个 IP：$trusted"
+# 容器之间按固定地址找对方，不按名字：对方没在运行时，名字会被交给宿主机的 DNS 去查；
+# Nginx 还只在启动时查一次，查错了要等重启才改得过来（见 docker-compose.full.yml 开头）
+[[ "$ngx" == *"proxy_pass http://${net}.12:8080/;"* ]] || fail "管理台没有按固定地址把请求转给后端"
+jdbc=$("${DC[@]}" exec -T boot printenv JDBC_URL)
+[ "$jdbc" = "jdbc:postgresql://${net}.13:5432/mugsun" ] || fail "后端没有按固定地址连数据库：$jdbc"
+rhost=$("${DC[@]}" exec -T boot printenv REDIS_HOST)
+[ "$rhost" = "${net}.14" ] || fail "后端没有按固定地址连 Redis：$rhost"
 # Redis 口令不得出现在进程参数里
 cmdline=$("${DC[@]}" exec -T redis sh -c 'tr "\0" " " < /proc/1/cmdline')
 [[ "$cmdline" != *requirepass* ]] || fail "Redis 口令出现在进程参数里"
@@ -102,4 +116,30 @@ for v in "$lag_login" "$lag_create"; do
     || fail "最新一条登录日志的时间不是 $tz 的当前时间（login_time、create_time 落后的秒数：${lag:-查不到记录}）"
 done
 end=$(date +%s)
+# 机器重启以后 Docker 拉起容器不看依赖顺序。这里把四个常驻容器全部停掉，故意先起管理台，15 秒以后才起数据库、
+# Redis 和后端：整套要能自己恢复，不用人去重启哪个容器。
+# 直接用 docker stop 和 docker start：compose 的 start 会按依赖关系排好先后
+front=$(cid pc)
+back="$(cid postgres) $(cid redis) $(cid boot)"
+rebooted=$(date +%s)
+# shellcheck disable=SC2086
+docker stop $front $back >/dev/null
+# 停止时每个进程都要来得及自己收尾退出。退出码 137 表示等到了时间、被强杀的
+for svc in postgres redis boot pc; do
+  [ "$(docker inspect -f '{{.State.ExitCode}}' "$(cid "$svc")")" != 137 ] || fail "${svc} 停止时没有来得及自己退出，被强杀了"
+done
+docker start "$front" >/dev/null
+sleep 15
+# shellcheck disable=SC2086
+docker start $back >/dev/null
+recovered=""
+for _ in $(seq 1 60); do
+  if [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${MUGSUN_HTTP_PORT}/api/ping" || true)" = 200 ]; then
+    recovered=1
+    break
+  fi
+  sleep 3
+done
+[ -n "$recovered" ] || fail "全部容器停掉、打乱顺序重新启动以后，经管理台访问后端的接口 3 分钟内没有恢复"
+echo ">> 全部容器停掉、打乱顺序重新启动以后 $(($(date +%s) - rebooted)) 秒，经管理台访问后端的接口恢复"
 echo ">> PASS 从零到登录并看到第一条埋点：$((end-start)) 秒"
