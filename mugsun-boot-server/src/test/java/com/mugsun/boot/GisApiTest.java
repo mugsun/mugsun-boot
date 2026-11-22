@@ -457,7 +457,9 @@ class GisApiTest extends AbstractIntegrationTest {
 		assertThat(saved.path("msg").asText()).startsWith("Saved. ")
 			.contains("repaired automatically: " + repaired).endsWith(" on the map.");
 
-		JsonNode again = postEnglish("/system/gis/layer/submit", Map.of("name", name, "payload", bowtie));
+		// 内容完全一样的两次提交会先被「请勿重复提交」拦下，所以第二次带上备注
+		JsonNode again = postEnglish("/system/gis/layer/submit",
+			Map.of("name", name, "payload", bowtie, "remark", "again"));
 		assertThat(again.path("msg").asText())
 			.isEqualTo("A layer named \"" + name + "\" already exists. Please use another name, or open the existing one.");
 
