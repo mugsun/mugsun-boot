@@ -97,7 +97,8 @@
 				<version>${spring-ai.version}</version>
 				<exclusions>
 					<!-- 这个注解包跟着 springdoc 走（swagger-core 带进来的版本）。不排除的话 Maven 会改用 Spring AI
-					     声明的旧版本，接口文档那边的注解包就被拉低了 -->
+					     声明的旧版本，接口文档那边的注解包就被拉低了。下面 spring-ai-client-chat 自己也声明了这个包，
+					     两处都要排除，只排一处不起作用。打完包看 BOOT-INF/lib 里这个包的版本和 swagger-core-jakarta 一样才算对 -->
 					<exclusion>
 						<groupId>io.swagger.core.v3</groupId>
 						<artifactId>swagger-annotations-jakarta</artifactId>
@@ -108,6 +109,12 @@
 				<groupId>org.springframework.ai</groupId>
 				<artifactId>spring-ai-client-chat</artifactId>
 				<version>${spring-ai.version}</version>
+				<exclusions>
+					<exclusion>
+						<groupId>io.swagger.core.v3</groupId>
+						<artifactId>swagger-annotations-jakarta</artifactId>
+					</exclusion>
+				</exclusions>
 			</dependency>
 			<dependency>
 				<groupId>org.locationtech.jts</groupId>

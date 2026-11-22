@@ -66,6 +66,8 @@
   - 随之新增的第三方包：ST4、antlr-runtime、antlr4-runtime、jtokkit、
     ethlo 的 itu、networknt 的 json-schema-validator、
     victools 的 jsonschema-generator 和它的两个模块包
+  - 接口文档的注解包 `swagger-annotations-jakarta` 仍跟着 springdoc 的版本：
+    Spring AI 两个包都声明了一个旧版本，两处都排除了
   - `NoSpringAiGuardTest` 改名 `SpringAiSurfaceGuardTest`，改为核对放行清单；
     `scripts/check-banned-dependencies.sh` 加了放行包和被拦包的探针
   - 用法和注愎事项见 `docs/Spring-AI接入.md`
