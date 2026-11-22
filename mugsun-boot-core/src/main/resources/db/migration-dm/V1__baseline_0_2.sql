@@ -3798,3 +3798,30 @@ WHERE NOT EXISTS (SELECT 1 FROM sys_param WHERE id = 900024 OR param_key = 'trac
 INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_time, is_deleted)
 SELECT 900025, '埋点存储盘最低剩余空间(字节)', 'track.storage.min-free-bytes', '5368709120', '对象存储落本机磁盘时生效：存储目录所在分区剩余空间低于它就暂停接收回放和响应体（503）', SYSDATE, 0 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM sys_param WHERE id = 900025 OR param_key = 'track.storage.min-free-bytes');
+
+-- ====================================================================
+-- 原 V23__track_journey_perm.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 访问路径分析：sys:track-journey:list（达梦）。幂等。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000019, p.id, '访问路径', '/track/journey', '/track/journey', 'C', 'sys:track-journey:list', 10, 'ri:route-line', 0, SYSDATE, 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000019)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-journey:list' AND is_deleted = 0);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROWNUM, g.role_id, g.menu_id, SYSDATE, 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-journey:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);

@@ -646,4 +646,21 @@ public interface TrackConstants {
 	long SPATIAL_RATE_LIMIT_EXPIRE_SECONDS = 70L;
 	/** 演示/实验室 geo 种子应用标识 */
 	String LAB_GEO_APP_KEY = "ak_lab_spatial_demo";
+
+	/* ==================== 访问路径分析 ==================== */
+
+	/** 权限码：访问路径查询 */
+	String PERM_JOURNEY_LIST = "sys:track-journey:list";
+	/** 访问路径查询 days 上限（天；走明细即席查询，和漏斗一样要限窗） */
+	int JOURNEY_DAYS_MAX = 30;
+	/** 一条路径最多选几步 */
+	int JOURNEY_STEPS_MAX = 5;
+	/** 每一步默认列出多少个去向 */
+	int JOURNEY_NEXT_LIMIT_DEFAULT = 10;
+	/** 每一步最多列出多少个去向（排不进的合计在 others 里） */
+	int JOURNEY_NEXT_LIMIT_MAX = 50;
+	/** 起点方式：路径可以从会话的任意位置开始 */
+	String JOURNEY_START_ANY = "any";
+	/** 起点方式：路径必须从会话的第一个页面（入口页）开始 */
+	String JOURNEY_START_ENTRY = "entry";
 }

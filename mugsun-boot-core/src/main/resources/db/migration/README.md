@@ -161,6 +161,7 @@ openGauss 不能用 Flyway，只能用 gsql 手工执行脚本，库也要建成
 | `V20__track_spatial_perm.sql` | 空间行为分析的读权限 `sys:track-spatial:list` |
 | `V21__form_tenant.sql` | 低代码表单的 `sys_form` 和 `sys_form_data` 补上 `tenant_id`。表单标识改为租户内唯一，索引是 `uk_form_tenant_key` |
 | `V22__track_storage_quota_params.sql` | 埋点回放和响应体的三个存储容量参数 |
+| `V23__track_journey_perm.sql` | 「访问路径」菜单和它的权限 `sys:track-journey:list` |
 
 原脚本的版本号有跳号，没有 V4 到 V6，也没有 V12。段的顺序就是原来的执行顺序。
 

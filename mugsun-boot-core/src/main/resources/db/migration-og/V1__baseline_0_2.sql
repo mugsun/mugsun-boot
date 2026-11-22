@@ -3427,3 +3427,32 @@ INSERT INTO sys_param (id, param_name, param_key, param_value, remark, create_ti
 (900024, '回放和响应体单应用每日落盘上限(字节)', 'track.storage.app-daily-max-bytes', '2147483648', '每个应用单独计，按落盘的 gzip 字节、UTC 自然日计；超出后该应用当天拒收（429），不影响其它应用', now(), 0),
 (900025, '埋点存储盘最低剩余空间(字节)', 'track.storage.min-free-bytes', '5368709120', '对象存储落本机磁盘时生效：存储目录所在分区剩余空间低于它就暂停接收回放和响应体（503）', now(), 0)
 ON DUPLICATE KEY UPDATE NOTHING;
+
+-- ====================================================================
+-- 原 V23__track_journey_perm.sql
+-- ====================================================================
+-- 访问路径分析：sys:track-journey:list（openGauss-lite 5.1）。幂等。
+-- 菜单挂「埋点分析」目录，排在留存分析后面；已有概览读权的角色补授入口权。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000019, p.id, '访问路径', '/track/journey', '/track/journey', 'C', 'sys:track-journey:list', 10, 'ri:route-line', 0, now(), 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000019
+                  OR (permission = 'sys:track-journey:list' AND is_deleted = 0));
+
+-- 补授：已有 sys:track-overview:list 的角色获得访问路径入口权（主键用 1093 保留段）
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-journey:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);

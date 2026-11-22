@@ -123,6 +123,12 @@ class TrackSchemaTest extends AbstractTrackIntegrationTest {
 				+ " AND permission = ?",
 			TrackConstants.PERM_SPATIAL_LIST);
 		assertThat(spatial.getLong("c")).as("V20 空间行为读权种子").isEqualTo(1L);
+
+		Row journey = Db.selectOneBySql(
+			"SELECT count(*) AS c FROM sys_menu WHERE is_deleted = 0 AND menu_type = 'C'"
+				+ " AND path = '/track/journey' AND permission = ?",
+			TrackConstants.PERM_JOURNEY_LIST);
+		assertThat(journey.getLong("c")).as("V23 访问路径菜单和读权种子").isEqualTo(1L);
 	}
 
 	/** ⑤ 主库无 track_* 表（物理隔离反证：埋点表只存在于 mugsun_track 库） */

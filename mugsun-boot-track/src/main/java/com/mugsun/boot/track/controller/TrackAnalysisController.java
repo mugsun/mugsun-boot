@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackAnalysisService;
 import com.mugsun.boot.track.TrackFunnelService;
+import com.mugsun.boot.track.TrackJourneyService;
 import com.mugsun.boot.track.TrackRetentionService;
 import com.mugsun.boot.track.TrackSpatialService;
 import com.mugsun.core.tool.api.R;
@@ -18,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 埋点分析 API（/system/track/**）：概览/趋势/页面/事件/性能/错误/在线，全部只读。
+ * 埋点分析 API（/system/track/**）：概览/趋势/页面/事件/性能/错误/在线/漏斗/留存/访问路径，全部只读。
  * <p>鉴权：类级 @SaCheckLogin + 方法级 @SaCheckPermission（权限码见 TrackConstants，V63 种子锚点）。
  * 数据源：全部查询走 track 独立库（{@code TrackAnalysisService} 类级 @TrackDS）；
  * 租户隔离由显式租户条件（与 Flex 插件同语义）保证，Redis 通道先校验应用归属。
@@ -33,13 +34,16 @@ public class TrackAnalysisController {
 	private final TrackFunnelService funnelService;
 	private final TrackRetentionService retentionService;
 	private final TrackSpatialService spatialService;
+	private final TrackJourneyService journeyService;
 
 	public TrackAnalysisController(TrackAnalysisService analysisService, TrackFunnelService funnelService,
-								   TrackRetentionService retentionService, TrackSpatialService spatialService) {
+								   TrackRetentionService retentionService, TrackSpatialService spatialService,
+								   TrackJourneyService journeyService) {
 		this.analysisService = analysisService;
 		this.funnelService = funnelService;
 		this.retentionService = retentionService;
 		this.spatialService = spatialService;
+		this.journeyService = journeyService;
 	}
 
 	/**
@@ -191,5 +195,22 @@ public class TrackAnalysisController {
 	public R<Map<String, Object>> retention(@RequestParam(required = false) String appKey,
 											@RequestParam(required = false) Integer days) {
 		return R.data(retentionService.retention(appKey, days));
+	}
+
+	/**
+	 * 访问路径：选一个页面当起点，看这些会话下一步去了哪、有多少没有再往下走。
+	 * {total, steps:[{page, sessions}], next:[{page, sessions}], ended, others, days, start, unit:"session"}。
+	 * steps 是 JSON 数组（页面地址里可以有逗号，不用逗号分隔），最多 {@value TrackConstants#JOURNEY_STEPS_MAX} 步，
+	 * 不传表示还没选起点，这时 next 是可以当起点的页面；start=any（默认）或 entry（只看从入口页开始的）；
+	 * days 缺省 7，只支持 1..{@value TrackConstants#JOURNEY_DAYS_MAX}。按会话算，步骤之间要紧挨着，算法见 TrackJourneyService。
+	 */
+	@GetMapping("/journey")
+	@SaCheckPermission(TrackConstants.PERM_JOURNEY_LIST)
+	public R<Map<String, Object>> journey(@RequestParam(required = false) String appKey,
+										  @RequestParam(required = false) String steps,
+										  @RequestParam(required = false) Integer days,
+										  @RequestParam(required = false) String start,
+										  @RequestParam(required = false) Integer limit) {
+		return R.data(journeyService.journey(appKey, steps, days, start, limit));
 	}
 }
