@@ -36,8 +36,11 @@ import java.util.Map;
  *   <li>连着几次都是同一个页面（刷新）只算一次，所以相邻两步不会是同一个页面。</li>
  *   <li>步骤之间要紧挨着：选了 A、B 两步，只算 A 之后紧接着就是 B 的会话。这和漏斗不一样，
  *       漏斗允许中间穿插别的事件；这里要回答的是「下一步」，允许穿插就没有意义了。</li>
- *   <li>一次会话里同一条路径出现多次，只算第一次出现的那一遍。这样每次会话只有一个去向，
- *       各个去向的会话数、没有下一步的会话数、排不进列表的会话数加起来，正好等于走完这条路径的会话数。</li>
+ *   <li>每次会话只从起点页面第一次出现的地方往后看（起点方式是入口页时，就是会话的第一个页面）。
+ *       后面的步骤接不上，这次会话就不算走了这条路径，哪怕它后来又回到起点把这条路径走了一遍。
+ *       这样一次会话在每一步只算一次，数就对得上：各个去向的会话数、没有下一步的会话数、
+ *       排不进列表的会话数加起来，正好等于最后一步的会话数；把某个去向选成下一步以后，
+ *       这一步的会话数就是刚才列表里那一项的数。</li>
  *   <li>统计范围和漏斗一样：按租户时区切日，从首日当地 0 点到现在；用服务端接收时间圈范围（能按分区裁剪），
  *       用发生时间排先后（同一批上报的事件接收时间相同，分不出先后）。发生时间相同的按主键排。</li>
  *   <li>会话跨过统计范围的起点时，只看得到范围内的那一段。</li>
@@ -96,7 +99,8 @@ public class TrackJourneyService {
 	 *         {@code next} 下一步的去向 {@code [{page, sessions}]}，按会话数从多到少，还没选起点时是可以当起点的页面；
 	 *         {@code ended} 走完已选的步骤以后没有下一步的会话数；
 	 *         {@code others} 去向排不进 {@code next} 的会话数。
-	 *         选了步骤以后，{@code next} 的会话数之和 + {@code ended} + {@code others} = 最后一步的会话数。
+	 *         选了步骤以后，{@code next} 的会话数之和 + {@code ended} + {@code others} = 最后一步的会话数；
+	 *         把 {@code next} 里的某一项接到 {@code steps} 后面再查，新的最后一步的会话数就是这一项的数。
 	 *         还没选起点时 {@code ended} 恒为 0；{@code others} 只在 {@code start=entry} 时有数
 	 *         （每次会话只有一个入口页），{@code start=any} 时一次会话会算进好几个页面，恒为 0
 	 */
@@ -146,22 +150,22 @@ public class TrackJourneyService {
 			args.add(limit);
 			sql.append(", cnt AS (SELECT count(DISTINCT session_id) AS total FROM seq)");
 		} else {
-			// cK：前 K 步都对得上的起始位置。第 K 步必须紧挨在起始位置后面第 K-1 个
-			sql.append(", c1 AS (SELECT session_id, pos FROM seq WHERE page = ?");
+			// c1：每次会话里起点页面第一次出现的位置（入口页方式只认会话的第一个页面），一次会话最多一行。
+			// cK：从这个位置起前 K 步都对得上的会话。第 K 步必须紧挨在起始位置后面第 K-1 个
+			sql.append(", c1 AS (SELECT session_id, min(pos) AS pos FROM seq WHERE page = ?");
 			args.add(steps.get(0));
 			if (fromEntry) {
 				sql.append(" AND pos = 1");
 			}
-			sql.append(")");
+			sql.append(" GROUP BY session_id)");
 			for (int k = 2; k <= n; k++) {
 				sql.append(", c").append(k).append(" AS (SELECT c.session_id, c.pos FROM c").append(k - 1)
 					.append(" c JOIN seq s ON s.session_id = c.session_id AND s.pos = c.pos + ").append(k - 1)
 					.append(" AND s.page = ?)");
 				args.add(steps.get(k - 1));
 			}
-			// m：每次会话只取第一次走完整条路径的那一遍；nx：那一遍后面紧跟着的页面，没有就是 NULL
-			sql.append(", m AS (SELECT session_id, min(pos) AS pos FROM c").append(n).append(" GROUP BY session_id)");
-			sql.append(", nx AS (SELECT s.page, count(*) AS sessions FROM m LEFT JOIN seq s"
+			// nx：走完已选的步骤以后紧跟着的页面，没有就是 NULL
+			sql.append(", nx AS (SELECT s.page, count(*) AS sessions FROM c").append(n).append(" m LEFT JOIN seq s"
 				+ " ON s.session_id = m.session_id AND s.pos = m.pos + ").append(n).append(" GROUP BY s.page)");
 			// NULL（没有下一步）排最前，保证它不会被 LIMIT 挡在外面，所以多取一行
 			sql.append(", top AS (SELECT page, sessions FROM nx"
@@ -169,7 +173,7 @@ public class TrackJourneyService {
 			args.add(limit + 1);
 			sql.append(", cnt AS (SELECT (SELECT count(DISTINCT session_id) FROM seq) AS total");
 			for (int k = 1; k <= n; k++) {
-				sql.append(", (SELECT count(DISTINCT session_id) FROM c").append(k).append(") AS n").append(k);
+				sql.append(", (SELECT count(*) FROM c").append(k).append(") AS n").append(k);
 			}
 			sql.append(")");
 		}

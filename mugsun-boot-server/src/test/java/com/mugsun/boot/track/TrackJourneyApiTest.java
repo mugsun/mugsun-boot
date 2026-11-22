@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>选了步骤：每一步的会话数、下一步的去向、没有下一步的会话数；</li>
  *   <li>步骤要紧挨着（/home 之后隔了一页才到 /detail 的不算）；</li>
  *   <li>连着重复的同一个页面只算一次（s4）、不是页面浏览的事件和没有地址的浏览不算（s1、s2）；</li>
- *   <li>一次会话里同一条路径出现两遍只算第一遍（s3）；</li>
+ *   <li>每次会话只从起点页面第一次出现的地方往后看（s3）；把某个去向选成下一步，这一步的会话数就是那一项的数；</li>
  *   <li>去向条数有上限时，列出来的 + 没有下一步的 + 排不进列表的 = 最后一步的会话数；</li>
  *   <li>统计范围外的数据不算；入参不对返回 400 并说明怎么改；英文请求返回英文提示；</li>
  *   <li>没登录 401、没有权限 403、查别的租户的应用 400、各租户只看得到自己的数据。</li>
@@ -104,7 +104,7 @@ class TrackJourneyApiTest extends AbstractTrackIntegrationTest {
 		events.add(event(APP, PLATFORM_TENANT, "it-jny-s2", "add_cart", t0 + MIN_MS, "/zzz", "/zzz"));
 		events.add(view("it-jny-s2", t0 + 2 * MIN_MS, LIST));
 		events.add(event(APP, PLATFORM_TENANT, "it-jny-s2", TrackConstants.EVENT_PAGEVIEW, t0 + 3 * MIN_MS, "", DETAIL));
-		// s3：/home → /list 出现两遍，只算第一遍（去向是 /home，不是 /pay）
+		// s3：/home → /list 出现两遍。只从第一次到起点的地方往后看，所以去向是 /home，不是 /pay
 		events.add(view("it-jny-s3", t0, HOME));
 		events.add(view("it-jny-s3", t0 + MIN_MS, LIST));
 		events.add(view("it-jny-s3", t0 + 2 * MIN_MS, HOME));
@@ -220,6 +220,47 @@ class TrackJourneyApiTest extends AbstractTrackIntegrationTest {
 		assertThat(pages(threeFromEntry.path("steps"))).containsExactly("/home=5", "/list=3", "/detail=2");
 		assertThat(pages(threeFromEntry.path("next"))).containsExactly("/cart=1");
 		assertThat(threeFromEntry.path("ended").asLong()).isEqualTo(1L);
+	}
+
+	/**
+	 * 每次会话只从起点页面第一次出现的地方往后看。s3 是 /home → /list → /home → /list → /pay：
+	 * 以 /list 为起点时看的是第一次到 /list 的地方，后面跟的是 /home；第二次到 /list 再去 /pay 的那一段不算。
+	 */
+	@Test
+	void eachSessionIsFollowedFromItsFirstVisitOfTheStartPage() {
+		JsonNode one = ok(journey(adminToken, APP, steps(LIST), "&days=7"));
+		assertThat(pages(one.path("steps"))).containsExactly("/list=5");
+		assertThat(pages(one.path("next"))).as("s1、s2 去了 /detail；s3、s5 去了 /home；没有 /pay")
+			.containsExactly("/detail=2", "/home=2");
+		assertThat(one.path("ended").asLong()).as("s7 到 /list 就结束了").isEqualTo(1L);
+		assertThat(one.path("others").asLong()).isZero();
+
+		JsonNode pay = ok(journey(adminToken, APP, steps(LIST, "/pay"), "&days=7"));
+		assertThat(pages(pay.path("steps"))).as("s3 第二次到 /list 才去的 /pay，不算")
+			.containsExactly("/list=5", "/pay=0");
+		assertThat(pay.path("next").size()).isZero();
+		assertThat(pay.path("ended").asLong()).isZero();
+	}
+
+	/** 把去向里的某一项选成下一步以后，这一步的会话数就是刚才那一项的数，它的去向加起来也是这个数 */
+	@Test
+	void choosingANextPageKeepsItsSessionCount() {
+		for (String start : List.of(HOME, LIST)) {
+			JsonNode first = ok(journey(adminToken, APP, steps(start), "&days=7"));
+			assertThat(first.path("next").size()).as(start + " 应该有去向").isPositive();
+			for (JsonNode item : first.path("next")) {
+				String page = item.path("page").asText();
+				long expected = item.path("sessions").asLong();
+				JsonNode second = ok(journey(adminToken, APP, steps(start, page), "&days=7"));
+				assertThat(second.path("steps").path(1).path("sessions").asLong())
+					.as(start + " → " + page + " 这一步的会话数").isEqualTo(expected);
+				long sum = second.path("ended").asLong() + second.path("others").asLong();
+				for (JsonNode next : second.path("next")) {
+					sum += next.path("sessions").asLong();
+				}
+				assertThat(sum).as(start + " → " + page + " 的去向加起来").isEqualTo(expected);
+			}
+		}
 	}
 
 	/** 步骤要紧挨着：/home 之后隔了 /list 才到 /detail，不算 /home → /detail */
