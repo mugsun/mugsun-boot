@@ -127,7 +127,16 @@ public class FlowService {
 
 	/** 我的待办：按当前用户的角色码/用户标识匹配任务办理人（实例按发起人租户隔离，角色码跨租户同名不可穿透） */
 	public List<Row> myTodo() {
-		List<String> flags = userFlags();
+		return todoOf(StpUtil.getLoginIdAsLong());
+	}
+
+	/**
+	 * 指定用户的待办，口径和 {@link #myTodo()} 完全一样，租户取当前上下文的。
+	 * <p>这里不看登录态，调用方要传当前登录用户自己的编号。单独分出来是给不带登录态的调用用的：
+	 * 微服务版里审批流是单独的服务，别的服务替已经登录的用户来取待办时，带过来的只有用户编号和租户。
+	 */
+	public List<Row> todoOf(long userId) {
+		List<String> flags = userFlags(userId);
 		String in = flags.stream().map(f -> "?").collect(Collectors.joining(","));
 		String tenantSql = tenantPredicate();
 		List<Object> args = new ArrayList<>(flags);
@@ -997,13 +1006,18 @@ public class FlowService {
 
 	/** 当前用户的办理人标识集合：角色码 + 用户 id */
 	private List<String> userFlags() {
+		return userFlags(StpUtil.getLoginIdAsLong());
+	}
+
+	/** 指定用户的办理人标识集合：角色码 + 用户 id（登录编号就是用户 id，所以和按登录态取的是同一串） */
+	private List<String> userFlags(long userId) {
 		List<String> flags = new ArrayList<>();
 		Db.selectListBySql(
 			"select r.role_code as \"roleCode\" from " + bizTable("sys_user_role") + " ur "
 				+ "join " + bizTable("sys_role") + " r on r.id = ur.role_id "
-				+ "where ur.user_id = ? and ur.is_deleted = 0", StpUtil.getLoginIdAsLong())
+				+ "where ur.user_id = ? and ur.is_deleted = 0", userId)
 			.forEach(row -> flags.add(String.valueOf(row.getString("roleCode"))));
-		flags.add(uid());
+		flags.add(String.valueOf(userId));
 		return flags;
 	}
 

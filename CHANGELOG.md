@@ -45,6 +45,10 @@
 
 ### 变更
 
+- 手机端首页取待办分出一层接口，微服务版据此把审批流拆成单独的服务
+  - 新增接口 `AppTodoReader`：首页只认接口，`AppTodoService` 实现它
+  - `FlowService` 新增 `todoOf`：按用户编号取待办，「我的待办」改为调它
+  - 接口地址、权限、返回内容都没有变
 - 短信、改头像、反馈附件各分出一层，微服务版据此把文件和短信拆成单独的服务
   - 新增接口 `SmsGateway`：登录、双因子、短信通知只认接口，`SmsService` 实现它
   - 改头像的绑定从 `AvatarUploadService` 分到 `AvatarBinder`，只读写数据库

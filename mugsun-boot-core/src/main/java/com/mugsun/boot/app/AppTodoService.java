@@ -1,5 +1,6 @@
 package com.mugsun.boot.app;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.app.dto.AppFieldVO;
 import com.mugsun.boot.app.dto.AppHandleDTO;
 import com.mugsun.boot.app.dto.AppTodoDetailVO;
@@ -14,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-public class AppTodoService {
+public class AppTodoService implements AppTodoReader {
 
 	private final FlowService flowService;
 
@@ -23,7 +24,12 @@ public class AppTodoService {
 	}
 
 	public List<AppTodoItemVO> list() {
-		return flowService.myTodo().stream().map(AppTodoService::toItem).toList();
+		return listOf(StpUtil.getLoginIdAsLong());
+	}
+
+	@Override
+	public List<AppTodoItemVO> listOf(long userId) {
+		return flowService.todoOf(userId).stream().map(AppTodoService::toItem).toList();
 	}
 
 	public AppTodoDetailVO detail(Long taskId) {
