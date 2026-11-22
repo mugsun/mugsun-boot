@@ -14,6 +14,7 @@ import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -26,6 +27,9 @@ import com.mugsun.boot.ai.AiConstants;
  */
 @Component
 public class AiLlmClient {
+
+	/** 非流式对话最多等多久 */
+	private static final Duration CHAT_TIMEOUT = Duration.ofSeconds(60);
 
 	private final OutboundWebClientFactory outboundWebClients;
 	private final ObjectMapper objectMapper;
@@ -107,30 +111,26 @@ public class AiLlmClient {
 	}
 
 	public String chat(AiModel model, List<Map<String, String>> messages, int maxTokens) {
-		ObjectNode body = objectMapper.createObjectNode();
-		body.put("model", modelCode(model));
-		body.put("stream", false);
-		if (maxTokens > 0) {
-			body.put("max_tokens", maxTokens);
-		}
-		ArrayNode msgs = body.putArray("messages");
-		for (Map<String, String> m : messages) {
-			ObjectNode n = msgs.addObject();
-			n.put("role", m.getOrDefault("role", "user"));
-			n.put("content", m.getOrDefault("content", ""));
-		}
+		JsonNode root = complete(model, chatBody(messages, maxTokens), CHAT_TIMEOUT);
+		JsonNode content = root.path("choices").path(0).path("message").path("content");
+		return content.isMissingNode() ? "" : content.asText("");
+	}
+
+	/**
+	 * 按 OpenAI 兼容格式发一次对话请求，返回整段响应。{@code body} 里放 messages、tools、temperature 这些，
+	 * model 和 stream 两项由这里填；{@code timeout} 是最多等多久。
+	 */
+	public JsonNode complete(AiModel model, ObjectNode body, Duration timeout) {
 		String url = baseUrl(model) + "/chat/completions";
 		try {
 			String raw = client(model).post()
 				.uri(url)
 				.contentType(MediaType.APPLICATION_JSON)
-				.bodyValue(body.toString())
+				.bodyValue(requestBody(model, body, false).toString())
 				.retrieve()
 				.bodyToMono(String.class)
-				.block(Duration.ofSeconds(60));
-			JsonNode root = objectMapper.readTree(raw);
-			JsonNode content = root.path("choices").path(0).path("message").path("content");
-			return content.isMissingNode() ? "" : content.asText("");
+				.block(timeout);
+			return objectMapper.readTree(raw);
 		} catch (Exception e) {
 			throw new CallFailedException(I18n.get("模型调用失败: {0}", e.getMessage()));
 		}
@@ -141,9 +141,53 @@ public class AiLlmClient {
 	 */
 	public void stream(AiModel model, List<Map<String, String>> messages, int maxTokens,
 					   Consumer<String> onData, Consumer<Throwable> onError, Runnable onComplete) {
+		try {
+			streamData(model, chatBody(messages, maxTokens))
+				.doOnNext(onData)
+				.doOnError(onError)
+				.doOnComplete(onComplete)
+				.blockLast(Duration.ofMinutes(5));
+		} catch (Exception e) {
+			onError.accept(e);
+		}
+	}
+
+	/**
+	 * 流式对话：逐条给出 SSE 里 data 行的内容（不含结尾的 [DONE]），订阅后才发请求。{@code body} 的写法和
+	 * {@link #complete} 一样。出错时原样向下游抛，由调用方决定怎么报；等多久也由调用方定。
+	 */
+	public Flux<String> streamData(AiModel model, ObjectNode body) {
+		String url = baseUrl(model) + "/chat/completions";
+		return client(model).post()
+			.uri(url)
+			.contentType(MediaType.APPLICATION_JSON)
+			.accept(MediaType.TEXT_EVENT_STREAM)
+			.bodyValue(requestBody(model, body, true).toString())
+			.retrieve()
+			.bodyToFlux(String.class)
+			.concatMapIterable(AiLlmClient::dataLines);
+	}
+
+	/** 把收到的一块拆成 data 行；遇到 [DONE] 后，这一块剩下的不再看 */
+	private static List<String> dataLines(String chunk) {
+		List<String> out = new ArrayList<>();
+		for (String line : chunk.split("\n")) {
+			String t = line.trim();
+			if (t.startsWith("data:")) {
+				String data = t.substring(5).trim();
+				if ("[DONE]".equals(data)) {
+					break;
+				}
+				out.add(data);
+			} else if (!t.isEmpty() && t.startsWith("{")) {
+				out.add(t);
+			}
+		}
+		return out;
+	}
+
+	private ObjectNode chatBody(List<Map<String, String>> messages, int maxTokens) {
 		ObjectNode body = objectMapper.createObjectNode();
-		body.put("model", modelCode(model));
-		body.put("stream", true);
 		if (maxTokens > 0) {
 			body.put("max_tokens", maxTokens);
 		}
@@ -153,35 +197,23 @@ public class AiLlmClient {
 			n.put("role", m.getOrDefault("role", "user"));
 			n.put("content", m.getOrDefault("content", ""));
 		}
-		String url = baseUrl(model) + "/chat/completions";
-		try {
-			Flux<String> flux = client(model).post()
-				.uri(url)
-				.contentType(MediaType.APPLICATION_JSON)
-				.accept(MediaType.TEXT_EVENT_STREAM)
-				.bodyValue(body.toString())
-				.retrieve()
-				.bodyToFlux(String.class);
-			flux.doOnNext(chunk -> {
-					for (String line : chunk.split("\n")) {
-						String t = line.trim();
-						if (t.startsWith("data:")) {
-							String data = t.substring(5).trim();
-							if ("[DONE]".equals(data)) {
-								return;
-							}
-							onData.accept(data);
-						} else if (!t.isEmpty() && t.startsWith("{")) {
-							onData.accept(t);
-						}
-					}
-				})
-				.doOnError(onError)
-				.doOnComplete(onComplete)
-				.blockLast(Duration.ofMinutes(5));
-		} catch (Exception e) {
-			onError.accept(e);
+		return body;
+	}
+
+	/** 请求体：model、stream 排在最前，并且以这里填的为准；其余照 body 原样带上 */
+	private ObjectNode requestBody(AiModel model, ObjectNode body, boolean stream) {
+		ObjectNode request = objectMapper.createObjectNode();
+		request.put("model", modelCode(model));
+		request.put("stream", stream);
+		if (body != null) {
+			for (Iterator<String> names = body.fieldNames(); names.hasNext(); ) {
+				String name = names.next();
+				if (!"model".equals(name) && !"stream".equals(name)) {
+					request.set(name, body.get(name));
+				}
+			}
 		}
+		return request;
 	}
 
 	public String extractDeltaContent(String dataJson) {
