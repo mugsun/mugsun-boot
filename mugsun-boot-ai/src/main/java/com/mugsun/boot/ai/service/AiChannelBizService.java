@@ -8,6 +8,7 @@ import com.mugsun.boot.ai.entity.AiChannelBind;
 import com.mugsun.boot.ai.mapper.AiChannelBindMapper;
 import com.mugsun.boot.ai.support.AiOutboundProperties;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -106,12 +107,14 @@ public class AiChannelBizService {
 		boolean create = body.getId() == null;
 		String sample = body.getParamsSample() == null ? "" : body.getParamsSample().trim();
 		if (sample.contains(MASK)) {
-			throw new ServiceException("这是打码后的地址，不能直接保存。要换地址请填完整的新地址"
-				+ (create ? "" : "；不改就把这一栏留空"));
+			throw new ServiceException(create
+				? "这是打码后的地址，不能直接保存。要换地址请填完整的新地址"
+				: "这是打码后的地址，不能直接保存。要换地址请填完整的新地址；不改就把这一栏留空");
 		}
 		if (!sample.isEmpty() && !WHOLE_URL.matcher(sample).matches()) {
-			throw new ServiceException("Webhook 需要以 http:// 或 https:// 开头，并且不要带空格。"
-				+ (create ? "留空表示先不调试" : "留空表示不修改原来的地址"));
+			throw new ServiceException(create
+				? "Webhook 需要以 http:// 或 https:// 开头，并且不要带空格。留空表示先不调试"
+				: "Webhook 需要以 http:// 或 https:// 开头，并且不要带空格。留空表示不修改原来的地址");
 		}
 		if (!sample.isEmpty()) {
 			outbound.guard(sample);
@@ -167,27 +170,31 @@ public class AiChannelBizService {
 	/**
 	 * 渠道发送。企微、钉钉、飞书按各自群机器人的文本消息格式发，并看平台回复里的结果码；Webhook 发
 	 * {channel, content, vars}，看 HTTP 状态。停用、没填地址、机器人消息为空时不向外发。失败说明里不带地址和连接原文。
+	 * 返回的 message 跟着调用方的语言走（页面上点调试是请求的语言，流程在后台发是默认语言）。
 	 */
 	public Map<String, Object> send(Long id, String content, Map<String, Object> vars) {
 		moduleService.requireEnabled();
 		AiChannelBind bind = require(id);
 		String text = content == null ? "" : content;
 		if (bind.getStatus() != null && bind.getStatus() == 0) {
-			return result(false, "这个渠道已停用，没有发送。请先启用", bind, text);
+			return result(false, I18n.translate("这个渠道已停用，没有发送。请先启用"), bind, text);
 		}
 		String url = extractUrl(bind.getParamsSample());
 		if (url == null) {
-			return result(false, "这个渠道还没有填写 Webhook 地址，没有发送。请先编辑这个渠道，填上能接收消息的地址", bind, text);
+			return result(false, I18n.translate("这个渠道还没有填写 Webhook 地址，没有发送。请先编辑这个渠道，填上能接收消息的地址"),
+				bind, text);
 		}
 		String code = bind.getChannelCode() == null ? "" : bind.getChannelCode();
-		String platform = ROBOTS.get(code);
+		// 平台名是专有名词，先翻好再填进句子
+		String platform = ROBOTS.containsKey(code) ? I18n.translate(ROBOTS.get(code)) : null;
 		if (platform != null && text.isBlank()) {
-			return result(false, "消息内容是空的，没有发送。" + platform + "群机器人不接收空消息", bind, text);
+			return result(false, I18n.get("消息内容是空的，没有发送。{0}群机器人不接收空消息", platform), bind, text);
 		}
 		try {
 			url = outbound.guard(url);
 		} catch (ServiceException e) {
-			return result(false, "Webhook 地址不允许访问内网或元数据地址。请换成公网地址，或让管理员加入出站白名单", bind, text);
+			return result(false, I18n.translate("Webhook 地址不允许访问内网或元数据地址。请换成公网地址，或让管理员加入出站白名单"),
+				bind, text);
 		}
 		Reply reply;
 		try {
@@ -210,7 +217,7 @@ public class AiChannelBizService {
 			reply = null;
 		}
 		if (reply == null) {
-			return result(false, "这次没有发出去。请检查 Webhook 地址能不能从服务器访问，再试一次", bind, text);
+			return result(false, I18n.translate("这次没有发出去。请检查 Webhook 地址能不能从服务器访问，再试一次"), bind, text);
 		}
 		return platform == null
 			? webhookResult(bind, text, reply)
@@ -229,30 +236,33 @@ public class AiChannelBizService {
 	private static Map<String, Object> webhookResult(AiChannelBind bind, String text, Reply reply) {
 		int status = reply.status();
 		if (status >= 200 && status < 300) {
-			return result(true, "已发出。请到 Webhook 那边确认有没有收到", bind, text, status, null);
+			return result(true, I18n.translate("已发出。请到 Webhook 那边确认有没有收到"), bind, text, status, null);
 		}
 		String message = status >= 300 && status < 400
-			? "对方返回了跳转（HTTP " + status + "），这里不会跟着跳，消息没有送达。请把地址换成跳转后的最终地址"
-			: "对方返回了 HTTP " + status + "，消息没有送达。请检查 Webhook 地址和接收方的服务";
+			? I18n.get("对方返回了跳转（HTTP {0}），这里不会跟着跳，消息没有送达。请把地址换成跳转后的最终地址", status)
+			: I18n.get("对方返回了 HTTP {0}，消息没有送达。请检查 Webhook 地址和接收方的服务", status);
 		return result(false, message, bind, text, status, null);
 	}
 
+	/** platform 是已经按语言翻好的平台名 */
 	private static Map<String, Object> robotResult(AiChannelBind bind, String text, String platform, String url, Reply reply) {
 		int status = reply.status();
 		boolean accepted = status >= 200 && status < 300;
 		Verdict verdict = readVerdict(bind.getChannelCode(), reply.body());
 		if (verdict.code() != null && verdict.code() != 0) {
 			String said = scrub(verdict.message(), url);
-			return result(false, platform + "没有收下这条消息" + (said.isEmpty() ? "" : "：" + said)
-				+ "（错误码 " + verdict.code() + "）", bind, text, status, String.valueOf(verdict.code()));
+			String refused = said.isEmpty()
+				? I18n.get("{0}没有收下这条消息（错误码 {1}）", platform, verdict.code())
+				: I18n.get("{0}没有收下这条消息：{1}（错误码 {2}）", platform, said, verdict.code());
+			return result(false, refused, bind, text, status, String.valueOf(verdict.code()));
 		}
 		if (verdict.code() != null && accepted) {
-			return result(true, "已发出，" + platform + "已收下这条消息。请到群里确认", bind, text, status, null);
+			return result(true, I18n.get("已发出，{0}已收下这条消息。请到群里确认", platform), bind, text, status, null);
 		}
-		String hint = "请检查地址是不是" + platform + "群机器人的 Webhook 地址";
 		return result(false, accepted
-			? "对方回复的不是" + platform + "群机器人的格式，没法确认消息有没有送达。" + hint
-			: "对方返回了 HTTP " + status + "，消息没有送达。" + hint, bind, text, status, null);
+			? I18n.get("对方回复的不是{0}群机器人的格式，没法确认消息有没有送达。请检查地址是不是{0}群机器人的 Webhook 地址", platform)
+			: I18n.get("对方返回了 HTTP {0}，消息没有送达。请检查地址是不是{1}群机器人的 Webhook 地址", status, platform),
+			bind, text, status, null);
 	}
 
 	/** 企微、钉钉的结果在 errcode / errmsg，飞书在 code / msg（老版只有 StatusCode / StatusMessage）。 */
@@ -366,7 +376,7 @@ public class AiChannelBizService {
 			query.ne("id", id);
 		}
 		if (mapper.selectCountByQuery(query) > 0) {
-			throw new ServiceException("已经有叫「" + alias + "」的渠道。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的渠道。请换一个名称，或打开原来那个", alias));
 		}
 	}
 

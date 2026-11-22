@@ -14,6 +14,7 @@ import com.mugsun.boot.ai.mapper.AiMessageMapper;
 import com.mugsun.boot.ai.mapper.AiSessionMapper;
 import com.mugsun.boot.ai.support.AiLlmClient;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -27,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -92,7 +94,7 @@ public class AiChatBizService {
 		moduleService.requireEnabled();
 		String name = title == null ? "" : title.trim();
 		if (name.isEmpty()) {
-			name = "新对话";
+			name = I18n.translate("新对话");
 		}
 		if (name.length() > 128) {
 			throw new ServiceException("会话标题请控制在 128 个字以内");
@@ -309,7 +311,7 @@ public class AiChatBizService {
 			model = modelBizService.requireDefaultChat();
 		}
 		if (!Integer.valueOf(AiConstants.FLAG_YES).equals(model.getActivateFlag())) {
-			throw new ServiceException("「" + model.getModelName() + "」还没激活。请先在大模型配置里探测通过，再用来发送");
+			throw new ServiceException(I18n.get("「{0}」还没激活。请先在大模型配置里探测通过，再用来发送", model.getModelName()));
 		}
 		if (!AiConstants.MODEL_TYPE_CHAT.equals(model.getModelType())) {
 			throw new ServiceException("请选择对话模型。向量模型不能用来聊天");
@@ -334,6 +336,8 @@ public class AiChatBizService {
 										   int messageCountDelta) {
 		AtomicBoolean stop = new AtomicBoolean(false);
 		stopFlags.put(rid, stop);
+		// 后面的回调跑在别的线程上，拿不到请求的语言，先在这里记下
+		final Locale locale = I18n.locale();
 
 		SseEmitter emitter = new SseEmitter(300_000L);
 		StringBuilder contentBuf = new StringBuilder();
@@ -418,7 +422,8 @@ public class AiChatBizService {
 						usageHolder[1] = u[1];
 						usageHolder[2] = u[2];
 					}
-				}), err -> TenantContext.execute(tid, () -> failStream(failed, asst, contentBuf, thinkBuf, emitter, rid, stop, err)),
+				}), err -> TenantContext.execute(tid,
+						() -> failStream(failed, asst, contentBuf, thinkBuf, emitter, rid, stop, err, locale)),
 					() -> TenantContext.execute(tid, () -> {
 					if (failed.get()) {
 						return;
@@ -446,7 +451,7 @@ public class AiChatBizService {
 					stopFlags.remove(rid);
 				}));
 			} catch (Exception e) {
-				failStream(failed, asst, contentBuf, thinkBuf, emitter, rid, stop, e);
+				failStream(failed, asst, contentBuf, thinkBuf, emitter, rid, stop, e, locale);
 			}
 		}));
 		return emitter;
@@ -548,9 +553,9 @@ public class AiChatBizService {
 		if (!content.isEmpty()) {
 			send(emitter, AiConstants.SSE_CHUNK, Map.of("content", content, "requestId", rid, "replay", true));
 		}
-		String done = content.isEmpty() && think.isEmpty()
+		String done = I18n.translate(content.isEmpty() && think.isEmpty()
 			? "这段回答还没有内容。请重新发送"
-			: "已取回这段回答。内容已经补在这条消息上";
+			: "已取回这段回答。内容已经补在这条消息上");
 		send(emitter, AiConstants.SSE_DONE, Map.of(
 			"requestId", rid,
 			"messageId", msg.getId(),
@@ -561,9 +566,10 @@ public class AiChatBizService {
 		return emitter;
 	}
 
+	/** 事件里的话不经过统一的返回翻译，这里自己按请求的语言查（只在请求线程上调） */
 	private SseEmitter errorEmitter(String message) {
 		SseEmitter emitter = new SseEmitter(60_000L);
-		send(emitter, AiConstants.SSE_ERROR, Map.of("message", message));
+		send(emitter, AiConstants.SSE_ERROR, Map.of("message", I18n.translate(message)));
 		emitter.complete();
 		return emitter;
 	}
@@ -685,35 +691,39 @@ public class AiChatBizService {
 		return p.add(c);
 	}
 
+	/** 失败的那句话会写进这条回复（是提问人自己的会话内容），也会推给页面，都用提问人的语言 */
 	private void failStream(AtomicBoolean failed, AiMessage asst, StringBuilder contentBuf, StringBuilder thinkBuf,
-							SseEmitter emitter, String rid, AtomicBoolean stop, Throwable err) {
+							SseEmitter emitter, String rid, AtomicBoolean stop, Throwable err, Locale locale) {
 		if (!failed.compareAndSet(false, true)) {
 			return;
 		}
 		asst.setStatus(stop.get() ? AiConstants.MSG_STATUS_CANCELED : AiConstants.MSG_STATUS_FAILED);
-		String failure = streamFailure(err);
+		String failure = streamFailure(err, locale);
 		asst.setContent(contentBuf.length() == 0 ? failure : contentBuf.toString());
 		asst.setThinkContent(thinkBuf.toString());
 		asst.sanitizeForUpdate();
 		messageMapper.update(asst);
-		send(emitter, AiConstants.SSE_ERROR, Map.of("message", streamFailure(err), "requestId", rid));
+		send(emitter, AiConstants.SSE_ERROR, Map.of("message", failure, "requestId", rid));
 		emitter.complete();
 		stopFlags.remove(rid);
 	}
 
-	private static String streamFailure(Throwable err) {
+	/**
+	 * 给提问人看的失败原因：自己写的业务提示原样给（按提问人的语言查翻译），其它的换成一句通用的话。
+	 * 调模型失败的那句带着对方的原始报错，不给提问的人看。
+	 */
+	static String streamFailure(Throwable err, Locale locale) {
 		Throwable cur = err;
 		while (cur != null) {
-			if (cur instanceof ServiceException) {
+			if (cur instanceof ServiceException && !(cur instanceof AiLlmClient.CallFailedException)) {
 				String message = cur.getMessage();
-				if (message != null && !message.isBlank() && !message.contains("Exception")
-					&& !message.startsWith("模型调用失败")) {
-					return message;
+				if (message != null && !message.isBlank() && !message.contains("Exception")) {
+					return I18n.translate(locale, message);
 				}
 			}
 			cur = cur.getCause();
 		}
-		return "模型没有回应。请检查模型地址是否可访问，然后再发送";
+		return I18n.translate(locale, "模型没有回应。请检查模型地址是否可访问，然后再发送");
 	}
 
 	private void send(SseEmitter emitter, String event, Object data) {

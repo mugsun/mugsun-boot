@@ -6,6 +6,7 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiSecret;
 import com.mugsun.boot.ai.service.AiSecretBizService;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -53,9 +54,9 @@ public class AiSecretController {
 						 @RequestBody(required = false) Map<String, Object> body) {
 		List<AiSecret> removed = service.remove(parseIds(ids, body));
 		if (removed.size() == 1) {
-			return R.success("已删除「" + removed.get(0).getDescription() + "」。这把密钥不能再调用");
+			return R.success(I18n.get("已删除「{0}」。这把密钥不能再调用", removed.get(0).getDescription()));
 		}
-		return R.success("已删除 " + removed.size() + " 把密钥。这些密钥不能再调用");
+		return R.success(I18n.get("已删除 {0} 把密钥。这些密钥不能再调用", removed.size()));
 	}
 
 	@RepeatSubmit

@@ -11,6 +11,7 @@ import com.mugsun.boot.ai.mapper.AiTerminologyMapper;
 import com.mugsun.boot.ai.support.AiLlmClient;
 import com.mugsun.boot.ai.support.SqlReadOnlyChecker;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -320,7 +321,7 @@ public class AiDatasetBizService {
 			throw new ServiceException("这条术语不存在。请刷新后再试");
 		}
 		if (!bindIfAbsent(datasetId, terminologyId)) {
-			throw new ServiceException("「" + term.getName() + "」已经在这份问数里。不用再绑一次");
+			throw new ServiceException(I18n.get("「{0}」已经在这份问数里。不用再绑一次", term.getName()));
 		}
 		return term.getName();
 	}
@@ -535,7 +536,7 @@ public class AiDatasetBizService {
 			query.ne("id", id);
 		}
 		if (datasetMapper.selectCountByQuery(query) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的问数。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的问数。请换一个名称，或打开原来那个", name));
 		}
 	}
 

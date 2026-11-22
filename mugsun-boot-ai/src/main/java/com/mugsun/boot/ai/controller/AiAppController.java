@@ -7,6 +7,7 @@ import com.mugsun.boot.ai.entity.AiApp;
 import com.mugsun.boot.ai.entity.AiAppRun;
 import com.mugsun.boot.ai.service.AiAppBizService;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -82,9 +83,9 @@ public class AiAppController {
 		}
 		List<AiApp> removed = service.remove(parsed);
 		if (removed.size() == 1) {
-			return R.success("已删除「" + removed.get(0).getName() + "」。列表里不会再出现");
+			return R.success(I18n.get("已删除「{0}」。列表里不会再出现", removed.get(0).getName()));
 		}
-		return R.success("已删除 " + removed.size() + " 个应用。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个应用。列表里不会再出现", removed.size()));
 	}
 
 	@RepeatSubmit
@@ -100,7 +101,7 @@ public class AiAppController {
 		}
 		AiApp copied = service.copy(parseId(raw));
 		R<AiApp> result = R.data(copied);
-		result.setMsg("已复制「" + copied.getName() + "」。列表里可以打开这份副本");
+		result.setMsg(I18n.get("已复制「{0}」。列表里可以打开这份副本", copied.getName()));
 		return result;
 	}
 

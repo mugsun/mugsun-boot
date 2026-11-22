@@ -6,6 +6,7 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiDashboard;
 import com.mugsun.boot.ai.service.AiDashboardBizService;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -69,9 +70,9 @@ public class AiDashboardController {
 						 @RequestBody(required = false) Map<String, Object> body) {
 		List<AiDashboard> removed = service.remove(parseIds(ids, body));
 		if (removed.size() == 1) {
-			return R.success("已删除「" + removed.get(0).getName() + "」。问数里再进会是一份新的");
+			return R.success(I18n.get("已删除「{0}」。问数里再进会是一份新的", removed.get(0).getName()));
 		}
-		return R.success("已删除 " + removed.size() + " 个仪表盘");
+		return R.success(I18n.get("已删除 {0} 个仪表盘", removed.size()));
 	}
 
 	@RepeatSubmit

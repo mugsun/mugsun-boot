@@ -9,6 +9,7 @@ import com.mugsun.boot.ai.entity.AiDatasetTable;
 import com.mugsun.boot.ai.entity.AiTerminology;
 import com.mugsun.boot.ai.service.AiDatasetBizService;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -63,9 +64,9 @@ public class AiDatasetController {
 						 @RequestBody(required = false) Map<String, Object> body) {
 		List<AiDataset> removed = service.remove(parseIds(ids, body));
 		if (removed.size() == 1) {
-			return R.success("已删除「" + removed.get(0).getName() + "」。配置的表也会一起去掉");
+			return R.success(I18n.get("已删除「{0}」。配置的表也会一起去掉", removed.get(0).getName()));
 		}
-		return R.success("已删除 " + removed.size() + " 个问数。配置的表也会一起去掉");
+		return R.success(I18n.get("已删除 {0} 个问数。配置的表也会一起去掉", removed.size()));
 	}
 
 	@RepeatSubmit
@@ -78,7 +79,7 @@ public class AiDatasetController {
 		}
 		AiDataset saved = service.copy(parseId(raw, "问数编号请填写数字，可以从列表里复制"));
 		R<AiDataset> result = R.data(saved);
-		result.setMsg("已复制为「" + saved.getName() + "」。表配置会一起带过去");
+		result.setMsg(I18n.get("已复制为「{0}」。表配置会一起带过去", saved.getName()));
 		return result;
 	}
 
@@ -123,7 +124,7 @@ public class AiDatasetController {
 			text(body, "tableName"), text(body, "tableAlias"), text(body, "tableComment"),
 			text(body, "fieldsJson"), text(body, "relationsJson"));
 		R<AiDatasetTable> resp = R.data(saved);
-		resp.setMsg("已保存「" + saved.getTableName() + "」。问数时可以使用这张表");
+		resp.setMsg(I18n.get("已保存「{0}」。问数时可以使用这张表", saved.getTableName()));
 		return resp;
 	}
 
@@ -147,7 +148,7 @@ public class AiDatasetController {
 			optionalId(body, "datasetId", "问数编号请填写数字，可以从列表里复制"),
 			text(body, "name"), text(body, "content"), text(body, "synonyms"), text(body, "remark"));
 		R<AiTerminology> resp = R.data(saved);
-		resp.setMsg("已保存「" + saved.getName() + "」。问数时会带上这条术语");
+		resp.setMsg(I18n.get("已保存「{0}」。问数时会带上这条术语", saved.getName()));
 		return resp;
 	}
 
@@ -169,7 +170,7 @@ public class AiDatasetController {
 		}
 		String name = service.bindTerm(parseId(datasetId, "问数编号请填写数字，可以从列表里复制"),
 			parseId(terminologyId, "术语编号请填写数字，可以从列表里复制"));
-		return R.success("已绑定「" + name + "」。问数时会带上这条术语");
+		return R.success(I18n.get("已绑定「{0}」。问数时会带上这条术语", name));
 	}
 
 	@PostMapping("/term/remove")

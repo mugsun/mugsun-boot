@@ -7,7 +7,9 @@ import com.mugsun.boot.ai.entity.AiKnowledge;
 import com.mugsun.boot.ai.entity.AiKnowledgeAsset;
 import com.mugsun.boot.ai.entity.AiKnowledgeSegment;
 import com.mugsun.boot.ai.service.AiKnowledgeBizService;
+import com.mugsun.boot.common.i18n.StoredSentence;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -63,9 +65,9 @@ public class AiKnowledgeController {
 						  @RequestBody(required = false) Map<String, Object> body) {
 		List<AiKnowledge> removed = service.remove(parseIds(ids, body, "请先选择要删除的知识库"));
 		if (removed.size() == 1) {
-			return R.success("已删除「" + removed.get(0).getName() + "」。列表里不会再出现");
+			return R.success(I18n.get("已删除「{0}」。列表里不会再出现", removed.get(0).getName()));
 		}
-		return R.success("已删除 " + removed.size() + " 个知识库。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个知识库。列表里不会再出现", removed.size()));
 	}
 
 	@RepeatSubmit
@@ -77,7 +79,7 @@ public class AiKnowledgeController {
 		}
 		AiKnowledge saved = service.copy(parseId(body.get("id")));
 		R<AiKnowledge> result = R.data(saved);
-		result.setMsg("已复制「" + saved.getName() + "」。列表里可以打开这份副本");
+		result.setMsg(I18n.get("已复制「{0}」。列表里可以打开这份副本", saved.getName()));
 		return result;
 	}
 
@@ -114,7 +116,7 @@ public class AiKnowledgeController {
 	@PostMapping("/asset/upload")
 	@SaCheckPermission(AiConstants.PERM_KB_ASSET_UPLOAD)
 	public R<AiKnowledgeAsset> upload(@RequestBody AiKnowledgeAsset body) {
-		return R.data(service.uploadAsset(body));
+		return R.data(readable(service.uploadAsset(body)));
 	}
 
 	/**
@@ -131,19 +133,20 @@ public class AiKnowledgeController {
 										  @RequestParam(required = false) String segmentSymbol) {
 		AiKnowledgeAsset saved = service.uploadAssetFile(knowledgeId, file, segmentLength, segmentOverlap,
 			segmentType, segmentSymbol);
-		R<AiKnowledgeAsset> result = R.data(saved);
+		R<AiKnowledgeAsset> result = R.data(readable(saved));
 		String name = saved.getFileName();
-		String shown = name == null || name.isBlank() ? "这份资料" : name;
-		result.setMsg("failed".equals(saved.getVectorStatus())
-			? "已上传「" + shown + "」并分好段，但没有向量化成功。原因见资料列表"
-			: "已上传「" + shown + "」。可以在分段列表里查看");
+		String shown = name == null || name.isBlank() ? I18n.translate("这份资料") : name;
+		result.setMsg("failed".equals(saved.getVectorStatus()) ? I18n.get("已上传「{0}」并分好段，但没有向量化成功。原因见资料列表",
+			shown) : I18n.get("已上传「{0}」。可以在分段列表里查看", shown));
 		return result;
 	}
 
 	@GetMapping("/asset/list")
 	@SaCheckPermission(AiConstants.PERM_KB_DETAIL)
 	public R<List<AiKnowledgeAsset>> assets(@RequestParam Long knowledgeId) {
-		return R.data(service.assets(knowledgeId));
+		List<AiKnowledgeAsset> assets = service.assets(knowledgeId);
+		assets.forEach(AiKnowledgeController::readable);
+		return R.data(assets);
 	}
 
 	@RepeatSubmit
@@ -154,15 +157,24 @@ public class AiKnowledgeController {
 		List<AiKnowledgeAsset> removed = service.removeAssets(parseIds(ids, body, "请先选择要删除的资料"));
 		if (removed.size() == 1) {
 			String name = removed.get(0).getFileName();
-			return R.success("已删除「" + (name == null || name.isBlank() ? "这份资料" : name) + "」。分段也会一起清掉");
+			return R.success(I18n.get("已删除「{0}」。分段也会一起清掉",
+				name == null || name.isBlank() ? I18n.translate("这份资料") : name));
 		}
-		return R.success("已删除 " + removed.size() + " 份资料。分段也会一起清掉");
+		return R.success(I18n.get("已删除 {0} 份资料。分段也会一起清掉", removed.size()));
 	}
 
 	@PostMapping("/asset/resegment")
 	@SaCheckPermission(AiConstants.PERM_KB_ASSET_UPLOAD)
 	public R<AiKnowledgeAsset> resegment(@RequestParam Long id) {
-		return R.data(service.resegmentAsset(id));
+		return R.data(readable(service.resegmentAsset(id)));
+	}
+
+	/** 失败原因库里存的是原句（带数字的连数字一起存），给页面之前按读的人的语言拼出来 */
+	private static AiKnowledgeAsset readable(AiKnowledgeAsset asset) {
+		if (asset != null && asset.getFailReason() != null && !asset.getFailReason().isBlank()) {
+			asset.setFailReason(StoredSentence.render(asset.getFailReason()));
+		}
+		return asset;
 	}
 
 	@GetMapping("/segment/list")

@@ -6,6 +6,7 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiChannelBind;
 import com.mugsun.boot.ai.service.AiChannelBizService;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -55,9 +56,10 @@ public class AiChannelController {
 		List<AiChannelBind> removed = service.remove(parseIds(ids, body));
 		if (removed.size() == 1) {
 			String name = removed.get(0).getAlias();
-			return R.success("已删除「" + (name == null || name.isBlank() ? "这个渠道" : name) + "」。列表里不会再出现");
+			return R.success(I18n.get("已删除「{0}」。列表里不会再出现",
+				name == null || name.isBlank() ? I18n.translate("这个渠道") : name));
 		}
-		return R.success("已删除 " + removed.size() + " 个渠道。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个渠道。列表里不会再出现", removed.size()));
 	}
 
 	@PostMapping("/debug")

@@ -7,6 +7,7 @@ import com.mugsun.boot.ai.entity.AiChannelBind;
 import com.mugsun.boot.ai.mapper.AiChannelBindMapper;
 import com.mugsun.boot.ai.support.AiOutboundProperties;
 import com.mugsun.boot.ai.support.OutboundWebClientFactory;
+import com.mugsun.boot.common.i18n.EnglishRequest;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -207,6 +208,18 @@ class AiChannelSendTest {
 		assertEquals(om.readTree("{\"msg_type\":\"text\",\"content\":{\"text\":\"发布完成\"}}"), lastBody());
 		assertEquals(true, send("feishu", base + "/open-apis/bot/v2/hook/old-" + GOOD, "发布完成", Map.of()).get("ok"),
 			"只有 StatusCode 的回复也认");
+	}
+
+	@Test
+	void theResultFollowsTheReadersLanguageIncludingThePlatformName() {
+		try (EnglishRequest english = EnglishRequest.open()) {
+			Map<String, Object> sent = send("wecom", base + "/cgi-bin/webhook/send?key=" + GOOD, "发布完成", Map.of());
+			assertEquals("Sent. WeCom accepted this message. Please check it in the group.", sent.get("message"));
+
+			Map<String, Object> refused = send("dingtalk", base + "/robot/send?access_token=" + BAD, "发布完成", Map.of());
+			assertEquals("DingTalk did not accept this message: token is not exist (error code 300005)",
+				refused.get("message"));
+		}
 	}
 
 	@Test

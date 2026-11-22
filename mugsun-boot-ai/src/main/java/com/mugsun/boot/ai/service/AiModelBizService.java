@@ -7,6 +7,7 @@ import com.mugsun.boot.ai.entity.AiModel;
 import com.mugsun.boot.ai.mapper.AiModelMapper;
 import com.mugsun.boot.ai.support.AiLlmClient;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -265,7 +266,7 @@ public class AiModelBizService {
 			q.ne("id", excludeId);
 		}
 		if (modelMapper.selectCountByQuery(q) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的模型。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的模型。请换一个名称，或打开原来那个", name));
 		}
 	}
 

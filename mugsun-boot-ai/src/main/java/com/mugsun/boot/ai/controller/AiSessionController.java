@@ -7,6 +7,7 @@ import com.mugsun.boot.ai.entity.AiMessage;
 import com.mugsun.boot.ai.entity.AiSession;
 import com.mugsun.boot.ai.service.AiChatBizService;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -77,8 +78,9 @@ public class AiSessionController {
 			throw new ServiceException("请先选择要删除的会话");
 		}
 		AiSession removed = chatService.removeSession(parseId(raw, "会话编号请填写数字，可以从列表里复制"));
-		String title = removed.getTitle() == null || removed.getTitle().isBlank() ? "这条会话" : removed.getTitle();
-		return R.success("已删除「" + title + "」。列表里不会再出现");
+		String title = removed.getTitle() == null || removed.getTitle().isBlank()
+			? I18n.translate("这条会话") : removed.getTitle();
+		return R.success(I18n.get("已删除「{0}」。列表里不会再出现", title));
 	}
 
 	@RepeatSubmit

@@ -6,6 +6,7 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiDatasource;
 import com.mugsun.boot.ai.service.AiDatasourceBizService;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -60,9 +61,9 @@ public class AiDatasourceController {
 						 @RequestBody(required = false) Map<String, Object> body) {
 		List<AiDatasource> removed = service.remove(parseIds(ids, body));
 		if (removed.size() == 1) {
-			return R.success("已删除「" + removed.get(0).getName() + "」。列表里不会再出现");
+			return R.success(I18n.get("已删除「{0}」。列表里不会再出现", removed.get(0).getName()));
 		}
-		return R.success("已删除 " + removed.size() + " 个数据源。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个数据源。列表里不会再出现", removed.size()));
 	}
 
 	@PostMapping("/test")

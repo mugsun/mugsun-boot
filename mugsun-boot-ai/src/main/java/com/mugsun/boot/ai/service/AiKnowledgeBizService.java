@@ -18,6 +18,8 @@ import com.mugsun.boot.ai.support.AiRrfFusion;
 import com.mugsun.boot.ai.support.AiSegmentOptions;
 import com.mugsun.boot.ai.support.AiTextSplitter;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.boot.common.i18n.StoredSentence;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -255,8 +257,8 @@ public class AiKnowledgeBizService {
 		out.put("query", q);
 		out.put("hits", hits);
 		out.put("message", hits.isEmpty()
-			? "没有命中资料。请先上传内容，或换一个更接近原文的问题再测"
-			: ("命中 " + hits.size() + " 条。可以打开知识库核对这些分段"));
+			? I18n.translate("没有命中资料。请先上传内容，或换一个更接近原文的问题再测")
+			: I18n.get("命中 {0} 条。可以打开知识库核对这些分段", hits.size()));
 		return out;
 	}
 
@@ -299,7 +301,7 @@ public class AiKnowledgeBizService {
 			if (hadRemote) {
 				persistFailedAsset(body, resolved.reason());
 			}
-			throw new ServiceException(resolved.reason());
+			throw new ServiceException(StoredSentence.render(resolved.reason()));
 		}
 		return ingestSuccess(kb, body, resolved.text(), options);
 	}
@@ -322,7 +324,7 @@ public class AiKnowledgeBizService {
 		String filename = file.getOriginalFilename();
 		long max = kbProperties.getMaxUploadBytes();
 		if (file.getSize() > max) {
-			throw new ServiceException("文件超过 " + (max / (1024 * 1024)) + "MB。请压缩或拆分后再上传");
+			throw new ServiceException(I18n.get("文件超过 {0}MB。请压缩或拆分后再上传", (max / (1024 * 1024))));
 		}
 		byte[] bytes;
 		try {
@@ -334,7 +336,7 @@ public class AiKnowledgeBizService {
 			throw new ServiceException("文件是空的。请换一份有正文的资料再上传");
 		}
 		if (bytes.length > max) {
-			throw new ServiceException("文件超过 " + (max / (1024 * 1024)) + "MB。请压缩或拆分后再上传");
+			throw new ServiceException(I18n.get("文件超过 {0}MB。请压缩或拆分后再上传", (max / (1024 * 1024))));
 		}
 		int headLen = Math.min(1024, bytes.length);
 		String ext = AiKbDocumentTypes.validate(filename, file.getContentType(), bytes, headLen);
@@ -355,7 +357,7 @@ public class AiKnowledgeBizService {
 		if (text == null || text.isBlank()) {
 			persistFailedAsset(body, reason[0] != null ? reason[0]
 				: "没从文件里抽出正文。可能是扫描件或空文档，当前不支持 OCR");
-			throw new ServiceException(body.getFailReason());
+			throw new ServiceException(StoredSentence.render(body.getFailReason()));
 		}
 		return ingestSuccess(kb, body, text, options);
 	}
@@ -440,8 +442,8 @@ public class AiKnowledgeBizService {
 		if (reason == null) {
 			return "资料处理失败";
 		}
-		String t = reason.trim();
-		return t.length() <= 500 ? t : t.substring(0, 500);
+		// 不能先 trim：带数字的记录用控制字符分隔，trim 会把末尾的分隔符当空白删掉
+		return StoredSentence.fit(reason, 500);
 	}
 
 	/** 对知识库分段向量化；rebuild=true 时先清向量再全量重建，否则只处理非 success */
@@ -513,9 +515,9 @@ public class AiKnowledgeBizService {
 		stats.put("rebuild", rebuild);
 		stats.put("vectorAvailable", vectorOn);
 		if (!vectorOn) {
-			stats.put("message", "未安装向量扩展，已回落关键词检索，未写入向量");
+			stats.put("message", I18n.translate("未安装向量扩展，已回落关键词检索，未写入向量"));
 		} else if (result.failed() > 0) {
-			stats.put("message", result.problem());
+			stats.put("message", I18n.translate(result.problem()));
 		}
 		return stats;
 	}
@@ -589,7 +591,7 @@ public class AiKnowledgeBizService {
 		AiKnowledge kb = require(asset.getKnowledgeId());
 		ResolvedContent resolved = resolveContent(asset);
 		if (!resolved.ok()) {
-			throw new ServiceException(resolved.reason() != null ? resolved.reason()
+			throw new ServiceException(resolved.reason() != null ? StoredSentence.render(resolved.reason())
 				: "这份资料还没有正文。请重新上传后再分段");
 		}
 		AiSegmentOptions options = AiSegmentOptions.lenient(asset.getSegmentType(), asset.getSegmentLength(),
@@ -650,8 +652,8 @@ public class AiKnowledgeBizService {
 			// 早先按段落、按行切出来的分段可能本来就超长：不变长就允许改，只拦继续变长
 			int limit = Math.max(AiSegmentOptions.MAX_SEGMENT_CHARS, db.getContent() == null ? 0 : db.getContent().length());
 			if (content.length() > limit) {
-				throw new ServiceException("分段内容请控制在 " + limit + " 字以内，现在是 " + content.length()
-					+ " 字。内容多的话请拆成几段，或者作为一份新资料上传");
+				throw new ServiceException(I18n.get("分段内容请控制在 {0} 字以内，现在是 {1} 字。内容多的话请拆成几段，或者作为一份新资料上传",
+					limit, content.length()));
 			}
 			db.setContent(content);
 			db.setTokenCount(Math.max(1, content.length() / 2));
@@ -1115,7 +1117,7 @@ public class AiKnowledgeBizService {
 			}
 			long max = kbProperties.getMaxUploadBytes();
 			if (bytes.length > max) {
-				return ResolvedContent.fail("文件超过 " + (max / (1024 * 1024)) + "MB。请压缩或拆分后再上传");
+				return ResolvedContent.fail(StoredSentence.pack("文件超过 {0}MB。请压缩或拆分后再上传", max / (1024 * 1024)));
 			}
 			String filename = body.getFileName();
 			if (filename == null || filename.isBlank()) {
@@ -1163,6 +1165,10 @@ public class AiKnowledgeBizService {
 		return null;
 	}
 
+	/**
+	 * reason 会存进资料的失败原因里，所以放原句：固定的句子直接写，带数字的用 {@link StoredSentence#pack}；
+	 * 要给人看的时候再用 {@link StoredSentence#render} 按读的人的语言拼出来
+	 */
 	private record ResolvedContent(String text, String reason) {
 		static ResolvedContent ok(String text) {
 			return new ResolvedContent(text, null);
@@ -1191,8 +1197,7 @@ public class AiKnowledgeBizService {
 		try {
 			return AiTextSplitter.split(text, options.length(), options.overlap(), options.type(), options.symbol(), max);
 		} catch (AiTextSplitter.TooManyPiecesException e) {
-			throw new ServiceException("这份资料按当前设置会切出超过 " + max
-				+ " 段。请调大分段长度、换一种分段方式，或把资料拆成几份再上传");
+			throw new ServiceException(I18n.get("这份资料按当前设置会切出超过 {0} 段。请调大分段长度、换一种分段方式，或把资料拆成几份再上传", max));
 		}
 	}
 
@@ -1209,7 +1214,7 @@ public class AiKnowledgeBizService {
 			bytes += c < 0x80 ? 1 : (c < 0x800 || Character.isSurrogate(c) ? 2 : 3);
 		}
 		if (bytes > max) {
-			throw new ServiceException("正文超过 " + (max / (1024 * 1024)) + "MB。请拆成几份再上传");
+			throw new ServiceException(I18n.get("正文超过 {0}MB。请拆成几份再上传", (max / (1024 * 1024))));
 		}
 	}
 
@@ -1219,7 +1224,7 @@ public class AiKnowledgeBizService {
 			q.ne("id", excludeId);
 		}
 		if (knowledgeMapper.selectCountByQuery(q) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的知识库。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的知识库。请换一个名称，或打开原来那个", name));
 		}
 	}
 

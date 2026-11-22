@@ -11,6 +11,7 @@ import com.mugsun.boot.ai.mapper.AiAppMapper;
 import com.mugsun.boot.ai.mapper.AiAppNodeRunMapper;
 import com.mugsun.boot.ai.mapper.AiAppRunMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -170,7 +171,7 @@ public class AiAppBizService {
 			q.ne("id", excludeId);
 		}
 		if (mapper.selectCountByQuery(q) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的应用。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的应用。请换一个名称，或打开原来那个", name));
 		}
 	}
 

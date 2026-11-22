@@ -1,6 +1,7 @@
 package com.mugsun.boot.ai.support;
 
 import com.mugsun.boot.ai.AiConstants;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 
 import java.math.BigDecimal;
@@ -240,7 +241,7 @@ public final class SqlReadOnlyChecker {
 			throw unsafe();
 		}
 		if (s.length() > MAX_LENGTH) {
-			throw new ServiceException("查询太长了，请控制在 " + MAX_LENGTH + " 个字符以内");
+			throw new ServiceException(I18n.get("查询太长了，请控制在 {0} 个字符以内", MAX_LENGTH));
 		}
 		Set<String> allowed = new HashSet<>();
 		if (whitelist != null) {
@@ -349,7 +350,7 @@ public final class SqlReadOnlyChecker {
 					continue;
 				}
 				if (list.size() > MAX_LIST) {
-					throw new ServiceException("变量「" + slot.text + "」里的值超过 " + MAX_LIST + " 个，请减少后再试");
+					throw new ServiceException(I18n.get("变量「{0}」里的值超过 {1} 个，请减少后再试", slot.text, MAX_LIST));
 				}
 				if (list.isEmpty()) {
 					sql.append("NULL");
@@ -377,7 +378,7 @@ public final class SqlReadOnlyChecker {
 				String name = ((Var) part).name();
 				Object value = values.get(name);
 				if (asList(value) != null) {
-					throw new ServiceException("变量「" + name + "」是一组值，不能写在引号里。请去掉引号，写成 in (${" + name + "})");
+					throw new ServiceException(I18n.get("变量「{0}」是一组值，不能写在引号里。请去掉引号，写成 in ({1})", name, "${" + name + "}"));
 				}
 				Object plain = scalar(name, value);
 				if (plain != null) {
@@ -419,7 +420,7 @@ public final class SqlReadOnlyChecker {
 					return BigDecimal.valueOf(d);
 				}
 			}
-			throw new ServiceException("变量「" + name + "」不是文字或数字，不能用在查询里");
+			throw new ServiceException(I18n.get("变量「{0}」不是文字或数字，不能用在查询里", name));
 		}
 	}
 
@@ -1022,7 +1023,7 @@ public final class SqlReadOnlyChecker {
 			if (peek().kind == Kind.LPAREN) {
 				Token fn = parts.get(0);
 				if (parts.size() != 1 || fn.kind != Kind.WORD || !TABLE_FUNCTIONS.contains(fn.lower)) {
-					throw new ServiceException("查询里不能把函数当成表来查: " + clip(name(parts)));
+					throw new ServiceException(I18n.get("查询里不能把函数当成表来查: {0}", clip(name(parts))));
 				}
 				parseTableFunction();
 				return;
@@ -1133,7 +1134,7 @@ public final class SqlReadOnlyChecker {
 			String name = name(parts);
 			tables.add(name);
 			if (!whitelist.isEmpty() && !whitelist.contains(name)) {
-				throw new ServiceException("SQL 引用了未授权表: " + clip(name));
+				throw new ServiceException(I18n.get("SQL 引用了未授权表: {0}", clip(name)));
 			}
 		}
 
@@ -1375,7 +1376,7 @@ public final class SqlReadOnlyChecker {
 			}
 			boolean column = pos >= 2 && toks.get(pos - 2).kind == Kind.DOT;
 			if (!column && TYPED_LITERALS.contains(prev.lower)) {
-				throw new ServiceException("「" + prev.text + " '…'」这种写法里不能带变量，请改成 cast('…' as " + prev.text + ")");
+				throw new ServiceException(I18n.get("「{0} ''…''」这种写法里不能带变量，请改成 cast(''…'' as {0})", prev.text));
 			}
 		}
 
@@ -1450,11 +1451,11 @@ public final class SqlReadOnlyChecker {
 	}
 
 	private static ServiceException unsupported(String what) {
-		return new ServiceException("查询里有不支持的写法: " + clip(what));
+		return new ServiceException(I18n.get("查询里有不支持的写法: {0}", clip(what)));
 	}
 
 	private static ServiceException function(String name) {
-		return new ServiceException("查询里用了不允许的函数: " + clip(name));
+		return new ServiceException(I18n.get("查询里用了不允许的函数: {0}", clip(name)));
 	}
 
 	private static ServiceException unexpected(Token t) {

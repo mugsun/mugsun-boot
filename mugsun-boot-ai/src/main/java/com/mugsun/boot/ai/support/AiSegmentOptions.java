@@ -1,5 +1,6 @@
 package com.mugsun.boot.ai.support;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 
 import java.util.Locale;
@@ -38,17 +39,16 @@ public record AiSegmentOptions(String type, int length, int overlap, String symb
 		}
 		int len = length == null ? DEFAULT_LENGTH : length;
 		if (len < MIN_LENGTH || len > MAX_LENGTH) {
-			throw new ServiceException("分段长度请填 " + MIN_LENGTH + " 到 " + MAX_LENGTH + " 之间的整数");
+			throw new ServiceException(I18n.get("分段长度请填 {0} 到 {1} 之间的整数", MIN_LENGTH, MAX_LENGTH));
 		}
 		int maxOverlap = maxOverlapFor(len);
 		int ov = overlap == null ? Math.min(DEFAULT_OVERLAP, maxOverlap) : overlap;
 		if (ov < 0 || ov > maxOverlap) {
-			throw new ServiceException("分段长度是 " + len + " 时，重叠请填 0 到 " + maxOverlap
-				+ " 之间的整数（最多是分段长度的一半）");
+			throw new ServiceException(I18n.get("分段长度是 {0} 时，重叠请填 0 到 {1} 之间的整数（最多是分段长度的一半）", len, maxOverlap));
 		}
 		String sym = symbol == null || symbol.isEmpty() ? null : symbol;
 		if (sym != null && sym.length() > MAX_SYMBOL_LENGTH) {
-			throw new ServiceException("分隔符请控制在 " + MAX_SYMBOL_LENGTH + " 个字符以内");
+			throw new ServiceException(I18n.get("分隔符请控制在 {0} 个字符以内", MAX_SYMBOL_LENGTH));
 		}
 		return new AiSegmentOptions(mode, len, ov, sym);
 	}

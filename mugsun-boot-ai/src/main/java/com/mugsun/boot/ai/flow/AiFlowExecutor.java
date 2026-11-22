@@ -19,6 +19,7 @@ import com.mugsun.boot.ai.support.SqlReadOnlyChecker;
 import com.mugsun.boot.ai.support.SqlTableGate;
 import com.mugsun.boot.ai.support.UrlSafetyGate;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -892,7 +893,7 @@ public class AiFlowExecutor {
 			value = resolvePath(vars, rest);
 		}
 		if (value == null) {
-			throw new ServiceException("数据库节点用到的变量「" + name + "」没有值");
+			throw new ServiceException(I18n.get("数据库节点用到的变量「{0}」没有值", name));
 		}
 		return plainValue(value);
 	}

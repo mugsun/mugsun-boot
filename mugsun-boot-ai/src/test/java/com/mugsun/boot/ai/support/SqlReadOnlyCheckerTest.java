@@ -342,8 +342,9 @@ class SqlReadOnlyCheckerTest {
 			many.add(i);
 		}
 		assertThrows(ServiceException.class, () -> plan.bind(Map.of("ids", many)));
-		assertThrows(ServiceException.class, () -> SqlReadOnlyChecker.checkTemplate(
-			"select * from wdx074_sales where region in ('${ids}')", SALES).bind(Map.of("ids", List.of("a"))));
+		assertEquals("变量「ids」是一组值，不能写在引号里。请去掉引号，写成 in (${ids})",
+			assertThrows(ServiceException.class, () -> SqlReadOnlyChecker.checkTemplate(
+				"select * from wdx074_sales where region in ('${ids}')", SALES).bind(Map.of("ids", List.of("a")))).getMessage());
 
 		SqlReadOnlyChecker.Plan mixed = SqlReadOnlyChecker.checkTemplate(
 			"select * from wdx074_sales where amount > ${a} and amount < ${b} and region = '${c}' and ${d} "

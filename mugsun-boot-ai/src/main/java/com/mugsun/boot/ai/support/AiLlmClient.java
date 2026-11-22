@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mugsun.boot.ai.entity.AiModel;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -32,6 +33,17 @@ public class AiLlmClient {
 	public AiLlmClient(OutboundWebClientFactory outboundWebClients, ObjectMapper objectMapper) {
 		this.outboundWebClients = outboundWebClients;
 		this.objectMapper = objectMapper;
+	}
+
+	/**
+	 * 调模型、调向量接口没有成功。消息后半句是对方返回的原始报错，给配置模型的人排查用；
+	 * 聊天界面不把它直接给提问的人看，要按这个类型认，不要按消息开头的字认（消息会跟着语言变）。
+	 */
+	public static class CallFailedException extends ServiceException {
+
+		public CallFailedException(String message) {
+			super(message);
+		}
 	}
 
 	public boolean probe(AiModel model) {
@@ -90,7 +102,7 @@ public class AiLlmClient {
 			}
 			return out;
 		} catch (Exception e) {
-			throw new ServiceException("向量化失败: " + e.getMessage());
+			throw new CallFailedException(I18n.get("向量化失败: {0}", e.getMessage()));
 		}
 	}
 
@@ -120,7 +132,7 @@ public class AiLlmClient {
 			JsonNode content = root.path("choices").path(0).path("message").path("content");
 			return content.isMissingNode() ? "" : content.asText("");
 		} catch (Exception e) {
-			throw new ServiceException("模型调用失败: " + e.getMessage());
+			throw new CallFailedException(I18n.get("模型调用失败: {0}", e.getMessage()));
 		}
 	}
 

@@ -7,6 +7,7 @@ import com.mugsun.boot.ai.mapper.AiDatasourceMapper;
 import com.mugsun.boot.ai.support.SqlQueryRunner;
 import com.mugsun.boot.ai.support.SqlReadOnlyChecker;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -319,7 +320,7 @@ public class AiDatasourceBizService {
 			query.ne("id", id);
 		}
 		if (mapper.selectCountByQuery(query) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的数据源。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的数据源。请换一个名称，或打开原来那个", name));
 		}
 	}
 
@@ -337,10 +338,11 @@ public class AiDatasourceBizService {
 		}
 	}
 
+	/** message 传整句原文，这里按请求的语言查翻译（放在返回数据里的字不会自动翻译） */
 	private static Map<String, Object> result(boolean ok, String message) {
 		Map<String, Object> data = new LinkedHashMap<>();
 		data.put("ok", ok);
-		data.put("message", message);
+		data.put("message", I18n.translate(message));
 		return data;
 	}
 }

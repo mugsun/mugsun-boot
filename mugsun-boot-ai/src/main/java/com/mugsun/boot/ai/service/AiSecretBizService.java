@@ -7,6 +7,7 @@ import com.mugsun.boot.ai.entity.AiSecret;
 import com.mugsun.boot.ai.mapper.AiSecretMapper;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.tenant.TenantValidator;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ForbiddenException;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -193,7 +194,7 @@ public class AiSecretBizService {
 			q.ne("id", excludeId);
 		}
 		if (mapper.selectCountByQuery(q) > 0) {
-			throw new ServiceException("已经有说明为「" + description + "」的密钥。请换一个说明，或打开原来那把");
+			throw new ServiceException(I18n.get("已经有说明为「{0}」的密钥。请换一个说明，或打开原来那把", description));
 		}
 	}
 

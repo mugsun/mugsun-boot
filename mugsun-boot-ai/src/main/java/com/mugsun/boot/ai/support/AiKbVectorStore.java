@@ -2,6 +2,7 @@ package com.mugsun.boot.ai.support;
 
 import cn.hutool.core.util.IdUtil;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -91,7 +92,7 @@ public class AiKbVectorStore {
 				})
 				.toList();
 		} catch (Exception e) {
-			throw new ServiceException("向量检索失败: " + e.getMessage());
+			throw new ServiceException(I18n.get("向量检索失败: {0}", e.getMessage()));
 		}
 	}
 

@@ -1,5 +1,6 @@
 package com.mugsun.boot.ai.support;
 
+import com.mugsun.boot.common.i18n.StoredSentence;
 import org.apache.tika.exception.TikaException;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
@@ -25,7 +26,8 @@ public class AiDocumentTextExtractor {
 	private static final int WRITE_LIMIT = 20 * 1024 * 1024;
 
 	/**
-	 * @return 非空正文；失败返回 null（reasonOut[0] 写入可读原因）
+	 * @return 非空正文；失败返回 null（reasonOut[0] 写入可读原因）。原因会被存进资料记录，所以给的是原句，
+	 * 要给人看时用 {@link StoredSentence#render} 按读的人的语言拼出来
 	 */
 	public String extractOrNull(byte[] bytes, String filename, String mime, String[] reasonOut) {
 		if (bytes == null || bytes.length == 0) {
@@ -48,7 +50,7 @@ public class AiDocumentTextExtractor {
 				String msg = e.getMessage();
 				reasonOut[0] = (msg == null || msg.isBlank())
 					? "文件解析失败。请确认是可用的 PDF / DOCX / PPTX"
-					: ("文件解析失败：" + msg);
+					: StoredSentence.pack("文件解析失败：{0}", msg);
 			}
 			return null;
 		}

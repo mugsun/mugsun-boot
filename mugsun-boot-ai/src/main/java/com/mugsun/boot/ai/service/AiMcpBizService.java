@@ -6,6 +6,7 @@ import com.mugsun.boot.ai.entity.AiMcpTool;
 import com.mugsun.boot.ai.mapper.AiMcpToolMapper;
 import com.mugsun.boot.ai.support.AiOutboundProperties;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -182,7 +183,7 @@ public class AiMcpBizService {
 		for (Long id : ids) {
 			AiMcpTool row = require(id);
 			if (row.getLockFlag() != null && row.getLockFlag() == AiConstants.FLAG_YES) {
-				throw new ServiceException("「" + row.getName() + "」已锁定。请先解锁再删除");
+				throw new ServiceException(I18n.get("「{0}」已锁定。请先解锁再删除", row.getName()));
 			}
 			rows.add(row);
 		}
@@ -219,7 +220,8 @@ public class AiMcpBizService {
 				tool.sanitizeForUpdate();
 				mapper.update(tool);
 				mask(tool);
-				return Map.of("ok", true, "message", "已解析。清单会显示在这个工具上", "toolsJson", tool.getToolsJson(), "transport", transport);
+				return Map.of("ok", true, "message", I18n.translate("已解析。清单会显示在这个工具上"),
+					"toolsJson", tool.getToolsJson(), "transport", transport);
 			} catch (ServiceException e) {
 				throw e;
 			} catch (Exception ignored) {
@@ -232,7 +234,7 @@ public class AiMcpBizService {
 		tool.sanitizeForUpdate();
 		mapper.update(tool);
 		mask(tool);
-		return Map.of("ok", true, "message", "已解析本地工具。页面调试只会回显，不会调用外部服务",
+		return Map.of("ok", true, "message", I18n.translate("已解析本地工具。页面调试只会回显，不会调用外部服务"),
 			"toolsJson", toolsJson, "transport", "local");
 	}
 
@@ -241,16 +243,17 @@ public class AiMcpBizService {
 		AiMcpTool tool = require(id);
 		String transport = resolveTransport(tool);
 		if ("stdio".equals(transport)) {
-			return Map.of("ok", false, "message", "这个类型还不能在页面里直接调试。请改成 HTTP 并填上能访问的地址");
+			return Map.of("ok", false, "message", I18n.translate("这个类型还不能在页面里直接调试。请改成 HTTP 并填上能访问的地址"));
 		}
 		Map<String, Object> result = invoke(id, "echo", args);
 		if (Boolean.TRUE.equals(result.get("ok")) && "local".equals(String.valueOf(result.get("transport")))) {
-			return Map.of("ok", true, "message", "已回显。这是本地调试，没有调用外部工具", "transport", "local");
+			return Map.of("ok", true, "message", I18n.translate("已回显。这是本地调试，没有调用外部工具"), "transport", "local");
 		}
 		if (!Boolean.TRUE.equals(result.get("ok"))) {
-			return Map.of("ok", false, "message", "这次没有调通。请检查地址能不能从本机访问，再试一次");
+			return Map.of("ok", false, "message", I18n.translate("这次没有调通。请检查地址能不能从本机访问，再试一次"));
 		}
-		return Map.of("ok", true, "message", "已调通。可以在编排里使用这个工具", "transport", String.valueOf(result.get("transport")));
+		return Map.of("ok", true, "message", I18n.translate("已调通。可以在编排里使用这个工具"),
+			"transport", String.valueOf(result.get("transport")));
 	}
 
 	/**
@@ -270,14 +273,14 @@ public class AiMcpBizService {
 		if (remote) {
 			if (tool.getSseUrl() == null || tool.getSseUrl().isBlank()) {
 				return Map.of("ok", false, "tool", name, "transport", transport,
-					"error", "还没有填写地址。请先编辑这个工具，填上能访问的地址");
+					"error", I18n.translate("还没有填写地址。请先编辑这个工具，填上能访问的地址"));
 			}
 			String url;
 			try {
 				url = outbound.guard(resolveCallUrl(tool.getSseUrl().trim()));
 			} catch (ServiceException e) {
 				return Map.of("ok", false, "tool", name, "transport", "http",
-					"error", "地址不允许访问内网或元数据地址。请换成公网地址，或让管理员加入出站白名单");
+					"error", I18n.translate("地址不允许访问内网或元数据地址。请换成公网地址，或让管理员加入出站白名单"));
 			}
 			try {
 				var spec = outboundWebClients.create().post().uri(url)
@@ -291,7 +294,7 @@ public class AiMcpBizService {
 					"result", body == null ? "" : body);
 			} catch (Exception ignored) {
 				return Map.of("ok", false, "tool", name, "transport", "http",
-					"error", "这次没有调通。请检查地址能不能从本机访问，再试一次");
+					"error", I18n.translate("这次没有调通。请检查地址能不能从本机访问，再试一次"));
 			}
 		}
 		return Map.of("ok", true, "tool", name, "transport", "local", "echo", payload);
@@ -395,7 +398,7 @@ public class AiMcpBizService {
 			query.ne("id", id);
 		}
 		if (mapper.selectCountByQuery(query) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的 MCP。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的 MCP。请换一个名称，或打开原来那个", name));
 		}
 	}
 

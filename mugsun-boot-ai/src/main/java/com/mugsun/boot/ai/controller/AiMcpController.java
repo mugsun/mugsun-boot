@@ -6,6 +6,7 @@ import com.mugsun.boot.ai.AiConstants;
 import com.mugsun.boot.ai.entity.AiMcpTool;
 import com.mugsun.boot.ai.service.AiMcpBizService;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -55,9 +56,9 @@ public class AiMcpController {
 						 @RequestBody(required = false) Map<String, Object> body) {
 		List<AiMcpTool> removed = service.remove(parseIds(ids, body));
 		if (removed.size() == 1) {
-			return R.success("已删除「" + removed.get(0).getName() + "」。列表里不会再出现，也不能再调试");
+			return R.success(I18n.get("已删除「{0}」。列表里不会再出现，也不能再调试", removed.get(0).getName()));
 		}
-		return R.success("已删除 " + removed.size() + " 个 MCP。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个 MCP。列表里不会再出现", removed.size()));
 	}
 
 	@PostMapping("/parse")
@@ -94,7 +95,7 @@ public class AiMcpController {
 	public R<Void> setDefault(@RequestParam(required = false) String id,
 							  @RequestBody(required = false) Map<String, Object> body) {
 		AiMcpTool tool = service.setDefault(requireId(id, body, "请先在列表里选择要设为默认的 MCP"));
-		return R.success("已把「" + tool.getName() + "」设为默认。编排会优先用它");
+		return R.success(I18n.get("已把「{0}」设为默认。编排会优先用它", tool.getName()));
 	}
 
 	@RepeatSubmit
@@ -109,9 +110,8 @@ public class AiMcpController {
 		}
 		int flag = Integer.parseInt(String.valueOf(body.get("lockFlag")).trim());
 		AiMcpTool tool = service.lock(parseId(body.get("id")), flag);
-		return R.success(flag == 1
-			? "已锁定「" + tool.getName() + "」。编辑和删除会被拦住"
-			: "已解锁「" + tool.getName() + "」。可以继续编辑和删除");
+		return R.success(flag == 1 ? I18n.get("已锁定「{0}」。编辑和删除会被拦住",
+			tool.getName()) : I18n.get("已解锁「{0}」。可以继续编辑和删除", tool.getName()));
 	}
 
 	@GetMapping("/server/list")
@@ -132,9 +132,8 @@ public class AiMcpController {
 		}
 		int status = parseFlag(body.get("status"));
 		AiMcpTool tool = service.setStatus(parseId(body.get("id")), status);
-		return R.success(status == 1
-			? "已启用「" + tool.getName() + "」。对外暴露列表里还能看到"
-			: "已停用「" + tool.getName() + "」。对外暴露列表里不会再出现");
+		return R.success(status == 1 ? I18n.get("已启用「{0}」。对外暴露列表里还能看到",
+			tool.getName()) : I18n.get("已停用「{0}」。对外暴露列表里不会再出现", tool.getName()));
 	}
 
 	private static Long requireId(String id, Map<String, Object> body, String emptyHint) {
