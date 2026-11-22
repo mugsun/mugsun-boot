@@ -45,6 +45,11 @@
 
 ### 变更
 
+- 短信、改头像、反馈附件各分出一层，微服务版据此把文件和短信拆成单独的服务
+  - 新增接口 `SmsGateway`：登录、双因子、短信通知只认接口，`SmsService` 实现它
+  - 改头像的绑定从 `AvatarUploadService` 分到 `AvatarBinder`，只读写数据库
+  - 读反馈附件的接口从 `FeedbackController` 分到 `FeedbackAttachmentController`
+  - 接口地址、权限、返回内容都没有变
 - README 中英文重写，源码目录里的六份说明一并重写
   - 首屏给出 Docker 试用命令和截图，补功能表、模块图和限制说明
   - 迁移脚本清单补全 V13、V14、V15、V19，按版本号排序

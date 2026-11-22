@@ -1,23 +1,23 @@
 package com.mugsun.boot.notify.channel;
 
 import com.mugsun.boot.common.constant.NotifyConstants;
+import com.mugsun.boot.common.sms.SmsGateway;
 import com.mugsun.boot.notify.entity.SysNotifyChannel;
 import com.mugsun.boot.notify.mapper.SysNotifyChannelMapper;
-import com.mugsun.boot.system.service.SmsService;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Component;
 
 /**
- * 短信渠道：委托 SmsService（复用 sys_sms 库表热配置，不手写厂商签名）。
+ * 短信渠道：委托 {@link SmsGateway}（复用 sys_sms 库表热配置，不手写厂商签名）。
  */
 @Component
 public class SmsNotifyChannel implements MessageChannel {
 
 	private final SysNotifyChannelMapper channelMapper;
-	private final SmsService smsService;
+	private final SmsGateway smsService;
 
-	public SmsNotifyChannel(SysNotifyChannelMapper channelMapper, SmsService smsService) {
+	public SmsNotifyChannel(SysNotifyChannelMapper channelMapper, SmsGateway smsService) {
 		this.channelMapper = channelMapper;
 		this.smsService = smsService;
 	}

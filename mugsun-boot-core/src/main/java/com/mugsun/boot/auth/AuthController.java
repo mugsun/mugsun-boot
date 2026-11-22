@@ -40,7 +40,7 @@ public class AuthController {
 	private final AuthLoginService authLoginService;
 	private final SecurityPolicyService securityPolicyService;
 	private final TwoFactorService twoFactorService;
-	private final com.mugsun.boot.system.service.SmsService smsService;
+	private final com.mugsun.boot.common.sms.SmsGateway smsService;
 	private final com.mugsun.boot.system.service.SocialService socialService;
 	private final com.mugsun.boot.system.mapper.SysTenantMapper tenantMapper;
 	private final com.mugsun.boot.tenant.mapper.SysTenantPackageMapper tenantPackageMapper;
@@ -55,14 +55,14 @@ public class AuthController {
 	private final com.mugsun.boot.common.module.GisModuleStatus gisModuleStatus;
 	private final com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus;
 	private final com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus;
-	private final com.mugsun.boot.system.service.AvatarUploadService avatarUploadService;
+	private final com.mugsun.boot.system.service.AvatarBinder avatarBinder;
 	private final com.mugsun.boot.captcha.CaptchaGate captchaGate;
 
 	public AuthController(SysUserMapper userMapper, PasswordEncoder passwordEncoder,
 						  LoginLockService loginLockService, AuthLoginService authLoginService,
 						  com.mugsun.boot.security.SecurityPolicyService securityPolicyService,
 						  TwoFactorService twoFactorService,
-						  com.mugsun.boot.system.service.SmsService smsService,
+						  com.mugsun.boot.common.sms.SmsGateway smsService,
 						  com.mugsun.boot.system.service.SocialService socialService,
 						  com.mugsun.boot.system.mapper.SysTenantMapper tenantMapper,
 						  com.mugsun.boot.tenant.mapper.SysTenantPackageMapper tenantPackageMapper,
@@ -77,7 +77,7 @@ public class AuthController {
 						  com.mugsun.boot.common.module.GisModuleStatus gisModuleStatus,
 						  com.mugsun.boot.common.module.TrackModuleStatus trackModuleStatus,
 						  com.mugsun.boot.common.module.AiModuleStatus aiModuleStatus,
-						  com.mugsun.boot.system.service.AvatarUploadService avatarUploadService,
+						  com.mugsun.boot.system.service.AvatarBinder avatarBinder,
 						  com.mugsun.boot.captcha.CaptchaGate captchaGate) {
 		this.captchaGate = captchaGate;
 		this.userMapper = userMapper;
@@ -98,7 +98,7 @@ public class AuthController {
 		this.roleMapper = roleMapper;
 		this.userRoleMapper = userRoleMapper;
 		this.forgetPasswordService = forgetPasswordService;
-		this.avatarUploadService = avatarUploadService;
+		this.avatarBinder = avatarBinder;
 		this.gisModuleStatus = gisModuleStatus;
 		this.trackModuleStatus = trackModuleStatus;
 		this.aiModuleStatus = aiModuleStatus;
@@ -353,7 +353,7 @@ public class AuthController {
 	/** 短信登录：发送验证码（开发回显） */
 	@PostMapping("/sms-code")
 	public R<Map<String, Object>> smsCode(@RequestBody Map<String, String> body, HttpServletRequest request) {
-		String phone = com.mugsun.boot.system.service.SmsService.normalizePhone(body.get("phone"));
+		String phone = com.mugsun.boot.common.sms.SmsGateway.normalizePhone(body.get("phone"));
 		if (phone == null) {
 			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
 		}
@@ -366,7 +366,7 @@ public class AuthController {
 			com.mugsun.boot.captcha.CaptchaGate.NO_TENANT, body.get("captchaToken"), request);
 		// ②' 手机号短窗口：仅在 token 核销成功后计数（无/无效 token 不计入，防止锁住受害号码）
 		captchaGate.hitSmsBurstPhone(phone);
-		// ③ 原子「未超上限才计数」（单手机号每天、单 IP 每小时；叠加 SmsService 同号 60s 节流）
+		// ③ 原子「未超上限才计数」（单手机号每天、单 IP 每小时；叠加短信服务里同号 60s 节流）
 		captchaGate.takeSmsQuota(phone, request);
 		// ④ 发送；失败不退计数，写审计
 		try {
@@ -385,7 +385,7 @@ public class AuthController {
 	/** 短信登录：校验验证码 + 按手机号查用户 + 发 token */
 	@PostMapping("/sms-login")
 	public R<Map<String, Object>> smsLogin(@RequestBody Map<String, String> body, HttpServletRequest request) {
-		String phone = com.mugsun.boot.system.service.SmsService.normalizePhone(body.get("phone"));
+		String phone = com.mugsun.boot.common.sms.SmsGateway.normalizePhone(body.get("phone"));
 		String code = body.get("code");
 		if (phone == null) {
 			throw new ServiceException("手机号不能为空。请填上手机号后再获取验证码或登录");
@@ -644,7 +644,7 @@ public class AuthController {
 	@PostMapping("/update-avatar")
 	@SaCheckLogin
 	public R<Void> updateAvatar(@RequestBody UpdateAvatarDTO dto) {
-		avatarUploadService.bind(dto.avatar(), StpUtil.getLoginIdAsLong(), TenantContext.current());
+		avatarBinder.bind(dto.avatar(), StpUtil.getLoginIdAsLong(), TenantContext.current());
 		return R.success("头像已更新");
 	}
 

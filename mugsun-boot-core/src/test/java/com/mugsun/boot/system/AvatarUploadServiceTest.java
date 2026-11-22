@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 /** B4 头像专用上传：普通用户可传且为公开；非图片/伪造/超大拒绝 */
@@ -106,40 +105,6 @@ class AvatarUploadServiceTest {
 		when(mapper.selectOneByQuery(any(QueryWrapper.class))).thenReturn(a);
 		when(mapper.selectOneById(any())).thenReturn(a);
 		return a;
-	}
-
-	@Test
-	void bindRejectsExternalUrl() {
-		when(mapper.selectOneByQuery(any(QueryWrapper.class))).thenReturn(null);
-		assertThatThrownBy(() -> service.bind("https://evil.example/x.png", ME, T)).isInstanceOf(ServiceException.class);
-		assertThatThrownBy(() -> service.bind("javascript:alert(1)", ME, T)).isInstanceOf(ServiceException.class);
-		verify(writer, never()).write(anyLong(), anyString());
-	}
-
-	@Test
-	void bindRejectsOthersAttach() {
-		stored(99L, T, OssConstants.ACCESS_PUBLIC, AvatarUploadService.PATH_AVATAR);
-		assertThatThrownBy(() -> service.bind("/auth/avatar/raw/42", ME, T)).isInstanceOf(ServiceException.class);
-		verify(writer, never()).write(anyLong(), anyString());
-	}
-
-	@Test
-	void bindRejectsPrivateAttach() {
-		stored(ME, T, OssConstants.ACCESS_PRIVATE, OssConstants.PATH_PRIVATE);
-		assertThatThrownBy(() -> service.bind("/auth/avatar/raw/42", ME, T)).isInstanceOf(ServiceException.class);
-	}
-
-	@Test
-	void bindRejectsCrossTenant() {
-		stored(ME, "999999", OssConstants.ACCESS_PUBLIC, AvatarUploadService.PATH_AVATAR);
-		assertThatThrownBy(() -> service.bind("/auth/avatar/raw/42", ME, T)).isInstanceOf(ServiceException.class);
-	}
-
-	@Test
-	void bindOwnPublicPasses() {
-		stored(ME, T, OssConstants.ACCESS_PUBLIC, AvatarUploadService.PATH_AVATAR);
-		assertThat(service.bind("/api/auth/avatar/raw/42", ME, T)).isEqualTo("/auth/avatar/raw/42");
-		verify(writer).write(ME, "/auth/avatar/raw/42");
 	}
 
 	@Test

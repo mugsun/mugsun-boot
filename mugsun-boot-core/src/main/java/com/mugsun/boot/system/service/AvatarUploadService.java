@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.mugsun.boot.system.mapper.SysAttachMapper;
 import com.mugsun.boot.tenant.TenantContext;
-import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,6 +23,7 @@ import java.util.Map;
  * 上传成功即在同一事务内更新本人 sys_user.avatar；头像统一经匿名端点 {@link #RAW_PREFIX}{id} 输出（仅 public/avatar/ 范围），
  * 与存储平台（本地 enable-access 开关 / 自建本地 / MinIO / 阿里云桶 ACL）解耦。
  * 仅接受位图（png/jpg/jpeg/gif/webp；拒 svg 防 XSS），校验扩展名 + MIME + 文件头魔数，限 2MB，存公开区 public/avatar/。
+ * 个人中心「改头像」的绑定只读写数据库，单独放在 {@link AvatarBinder}。
  */
 @Service
 public class AvatarUploadService {
@@ -31,9 +31,9 @@ public class AvatarUploadService {
 	private static final Logger log = LoggerFactory.getLogger(AvatarUploadService.class);
 
 	public static final long MAX_SIZE = 2L * 1024 * 1024;
-	public static final String PATH_AVATAR = OssConstants.PATH_PUBLIC + "avatar/";
+	public static final String PATH_AVATAR = AvatarBinder.PATH_AVATAR;
 	/** 头像对外 URL 前缀（相对后端根，前端按其它接口同样的 baseURL 拼接） */
-	public static final String RAW_PREFIX = "/auth/avatar/raw/";
+	public static final String RAW_PREFIX = AvatarBinder.RAW_PREFIX;
 	/** 扩展名 → 允许的 MIME */
 	private static final Map<String, String> ALLOWED = Map.of(
 		"png", "image/png", "jpg", "image/jpeg", "jpeg", "image/jpeg", "gif", "image/gif", "webp", "image/webp");
@@ -90,67 +90,13 @@ public class AvatarUploadService {
 		return attach;
 	}
 
-	/**
-	 * update-avatar 绑定：只允许本人上传、本租户、public 的附件；外链/他人/私有/不存在一律拒绝。
-	 * 兼容两种入参：本端点返回的 {@code /auth/avatar/raw/{id}}（可带 /api 或域名前缀），或附件登记 url。
-	 * 头像区附件落库为规范 raw 地址，其余本人公开附件落库为其登记 url。
-	 */
-	@Transactional(rollbackFor = Exception.class)
-	public String bind(String avatar, long userId, String tenantId) {
-		String value = avatar == null ? "" : avatar.trim();
-		if (value.isEmpty() || value.length() > 255) {
-			throw invalid();
-		}
-		QueryWrapper query = QueryWrapper.create();
-		Long id = rawIdOf(value);
-		if (id != null) {
-			query.eq("id", id);
-		} else {
-			query.eq("url", value);
-		}
-		boolean scoped = tenantId != null && !TenantContext.ALL.equals(tenantId) && !TenantContext.IGNORE.equals(tenantId);
-		if (scoped) {
-			query.eq("tenant_id", tenantId);
-		}
-		SysAttach attach = attachMapper.selectOneByQuery(query);
-		if (attach == null || (scoped && !tenantId.equals(attach.getTenantId()))
-			|| attach.getCreateUser() == null || attach.getCreateUser() != userId
-			|| !OssConstants.ACCESS_PUBLIC.equals(attach.getAccess())) {
-			throw invalid();
-		}
-		String url = isAvatarArea(attach) ? RAW_PREFIX + attach.getId() : attach.getUrl();
-		avatarWriter.write(userId, url);
-		return url;
-	}
-
 	/** 匿名头像输出的范围裁决：仅 public 且位于 public/avatar/ 的附件 */
 	public SysAttach requireServable(Long id) {
 		SysAttach attach = id == null ? null : TenantContext.ignore(() -> attachMapper.selectOneById(id));
-		if (attach == null || !isAvatarArea(attach)) {
+		if (attach == null || !AvatarBinder.isAvatarArea(attach)) {
 			throw new ServiceException(com.mugsun.core.tool.api.ResultCode.NOT_FOUND);
 		}
 		return attach;
-	}
-
-	private static boolean isAvatarArea(SysAttach attach) {
-		return OssConstants.ACCESS_PUBLIC.equals(attach.getAccess()) && attach.getPath() != null
-			&& attach.getPath().startsWith(PATH_AVATAR) && !attach.getPath().contains("..");
-	}
-
-	static Long rawIdOf(String value) {
-		int idx = value.indexOf(RAW_PREFIX);
-		if (idx < 0) {
-			return null;
-		}
-		String tail = value.substring(idx + RAW_PREFIX.length());
-		if (tail.isEmpty() || tail.length() > 19 || !tail.chars().allMatch(Character::isDigit)) {
-			return null;
-		}
-		return Long.valueOf(tail);
-	}
-
-	private static ServiceException invalid() {
-		return new ServiceException("头像只能使用你自己上传的公开图片。请重新上传头像后再保存");
 	}
 
 	/** 扩展名 + 声明 MIME + 文件头魔数三重校验，限大小 */

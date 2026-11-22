@@ -32,14 +32,14 @@ public class TwoFactorService {
 	private final StringRedisTemplate redis;
 	private final SecurityPolicyService policy;
 	private final MailService mailService;
-	private final com.mugsun.boot.system.service.SmsService smsService;
+	private final com.mugsun.boot.common.sms.SmsGateway smsService;
 	private final SecureRandom random = new SecureRandom();
 
 	@Value("${mugsun.captcha.show-code:false}")
 	private boolean showCode;
 
 	public TwoFactorService(StringRedisTemplate redis, SecurityPolicyService policy, MailService mailService,
-							com.mugsun.boot.system.service.SmsService smsService) {
+							com.mugsun.boot.common.sms.SmsGateway smsService) {
 		this.redis = redis;
 		this.policy = policy;
 		this.mailService = mailService;

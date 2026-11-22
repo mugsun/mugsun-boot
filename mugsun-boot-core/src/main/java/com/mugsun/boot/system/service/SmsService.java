@@ -1,5 +1,6 @@
 package com.mugsun.boot.system.service;
 
+import com.mugsun.boot.common.sms.SmsGateway;
 import com.mugsun.boot.system.entity.SysSms;
 import com.mugsun.boot.system.entity.SysSmsCode;
 import com.mugsun.boot.system.mapper.SysSmsCodeMapper;
@@ -28,7 +29,7 @@ import java.util.List;
  * 无启用配置/凭证占位/通道异常即抛错（显式降级，不再假成功），支持前端切换渠道运行时生效。
  */
 @Service
-public class SmsService {
+public class SmsService implements SmsGateway {
 
 	private static final org.slf4j.Logger DEMO_LOG = org.slf4j.LoggerFactory.getLogger(SmsService.class);
 
@@ -57,11 +58,13 @@ public class SmsService {
 	}
 
 	/** 是否回显验证码（开发便于联调，生产关闭） */
+	@Override
 	public boolean isShowCode() {
 		return showCode;
 	}
 
 	/** 取该手机号最近一条未过期验证码（仅供开发回显，勿用于生产鉴权） */
+	@Override
 	public String peekCode(String phone) {
 		SysSmsCode rec = smsCodeMapper.selectOneByQuery(QueryWrapper.create()
 			.eq("phone", phone).ge("expire_time", LocalDateTime.now()).orderBy("id", false));
@@ -70,22 +73,7 @@ public class SmsService {
 
 	/** 发送验证码：同号 60s 节流（防短信轰炸），发新作废旧码（任意时刻仅一码有效）。
 	 *  通道显式降级：无启用配置/下发失败即抛错并作废刚写入的验证码，不再静默降级假成功 */
-	/** 号码规范化（发码、频控、核验统一口径）：去空白与 - ，去 +86/0086/86 前缀；空则 null */
-	public static String normalizePhone(String phone) {
-		if (phone == null) {
-			return null;
-		}
-		String p = phone.replaceAll("[\\s-]", "");
-		if (p.startsWith("+86")) {
-			p = p.substring(3);
-		} else if (p.startsWith("0086")) {
-			p = p.substring(4);
-		} else if (p.startsWith("86") && p.length() == 13) {
-			p = p.substring(2);
-		}
-		return p.isEmpty() ? null : p;
-	}
-
+	@Override
 	public void sendCode(String phone) {
 		if (demoMode) {
 			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）
@@ -156,6 +144,7 @@ public class SmsService {
 	 * 通用文本短信发送（统一通知调度用）：无启用配置或下发未成功即抛异常——
 	 * 与验证码的降级日志语义相反，调度侧须拿到真实回执（FAILURE 留痕 + 重试）。
 	 */
+	@Override
 	public void sendText(String phone, String text) {
 		if (demoMode) {
 			// 只读演示模式：不发任何短信/邮件/通知（安全复审 F2）
@@ -218,6 +207,7 @@ public class SmsService {
 	}
 
 	/** 校验验证码：命中未过期记录则通过并作废 */
+	@Override
 	public boolean verifyCode(String phone, String code) {
 		SysSmsCode rec = smsCodeMapper.selectOneByQuery(QueryWrapper.create()
 			.eq("phone", phone).eq("code", code)
