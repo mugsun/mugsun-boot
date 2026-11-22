@@ -48,5 +48,12 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- 只在测试时用：翻译文件的检查（AbstractI18nBundleTest）写在 mugsun-boot-core 的测试代码里，gis、track 也是这样引的 -->
+		<dependency>
+			<groupId>com.mugsun</groupId>
+			<artifactId>mugsun-boot-core</artifactId>
+			<type>test-jar</type>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 </project>
