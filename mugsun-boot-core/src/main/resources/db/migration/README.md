@@ -13,7 +13,7 @@
 
 PostgreSQL 上全新的库迁移完，`flyway_schema_history` 里只有这两条记录。
 
-基线由 0.1.0 的基线和它之后的 16 个脚本按版本号顺序拼成，语句没有改动。
+基线由 0.1.0 的基线和它之后的 18 个脚本按版本号顺序拼成，语句没有改动。
 
 每一段前面有一行 `-- 原 <文件名>`，标出这一段原来是哪个脚本。各段的内容见[基线里的各段](#基线里的各段)。
 
@@ -162,6 +162,7 @@ openGauss 不能用 Flyway，只能用 gsql 手工执行脚本，库也要建成
 | `V21__form_tenant.sql` | 低代码表单的 `sys_form` 和 `sys_form_data` 补上 `tenant_id`。表单标识改为租户内唯一，索引是 `uk_form_tenant_key` |
 | `V22__track_storage_quota_params.sql` | 埋点回放和响应体的三个存储容量参数 |
 | `V23__track_journey_perm.sql` | 「访问路径」菜单和它的权限 `sys:track-journey:list` |
+| `V24__track_goal_perm.sql` | 「目标转化」菜单和它的两个权限：查看 `sys:track-goal:list`、管理 `sys:track-goal:edit` |
 
 原脚本的版本号有跳号，没有 V4 到 V6，也没有 V12。段的顺序就是原来的执行顺序。
 

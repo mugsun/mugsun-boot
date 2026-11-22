@@ -49,6 +49,14 @@ class TrackSchemaTest extends AbstractTrackIntegrationTest {
 		assertThat(geoCols.getLong("c")).as("G106 三列：geo_lon/geo_lat/geo_enabled").isEqualTo(3L);
 
 		assertThat(names).as("错误问题单表").contains("track_error_issue");
+
+		assertThat(names).as("转化目标表").contains("track_goal");
+		Row sampleGoals = DataSourceKey.use(TrackConstants.DS_KEY, () -> Db.selectOneBySql(
+			"SELECT count(*) AS c FROM track_goal g JOIN track_app a ON a.app_key = g.app_key AND a.is_deleted = 0"
+				+ " WHERE g.app_key = 'ak_000000000000000000000001' AND g.is_deleted = 0"
+				+ " AND g.goal_type = ? AND g.tenant_id = a.tenant_id",
+			TrackConstants.GOAL_TYPE_PAGE));
+		assertThat(sampleGoals.getLong("c")).as("默认应用带两个示例目标，归属租户和应用一致").isEqualTo(2L);
 	}
 
 	/** ② track_event 插入落到正确月分区（tableoid 反证实际落点） */
@@ -129,6 +137,18 @@ class TrackSchemaTest extends AbstractTrackIntegrationTest {
 				+ " AND path = '/track/journey' AND permission = ?",
 			TrackConstants.PERM_JOURNEY_LIST);
 		assertThat(journey.getLong("c")).as("V23 访问路径菜单和读权种子").isEqualTo(1L);
+
+		Row goalPage = Db.selectOneBySql(
+			"SELECT count(*) AS c FROM sys_menu WHERE is_deleted = 0 AND menu_type = 'C'"
+				+ " AND path = '/track/goal' AND permission = ?",
+			TrackConstants.PERM_GOAL_LIST);
+		assertThat(goalPage.getLong("c")).as("V24 目标转化菜单和查看权种子").isEqualTo(1L);
+
+		Row goalEdit = Db.selectOneBySql(
+			"SELECT count(*) AS c FROM sys_menu b JOIN sys_menu p ON p.id = b.parent_id"
+				+ " WHERE b.is_deleted = 0 AND b.menu_type = 'F' AND b.permission = ? AND p.path = '/track/goal'",
+			TrackConstants.PERM_GOAL_EDIT);
+		assertThat(goalEdit.getLong("c")).as("V24 目标管理按钮权限挂在目标转化页下").isEqualTo(1L);
 	}
 
 	/** ⑤ 主库无 track_* 表（物理隔离反证：埋点表只存在于 mugsun_track 库） */

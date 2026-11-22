@@ -702,3 +702,40 @@ COMMENT ON COLUMN track_error_issue.status IS 'OPEN / ASSIGNED / RESOLVED';
 COMMENT ON COLUMN track_error_issue.regressed IS '1=曾解决后同指纹再出现（复发）';
 COMMENT ON COLUMN track_error_issue.releases IS '见过的 release 列表（JSON 数组文本，如 ["1.0.0"]）';
 COMMENT ON COLUMN track_error_issue.tenant_id IS '归属租户（从事件/应用映射，恒非空）';
+
+-- ====================================================================
+-- 原 T6__track_goal.sql
+-- ====================================================================
+-- 目标转化：转化目标表。目标只是一条定义（触发某个事件，或访问某个页面），不存统计结果；
+-- 转化人数、次数和转化率在查询时按定义去事件明细里算，所以改了条件以后，以前的数据也按新条件算。
+
+CREATE TABLE track_goal (
+    id          BIGINT PRIMARY KEY,                  -- 雪花
+    app_key     VARCHAR(32)  NOT NULL,               -- 目标属于哪个应用，建好以后不能改
+    goal_name   VARCHAR(64)  NOT NULL,               -- 目标名称，同一个应用里不能重复
+    goal_type   VARCHAR(16)  NOT NULL,               -- event 触发事件 / page 访问页面
+    event_name  VARCHAR(64),                         -- 事件目标的事件名；页面目标为 NULL
+    page_path   VARCHAR(255),                        -- 页面目标的页面地址，末尾可带 *；事件目标为 NULL
+    tenant_id   VARCHAR(12),                         -- 跟着应用走，由服务端定，不接受提交
+    create_time TIMESTAMP,
+    update_time TIMESTAMP,
+    create_by   BIGINT,
+    update_by   BIGINT,
+    is_deleted  INT          NOT NULL DEFAULT 0
+);
+-- 同一个应用里名称不重复；删掉的目标不占名称。按应用查全部目标也走这个索引
+CREATE UNIQUE INDEX uk_goal_name ON track_goal (app_key, goal_name) WHERE is_deleted = 0;
+COMMENT ON TABLE track_goal IS '转化目标：触发某个事件或访问某个页面算达成；只存定义，转化数据查询时现算';
+COMMENT ON COLUMN track_goal.goal_type IS '目标类型：event 触发事件 / page 访问页面';
+COMMENT ON COLUMN track_goal.event_name IS '事件目标的事件名；页面目标为 NULL';
+COMMENT ON COLUMN track_goal.page_path IS '页面目标的页面地址，和路由模板或原始路径对上都算；末尾带 * 表示这个地址开头的所有页面；事件目标为 NULL';
+COMMENT ON COLUMN track_goal.tenant_id IS '归属租户：取应用的归属租户';
+
+-- 默认应用（mugsun-pc 自监控）带两个示例目标，一个指定页面、一个按地址开头匹配，装好点开就有数；不要可以在页面上删掉。
+-- 幂等：按主键查重，重复迁移、多节点启动都安全；默认应用被删掉了就不插。
+INSERT INTO track_goal (id, app_key, goal_name, goal_type, page_path, tenant_id, create_time, update_time, is_deleted)
+SELECT v.id, a.app_key, v.goal_name, 'page', v.page_path, a.tenant_id, now(), now(), 0
+FROM (VALUES (1899000000000000101, '打开数据概览', '/track/overview'),
+             (1899000000000000102, '进入系统管理', '/system/*')) AS v (id, goal_name, page_path)
+JOIN track_app a ON a.app_key = 'ak_000000000000000000000001' AND a.is_deleted = 0
+WHERE NOT EXISTS (SELECT 1 FROM track_goal g WHERE g.id = v.id);

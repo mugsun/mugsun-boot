@@ -24,7 +24,7 @@
 
 全新的埋点库迁移完，`flyway_schema_history` 里只有这两条记录。
 
-基线由 0.1.0 的基线和它之后的 T2、T3、T5 按版本号顺序拼成，语句没有改动。每一段前面有一行 `-- 原 <文件名>`。
+基线由 0.1.0 的基线和它之后的 T2、T3、T5、T6 按版本号顺序拼成，语句没有改动。每一段前面有一行 `-- 原 <文件名>`。
 
 | 原脚本 | 内容 |
 | --- | --- |
@@ -32,6 +32,7 @@
 | `T2__track_stats_day_uv_backup.sql` | 备份表 `track_stats_day_uv_backup`。回填历史 UV 之前，把要改的行的旧值存在这里 |
 | `T3__track_event_timeline_index.sql` | 用户时间线用的两个索引，只建在父表上 |
 | `T5__track_error_issue.sql` | 错误问题单表 `track_error_issue`，支持指派、解决和复发 |
+| `T6__track_goal.sql` | 转化目标表 `track_goal`，以及默认应用的两个示例目标 |
 
 T4 不在基线里。它不能在事务里执行，所以仍是单独的 Java 迁移，在基线之后执行。
 

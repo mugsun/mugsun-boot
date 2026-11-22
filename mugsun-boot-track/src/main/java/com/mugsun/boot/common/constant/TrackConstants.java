@@ -674,4 +674,23 @@ public interface TrackConstants {
 	String PAGES_TYPE_EXIT = "exit";
 	/** 入口页、退出页查询 days 上限（天；要把每次会话的页面排出先后，只能查明细，和访问路径一样要限窗） */
 	int PAGES_EDGE_DAYS_MAX = 30;
+
+	/* ==================== 目标转化 ==================== */
+
+	/** 权限码：目标转化查看 */
+	String PERM_GOAL_LIST = "sys:track-goal:list";
+	/** 权限码：转化目标的新增、编辑和删除 */
+	String PERM_GOAL_EDIT = "sys:track-goal:edit";
+	/** 目标类型：触发了某个自定义事件 */
+	String GOAL_TYPE_EVENT = "event";
+	/** 目标类型：访问了某个页面 */
+	String GOAL_TYPE_PAGE = "page";
+	/** 页面目标的通配符：只能放在地址末尾，表示以前面这一段开头的所有页面 */
+	String GOAL_PAGE_WILDCARD = "*";
+	/** 一个应用最多定义多少个目标（一次查询要把每个目标都算一遍，不能无限加） */
+	int GOAL_MAX_PER_APP = 20;
+	/** 目标名称最长多少个字 */
+	int GOAL_NAME_MAX_LEN = 50;
+	/** 目标转化查询 days 上限（天；目标是随时可以改的，没法提前汇总，只能查明细，和漏斗一样要限窗） */
+	int GOAL_DAYS_MAX = 30;
 }

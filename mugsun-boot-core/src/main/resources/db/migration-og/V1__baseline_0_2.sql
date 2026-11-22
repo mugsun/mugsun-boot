@@ -3456,3 +3456,57 @@ FROM (
 ) g
 WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
                   WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V24__track_goal_perm.sql
+-- ====================================================================
+-- 目标转化：sys:track-goal:list（查看）和 sys:track-goal:edit（新增、编辑、删除目标）（openGauss-lite 5.1）。幂等。
+-- 菜单挂「埋点分析」目录，排在访问路径后面；管理权是这个页面下的按钮权限。
+-- 已有概览读权的角色补授查看权；已有接入管理编辑权的角色补授管理权（能改应用配置的人才能定目标）。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000020, p.id, '目标转化', '/track/goal', '/track/goal', 'C', 'sys:track-goal:list', 11, 'ri:flag-line', 0, now(), 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000020
+                  OR (permission = 'sys:track-goal:list' AND is_deleted = 0));
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1093000000000000021,
+       (SELECT MIN(id) FROM sys_menu WHERE permission = 'sys:track-goal:list' AND is_deleted = 0),
+       '目标管理', 'F', 'sys:track-goal:edit', 1, now(), 0
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-goal:list' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000021
+                  OR (permission = 'sys:track-goal:edit' AND is_deleted = 0));
+
+-- 补授：已有 sys:track-overview:list 的角色获得目标转化查看权（主键用 1093 保留段）
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-goal:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- 补授：已有 sys:track-app:edit 的角色获得目标管理权（主键用 1093 保留段）
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROW_NUMBER() OVER (ORDER BY g.role_id, g.menu_id),
+       g.role_id, g.menu_id, now(), 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-goal:edit' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-app:edit'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);

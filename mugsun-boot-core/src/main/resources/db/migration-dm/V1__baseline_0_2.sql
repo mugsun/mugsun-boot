@@ -3825,3 +3825,52 @@ FROM (
 ) g
 WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
                   WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+-- ====================================================================
+-- 原 V24__track_goal_perm.sql
+-- ====================================================================
+-- pg2dm: manual
+-- 目标转化：sys:track-goal:list（查看）和 sys:track-goal:edit（新增、编辑、删除目标）（达梦）。幂等。
+
+INSERT INTO sys_menu (id, parent_id, menu_name, path, component, menu_type, permission, sort, icon, is_public, create_time, is_deleted)
+SELECT 1093000000000000020, p.id, '目标转化', '/track/goal', '/track/goal', 'C', 'sys:track-goal:list', 11, 'ri:flag-line', 0, SYSDATE, 0
+FROM sys_menu p
+WHERE p.path = '/track' AND p.is_deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000020)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-goal:list' AND is_deleted = 0);
+
+INSERT INTO sys_menu (id, parent_id, menu_name, menu_type, permission, sort, create_time, is_deleted)
+SELECT 1093000000000000021,
+       (SELECT MIN(id) FROM sys_menu WHERE permission = 'sys:track-goal:list' AND is_deleted = 0),
+       '目标管理', 'F', 'sys:track-goal:edit', 1, SYSDATE, 0 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-goal:list' AND is_deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = 1093000000000000021)
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE permission = 'sys:track-goal:edit' AND is_deleted = 0);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROWNUM, g.role_id, g.menu_id, SYSDATE, 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-goal:list' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-overview:list'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, is_deleted)
+SELECT (SELECT COALESCE(MAX(id), 1093000000000100000) FROM sys_role_menu
+        WHERE id BETWEEN 1093000000000100000 AND 1093999999999999999)
+       + ROWNUM, g.role_id, g.menu_id, SYSDATE, 0
+FROM (
+	SELECT rm.role_id, nm.id AS menu_id
+	FROM sys_role_menu rm
+	JOIN sys_menu m ON m.id = rm.menu_id AND m.is_deleted = 0
+	JOIN sys_menu nm ON nm.permission = 'sys:track-goal:edit' AND nm.is_deleted = 0
+	WHERE rm.is_deleted = 0 AND m.permission = 'sys:track-app:edit'
+) g
+WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu x
+                  WHERE x.role_id = g.role_id AND x.menu_id = g.menu_id AND x.is_deleted = 0);
