@@ -170,7 +170,7 @@ class TrackIntegrationHealthApiTest extends AbstractTrackIntegrationTest {
 		chunk.put("app_key", APP_H);
 		chunk.put("session_id", "it-health-reader");
 		chunk.put("seq", -1);
-		ResponseEntity<String> rejected = post("/track/collect/replay", chunk, null);
+		ResponseEntity<String> rejected = post("/track/replay", chunk, null);
 		assertThat(rejected.getStatusCode().value()).isEqualTo(400);
 		String inChinese = "回放序号超出范围。请用 0 到 " + TrackConstants.REPLAY_SEQ_MAX + " 之间的整数后再上传";
 		assertThat(readBody(rejected).path("msg").asText()).isEqualTo(inChinese);
