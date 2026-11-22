@@ -6,6 +6,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackVisualService;
 import com.mugsun.boot.track.entity.TrackVisualRule;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -71,10 +72,10 @@ public class TrackVisualController {
 		TrackVisualRule rule = visualService.confirmDraft(token, draftId, eventName, StpUtil.getLoginIdAsLong());
 		String name = rule.getEventName();
 		if (name == null || name.isBlank()) {
-			name = "这条规则";
+			name = I18n.translate("这条规则");
 		}
 		R<TrackVisualRule> resp = R.data(rule);
-		resp.setMsg("已确认为圈选规则「" + name + "」。配置下发会带上这条规则");
+		resp.setMsg(I18n.get("已确认为圈选规则「{0}」。配置下发会带上这条规则", name));
 		return resp;
 	}
 
@@ -135,8 +136,8 @@ public class TrackVisualController {
 		}
 		String name = visualService.ruleRemove(Long.valueOf(text)).getEventName();
 		if (name == null || name.isBlank()) {
-			name = "这条规则";
+			name = I18n.translate("这条规则");
 		}
-		return R.success("已删除「" + name + "」。配置下发里不会再带上这条规则");
+		return R.success(I18n.get("已删除「{0}」。配置下发里不会再带上这条规则", name));
 	}
 }

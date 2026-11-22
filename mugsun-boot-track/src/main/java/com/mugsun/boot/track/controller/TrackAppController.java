@@ -11,6 +11,7 @@ import com.mugsun.boot.track.TrackAdminService;
 import com.mugsun.boot.track.TrackIntegrationHealth;
 import com.mugsun.boot.track.entity.TrackApp;
 import com.mugsun.boot.track.entity.TrackEventDef;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -75,13 +76,13 @@ public class TrackAppController {
 		TrackApp saved = adminService.appSubmit(app);
 		String name = saved.getAppName();
 		if (name == null || name.isBlank()) {
-			name = "这个应用";
+			name = I18n.translate("这个应用");
 		}
 		R<TrackApp> resp = R.data(saved);
 		if (edit) {
-			resp.setMsg("保存成功。「" + name + "」采集会按这里的名称、采样率和开关执行");
+			resp.setMsg(I18n.get("保存成功。「{0}」采集会按这里的名称、采样率和开关执行", name));
 		} else {
-			resp.setMsg("保存成功。「" + name + "」接入片段里的应用标识已经生成");
+			resp.setMsg(I18n.get("保存成功。「{0}」接入片段里的应用标识已经生成", name));
 		}
 		return resp;
 	}
@@ -103,7 +104,7 @@ public class TrackAppController {
 		if (name == null || name.isBlank()) {
 			name = removed.getAppKey();
 		}
-		return R.success("已删除「" + name + "」。采集将不再接收这个应用");
+		return R.success(I18n.get("已删除「{0}」。采集将不再接收这个应用", name));
 	}
 
 	// ==================== 接入自检 ====================

@@ -43,17 +43,27 @@ public class TrackStorageGuard {
 	private static final DateTimeFormatter DAY_FORMAT =
 		DateTimeFormatter.ofPattern(TrackConstants.STORAGE_QUOTA_DAY_PATTERN).withZone(ZoneOffset.UTC);
 
-	/** 受管的匿名写入通道：指标 reason 前缀 + 提示语里的叫法 */
+	/** 受管的匿名写入通道：指标 reason 前缀 + 拒收时的三句话（每种情况写成整句，翻译时不用拼词） */
 	public enum Channel {
-		REPLAY("replay", "回放"),
-		API_BODY("api_body", "响应体");
+		REPLAY("replay",
+			"服务器存储空间不足，暂时不接收回放。请稍后再试",
+			"这个应用今天的回放和响应体存储额度已经用完，这段回放没有收下。请明天再试",
+			"平台今天的回放和响应体存储额度已经用完，这段回放没有收下。请明天再试"),
+		API_BODY("api_body",
+			"服务器存储空间不足，暂时不接收响应体。请稍后再试",
+			"这个应用今天的回放和响应体存储额度已经用完，这段响应体没有收下。请明天再试",
+			"平台今天的回放和响应体存储额度已经用完，这段响应体没有收下。请明天再试");
 
 		private final String metricPrefix;
-		private final String label;
+		private final String diskLow;
+		private final String appQuotaUsedUp;
+		private final String platformQuotaUsedUp;
 
-		Channel(String metricPrefix, String label) {
+		Channel(String metricPrefix, String diskLow, String appQuotaUsedUp, String platformQuotaUsedUp) {
 			this.metricPrefix = metricPrefix;
-			this.label = label;
+			this.diskLow = diskLow;
+			this.appQuotaUsedUp = appQuotaUsedUp;
+			this.platformQuotaUsedUp = platformQuotaUsedUp;
 		}
 	}
 
@@ -117,8 +127,7 @@ public class TrackStorageGuard {
 		}
 		if (low) {
 			metrics.dropped(channel.metricPrefix + "_disk_low", 1);
-			throw new TrackCollectException(503, "服务器存储空间不足，暂时不接收" + channel.label + "。请稍后再试",
-				TrackRejectReason.STORAGE_FULL);
+			throw new TrackCollectException(503, channel.diskLow, TrackRejectReason.STORAGE_FULL);
 		}
 	}
 
@@ -136,11 +145,11 @@ public class TrackStorageGuard {
 		long platformMax = paramLong(TrackConstants.PARAM_STORAGE_DAILY_MAX, TrackConstants.DEFAULT_STORAGE_DAILY_MAX_BYTES);
 		try {
 			if (!take(appCounter, bytes, appMax)) {
-				throw overQuota(channel, day, appKey, "这个应用", appMax);
+				throw overQuota(channel, day, appKey, false, appMax);
 			}
 			if (!take(platformCounter, bytes, platformMax)) {
 				redis.opsForValue().decrement(appCounter, bytes);
-				throw overQuota(channel, day, "*", "平台", platformMax);
+				throw overQuota(channel, day, "*", true, platformMax);
 			}
 			return new Reservation(appCounter, platformCounter, bytes);
 		} catch (TrackCollectException e) {
@@ -177,14 +186,15 @@ public class TrackStorageGuard {
 		return true;
 	}
 
-	private TrackCollectException overQuota(Channel channel, String day, String scopeKey, String scope, long max) {
+	private TrackCollectException overQuota(Channel channel, String day, String scopeKey, boolean platform, long max) {
 		metrics.dropped(channel.metricPrefix + "_quota_exceeded", 1);
 		if (!day.equals(quotaWarnedDay.put(scopeKey, day))) {
 			log.warn("{}（{}）今天的回放和响应体落盘已到上限 {} MB，今天剩下的一律拒收；如果不是异常流量，调高参数 {} 或 {}",
-				scope, scopeKey, max >> 20, TrackConstants.PARAM_STORAGE_APP_DAILY_MAX, TrackConstants.PARAM_STORAGE_DAILY_MAX);
+				platform ? "平台" : "这个应用", scopeKey, max >> 20, TrackConstants.PARAM_STORAGE_APP_DAILY_MAX,
+				TrackConstants.PARAM_STORAGE_DAILY_MAX);
 		}
-		return new TrackCollectException(429, scope + "今天的回放和响应体存储额度已经用完，这段" + channel.label
-			+ "没有收下。请明天再试", TrackRejectReason.STORAGE_FULL);
+		return new TrackCollectException(429, platform ? channel.platformQuotaUsedUp : channel.appQuotaUsedUp,
+			TrackRejectReason.STORAGE_FULL);
 	}
 
 	/** 可用空间读数（缓存 {@value TrackConstants#STORAGE_FREE_CHECK_INTERVAL_MS} 毫秒）；不在本机磁盘或读不到返回 -1 */

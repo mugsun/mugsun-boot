@@ -88,8 +88,8 @@ public class TrackReplayService {
 		String sessionId = text(root, TrackConstants.FIELD_SESSION_ID);
 		if (sessionId == null || sessionId.length() > TrackConstants.SESSION_ID_MAX_LEN
 			|| !TrackConstants.REPLAY_PATH_SAFE.matcher(sessionId).matches()) {
-			throw new TrackCollectException(400, "会话标识不对。请用字母、数字、下划线或短横线，最长 "
-				+ TrackConstants.SESSION_ID_MAX_LEN + " 位，再上传这段回放");
+			throw new TrackCollectException(400, "会话标识不对。请用字母、数字、下划线或短横线，最长 {0} 位，再上传这段回放",
+				TrackConstants.SESSION_ID_MAX_LEN);
 		}
 		JsonNode seqNode = root.get("seq");
 		if (seqNode == null || !seqNode.isIntegralNumber()) {
@@ -97,8 +97,7 @@ public class TrackReplayService {
 		}
 		long seq = seqNode.asLong();
 		if (seq < 0 || seq > TrackConstants.REPLAY_SEQ_MAX) {
-			throw new TrackCollectException(400, "回放序号超出范围。请用 0 到 "
-				+ TrackConstants.REPLAY_SEQ_MAX + " 之间的整数后再上传");
+			throw new TrackCollectException(400, "回放序号超出范围。请用 0 到 {0} 之间的整数后再上传", TrackConstants.REPLAY_SEQ_MAX);
 		}
 		// gzip 缺省按 true（原协议只有压缩块）；SDK pagehide 收尾块显式 gzip=false = base64(明文 JSON)
 		boolean gzipped = root.path("gzip").asBoolean(true);
@@ -107,8 +106,8 @@ public class TrackReplayService {
 			throw new TrackCollectException(400, "这段回放没有内容。请带上录制内容后再上传");
 		}
 		if (payload.length() > TrackConstants.REPLAY_PAYLOAD_B64_MAX_LEN) {
-			throw new TrackCollectException(413, "这段回放太大。单块内容最长 "
-				+ TrackConstants.REPLAY_PAYLOAD_B64_MAX_LEN + " 个字，请缩小后再上传");
+			throw new TrackCollectException(413, "这段回放太大。单块内容最长 {0} 个字，请缩小后再上传",
+				TrackConstants.REPLAY_PAYLOAD_B64_MAX_LEN);
 		}
 
 		// 2) 应用校验：存在 + enabled=1 + replay_enabled=1（本地缓存 30s，生效延迟见 TrackAppService javadoc）
@@ -144,8 +143,8 @@ public class TrackReplayService {
 			storeBytes = decoded;
 		} else {
 			if (decoded.length > TrackConstants.REPLAY_BLOCK_MAX_BYTES) {
-				throw new TrackCollectException(413, "这段回放的明文太大。明文最长 "
-					+ TrackConstants.REPLAY_BLOCK_MAX_BYTES + " 字节，请缩小后再上传");
+				throw new TrackCollectException(413, "这段回放的明文太大。明文最长 {0} 字节，请缩小后再上传",
+					TrackConstants.REPLAY_BLOCK_MAX_BYTES);
 			}
 			raw = decoded;
 			storeBytes = gzip(raw);
@@ -189,8 +188,7 @@ public class TrackReplayService {
 		if (!accountSize(sessionId, raw.length)) {
 			metrics.dropped("replay_session_oversize", 1);
 			long maxBytes = paramLong(TrackConstants.PARAM_REPLAY_SESSION_MAX, TrackConstants.DEFAULT_REPLAY_SESSION_MAX_BYTES);
-			throw new TrackCollectException(413, "单会话回放体积超限。这个会话已经超过 "
-				+ maxBytes + " 字节，后面的内容不再接收，请换一个新会话再录");
+			throw new TrackCollectException(413, "单会话回放体积超限。这个会话已经超过 {0} 字节，后面的内容不再接收，请换一个新会话再录", maxBytes);
 		}
 
 		// 9) 当日存储配额（超出 429：删幂等键，额度恢复后同一块还能再收）
@@ -327,8 +325,8 @@ public class TrackReplayService {
 			while ((n = gzip.read(chunk)) != -1) {
 				total += n;
 				if (total > TrackConstants.REPLAY_BLOCK_MAX_BYTES) {
-					throw new TrackCollectException(413, "这段回放解压后太大。解压后最长 "
-						+ TrackConstants.REPLAY_BLOCK_MAX_BYTES + " 字节，请缩小后再上传");
+					throw new TrackCollectException(413, "这段回放解压后太大。解压后最长 {0} 字节，请缩小后再上传",
+						TrackConstants.REPLAY_BLOCK_MAX_BYTES);
 				}
 				out.write(chunk, 0, n);
 			}

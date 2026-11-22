@@ -1,6 +1,8 @@
 package com.mugsun.boot.track;
 
 import com.mugsun.boot.common.constant.TrackConstants;
+import com.mugsun.boot.common.i18n.StoredSentence;
+import com.mugsun.core.i18n.message.I18n;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisCallback;
@@ -90,10 +92,7 @@ public class TrackIntegrationHealth {
 				for (Map.Entry<TrackRejectReason, Long> e : counts.entrySet()) {
 					byte[] field = e.getKey().name().getBytes(StandardCharsets.UTF_8);
 					conn.hashCommands().hIncrBy(day, field, e.getValue());
-					String sample = samples.getOrDefault(e.getKey(), "");
-					if (sample.length() > SAMPLE_MAX_LEN) {
-						sample = sample.substring(0, SAMPLE_MAX_LEN);
-					}
+					String sample = StoredSentence.fit(samples.getOrDefault(e.getKey(), ""), SAMPLE_MAX_LEN);
 					conn.hashCommands().hSet(last, field, (now + "|" + sample).getBytes(StandardCharsets.UTF_8));
 				}
 				conn.keyCommands().expire(day, Duration.ofDays(KEEP_DAYS).toSeconds());
@@ -151,8 +150,8 @@ public class TrackIntegrationHealth {
 			Map<String, Object> row = new LinkedHashMap<>();
 			row.put("code", r.name());
 			row.put("severity", r.severity());
-			row.put("description", r.description());
-			row.put("suggestion", r.suggestion());
+			row.put("description", I18n.translate(r.description()));
+			row.put("suggestion", I18n.translate(r.suggestion()));
 			row.put("today", e.getValue()[0]);
 			row.put("last7d", e.getValue()[1]);
 			Object l = last.get(r.name());
@@ -169,7 +168,7 @@ public class TrackIntegrationHealth {
 				lastMessage = sep < 0 ? null : s.substring(sep + 1);
 			}
 			row.put("lastAt", lastAt);
-			row.put("lastMessage", lastMessage == null || lastMessage.isEmpty() ? null : lastMessage);
+			row.put("lastMessage", lastMessage == null || lastMessage.isEmpty() ? null : StoredSentence.render(lastMessage));
 			out.add(row);
 		}
 		out.sort((a, b) -> {

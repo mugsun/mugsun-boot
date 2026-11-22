@@ -5,6 +5,7 @@ import com.alicp.jetcache.anno.Cached;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.job.TrackVitalsJob;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import org.slf4j.Logger;
@@ -778,8 +779,7 @@ public class TrackAnalysisService {
 			return 7;
 		}
 		if (days < 1 || days > TrackConstants.ANALYSIS_DAYS_MAX) {
-			throw new ServiceException("统计天数只支持 1 到 " + TrackConstants.ANALYSIS_DAYS_MAX
-				+ " 天。请改到这个范围里再查");
+			throw new ServiceException(I18n.get("统计天数只支持 1 到 {0} 天。请改到这个范围里再查", TrackConstants.ANALYSIS_DAYS_MAX));
 		}
 		return days;
 	}

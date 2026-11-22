@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackAskService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -59,7 +60,7 @@ public class TrackAskController {
 		try {
 			return Integer.parseInt(String.valueOf(raw).trim());
 		} catch (NumberFormatException e) {
-			throw new ServiceException("days 须为 1 到 " + TrackConstants.ANALYSIS_DAYS_MAX + " 的整数");
+			throw new ServiceException(I18n.get("days 须为 1 到 {0} 的整数", TrackConstants.ANALYSIS_DAYS_MAX));
 		}
 	}
 }

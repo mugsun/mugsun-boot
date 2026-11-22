@@ -87,8 +87,8 @@ public class TrackApiBodyService {
 		String eventId = text(root, TrackConstants.FIELD_EVENT_ID);
 		if (eventId == null || eventId.length() > TrackConstants.EVENT_ID_MAX_LEN
 			|| !TrackConstants.REPLAY_PATH_SAFE.matcher(eventId).matches()) {
-			throw new TrackCollectException(400, "事件标识不对。请用字母、数字、下划线或短横线，最长 "
-				+ TrackConstants.EVENT_ID_MAX_LEN + " 位，再上传这段响应体");
+			throw new TrackCollectException(400, "事件标识不对。请用字母、数字、下划线或短横线，最长 {0} 位，再上传这段响应体",
+				TrackConstants.EVENT_ID_MAX_LEN);
 		}
 		// gzip 缺省按 true（与 replay 同语义）；gzip=false = base64(明文响应体)
 		boolean gzipped = root.path("gzip").asBoolean(true);
@@ -97,8 +97,8 @@ public class TrackApiBodyService {
 			throw new TrackCollectException(400, "这段响应体没有内容。请带上响应内容后再上传");
 		}
 		if (payload.length() > TrackConstants.API_BODY_PAYLOAD_B64_MAX_LEN) {
-			throw new TrackCollectException(413, "这段响应体太大。单段内容最长 "
-				+ TrackConstants.API_BODY_PAYLOAD_B64_MAX_LEN + " 个字，请缩小后再上传");
+			throw new TrackCollectException(413, "这段响应体太大。单段内容最长 {0} 个字，请缩小后再上传",
+				TrackConstants.API_BODY_PAYLOAD_B64_MAX_LEN);
 		}
 
 		// 2) 应用校验：存在 + enabled=1 + api_body_enabled=1（本地缓存 30s，生效延迟见 TrackAppService javadoc）
@@ -129,8 +129,7 @@ public class TrackApiBodyService {
 		} else {
 			if (decoded.length > maxBytes) {
 				metrics.dropped("api_body_oversize", 1);
-				throw new TrackCollectException(413, "这段响应体的明文太大。明文最长 "
-					+ maxBytes + " 字节，请缩小后再上传");
+				throw new TrackCollectException(413, "这段响应体的明文太大。明文最长 {0} 字节，请缩小后再上传", maxBytes);
 			}
 			storeBytes = gzip(decoded);
 		}
@@ -229,8 +228,7 @@ public class TrackApiBodyService {
 				total += n;
 				if (total > maxBytes) {
 					metrics.dropped("api_body_oversize", 1);
-					throw new TrackCollectException(413, "这段响应体解压后太大。解压后最长 "
-						+ maxBytes + " 字节，请缩小后再上传");
+					throw new TrackCollectException(413, "这段响应体解压后太大。解压后最长 {0} 字节，请缩小后再上传", maxBytes);
 				}
 				out.write(chunk, 0, n);
 			}

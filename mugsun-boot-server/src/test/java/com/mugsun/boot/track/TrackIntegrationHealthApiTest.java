@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 
 import java.util.ArrayList;
@@ -158,6 +161,34 @@ class TrackIntegrationHealthApiTest extends AbstractTrackIntegrationTest {
 	@Test
 	void requiresLogin() {
 		assertThat(readBody(get("/system/track/app/health?appKey=" + APP_H, null)).path("code").asInt()).isEqualTo(401);
+	}
+
+	/** ⑥ 说明、建议和最近一次被拒收的原话跟着查看的人的语言走：上报方收到的是中文，管理员用英文来看，看到的是英文 */
+	@Test
+	void textFollowsTheReaderLanguage() {
+		Map<String, Object> chunk = new HashMap<>();
+		chunk.put("app_key", APP_H);
+		chunk.put("session_id", "it-health-reader");
+		chunk.put("seq", -1);
+		ResponseEntity<String> rejected = post("/track/collect/replay", chunk, null);
+		assertThat(rejected.getStatusCode().value()).isEqualTo(400);
+		String inChinese = "回放序号超出范围。请用 0 到 " + TrackConstants.REPLAY_SEQ_MAX + " 之间的整数后再上传";
+		assertThat(readBody(rejected).path("msg").asText()).isEqualTo(inChinese);
+
+		HttpHeaders english = authHeaders(adminToken);
+		english.set(HttpHeaders.ACCEPT_LANGUAGE, "en");
+		JsonNode reason = byCode(readBodyAssertOk(rest.exchange("/system/track/app/health?appKey=" + APP_H,
+			HttpMethod.GET, new HttpEntity<>(english), String.class)).path("reasons")).get("SCHEMA_ERROR");
+		assertThat(reason.path("lastMessage").asText()).isEqualTo("The replay sequence number is out of range."
+			+ " Please use an integer from 0 to " + TrackConstants.REPLAY_SEQ_MAX + " and upload again.");
+		assertThat(reason.path("description").asText()).startsWith("The event is missing required fields");
+		assertThat(reason.path("suggestion").asText()).startsWith("Upgrade to the latest SDK.");
+
+		// 同一条记录，用中文的人来看还是中文
+		JsonNode chinese = byCode(readBodyAssertOk(get("/system/track/app/health?appKey=" + APP_H, adminToken))
+			.path("reasons")).get("SCHEMA_ERROR");
+		assertThat(chinese.path("lastMessage").asText()).isEqualTo(inChinese);
+		assertThat(chinese.path("description").asText()).startsWith("事件缺少必填字段");
 	}
 
 	// ---------- 工具 ----------

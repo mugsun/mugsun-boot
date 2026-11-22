@@ -42,8 +42,7 @@ public enum TrackRejectReason {
 	API_BODY_TOO_LARGE("warn", "接口响应体超过采集上限，被拒收。",
 		"把大接口加入忽略列表，或调低 apiBodyMaxBytes；不要采集下载/导出类接口。"),
 	STORAGE_FULL("warn", "回放或响应体被拒收：今天的存储额度已经用完，或服务器存储盘剩余空间低于下限。",
-		"先排查有没有异常流量在刷回放或响应体；正常增长就请管理员调高 track.storage.app-daily-max-bytes、track.storage.daily-max-bytes，"
-			+ "或给存储盘扩容（剩余空间下限是 track.storage.min-free-bytes）。"),
+		"先排查有没有异常流量在刷回放或响应体；正常增长就请管理员调高 track.storage.app-daily-max-bytes、track.storage.daily-max-bytes，或给存储盘扩容（剩余空间下限是 track.storage.min-free-bytes）。"),
 	SERVER_BUSY("warn", "服务端暂时繁忙（503），SDK 会自动重试。",
 		"偶发可忽略；持续出现请联系运维检查对象存储和队列。");
 

@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.track.TrackSourcemapService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -50,9 +51,9 @@ public class TrackSourcemapController {
 										 @RequestParam(required = false) String appKey,
 										 @RequestParam(required = false) String release) {
 		Map<String, Object> data = sourcemapService.upload(file, appKey, release, StpUtil.getLoginIdAsLong());
-		String filename = data.get("filename") == null ? "这个符号表" : String.valueOf(data.get("filename"));
+		String filename = data.get("filename") == null ? I18n.translate("这个符号表") : String.valueOf(data.get("filename"));
 		R<Map<String, Object>> resp = R.data(data);
-		resp.setMsg("上传成功。「" + filename + "」这个版本出错时会用它还原堆栈");
+		resp.setMsg(I18n.get("上传成功。「{0}」这个版本出错时会用它还原堆栈", filename));
 		return resp;
 	}
 
@@ -80,9 +81,9 @@ public class TrackSourcemapController {
 		}
 		String filename = sourcemapService.remove(Long.valueOf(text)).getFilename();
 		if (filename == null || filename.isBlank()) {
-			filename = "这个符号表";
+			filename = I18n.translate("这个符号表");
 		}
-		return R.success("已删除「" + filename + "」。这个版本将不再用它还原堆栈");
+		return R.success(I18n.get("已删除「{0}」。这个版本将不再用它还原堆栈", filename));
 	}
 
 	/**

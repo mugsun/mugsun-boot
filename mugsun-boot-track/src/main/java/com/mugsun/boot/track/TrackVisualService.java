@@ -9,6 +9,7 @@ import com.mugsun.boot.track.entity.TrackEventDef;
 import com.mugsun.boot.track.entity.TrackVisualRule;
 import com.mugsun.boot.track.mapper.TrackEventDefMapper;
 import com.mugsun.boot.track.mapper.TrackVisualRuleMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -130,7 +131,8 @@ public class TrackVisualService {
 			throw new TrackCollectException(400, "请先选中要圈的元素。没有选择器就无法上报这条草稿");
 		}
 		if (selector.length() > TrackConstants.VISUAL_SELECTOR_MAX_LEN) {
-			throw new TrackCollectException(400, "选择器最长 " + TrackConstants.VISUAL_SELECTOR_MAX_LEN + " 个字。请重新选择一个更短的元素后再上报");
+			throw new TrackCollectException(400, "选择器最长 {0} 个字。请重新选择一个更短的元素后再上报",
+				TrackConstants.VISUAL_SELECTOR_MAX_LEN);
 		}
 		String routePath = truncate(text(root, "route_path"), TrackConstants.DIM_MAX_LEN);
 		String matchText = truncate(text(root, "match_text"), TrackConstants.VISUAL_MATCH_TEXT_MAX_LEN);
@@ -281,9 +283,9 @@ public class TrackVisualService {
 		redis.opsForList().remove(TrackConstants.VISUAL_DRAFT_KEY_PREFIX + trimmed, 1, found);
 		String name = draft.get("eventName") == null ? "" : String.valueOf(draft.get("eventName")).trim();
 		if (name.isEmpty()) {
-			name = "这条草稿";
+			name = I18n.translate("这条草稿");
 		}
-		return "已丢弃「" + name + "」。这条草稿不会再生成圈选规则";
+		return I18n.get("已丢弃「{0}」。这条草稿不会再生成圈选规则", name);
 	}
 
 	// ==================== 规则 CRUD ====================
@@ -320,11 +322,11 @@ public class TrackVisualService {
 		}
 		String newRoute = rule.getRoutePath();
 		if (body != null && body.containsKey("routePath") && body.get("routePath") != null) {
-			newRoute = normalizeNullable(String.valueOf(body.get("routePath")), TrackConstants.DIM_MAX_LEN, "页面路径");
+			newRoute = normalizeNullable(String.valueOf(body.get("routePath")), TrackConstants.DIM_MAX_LEN, "页面路径请控制在 {0} 个字以内");
 		}
 		String newMatch = rule.getMatchText();
 		if (body != null && body.containsKey("matchText") && body.get("matchText") != null) {
-			newMatch = normalizeNullable(String.valueOf(body.get("matchText")), TrackConstants.VISUAL_MATCH_TEXT_MAX_LEN, "匹配文本");
+			newMatch = normalizeNullable(String.valueOf(body.get("matchText")), TrackConstants.VISUAL_MATCH_TEXT_MAX_LEN, "匹配文本请控制在 {0} 个字以内");
 		}
 		Integer newStatus = rule.getStatus();
 		if (body != null && body.containsKey("status") && body.get("status") != null) {
@@ -367,12 +369,12 @@ public class TrackVisualService {
 		visualRuleService.evict(rule.getAppKey());
 		String name = rule.getEventName();
 		if (name == null || name.isBlank()) {
-			name = "这条规则";
+			name = I18n.translate("这条规则");
 		}
 		if (rule.getStatus() != null && rule.getStatus() == 0) {
-			return "已保存「" + name + "」。配置下发里不会再带上这条规则";
+			return I18n.get("已保存「{0}」。配置下发里不会再带上这条规则", name);
 		}
-		return "已保存「" + name + "」。配置下发会带上这条规则";
+		return I18n.get("已保存「{0}」。配置下发会带上这条规则", name);
 	}
 
 	/** 规则删除（逻辑删除；缓存即时失效后 config 不再下发） */
@@ -456,7 +458,7 @@ public class TrackVisualService {
 		def.setAppKey(appKey);
 		def.setEventName(eventName);
 		def.setDisplayName(eventName);
-		def.setDescription("圈选创建");
+		def.setDescription(I18n.translate("圈选创建"));
 		def.setStatus(1);
 		def.setTenantId(tenantId);
 		def.sanitizeForInsert();
@@ -544,14 +546,18 @@ public class TrackVisualService {
 		return sb.toString();
 	}
 
-	/** 可空文本字段归一：trim 后空串归 NULL（参与 coalesce 唯一键归一），超长 400 */
-	private String normalizeNullable(String value, int maxLen, String field) {
+	/**
+	 * 可空文本字段归一：trim 后空串归 NULL（参与 coalesce 唯一键归一），超长 400。
+	 *
+	 * @param tooLong 超长时提示的整句话，上限用 {0} 占位（一个字段一句，不要把字段名当变量拼进去）
+	 */
+	private String normalizeNullable(String value, int maxLen, String tooLong) {
 		String v = value.trim();
 		if (v.isEmpty()) {
 			return null;
 		}
 		if (v.length() > maxLen) {
-			throw new ServiceException(field + "请控制在 " + maxLen + " 个字以内");
+			throw new ServiceException(I18n.get(tooLong, maxLen));
 		}
 		return v;
 	}

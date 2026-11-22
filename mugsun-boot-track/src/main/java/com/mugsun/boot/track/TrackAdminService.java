@@ -8,6 +8,7 @@ import com.mugsun.boot.track.entity.TrackApp;
 import com.mugsun.boot.track.entity.TrackEventDef;
 import com.mugsun.boot.track.mapper.TrackAppMapper;
 import com.mugsun.boot.track.mapper.TrackEventDefMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -244,12 +245,12 @@ public class TrackAdminService {
 		eventDefService.evict(def.getAppKey(), def.getEventName());
 		String name = def.getEventName();
 		if (name == null || name.isBlank()) {
-			name = "这个事件";
+			name = I18n.translate("这个事件");
 		}
 		if (def.getStatus() != null && def.getStatus() == 0) {
-			return "已保存「" + name + "」。采集将不再接收这个事件";
+			return I18n.get("已保存「{0}」。采集将不再接收这个事件", name);
 		}
-		return "已保存「" + name + "」。采集会继续接收这个事件";
+		return I18n.get("已保存「{0}」。采集会继续接收这个事件", name);
 	}
 
 	// ==================== 内部工具 ====================
@@ -345,8 +346,8 @@ public class TrackAdminService {
 			return TrackConstants.DEFAULT_ALERT_THRESHOLD;
 		}
 		if (threshold < 1 || threshold > TrackConstants.ALERT_THRESHOLD_MAX) {
-			throw new ServiceException("告警阈值须 1.." + TrackConstants.ALERT_THRESHOLD_MAX
-				+ "。这是 10 分钟内同一类错误的次数，请改到这个范围里再保存");
+			throw new ServiceException(I18n.get("告警阈值须 1..{0}。这是 10 分钟内同一类错误的次数，请改到这个范围里再保存",
+				TrackConstants.ALERT_THRESHOLD_MAX));
 		}
 		return threshold;
 	}
@@ -358,8 +359,8 @@ public class TrackAdminService {
 			return TrackConstants.API_BODY_DEFAULT_RETENTION_DAYS;
 		}
 		if (retentionDays < 1 || retentionDays > TrackConstants.API_BODY_MAX_RETENTION_DAYS) {
-			throw new ServiceException("响应体保留天数只支持 1 到 " + TrackConstants.API_BODY_MAX_RETENTION_DAYS
-				+ " 天。响应体比事件大得多，请改到这个范围里再保存");
+			throw new ServiceException(I18n.get("响应体保留天数只支持 1 到 {0} 天。响应体比事件大得多，请改到这个范围里再保存",
+				TrackConstants.API_BODY_MAX_RETENTION_DAYS));
 		}
 		return retentionDays;
 	}
@@ -378,20 +379,19 @@ public class TrackAdminService {
 		return value;
 	}
 
-	/** 告警开关的句子必须含 {@code alertEnabled 仅支持 0/1}，测试按这几个字断言 */
+	/**
+	 * 每个开关一整句（翻译时不用拼词）。告警开关的句子必须含 {@code alertEnabled 仅支持 0/1}，测试按这几个字断言
+	 */
 	private String switchMessage(String field) {
-		if ("alertEnabled".equals(field)) {
-			return "alertEnabled 仅支持 0/1。请选择开启或关闭后再保存";
-		}
-		String label = switch (field) {
-			case "enabled" -> "采集开关";
-			case "replayEnabled" -> "回放开关";
-			case "apiMonitorEnabled" -> "接口监控";
-			case "apiBodyEnabled" -> "响应体采集";
-			case "apiBodyMaskEnabled" -> "响应体脱敏";
-			case "geoEnabled" -> "地理信息";
-			default -> "这个开关";
+		return switch (field) {
+			case "alertEnabled" -> "alertEnabled 仅支持 0/1。请选择开启或关闭后再保存";
+			case "enabled" -> "采集开关请选择开启或关闭后再保存";
+			case "replayEnabled" -> "回放开关请选择开启或关闭后再保存";
+			case "apiMonitorEnabled" -> "接口监控请选择开启或关闭后再保存";
+			case "apiBodyEnabled" -> "响应体采集请选择开启或关闭后再保存";
+			case "apiBodyMaskEnabled" -> "响应体脱敏请选择开启或关闭后再保存";
+			case "geoEnabled" -> "地理信息请选择开启或关闭后再保存";
+			default -> "这个开关请选择开启或关闭后再保存";
 		};
-		return label + "请选择开启或关闭后再保存";
 	}
 }

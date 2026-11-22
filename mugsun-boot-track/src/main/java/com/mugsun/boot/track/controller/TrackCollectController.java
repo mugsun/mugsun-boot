@@ -111,7 +111,7 @@ public class TrackCollectController {
 			return ResponseEntity.ok(R.data(Map.of("received", accepted)));
 		} catch (TrackCollectException e) {
 			recordRejection(appKeyHint, e, TrackRejectReason.PAYLOAD_TOO_LARGE);
-			R<Object> body = R.fail(e.getMessage());
+			R<Object> body = R.fail(e.messageForCaller());
 			body.setCode(e.getStatus());
 			return ResponseEntity.status(e.getStatus()).body(body);
 		}
@@ -152,7 +152,7 @@ public class TrackCollectController {
 			return ResponseEntity.ok(R.data(replayService.ingest(root, request.getRemoteAddr())));
 		} catch (TrackCollectException e) {
 			recordRejection(appKeyHint, e, TrackRejectReason.REPLAY_TOO_LARGE);
-			R<Object> body = R.fail(e.getMessage());
+			R<Object> body = R.fail(e.messageForCaller());
 			body.setCode(e.getStatus());
 			return ResponseEntity.status(e.getStatus()).body(body);
 		}
@@ -194,7 +194,7 @@ public class TrackCollectController {
 			return ResponseEntity.ok(R.data(apiBodyService.ingest(root, request.getRemoteAddr())));
 		} catch (TrackCollectException e) {
 			recordRejection(appKeyHint, e, TrackRejectReason.API_BODY_TOO_LARGE);
-			R<Object> body = R.fail(e.getMessage());
+			R<Object> body = R.fail(e.messageForCaller());
 			body.setCode(e.getStatus());
 			return ResponseEntity.status(e.getStatus()).body(body);
 		}
@@ -230,7 +230,7 @@ public class TrackCollectController {
 			visualService.ingestDraft(root, request.getRemoteAddr());
 			return ResponseEntity.ok(R.data(Map.of("received", true)));
 		} catch (TrackCollectException e) {
-			R<Object> body = R.fail(e.getMessage());
+			R<Object> body = R.fail(e.messageForCaller());
 			body.setCode(e.getStatus());
 			return ResponseEntity.status(e.getStatus()).body(body);
 		}
@@ -266,7 +266,7 @@ public class TrackCollectController {
 			data.put("geoEnabled", app.getGeoEnabled() != null && app.getGeoEnabled() == 1);
 			return ResponseEntity.ok(R.data(data));
 		} catch (TrackCollectException e) {
-			R<Object> body = R.fail(e.getMessage());
+			R<Object> body = R.fail(e.messageForCaller());
 			body.setCode(e.getStatus());
 			return ResponseEntity.status(e.getStatus()).body(body);
 		}
@@ -278,7 +278,7 @@ public class TrackCollectController {
 		if (reason == null) {
 			reason = e.getStatus() == 413 ? tooLarge : TrackRejectReason.byStatus(e.getStatus());
 		}
-		health.rejected(appKeyHint, reason, e.getMessage());
+		health.rejected(appKeyHint, reason, e.sample());
 	}
 
 	private boolean isGzip(HttpServletRequest request) {
@@ -312,8 +312,8 @@ public class TrackCollectController {
 			while ((n = gzip.read(chunk)) != -1) {
 				total += n;
 				if (total > TrackConstants.COLLECT_PAYLOAD_MAX_BYTES) {
-					throw new TrackCollectException(413, "这段事件上报解压后太大。解压后最长 "
-						+ TrackConstants.COLLECT_PAYLOAD_MAX_BYTES + " 字节，请缩小后再上传");
+					throw new TrackCollectException(413, "这段事件上报解压后太大。解压后最长 {0} 字节，请缩小后再上传",
+						TrackConstants.COLLECT_PAYLOAD_MAX_BYTES);
 				}
 				out.write(chunk, 0, n);
 			}

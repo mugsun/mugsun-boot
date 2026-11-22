@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.common.module.TrackAskIntent;
 import com.mugsun.boot.common.module.TrackAskLlmGateway;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import org.slf4j.Logger;
@@ -74,8 +75,8 @@ public class TrackAskService {
 
 		if (intent.unsupported()) {
 			out.put("resultType", "unsupported");
-			out.put("summary", intent.warning() != null ? intent.warning()
-				: "暂时无法理解这个问题，请换个说法，例如「最近 7 天概览」或「今日在线人数」");
+			out.put("summary", I18n.translate(intent.warning() != null ? intent.warning()
+				: "暂时无法理解这个问题，请换个说法，例如「最近 7 天概览」或「今日在线人数」"));
 			attachReplays(out, key);
 			return out;
 		}
@@ -93,22 +94,22 @@ public class TrackAskService {
 				TrackAskIntent llm = gateway.extract(question, daysHint);
 				if (llm != null && !llm.unsupported()) {
 					if (llm.warning() != null && !llm.warning().isBlank()) {
-						warnings.add(llm.warning());
+						warnings.add(I18n.translate(llm.warning()));
 					}
 					return llm;
 				}
 				if (llm != null && llm.unsupported()) {
 					// LLM 明确不支持时仍尝试规则（确定性、不编数）；两边都不成再 unsupported
-					warnings.add(llm.warning() != null ? llm.warning() : "模型未能识别意图，已尝试规则解析");
+					warnings.add(I18n.translate(llm.warning() != null ? llm.warning() : "模型未能识别意图，已尝试规则解析"));
 				}
 			} catch (RuntimeException ex) {
 				log.warn("问数据 LLM 意图抽取失败，降级规则解析：{}", ex.getMessage());
-				warnings.add("模型调用失败，已改用规则解析意图（数字仍只来自埋点分析）");
+				warnings.add(I18n.translate("模型调用失败，已改用规则解析意图（数字仍只来自埋点分析）"));
 			}
 		}
 		TrackAskIntent rule = ruleParser.parse(question, daysHint);
 		if (rule.warning() != null && !rule.warning().isBlank() && rule.unsupported()) {
-			warnings.add(rule.warning());
+			warnings.add(I18n.translate(rule.warning()));
 		}
 		return rule;
 	}
@@ -145,14 +146,14 @@ public class TrackAskService {
 					text(params.get("dimType")), text(params.get("dimKey")));
 				out.put("resultType", "series");
 				out.put("series", series);
-				out.put("summary", "近 " + days + " 天趋势共 " + series.size() + " 个点（数字来自埋点分析）");
+				out.put("summary", I18n.get("近 {0} 天趋势共 {1} 个点（数字来自埋点分析）", days, series.size()));
 			}
 			case "pages" -> {
 				Integer limit = asInt(params.get("limit"));
 				List<Map<String, Object>> table = analysisService.pages(appKey, days, limit);
 				out.put("resultType", "table");
 				out.put("table", table);
-				out.put("summary", "近 " + days + " 天热门页面 Top " + table.size());
+				out.put("summary", I18n.get("近 {0} 天热门页面 Top {1}", days, table.size()));
 			}
 			case "events" -> {
 				Page<Map<String, Object>> page = analysisService.eventsPage(appKey,
@@ -161,14 +162,14 @@ public class TrackAskService {
 				out.put("table", page.getRecords());
 				out.put("raw", Map.of("totalRow", page.getTotalRow(), "pageNumber", page.getPageNumber(),
 					"pageSize", page.getPageSize()));
-				out.put("summary", "近 " + days + " 天事件共 " + page.getTotalRow() + " 种");
+				out.put("summary", I18n.get("近 {0} 天事件共 {1} 种", days, page.getTotalRow()));
 			}
 			case "online" -> {
 				Map<String, Object> online = analysisService.online(appKey);
 				out.put("resultType", "metrics");
 				out.put("metrics", online);
-				out.put("summary", "当前在线 " + online.getOrDefault("online", 0) + " 人（"
-					+ online.getOrDefault("windowSeconds", 0) + " 秒窗）");
+				out.put("summary", I18n.get("当前在线 {0} 人（{1} 秒窗）", online.getOrDefault("online", 0),
+					online.getOrDefault("windowSeconds", 0)));
 			}
 			case "geo" -> {
 				Map<String, Object> geo = analysisService.geo(appKey, days);
@@ -176,22 +177,22 @@ public class TrackAskService {
 				out.put("raw", geo);
 				Object regions = geo.get("regions");
 				int n = regions instanceof List<?> list ? list.size() : 0;
-				out.put("summary", "近 " + days + " 天地域桶 " + n + " 个，带坐标事件 "
-					+ geo.getOrDefault("geoCount", 0));
+				out.put("summary", I18n.get("近 {0} 天地域桶 {1} 个，带坐标事件 {2}", days, n,
+					geo.getOrDefault("geoCount", 0)));
 			}
 			case "vitals" -> {
 				List<Map<String, Object>> table = analysisService.vitals(appKey, days,
 					text(params.get("routePath")));
 				out.put("resultType", "table");
 				out.put("table", table);
-				out.put("summary", "近 " + days + " 天 Web Vitals " + table.size() + " 项");
+				out.put("summary", I18n.get("近 {0} 天 Web Vitals {1} 项", days, table.size()));
 			}
 			case "errors" -> {
 				Page<Map<String, Object>> page = analysisService.errorsPage(appKey, days, 1L, 20L);
 				out.put("resultType", "table");
 				out.put("table", page.getRecords());
 				out.put("raw", Map.of("totalRow", page.getTotalRow()));
-				out.put("summary", "近 " + days + " 天错误指纹 " + page.getTotalRow() + " 组");
+				out.put("summary", I18n.get("近 {0} 天错误指纹 {1} 组", days, page.getTotalRow()));
 			}
 			case "funnel" -> {
 				String steps = text(params.get("steps"));
@@ -204,8 +205,8 @@ public class TrackAskService {
 				out.put("raw", funnel);
 				Object stepRows = funnel.get("steps");
 				int n = stepRows instanceof List<?> list ? list.size() : 0;
-				out.put("summary", "漏斗 " + n + " 步（窗口 "
-					+ funnel.getOrDefault("windowHours", TrackConstants.FUNNEL_WINDOW_DEFAULT_HOURS) + " 小时）");
+				out.put("summary", I18n.get("漏斗 {0} 步（窗口 {1} 小时）", n,
+					funnel.getOrDefault("windowHours", TrackConstants.FUNNEL_WINDOW_DEFAULT_HOURS)));
 			}
 			case "retention" -> {
 				Map<String, Object> retention = retentionService.retention(appKey, days);
@@ -213,12 +214,12 @@ public class TrackAskService {
 				out.put("raw", retention);
 				Object rows = retention.get("rows");
 				int n = rows instanceof List<?> list ? list.size() : 0;
-				out.put("summary", "留存 cohort " + n + " 天（近 " + retention.getOrDefault("days", days) + " 天窗）");
+				out.put("summary", I18n.get("留存 cohort {0} 天（近 {1} 天窗）", n, retention.getOrDefault("days", days)));
 			}
 			default -> {
 				out.put("intent", TrackAskIntent.UNSUPPORTED);
 				out.put("resultType", "unsupported");
-				out.put("summary", "暂时无法理解这个问题，请换个说法");
+				out.put("summary", I18n.translate("暂时无法理解这个问题，请换个说法"));
 			}
 		}
 	}
@@ -287,12 +288,10 @@ public class TrackAskService {
 
 	private static String summaryOverview(Map<String, Object> cards, Integer days) {
 		if (cards == null) {
-			return "近 " + days + " 天暂无概览数据";
+			return I18n.get("近 {0} 天暂无概览数据", days);
 		}
-		return "近 " + days + " 天：PV " + cards.getOrDefault("pv", 0)
-			+ "，UV " + cards.getOrDefault("uv", 0)
-			+ "，会话 " + cards.getOrDefault("sessionCount", 0)
-			+ "，事件 " + cards.getOrDefault("eventCount", 0);
+		return I18n.get("近 {0} 天：PV {1}，UV {2}，会话 {3}，事件 {4}", days, cards.getOrDefault("pv", 0),
+			cards.getOrDefault("uv", 0), cards.getOrDefault("sessionCount", 0), cards.getOrDefault("eventCount", 0));
 	}
 
 	private static String requireQuestion(String question) {
@@ -301,7 +300,7 @@ public class TrackAskService {
 		}
 		String q = question.trim();
 		if (q.length() > QUESTION_MAX) {
-			throw new ServiceException("问题请控制在 " + QUESTION_MAX + " 字以内");
+			throw new ServiceException(I18n.get("问题请控制在 {0} 字以内", QUESTION_MAX));
 		}
 		return q;
 	}
@@ -311,7 +310,7 @@ public class TrackAskService {
 			return null;
 		}
 		if (days < 1 || days > TrackConstants.ANALYSIS_DAYS_MAX) {
-			throw new ServiceException("统计天数只支持 1 到 " + TrackConstants.ANALYSIS_DAYS_MAX + " 天");
+			throw new ServiceException(I18n.get("统计天数只支持 1 到 {0} 天", TrackConstants.ANALYSIS_DAYS_MAX));
 		}
 		return days;
 	}

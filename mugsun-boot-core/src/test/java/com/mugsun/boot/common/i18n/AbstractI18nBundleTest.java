@@ -64,6 +64,11 @@ public abstract class AbstractI18nBundleTest {
 
 	/** 只读文件名符合条件的翻译文件，返回英文那张表 */
 	static Map<String, String> read(Predicate<String> fileName) {
+		return load(fileName).of(Locale.ENGLISH);
+	}
+
+	/** 只读文件名符合条件的翻译文件 */
+	static MessageBundles load(Predicate<String> fileName) {
 		// 包一层而不是继承：PathMatchingResourcePatternResolver 找目录时会再调自己的 getResources，继承的话目录也被滤掉
 		PathMatchingResourcePatternResolver all = new PathMatchingResourcePatternResolver();
 		ResourcePatternResolver filtered = new ResourcePatternResolver() {
@@ -84,7 +89,7 @@ public abstract class AbstractI18nBundleTest {
 				return all.getClassLoader();
 			}
 		};
-		return MessageBundles.load(filtered, null).of(Locale.ENGLISH);
+		return MessageBundles.load(filtered, null);
 	}
 
 	@Test

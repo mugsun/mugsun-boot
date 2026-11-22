@@ -4,6 +4,7 @@ import com.alicp.jetcache.anno.CacheType;
 import com.alicp.jetcache.anno.Cached;
 import com.mugsun.boot.common.constant.TrackConstants;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -155,8 +156,7 @@ public class TrackFunnelService {
 			throw new ServiceException("步骤数不够。请再选一个不同的事件");
 		}
 		if (deduped.size() > TrackConstants.FUNNEL_STEPS_MAX) {
-			throw new ServiceException("步骤超过 " + TrackConstants.FUNNEL_STEPS_MAX
-				+ " 个了。请删到 " + TrackConstants.FUNNEL_STEPS_MAX + " 步以内再查");
+			throw new ServiceException(I18n.get("步骤超过 {0} 个了。请删到 {0} 步以内再查", TrackConstants.FUNNEL_STEPS_MAX));
 		}
 		for (String name : deduped) {
 			if (!TrackConstants.CUSTOM_EVENT_NAME.matcher(name).matches()
@@ -173,8 +173,7 @@ public class TrackFunnelService {
 			return 7;
 		}
 		if (days < 1 || days > TrackConstants.FUNNEL_DAYS_MAX) {
-			throw new ServiceException("统计天数只支持 1 到 " + TrackConstants.FUNNEL_DAYS_MAX
-				+ " 天。请从今天、近 7 天或近 30 天里重新选择");
+			throw new ServiceException(I18n.get("统计天数只支持 1 到 {0} 天。请从今天、近 7 天或近 30 天里重新选择", TrackConstants.FUNNEL_DAYS_MAX));
 		}
 		return days;
 	}
