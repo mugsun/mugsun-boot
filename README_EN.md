@@ -72,12 +72,9 @@ Each feature has its own page under [Features](https://docs.mugsun.com/en/boot/f
 
 You need JDK 21, Maven 3.9+ and Docker.
 
-The `main` branch depends on [mugsun-core](https://github.com/mugsun/mugsun-core) `0.3.0-SNAPSHOT`. That version is not on Maven Central, so install it locally first.
+The [mugsun-core](https://github.com/mugsun/mugsun-core) `0.3.0` dependency is on Maven Central and is downloaded during the build, so there is nothing to install first.
 
 ```bash
-git clone https://github.com/mugsun/mugsun-core.git
-cd mugsun-core && mvn -B clean install -DskipTests && cd ..
-
 git clone https://github.com/mugsun/mugsun-boot.git && cd mugsun-boot
 docker compose up -d    # PostgreSQL on 5432, Redis on 6379
 ./mvnw -pl mugsun-boot-server -am package -DskipTests

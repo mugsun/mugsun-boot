@@ -2,13 +2,9 @@
 # ============================================================
 # Mugsun 后端一体化镜像（多阶段构建）
 #
-# 构建上下文必须是四仓共同的父目录（与 CI 一致的平级布局）：
-#   mugsun/
-#   ├── mugsun-core/    ← 本镜像会先行 install
-#   └── mugsun-boot/    ← 本仓库
-#
-# 构建（在父目录或本仓库执行均可）：
-#   docker build -f mugsun-boot/Dockerfile -t mugsun/boot:latest <父目录>
+# 构建上下文是本仓库根目录，在本仓库执行：
+#   docker build -t mugsun/boot:latest .
+# mugsun-core 用 Maven Central 上的发布版（版本见根 pom 的 mugsun.version），不用把 core 仓库放在旁边。
 # 日常开发先起基础设施：在本仓库执行 `docker compose up -d`（Postgres + Redis）。
 # 应用本体默认在宿主机 `mvn spring-boot:run` / `java -jar`，以便加载 config/application-local.yml。
 # ============================================================
@@ -19,15 +15,15 @@ FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eb
 WORKDIR /build
 
 # 后端带 -Pfull,kingbase,dameng 构建（显式 -P 会关掉默认激活的 full，所以 full 要写上）：镜像内置人大金仓 / 达梦 JDBC 驱动，换库只改 JDBC_URL。
-# 先装核心底座（mugsun-starter-* 未发布中央仓库，须本地 install）
-# 单独 COPY 充分利用层缓存：core 不变时跳过本层
-COPY mugsun-core/ mugsun-core/
+# 只拷构建要用的根 pom 和五个模块（和 docker/full/boot.Dockerfile 一样），.git、文档、脚本不进构建层
+COPY pom.xml ./
+COPY mugsun-boot-core/ mugsun-boot-core/
+COPY mugsun-boot-gis/ mugsun-boot-gis/
+COPY mugsun-boot-track/ mugsun-boot-track/
+COPY mugsun-boot-ai/ mugsun-boot-ai/
+COPY mugsun-boot-server/ mugsun-boot-server/
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -q -f mugsun-core/pom.xml install -DskipTests
-
-COPY mugsun-boot/ mugsun-boot/
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -q -Pfull,kingbase,dameng -f mugsun-boot/pom.xml -pl mugsun-boot-server -am package -DskipTests
+    mvn -B -q -Pfull,kingbase,dameng -pl mugsun-boot-server -am package -DskipTests
 
 # ---------- 阶段 2：精简运行时（非 root） ----------
 FROM eclipse-temurin:21-jre-jammy@sha256:f04fb34e053148344e83317976114ec3f37e4b830ec8bdab5a2fe3cecd7d010b
@@ -40,7 +36,7 @@ RUN groupadd -r mugsun && useradd -r -g mugsun -d /app mugsun \
     && mkdir -p /app/logs /var/lib/mugsun/files \
     && chown -R mugsun:mugsun /app /var/lib/mugsun
 
-COPY --from=build --chown=mugsun:mugsun /build/mugsun-boot/mugsun-boot-server/target/mugsun-boot.jar /app/app.jar
+COPY --from=build --chown=mugsun:mugsun /build/mugsun-boot-server/target/mugsun-boot.jar /app/app.jar
 
 USER mugsun
 WORKDIR /app

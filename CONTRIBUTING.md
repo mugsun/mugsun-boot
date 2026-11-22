@@ -12,7 +12,7 @@
 - 提交信息：Conventional Commits，主题中文；详见 [`.github/COMMIT_CONVENTION.md`](./.github/COMMIT_CONVENTION.md)（若存在）
 - 变更记录：见 [CHANGELOG.md](./CHANGELOG.md)
 - 文档：[docs.mugsun.com](https://docs.mugsun.com/)
-- 后端参考实现；依赖 `mugsun-core` `0.3.0-SNAPSHOT`（Central 没有，须先在平级 core 仓 `mvn -B clean install -DskipTests`）
+- 后端参考实现；依赖 `mugsun-core` 发布版 `0.3.0`（在 Maven Central 上，不用先装）
 - 本地：Docker Compose 起依赖 → Maven 启动应用，详见 README
 
 ## 数据库迁移

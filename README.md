@@ -76,12 +76,9 @@ Compose 文件里没有默认口令。数据库口令、管理员口令和加密
 
 需要 JDK 21、Maven 3.9+ 和 Docker。
 
-`main` 分支依赖 [mugsun-core](https://github.com/mugsun/mugsun-core) 的 `0.3.0-SNAPSHOT`。Maven Central 上没有这个版本，要先装到本地。
+依赖的 [mugsun-core](https://github.com/mugsun/mugsun-core) `0.3.0` 在 Maven Central 上，构建时自动下载，不用单独安装。
 
 ```bash
-git clone https://github.com/mugsun/mugsun-core.git
-cd mugsun-core && mvn -B clean install -DskipTests && cd ..
-
 git clone https://github.com/mugsun/mugsun-boot.git && cd mugsun-boot
 docker compose up -d    # PostgreSQL 5432、Redis 6379
 ./mvnw -pl mugsun-boot-server -am package -DskipTests

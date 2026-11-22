@@ -88,6 +88,10 @@
 
 ### 变更
 
+- 依赖的 mugsun-core 改用 Maven Central 上的发布版 `0.3.0`，不用再先装 core
+  - 拉下代码直接 `./mvnw package` 就能构建，说明文档里去掉了「先装 core」那一步
+  - 全套镜像（`docker/full/boot.Dockerfile`）不再从源码构建 core，构建更快
+  - 根目录 `Dockerfile` 的构建上下文改成本仓库：`docker build -t mugsun/boot .`
 - 分布式锁改用 mugsun-core 的 `mugsun-starter-lock`，不再各处手写
   - 换掉 6 处：租户配额、通知重试、日志清理、文件待清理、流程发起、埋点调度
   - Redis 里的键名不变（`mugsun.lock.key-prefix` 默认 `mugsun:`），可以滚动升级

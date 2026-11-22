@@ -4,7 +4,7 @@
 
 ## 仓库是什么
 
-后端参考实现，依赖 [mugsun-core](https://github.com/mugsun/mugsun-core)（当前依赖 `0.3.0-SNAPSHOT`，基于 Spring Boot 4；Maven Central 上没有，先在 `../mugsun-core` 执行 `mvn -B install`）。Maven 多模块：
+后端参考实现，依赖 [mugsun-core](https://github.com/mugsun/mugsun-core)（当前依赖发布版 `0.3.0`，基于 Spring Boot 4，在 Maven Central 上，不用先装）。Maven 多模块：
 
 | 模块 | 作用 |
 | --- | --- |
@@ -102,8 +102,8 @@ insert / update 前调用实体的 `sanitizeForInsert()` / `sanitizeForUpdate()`
 ## 测试与构建
 
 ```bash
-# core 0.3.0-SNAPSHOT 不在 Central，先装到本地：
-cd ../mugsun-core && mvn -B install -DskipTests && cd -
+# core 用 Central 上的发布版，不用先装。要联调还没发布的 core 改动：在 ../mugsun-core 执行 mvn -B install -DskipTests，
+# 再把根 pom 的 mugsun.version 改成它的版本（只用于本地联调，提交前改回发布版）
 mvn -B install -DskipTests          # 建议在仓库根带 -am，避免只编 server 吃到 ~/.m2 旧 jar
 mvn -B verify                       # CI 同款（含 surefire）
 mvn -pl mugsun-boot-server -am spring-boot:run
