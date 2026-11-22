@@ -1,5 +1,6 @@
 package com.mugsun.boot.gis;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
@@ -148,7 +149,7 @@ public class GisTextIngest {
 						props.put(key, cols[c].trim());
 					}
 				}
-				props.putIfAbsent("name", "点");
+				props.putIfAbsent("name", I18n.translate("点"));
 				props.put("kind", "point");
 				Geometry pt = factory.createPoint(new Coordinate(x, y));
 				out.add(codec.toFeature(pt, props, null));
@@ -193,13 +194,13 @@ public class GisTextIngest {
 				continue;
 			}
 			Map<String, Object> props = new LinkedHashMap<>();
-			props.put("name", "航点");
+			props.put("name", I18n.translate("航点"));
 			props.put("kind", "point");
 			out.add(codec.toFeature(factory.createPoint(c), props, null));
 		}
 		if (track.size() >= 2) {
 			Map<String, Object> props = new LinkedHashMap<>();
-			props.put("name", "轨迹");
+			props.put("name", I18n.translate("轨迹"));
 			props.put("kind", "line");
 			out.add(codec.toFeature(factory.createLineString(track.toArray(Coordinate[]::new)), props, null));
 		}

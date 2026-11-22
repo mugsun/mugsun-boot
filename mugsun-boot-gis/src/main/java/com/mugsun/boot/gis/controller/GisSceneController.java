@@ -9,6 +9,7 @@ import com.mugsun.boot.gis.GisModuleService;
 import com.mugsun.boot.gis.entity.GisScene;
 import com.mugsun.boot.gis.mapper.GisSceneMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -112,7 +113,7 @@ public class GisSceneController {
 			duplicated.ne("id", body.getId());
 		}
 		if (sceneMapper.selectCountByQuery(duplicated) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的场景。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的场景。请换一个名称，或打开原来那个", name));
 		}
 		boolean creating = body.getId() == null;
 		body.setName(name);
@@ -160,6 +161,6 @@ public class GisSceneController {
 			throw new ServiceException("有场景不存在，或已经被删除。请刷新列表后再试");
 		}
 		sceneMapper.deleteBatchByIds(distinct);
-		return R.success("已删除 " + distinct.size() + " 个场景。列表和地图里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个场景。列表和地图里不会再出现", distinct.size()));
 	}
 }

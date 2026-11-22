@@ -127,7 +127,7 @@ public final class GisConstants {
 	public static final String MSG_LAYER_EMPTY = "没有可识别的地理要素（需要 GeoJSON 或含经纬度的记录）";
 	public static final String MSG_LAYER_INVALID = "图层数据不是合法 JSON";
 	public static final String MSG_LAYER_TOO_MANY = "单图层最多 8000 个要素";
-	public static final String MSG_LAYER_TOO_MANY_VERTICES = "一次最多 20 万个顶点（这次有 %d 个），请拆成几批，或先抽稀几何";
+	public static final String MSG_LAYER_TOO_MANY_VERTICES = "一次最多 20 万个顶点（这次有 {0} 个），请拆成几批，或先抽稀几何";
 	public static final String MSG_TEXT_TOO_LARGE = "原文超过 2MB，请拆成几个文件分别导入";
 	public static final String MSG_ENGINE_JAVA_FORBIDDEN = "engine=java 只给平台管理员做诊断对比用";
 	public static final String MSG_LAYER_NAME = "请填写图层名称";
@@ -153,17 +153,17 @@ public final class GisConstants {
 	public static final String MSG_MVT_ZXY = "瓦片坐标越界";
 
 	/** 拓扑校验：硬错误一律拒收整批并指出第几个要素，避免脏几何进库后查询与分析全错 */
-	public static final String MSG_TOPO_COORD_RANGE = "第 %d 个要素坐标越界（经度须在 -180～180、纬度须在 -90～90）：%s";
-	public static final String MSG_TOPO_COORD_NAN = "第 %d 个要素坐标不是有效数字";
+	public static final String MSG_TOPO_COORD_RANGE = "第 {0} 个要素坐标越界（经度须在 -180～180、纬度须在 -90～90）：{1}";
+	public static final String MSG_TOPO_COORD_NAN = "第 {0} 个要素坐标不是有效数字";
 	/** 启发式识别「含经纬度的记录」时用不到要素序号，单独一条不带序号的提示 */
-	public static final String MSG_TOPO_RECORD_RANGE = "记录里的坐标越界（经度须在 -180～180、纬度须在 -90～90）：%s";
-	public static final String MSG_TOPO_DEGENERATE = "第 %d 个要素几何退化（%s）";
-	public static final String MSG_TOPO_TYPE = "第 %d 个要素几何类型不支持：%s";
-	public static final String MSG_TOPO_UNFIXABLE = "第 %d 个要素几何无法修复（自相交且修复后为空）";
+	public static final String MSG_TOPO_RECORD_RANGE = "记录里的坐标越界（经度须在 -180～180、纬度须在 -90～90）：{0}";
+	public static final String MSG_TOPO_DEGENERATE = "第 {0} 个要素几何退化（{1}）";
+	public static final String MSG_TOPO_TYPE = "第 {0} 个要素几何类型不支持：{1}";
+	public static final String MSG_TOPO_UNFIXABLE = "第 {0} 个要素几何无法修复（自相交且修复后为空）";
 	/** 修复类问题不拒收，但要如实回报，不能悄悄改用户的数据 */
-	public static final String WARN_TOPO_RING_CLOSED = "第 %d 个要素的环未闭合，已自动闭合";
-	public static final String WARN_TOPO_SELF_INTERSECT = "第 %d 个要素自相交，已按 OGC 有效性规则修复";
-	public static final String WARN_TOPO_POLAR_RFC = "第 %d 个要素包住极点，已按 RFC 7946 极地切口改写（±180° 接到极点）";
+	public static final String WARN_TOPO_RING_CLOSED = "第 {0} 个要素的环未闭合，已自动闭合";
+	public static final String WARN_TOPO_SELF_INTERSECT = "第 {0} 个要素自相交，已按 OGC 有效性规则修复";
+	public static final String WARN_TOPO_POLAR_RFC = "第 {0} 个要素包住极点，已按 RFC 7946 极地切口改写（±180° 接到极点）";
 
 	public static String searchNoKey(String provider) {
 		if (PROVIDER_AMAP.equals(provider)) {

@@ -11,6 +11,7 @@ import com.mugsun.boot.gis.engine.GisUpstreamHttp;
 import com.mugsun.boot.gis.xyz.GisXyzPresets;
 import com.mugsun.boot.gis.xyz.GisXyzTemplate;
 import com.mugsun.boot.gis.xyz.GisXyzTileService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.boot.tenant.TenantContext;
@@ -153,7 +154,7 @@ public class GisProviderController {
 				body.setEnabled(GisConstants.STATUS_ENABLE);
 			}
 			providerMapper.insertSelective(body);
-			return R.success("已保存「" + label + "」。地图会用这份密钥");
+			return R.success(I18n.get("已保存「{0}」。地图会用这份密钥", label));
 		}
 		exist.setEnabled(body.getEnabled() == null ? exist.getEnabled() : body.getEnabled());
 		exist.setExtraJson(extra == null ? exist.getExtraJson() : extra);
@@ -166,7 +167,7 @@ public class GisProviderController {
 		}
 		exist.sanitizeForUpdate();
 		providerMapper.update(exist);
-		return R.success("已保存「" + label + "」。地图会用这份配置");
+		return R.success(I18n.get("已保存「{0}」。地图会用这份配置", label));
 	}
 
 	@SaCheckPermission(GisConstants.PERM_PROVIDER_REMOVE)
@@ -187,9 +188,9 @@ public class GisProviderController {
 		}
 		providerMapper.deleteBatchByIds(distinct);
 		if (rows.size() == 1) {
-			return R.success("已清除「" + providerLabel(rows.get(0).getProvider()) + "」。地图会改用其他已配置的底图");
+			return R.success(I18n.get("已清除「{0}」。地图会改用其他已配置的底图", providerLabel(rows.get(0).getProvider())));
 		}
-		return R.success("已清除 " + rows.size() + " 个底图。地图会改用其他已配置的底图");
+		return R.success(I18n.get("已清除 {0} 个底图。地图会改用其他已配置的底图", rows.size()));
 	}
 
 	/** 自定义瓦片的当前配置、预设与部署白名单（白名单只读，由运维在 yml 里改） */
@@ -248,13 +249,14 @@ public class GisProviderController {
 			data.put("ok", ok);
 			data.put("status", resp.status());
 			data.put("bytes", resp.body().length);
-			data.put("message", ok ? "瓦片可正常获取" : "上游返回 " + resp.status() + "（" + ctype + "）");
+			data.put("message", ok ? I18n.translate("瓦片可正常获取")
+				: I18n.get("上游返回 {0}（{1}）", resp.status(), ctype));
 		} catch (ServiceException e) {
 			data.put("ok", false);
-			data.put("message", e.getMessage());
+			data.put("message", I18n.translate(e.getMessage()));
 		} catch (Exception e) {
 			data.put("ok", false);
-			data.put("message", "连接上游失败或超时");
+			data.put("message", I18n.translate("连接上游失败或超时"));
 		}
 		data.put("millis", System.currentTimeMillis() - t0);
 		return R.data(data);
@@ -282,9 +284,9 @@ public class GisProviderController {
 
 	private static String vendorAttribution(String code) {
 		return switch (code) {
-			case "tianditu" -> "© 天地图";
-			case "amap" -> "© 高德地图";
-			case "baidu" -> "© 百度地图";
+			case "tianditu" -> I18n.translate("© 天地图");
+			case "amap" -> I18n.translate("© 高德地图");
+			case "baidu" -> I18n.translate("© 百度地图");
 			case "google" -> "© Google";
 			default -> "";
 		};
@@ -299,11 +301,11 @@ public class GisProviderController {
 
 	private static String providerLabel(String code) {
 		return switch (code) {
-			case "tianditu" -> "天地图";
-			case "amap" -> "高德";
-			case "baidu" -> "百度";
-			case "xyz" -> "自定义瓦片";
-			default -> "谷歌";
+			case "tianditu" -> I18n.translate("天地图");
+			case "amap" -> I18n.translate("高德");
+			case "baidu" -> I18n.translate("百度");
+			case "xyz" -> I18n.translate("自定义瓦片");
+			default -> I18n.translate("谷歌");
 		};
 	}
 

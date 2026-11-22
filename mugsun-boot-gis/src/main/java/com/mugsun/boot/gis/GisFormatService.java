@@ -2,6 +2,7 @@ package com.mugsun.boot.gis;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.stereotype.Service;
 
@@ -103,7 +104,7 @@ public class GisFormatService {
 			}
 		}
 		if (total > GisConstants.VERTEX_MAX) {
-			throw new ServiceException(String.format(GisConstants.MSG_LAYER_TOO_MANY_VERTICES, total));
+			throw new ServiceException(I18n.get(GisConstants.MSG_LAYER_TOO_MANY_VERTICES, total));
 		}
 	}
 
@@ -407,7 +408,7 @@ public class GisFormatService {
 			// 明确写着 lon/lat 却越界，是坐标系搞错（典型：把墨卡托米当经纬度传），
 			// 静默丢弃会让用户以为数据存进去了，直接拒收
 			if (hasAny(obj, LON_KEYS_STRICT) && hasAny(obj, LAT_KEYS_STRICT)) {
-				throw new ServiceException(String.format(GisConstants.MSG_TOPO_RECORD_RANGE,
+				throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_RECORD_RANGE,
 					plain(lon) + ", " + plain(lat)));
 			}
 			return null;

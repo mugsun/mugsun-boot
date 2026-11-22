@@ -1,5 +1,6 @@
 package com.mugsun.boot.gis;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.stereotype.Component;
 
@@ -76,8 +77,8 @@ public class GisDemoCatalog {
 			String kind, int count) {
 		Map<String, Object> row = new LinkedHashMap<>();
 		row.put("code", code);
-		row.put("title", title);
-		row.put("summary", summary);
+		row.put("title", I18n.translate(title));
+		row.put("summary", I18n.translate(summary));
 		row.put("group", group);
 		row.put("ui", ui);
 		row.put("kind", kind);

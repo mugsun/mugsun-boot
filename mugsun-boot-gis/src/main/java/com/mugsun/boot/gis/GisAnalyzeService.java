@@ -2,6 +2,7 @@ package com.mugsun.boot.gis;
 
 import com.mugsun.boot.gis.entity.GisLayer;
 import com.mugsun.boot.gis.mapper.GisLayerMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
@@ -202,7 +203,7 @@ public class GisAnalyzeService {
 		Geometry unioned = UnaryUnionOp.union(geoms);
 		Geometry env = unioned.getEnvelope();
 		Map<String, Object> props = new LinkedHashMap<>();
-		props.put("name", "外包矩形");
+		props.put("name", I18n.translate("外包矩形"));
 		props.put("kind", "polygon");
 		props.put("op", GisConstants.OP_BBOX);
 		Map<String, Object> metrics = measure(List.of(env));
@@ -234,7 +235,7 @@ public class GisAnalyzeService {
 	private Map<String, Object> difference(Map<String, Object> source, List<Geometry> left, List<Geometry> right) {
 		Geometry result = UnaryUnionOp.union(left).difference(UnaryUnionOp.union(right));
 		Map<String, Object> props = new LinkedHashMap<>();
-		props.put("name", "差集");
+		props.put("name", I18n.translate("差集"));
 		props.put("kind", kindOf(result));
 		props.put("op", GisConstants.OP_DIFFERENCE);
 		List<Map<String, Object>> feats = result.isEmpty()

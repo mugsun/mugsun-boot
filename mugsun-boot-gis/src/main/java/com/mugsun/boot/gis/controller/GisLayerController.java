@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.common.i18n.Sentences;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gis.GisAnalyzeService;
 import com.mugsun.boot.gis.Gis3dTilesSpec;
@@ -15,6 +16,7 @@ import com.mugsun.boot.gis.GisRasterSpec;
 import com.mugsun.boot.gis.entity.GisLayer;
 import com.mugsun.boot.gis.mapper.GisLayerMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -193,7 +195,7 @@ public class GisLayerController {
 			duplicated.ne("id", id);
 		}
 		if (layerMapper.selectCountByQuery(duplicated) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的图层。请换一个名称，或打开原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的图层。请换一个名称，或打开原来那个", name));
 		}
 		boolean creating = id == null;
 		GisLayer row;
@@ -225,9 +227,8 @@ public class GisLayerController {
 		R<GisLayer> res = R.data(row);
 		if (!warnings.isEmpty()) {
 			row.setWarnings(warnings);
-			res.setMsg("已保存。有 " + warnings.size() + " 处几何被自动修好："
-				+ String.join("；", warnings.subList(0, Math.min(5, warnings.size())))
-				+ "。请在地图上核对这几处");
+			res.setMsg(I18n.get("已保存。有 {0} 处几何被自动修好：{1}。请在地图上核对这几处",
+				warnings.size(), Sentences.join(warnings.subList(0, Math.min(5, warnings.size())))));
 		} else {
 			res.setMsg(creating ? "已新增。列表里可以打开，也能叠加到地图" : "已保存。地图会用这份图层");
 		}
@@ -252,7 +253,7 @@ public class GisLayerController {
 		}
 		layerMapper.deleteBatchByIds(distinct);
 		distinct.forEach(featureStore::dropLayer);
-		return R.success("已删除 " + distinct.size() + " 个图层。列表和地图里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个图层。列表和地图里不会再出现", distinct.size()));
 	}
 
 	private GisLayer require(Long id) {

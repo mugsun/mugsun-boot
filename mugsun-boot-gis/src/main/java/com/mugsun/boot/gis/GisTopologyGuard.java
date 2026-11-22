@@ -1,5 +1,6 @@
 package com.mugsun.boot.gis;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.util.GeometryFixer;
@@ -68,7 +69,8 @@ public class GisTopologyGuard {
 
 		Geometry geom = codec.fromGeometry(geomMap);
 		if (geom == null || geom.isEmpty()) {
-			throw new ServiceException(String.format(GisConstants.MSG_TOPO_DEGENERATE, no, "坐标不足或解析为空"));
+			throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_DEGENERATE, no,
+				I18n.translate("坐标不足或解析为空")));
 		}
 		requireNonDegenerate(geom, no);
 
@@ -78,7 +80,7 @@ public class GisTopologyGuard {
 		if (GisGeodesic.enclosedPole(geom) != 0 && !hasPoleVertex(geom)) {
 			geom = GisGeodesic.toRfcPolar(geom);
 			polarRewritten = true;
-			warnings.add(String.format(GisConstants.WARN_TOPO_POLAR_RFC, no));
+			warnings.add(I18n.get(GisConstants.WARN_TOPO_POLAR_RFC, no));
 		}
 
 		Geometry fixed = fixIfInvalid(geom, no, warnings);
@@ -97,7 +99,7 @@ public class GisTopologyGuard {
 			case "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon" -> {
 				// 支持
 			}
-			default -> throw new ServiceException(String.format(GisConstants.MSG_TOPO_TYPE, no, type));
+			default -> throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_TYPE, no, type));
 		}
 	}
 
@@ -109,12 +111,13 @@ public class GisTopologyGuard {
 		Object first = list.get(0);
 		if (first instanceof Number || first instanceof String) {
 			if (list.size() < 2) {
-				throw new ServiceException(String.format(GisConstants.MSG_TOPO_DEGENERATE, no, "坐标对不完整"));
+				throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_DEGENERATE, no,
+					I18n.translate("坐标对不完整")));
 			}
 			double lon = asFinite(list.get(0), no);
 			double lat = asFinite(list.get(1), no);
 			if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
-				throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_RANGE, no,
+				throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_COORD_RANGE, no,
 					trim(lon) + ", " + trim(lat)));
 			}
 			return;
@@ -133,13 +136,13 @@ public class GisTopologyGuard {
 			try {
 				v = Double.parseDouble(s.trim());
 			} catch (NumberFormatException e) {
-				throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_NAN, no));
+				throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_COORD_NAN, no));
 			}
 		} else {
-			throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_NAN, no));
+			throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_COORD_NAN, no));
 		}
 		if (!Double.isFinite(v)) {
-			throw new ServiceException(String.format(GisConstants.MSG_TOPO_COORD_NAN, no));
+			throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_COORD_NAN, no));
 		}
 		return v;
 	}
@@ -156,10 +159,12 @@ public class GisTopologyGuard {
 		for (int i = 0; i < geom.getNumGeometries(); i++) {
 			Geometry part = geom.getGeometryN(i);
 			if (type.contains("Line") && !hasDistinct(part, 2)) {
-				throw new ServiceException(String.format(GisConstants.MSG_TOPO_DEGENERATE, no, "线至少需要两个不同的点"));
+				throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_DEGENERATE, no,
+					I18n.translate("线至少需要两个不同的点")));
 			}
 			if (type.contains("Polygon") && !hasDistinct(part, 3)) {
-				throw new ServiceException(String.format(GisConstants.MSG_TOPO_DEGENERATE, no, "面的环至少需要三个不同的点"));
+				throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_DEGENERATE, no,
+					I18n.translate("面的环至少需要三个不同的点")));
 			}
 		}
 	}
@@ -185,7 +190,7 @@ public class GisTopologyGuard {
 		}
 		boolean any = ringsUnclosed(geomMap.get("coordinates"), type.startsWith("Multi") ? 2 : 1);
 		if (any) {
-			warnings.add(String.format(GisConstants.WARN_TOPO_RING_CLOSED, no));
+			warnings.add(I18n.get(GisConstants.WARN_TOPO_RING_CLOSED, no));
 		}
 		return any;
 	}
@@ -228,9 +233,9 @@ public class GisTopologyGuard {
 		}
 		Geometry fixed = GeometryFixer.fix(geom);
 		if (fixed == null || fixed.isEmpty()) {
-			throw new ServiceException(String.format(GisConstants.MSG_TOPO_UNFIXABLE, no));
+			throw new ServiceException(I18n.get(GisConstants.MSG_TOPO_UNFIXABLE, no));
 		}
-		warnings.add(String.format(GisConstants.WARN_TOPO_SELF_INTERSECT, no));
+		warnings.add(I18n.get(GisConstants.WARN_TOPO_SELF_INTERSECT, no));
 		return fixed;
 	}
 

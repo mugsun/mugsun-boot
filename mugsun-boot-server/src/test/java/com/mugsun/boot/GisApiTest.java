@@ -7,6 +7,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 
 import java.util.HashMap;
@@ -432,5 +435,45 @@ class GisApiTest extends AbstractIntegrationTest {
 		JsonNode missing = readBody(get("/system/gis/demo/warp", adminToken));
 		assertThat(missing.path("code").asInt()).isEqualTo(400);
 		assertThat(get("/system/gis/demo/list", null).getStatusCode().value()).isEqualTo(401);
+	}
+
+	/** 英文请求：带变量的提示语、返回数据里的字（示例目录的标题、几何修复说明）都跟着请求头的语言走 */
+	@Test
+	void textFollowsTheRequestLanguage() {
+		JsonNode demos = readBody(rest.exchange("/system/gis/demo/list", HttpMethod.GET, new HttpEntity<>(english()),
+			String.class));
+		assertThat(demos.path("data").get(0).path("title").asText()).isEqualTo("Points of Interest");
+
+		Map<String, Object> bowtie = Map.of("type", "Feature", "properties", Map.of("name", "bowtie"),
+			"geometry", Map.of("type", "Polygon", "coordinates", List.of(List.of(
+				List.of(116.39, 39.90), List.of(116.41, 39.92), List.of(116.41, 39.90),
+				List.of(116.39, 39.92), List.of(116.39, 39.90)))));
+		String repaired = "Feature #1 self-intersects and has been repaired by the OGC validity rules.";
+		JsonNode preview = postEnglish("/system/gis/layer/ingest", Map.of("payload", bowtie));
+		assertThat(preview.path("data").path("warnings").get(0).asText()).isEqualTo(repaired);
+
+		String name = "IT-en-" + System.currentTimeMillis();
+		JsonNode saved = postEnglish("/system/gis/layer/submit", Map.of("name", name, "payload", bowtie));
+		assertThat(saved.path("msg").asText()).startsWith("Saved. ")
+			.contains("repaired automatically: " + repaired).endsWith(" on the map.");
+
+		JsonNode again = postEnglish("/system/gis/layer/submit", Map.of("name", name, "payload", bowtie));
+		assertThat(again.path("msg").asText())
+			.isEqualTo("A layer named \"" + name + "\" already exists. Please use another name, or open the existing one.");
+
+		// 带数量的句子英文分单复数：删一个是 layer，不是 layers
+		JsonNode removed = postEnglish("/system/gis/layer/remove", List.of(saved.path("data").path("id").asLong()));
+		assertThat(removed.path("msg").asText())
+			.isEqualTo("Deleted 1 layer. It will no longer appear in the list or on the map.");
+	}
+
+	private JsonNode postEnglish(String url, Object body) {
+		return readBody(rest.exchange(url, HttpMethod.POST, new HttpEntity<>(body, english()), String.class));
+	}
+
+	private HttpHeaders english() {
+		HttpHeaders headers = authHeaders(adminToken);
+		headers.set(HttpHeaders.ACCEPT_LANGUAGE, "en");
+		return headers;
 	}
 }
