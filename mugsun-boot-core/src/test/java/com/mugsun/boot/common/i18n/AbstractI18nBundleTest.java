@@ -41,8 +41,10 @@ public abstract class AbstractI18nBundleTest {
 	/** 这个项目各模块的翻译文件都用这个开头：mugsun-boot_en、mugsun-boot-ai_en…… */
 	private static final String FAMILY = "mugsun-boot";
 
-	private static final Pattern PLACEHOLDER = Pattern.compile("\\{[^{}]*}");
-	private static final Pattern NUMBERED = Pattern.compile("\\{\\d+}");
+	/** 带编号的占位：{0}，也包括写明了格式的 {0,number}、按数量选写法的 {0,choice,…} */
+	private static final Pattern NUMBERED = Pattern.compile("\\{(\\d+)[,}]");
+	/** 其它花括号：句子里本来就有的 {z}/{x}/{y} 这类字面内容 */
+	private static final Pattern OTHER_BRACES = Pattern.compile("\\{(?!\\d)[^{}]*}");
 	private static final Pattern CHINESE = Pattern.compile("[\\u4e00-\\u9fff]");
 
 	private Map<String, String> english;
@@ -61,7 +63,7 @@ public abstract class AbstractI18nBundleTest {
 	}
 
 	/** 只读文件名符合条件的翻译文件，返回英文那张表 */
-	private static Map<String, String> read(Predicate<String> fileName) {
+	static Map<String, String> read(Predicate<String> fileName) {
 		// 包一层而不是继承：PathMatchingResourcePatternResolver 找目录时会再调自己的 getResources，继承的话目录也被滤掉
 		PathMatchingResourcePatternResolver all = new PathMatchingResourcePatternResolver();
 		ResourcePatternResolver filtered = new ResourcePatternResolver() {
@@ -120,7 +122,7 @@ public abstract class AbstractI18nBundleTest {
 			if (CHINESE.matcher(value).find()) {
 				problems.add("译文里还有中文：" + key + " = " + value);
 			}
-			if (!placeholders(key).equals(placeholders(value))) {
+			if (!numbers(key).equals(numbers(value)) || !otherBraces(key).equals(otherBraces(value))) {
 				problems.add("占位和原文对不上：" + key + " = " + value);
 			}
 			if (NUMBERED.matcher(key).find() && !fillsEveryPlaceholder(value)) {
@@ -131,9 +133,22 @@ public abstract class AbstractI18nBundleTest {
 		assertThat(problems).as("i18n/%s 里有问题的译文", file()).isEmpty();
 	}
 
-	private static List<String> placeholders(String text) {
+	/**
+	 * 用到了哪几个编号。只比编号、不比写法和次数：译文可以按数量分单复数
+	 * （{@code {0} {0,choice,0#layers|1#layer|1<layers}}），同一个值会用到不止一次
+	 */
+	private static Set<String> numbers(String text) {
+		Set<String> found = new TreeSet<>();
+		Matcher matcher = NUMBERED.matcher(text);
+		while (matcher.find()) {
+			found.add(matcher.group(1));
+		}
+		return found;
+	}
+
+	private static List<String> otherBraces(String text) {
 		List<String> found = new ArrayList<>();
-		Matcher matcher = PLACEHOLDER.matcher(text);
+		Matcher matcher = OTHER_BRACES.matcher(text);
 		while (matcher.find()) {
 			found.add(matcher.group());
 		}
@@ -141,11 +156,20 @@ public abstract class AbstractI18nBundleTest {
 		return found;
 	}
 
-	/** 带 {0} 的文案运行时按 MessageFormat 解析：单引号没写成两个的话，后面的占位会被当成普通文字，填不进值 */
+	/**
+	 * 带 {0} 的文案运行时按 MessageFormat 解析：单引号没写成两个的话，后面的占位会被当成普通文字，填不进值。
+	 * 按数量选写法的占位只认数字，所以拿 0、1、2 各填一遍，把「没有、一个、多个」三种写法都走到
+	 */
 	private static boolean fillsEveryPlaceholder(String pattern) {
 		try {
-			String filled = new MessageFormat(pattern, Locale.ENGLISH).format(new Object[] {"a", "b", "c", "d", "e", "f"});
-			return !NUMBERED.matcher(filled).find();
+			MessageFormat format = new MessageFormat(pattern, Locale.ENGLISH);
+			for (int count = 0; count <= 2; count++) {
+				String filled = format.format(new Object[] {count, count, count, count, count, count});
+				if (NUMBERED.matcher(filled).find()) {
+					return false;
+				}
+			}
+			return true;
 		} catch (IllegalArgumentException e) {
 			return false;
 		}

@@ -1,6 +1,7 @@
 package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.mugsun.boot.common.i18n.Sentences;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysTenant;
 import com.mugsun.boot.system.mapper.SysTenantMapper;
@@ -98,12 +99,7 @@ public class SysTenantController {
 		if (parsed.equals(java.util.EnumSet.of(com.mugsun.boot.captcha.CaptchaType.ICON_CLICK))) {
 			w.add(WARN_ICON_CLICK_ONLY);
 		}
-		String joined = null;
-		for (String one : w) {
-			String text = I18n.translate(one);
-			joined = joined == null ? text : I18n.get("{0}；{1}", joined, text);
-		}
-		return joined;
+		return Sentences.join(w.stream().map(I18n::translate).toList());
 	}
 
 	/** types 用 JsonNode 区分「缺省（不改）」与「显式 null（清回默认）」 */
