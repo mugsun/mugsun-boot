@@ -36,8 +36,8 @@ class NoCrossDomainMapperTest {
 	 * 这些文件多为登录、数据权限、全局搜索等横切能力，拆解需连同 Service 门面一起做，另行还债。
 	 */
 	private static final Set<String> FROZEN = new TreeSet<>(List.of(
-		"app/AppHomeService.java",
 		"app/AppInboxService.java",
+		"app/AppUserReader.java",
 		"auth/AuthController.java",
 		"auth/AuthLoginService.java",
 		"auth/ForgetPasswordService.java",

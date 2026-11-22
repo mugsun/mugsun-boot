@@ -1,7 +1,6 @@
 package com.mugsun.boot.app;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
-import com.mugsun.boot.app.dto.AppHomeVO;
 import com.mugsun.boot.app.dto.AppLoginDTO;
 import com.mugsun.boot.app.dto.AppUserVO;
 import com.mugsun.boot.auth.AuthLoginService;
@@ -32,16 +31,16 @@ public class AppAuthController {
 	private final AuthLoginService authLoginService;
 	private final ClientService clientService;
 	private final GmCryptoConfig gmCryptoConfig;
-	private final AppHomeService homeService;
+	private final AppUserReader userReader;
 
 	public AppAuthController(AppSliderCaptchaService sliderCaptchaService, AuthLoginService authLoginService,
 							 ClientService clientService, GmCryptoConfig gmCryptoConfig,
-							 AppHomeService homeService) {
+							 AppUserReader userReader) {
 		this.sliderCaptchaService = sliderCaptchaService;
 		this.authLoginService = authLoginService;
 		this.clientService = clientService;
 		this.gmCryptoConfig = gmCryptoConfig;
-		this.homeService = homeService;
+		this.userReader = userReader;
 	}
 
 	@GetMapping("/sm2-public-key")
@@ -80,6 +79,6 @@ public class AppAuthController {
 	@GetMapping("/me")
 	@SaCheckLogin
 	public R<AppUserVO> me() {
-		return R.data(homeService.me());
+		return R.data(userReader.me());
 	}
 }
