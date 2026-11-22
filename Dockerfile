@@ -2,8 +2,10 @@
 # ============================================================
 # Mugsun 后端一体化镜像（多阶段构建）
 #
-# 构建上下文是本仓库根目录，在本仓库执行：
-#   docker build -t mugsun/boot:latest .
+# 构建上下文是本仓库的上一级目录，本仓库的目录名要是 mugsun-boot。在本仓库执行：
+#   docker build -f Dockerfile -t mugsun/boot:latest ..
+# 这个约定不能改：mugsun-pc 的 docker/compose.pc.yml 就是拿上一级目录当上下文来构建本镜像的，
+# 它的 CI 还固定着本仓库的一个旧提交，两边要用同一种上下文。要改得先改那边。
 # mugsun-core 用 Maven Central 上的发布版（版本见根 pom 的 mugsun.version），不用把 core 仓库放在旁边。
 # 日常开发先起基础设施：在本仓库执行 `docker compose up -d`（Postgres + Redis）。
 # 应用本体默认在宿主机 `mvn spring-boot:run` / `java -jar`，以便加载 config/application-local.yml。
@@ -16,12 +18,12 @@ WORKDIR /build
 
 # 后端带 -Pfull,kingbase,dameng 构建（显式 -P 会关掉默认激活的 full，所以 full 要写上）：镜像内置人大金仓 / 达梦 JDBC 驱动，换库只改 JDBC_URL。
 # 只拷构建要用的根 pom 和五个模块（和 docker/full/boot.Dockerfile 一样），.git、文档、脚本不进构建层
-COPY pom.xml ./
-COPY mugsun-boot-core/ mugsun-boot-core/
-COPY mugsun-boot-gis/ mugsun-boot-gis/
-COPY mugsun-boot-track/ mugsun-boot-track/
-COPY mugsun-boot-ai/ mugsun-boot-ai/
-COPY mugsun-boot-server/ mugsun-boot-server/
+COPY mugsun-boot/pom.xml ./
+COPY mugsun-boot/mugsun-boot-core/ mugsun-boot-core/
+COPY mugsun-boot/mugsun-boot-gis/ mugsun-boot-gis/
+COPY mugsun-boot/mugsun-boot-track/ mugsun-boot-track/
+COPY mugsun-boot/mugsun-boot-ai/ mugsun-boot-ai/
+COPY mugsun-boot/mugsun-boot-server/ mugsun-boot-server/
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -q -Pfull,kingbase,dameng -pl mugsun-boot-server -am package -DskipTests
 
