@@ -70,7 +70,7 @@
     Spring AI 两个包都声明了一个旧版本，两处都排除了
   - `NoSpringAiGuardTest` 改名 `SpringAiSurfaceGuardTest`，改为核对放行清单；
     `scripts/check-banned-dependencies.sh` 加了放行包和被拦包的探针
-  - 用法和注愎事项见 `docs/Spring-AI接入.md`
+  - 用法和注意事项见 `docs/Spring-AI接入.md`
 
 - 埋点新增「访问路径」分析：`GET /system/track/journey`
   - 选一个页面当起点，看这些会话下一步去了哪些页面、有多少到这里就没有下一步；
