@@ -1,5 +1,6 @@
 package com.mugsun.boot.captcha;
 
+import com.mugsun.boot.common.web.DirectResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletException;
@@ -40,24 +41,24 @@ public class CaptchaBodyLimitFilter extends OncePerRequestFilter {
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 		throws ServletException, IOException {
 		if (request.getContentLengthLong() > MAX_BODY_BYTES) {
-			reject(response);
+			reject(request, response);
 			return;
 		}
 		// 先按上限读入（含分块传输），超限统一回标准 R JSON（HTTP 200 + 40011），不进入业务解析
 		byte[] body = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
 		if (body.length > MAX_BODY_BYTES) {
-			reject(response);
+			reject(request, response);
 			return;
 		}
 		chain.doFilter(new Cached(request, body), response);
 	}
 
-	private static void reject(HttpServletResponse response) throws IOException {
+	private static void reject(HttpServletRequest request, HttpServletResponse response) throws IOException {
 		response.setStatus(HttpServletResponse.SC_OK);
 		response.setContentType("application/json;charset=UTF-8");
 		response.setHeader("Connection", "close");
 		response.getWriter().write("{\"code\":" + CaptchaCodes.FAILED + ",\"success\":false,\"data\":null,\"msg\":\""
-			+ CaptchaCodes.MSG_FAILED + "\"}");
+			+ DirectResponse.jsonMsg(request, CaptchaCodes.MSG_FAILED) + "\"}");
 		response.flushBuffer();
 	}
 

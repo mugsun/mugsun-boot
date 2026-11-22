@@ -5,6 +5,7 @@ import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.stp.StpUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.constant.MonitorConstants;
+import com.mugsun.boot.common.web.DirectResponse;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.api.ResultCode;
 import jakarta.servlet.FilterChain;
@@ -52,13 +53,13 @@ public class ActuatorAuthFilter extends OncePerRequestFilter {
 		try {
 			StpUtil.checkLogin();
 		} catch (NotLoginException e) {
-			write(response, HttpServletResponse.SC_UNAUTHORIZED, R.fail(ResultCode.UNAUTHORIZED));
+			write(request, response, HttpServletResponse.SC_UNAUTHORIZED, R.fail(ResultCode.UNAUTHORIZED));
 			return;
 		}
 		try {
 			StpUtil.checkPermission(MonitorConstants.PERM_MONITOR_LIST);
 		} catch (NotPermissionException e) {
-			write(response, HttpServletResponse.SC_FORBIDDEN, R.fail(ResultCode.FORBIDDEN));
+			write(request, response, HttpServletResponse.SC_FORBIDDEN, R.fail(ResultCode.FORBIDDEN));
 			return;
 		}
 		chain.doFilter(request, response);
@@ -98,7 +99,9 @@ public class ActuatorAuthFilter extends OncePerRequestFilter {
 		return path.equals(prefix) || path.startsWith(prefix + "/");
 	}
 
-	private void write(HttpServletResponse response, int status, R<Void> body) throws IOException {
+	private void write(HttpServletRequest request, HttpServletResponse response, int status, R<Void> body)
+		throws IOException {
+		body.setMsg(DirectResponse.msg(request, body.getMsg()));
 		response.setStatus(status);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.setCharacterEncoding(StandardCharsets.UTF_8.name());

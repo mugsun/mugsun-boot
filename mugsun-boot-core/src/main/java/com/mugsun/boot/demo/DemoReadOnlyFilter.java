@@ -1,6 +1,7 @@
 package com.mugsun.boot.demo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.common.web.DirectResponse;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.api.ResultCode;
 import jakarta.servlet.FilterChain;
@@ -55,7 +56,7 @@ public class DemoReadOnlyFilter extends OncePerRequestFilter {
 			chain.doFilter(request, response);
 			return;
 		}
-		reject(response, objectMapper);
+		reject(request, response, objectMapper);
 	}
 
 	/** 异步派发/错误派发也要过滤，防止 forward 到写端点 */
@@ -100,9 +101,10 @@ public class DemoReadOnlyFilter extends OncePerRequestFilter {
 		return false;
 	}
 
-	static void reject(HttpServletResponse response, ObjectMapper objectMapper) throws IOException {
+	static void reject(HttpServletRequest request, HttpServletResponse response, ObjectMapper objectMapper)
+		throws IOException {
 		Map<String, Object> body = new LinkedHashMap<>(objectMapper.convertValue(
-			R.fail(ResultCode.FORBIDDEN, DemoConstants.MESSAGE), Map.class));
+			R.fail(ResultCode.FORBIDDEN, DirectResponse.msg(request, DemoConstants.MESSAGE)), Map.class));
 		body.put("errorCode", DemoConstants.ERROR_CODE);
 		response.setStatus(HttpServletResponse.SC_FORBIDDEN);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);

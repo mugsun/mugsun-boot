@@ -7,6 +7,18 @@
 
 ### 新增
 
+- 后端提示语支持多语言：请求带 `Accept-Language: en` 返回英文，默认简体中文
+  - 接入 mugsun-core 的 `mugsun-starter-i18n`，不用配置，业务代码不用改
+  - 英文翻译在 `i18n/mugsun-boot_en.properties`，键就是代码里的中文原文
+  - 第一批 188 句：登录注册、验证码、客户端、开放接口、租户套餐、在线表单
+  - 以及日志、文件上传、演示环境、安全检查；没配的句子照旧返回中文
+  - 应用要改某句译文，在自己的 `i18n/messages_en.properties` 写同一个键
+  - 过滤器、拦截器里自己写的响应也跟着语言走，共 8 处（新增 `DirectResponse`）
+  - 开放接口返回的提示跟着语言走，留痕日志仍记中文
+  - 前端不用改：mugsun-pc 每个请求已经带着当前界面语言
+  - `I18nBundleTest`：翻译文件里的原文必须还在代码里，改了提示语忘改翻译会失败
+  - 全套镜像里的 mugsun-core 钉到带多语言组件的提交 7409fd9
+
 - AiFlow foreach/parallel 控制节点（P0 契约落地）
   - `foreach`：数组串行迭代；maxIterations 20/100；timeout 120s/300s
   - 截断成功+truncated；禁嵌套；body 步硬顶 50；AI_* 错误码

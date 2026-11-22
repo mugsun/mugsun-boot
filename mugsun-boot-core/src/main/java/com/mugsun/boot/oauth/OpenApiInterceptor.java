@@ -1,6 +1,7 @@
 package com.mugsun.boot.oauth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.common.web.DirectResponse;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.tenant.TenantValidator;
 import com.mugsun.core.tool.api.R;
@@ -44,17 +45,17 @@ public class OpenApiInterceptor implements HandlerInterceptor {
 		OAuthService.TokenInfo info = oauthService.resolveToken(bearerToken(request));
 		if (info == null) {
 			logService.record("-", path, required, 0, ip, "令牌无效或已过期");
-			return reject(response, HttpServletResponse.SC_UNAUTHORIZED, "令牌无效或已过期");
+			return reject(request, response, HttpServletResponse.SC_UNAUTHORIZED, "令牌无效或已过期");
 		}
 		// 签名 + 防重放（HMAC + nonce + timestamp）：拦篡改/重放
 		String signError = signService.verify(request, info.clientId());
 		if (signError != null) {
 			logService.record(info.clientId(), path, required, 0, ip, signError);
-			return reject(response, HttpServletResponse.SC_UNAUTHORIZED, signError);
+			return reject(request, response, HttpServletResponse.SC_UNAUTHORIZED, signError);
 		}
 		if (required != null && !info.scopes().contains(required)) {
 			logService.record(info.clientId(), path, required, 0, ip, "缺少授权范围：" + required);
-			return reject(response, HttpServletResponse.SC_FORBIDDEN, "缺少授权范围：" + required);
+			return reject(request, response, HttpServletResponse.SC_FORBIDDEN, "缺少授权范围：{0}", required);
 		}
 		// 租户可用性：删除/停用/过期后存量令牌不得继续调 /open/**
 		String tenantId = info.tenantId();
@@ -65,7 +66,7 @@ public class OpenApiInterceptor implements HandlerInterceptor {
 					? HttpServletResponse.SC_UNAUTHORIZED
 					: HttpServletResponse.SC_FORBIDDEN;
 				logService.record(info.clientId(), path, required, 0, ip, reason);
-				return reject(response, status, reason);
+				return reject(request, response, status, reason);
 			}
 			// 令牌租户写入统一上下文，供 SaTokenTenantFactory 对开放接口按令牌租户隔离（防跨租户越权）。
 			TenantContext.set(tenantId);
@@ -93,14 +94,20 @@ public class OpenApiInterceptor implements HandlerInterceptor {
 		return header.regionMatches(true, 0, "Bearer ", 0, 7) ? header.substring(7).trim() : header.trim();
 	}
 
-	private boolean reject(HttpServletResponse response, int status, String msg) throws Exception {
+	/**
+	 * @param msg 提示语的中文原文，写出去之前翻译成这次请求的语言（留痕的日志仍记中文）；
+	 * 带变量时变量的位置写 {0}，值放在 args 里
+	 */
+	private boolean reject(HttpServletRequest request, HttpServletResponse response, int status, String msg,
+						   Object... args) throws Exception {
 		response.setStatus(status);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.setCharacterEncoding("UTF-8");
 		ResultCode code = status == HttpServletResponse.SC_UNAUTHORIZED
 			? ResultCode.UNAUTHORIZED
 			: status == HttpServletResponse.SC_FORBIDDEN ? ResultCode.FORBIDDEN : ResultCode.FAILURE;
-		response.getWriter().write(objectMapper.writeValueAsString(R.fail(code, msg)));
+		response.getWriter().write(objectMapper.writeValueAsString(
+			R.fail(code, DirectResponse.msg(request, msg, args))));
 		return false;
 	}
 }

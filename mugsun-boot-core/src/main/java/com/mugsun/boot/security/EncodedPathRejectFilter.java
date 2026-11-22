@@ -1,5 +1,6 @@
 package com.mugsun.boot.security;
 
+import com.mugsun.boot.common.web.DirectResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,7 +27,8 @@ public class EncodedPathRejectFilter extends OncePerRequestFilter {
 		if (hasEncodedUnreserved(request.getRequestURI())) {
 			response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
 			response.setContentType("application/json;charset=UTF-8");
-			response.getWriter().write("{\"code\":400,\"success\":false,\"msg\":\"请求路径含非法编码\",\"data\":null}");
+			response.getWriter().write("{\"code\":400,\"success\":false,\"msg\":\""
+				+ DirectResponse.jsonMsg(request, "请求路径含非法编码") + "\",\"data\":null}");
 			return;
 		}
 		chain.doFilter(request, response);

@@ -46,7 +46,7 @@ public class DemoSqlPermissionResolver implements HandlerExceptionResolver, Orde
 		log.warn("[demo] 拦下一次漏网的写库 {} {}：{}", request.getMethod(), request.getRequestURI(), rootMessage(ex));
 		try {
 			if (!response.isCommitted()) {
-				DemoReadOnlyFilter.reject(response, objectMapper);
+				DemoReadOnlyFilter.reject(request, response, objectMapper);
 			}
 		} catch (Exception writeFail) {
 			log.debug("[demo] 写 403 响应失败：{}", writeFail.getMessage());

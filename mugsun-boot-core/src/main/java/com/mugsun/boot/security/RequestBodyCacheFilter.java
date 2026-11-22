@@ -1,5 +1,6 @@
 package com.mugsun.boot.security;
 
+import com.mugsun.boot.common.web.DirectResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,7 +42,8 @@ public class RequestBodyCacheFilter extends OncePerRequestFilter {
 			// 超限 body 直接 413：无界缓存会被未认证大 body 打成内存 DoS
 			response.setStatus(413);
 			response.setContentType("application/json;charset=UTF-8");
-			response.getWriter().write("{\"code\":413,\"success\":false,\"msg\":\"请求体过大\",\"data\":null}");
+			response.getWriter().write("{\"code\":413,\"success\":false,\"msg\":\""
+				+ DirectResponse.jsonMsg(request, "请求体过大") + "\",\"data\":null}");
 		}
 	}
 

@@ -2,6 +2,7 @@ package com.mugsun.boot.demo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.web.ClientIpResolver;
+import com.mugsun.boot.common.web.DirectResponse;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadConfig;
 import jakarta.servlet.AsyncEvent;
@@ -71,21 +72,21 @@ public class DemoLimitFilter extends OncePerRequestFilter {
 		String path = DemoReadOnlyPolicy.normalize(DemoReadOnlyFilter.pathWithinApp(request));
 		if (path != null && LOGIN_PATHS.contains(path)
 			&& !rateLimiter.tryAcquire(DemoRateLimiter.Scope.LOGIN, ClientIpResolver.clientIp(request))) {
-			write(response, 429, "DEMO_RATE_LIMITED", "演示环境登录过于频繁，请一分钟后再试");
+			write(request, response, 429, "DEMO_RATE_LIMITED", "演示环境登录过于频繁，请一分钟后再试");
 			return;
 		}
 		if (path != null && DemoReadOnlyPolicy.CSP_REPORT_ALLOWLIST.contains(path)
 			&& !rateLimiter.tryAcquire(DemoRateLimiter.Scope.CSP, ClientIpResolver.clientIp(request))) {
-			write(response, 429, "DEMO_RATE_LIMITED", "CSP 报告过于频繁");
+			write(request, response, 429, "DEMO_RATE_LIMITED", "CSP 报告过于频繁");
 			return;
 		}
 		if (path != null && DemoReadOnlyPolicy.TRACK_COLLECT_ALLOWLIST.contains(path)) {
 			if (!rateLimiter.tryAcquire(DemoRateLimiter.Scope.TRACK, ClientIpResolver.clientIp(request))) {
-				write(response, 429, "DEMO_RATE_LIMITED", "演示环境埋点上报过于频繁，请稍后再试");
+				write(request, response, 429, "DEMO_RATE_LIMITED", "演示环境埋点上报过于频繁，请稍后再试");
 				return;
 			}
 			if (capacityGate.trackFull()) {
-				write(response, 503, "DEMO_CAPACITY", "演示环境埋点库已满，暂停采集");
+				write(request, response, 503, "DEMO_CAPACITY", "演示环境埋点库已满，暂停采集");
 				return;
 			}
 			chain.doFilter(request, response);
@@ -96,7 +97,8 @@ public class DemoLimitFilter extends OncePerRequestFilter {
 			return;
 		}
 		if (!heavy.tryAcquirePermission()) {
-			write(response, 429, "DEMO_BUSY", "演示环境繁忙：导出类请求同时只能进行 " + heavyLimit() + " 个，请稍后再试");
+			write(request, response, 429, "DEMO_BUSY", "演示环境繁忙：导出类请求同时只能进行 {0} 个，请稍后再试",
+				String.valueOf(heavyLimit()));
 			return;
 		}
 		AtomicBoolean released = new AtomicBoolean(false);
@@ -138,11 +140,13 @@ public class DemoLimitFilter extends OncePerRequestFilter {
 	}
 
 
-	private void write(HttpServletResponse response, int status, String errorCode, String msg) throws IOException {
+	/** @param msg 提示语的中文原文，写出去之前翻译成这次请求的语言；带变量时变量的位置写 {0}，值放在 args 里 */
+	private void write(HttpServletRequest request, HttpServletResponse response, int status, String errorCode,
+					   String msg, Object... args) throws IOException {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("code", status);
 		body.put("success", false);
-		body.put("msg", msg);
+		body.put("msg", DirectResponse.msg(request, msg, args));
 		body.put("data", null);
 		body.put("errorCode", errorCode);
 		response.setStatus(status);

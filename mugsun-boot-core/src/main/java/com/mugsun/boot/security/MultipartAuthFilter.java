@@ -3,6 +3,7 @@ package com.mugsun.boot.security;
 import cn.dev33.satoken.SaManager;
 import cn.dev33.satoken.stp.StpUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mugsun.boot.common.web.DirectResponse;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.api.ResultCode;
 import jakarta.servlet.FilterChain;
@@ -61,12 +62,12 @@ public class MultipartAuthFilter extends OncePerRequestFilter {
 			return;
 		}
 		if (!isAllowedPath(request, allowedPaths)) {
-			reject(response, HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE,
+			reject(request, response, HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE,
 				R.fail(ResultCode.FAILURE, "该接口不接受 multipart 请求"));
 			return;
 		}
 		if (!hasValidToken(request)) {
-			reject(response, HttpServletResponse.SC_UNAUTHORIZED, R.fail(ResultCode.UNAUTHORIZED));
+			reject(request, response, HttpServletResponse.SC_UNAUTHORIZED, R.fail(ResultCode.UNAUTHORIZED));
 			return;
 		}
 		chain.doFilter(request, response);
@@ -129,7 +130,9 @@ public class MultipartAuthFilter extends OncePerRequestFilter {
 		return value.startsWith(p) ? value.substring(p.length()) : null;
 	}
 
-	private void reject(HttpServletResponse response, int status, R<Void> body) throws IOException {
+	private void reject(HttpServletRequest request, HttpServletResponse response, int status, R<Void> body)
+		throws IOException {
+		body.setMsg(DirectResponse.msg(request, body.getMsg()));
 		response.setStatus(status);
 		response.setHeader(HttpHeaders.CONNECTION, "close");
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
