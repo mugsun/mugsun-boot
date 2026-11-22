@@ -72,13 +72,20 @@ public class TrackAnalysisController {
 		return R.data(analysisService.trend(appKey, days, dimType, dimKey));
 	}
 
-	/** Top 页面：[{pagePath, pv, uv, avgDurationMs}]，按 pv 降序；pagePath 为路由模板（空回退原始路径） */
+	/**
+	 * 页面排行，pagePath 为路由模板（空回退原始路径）。type 不传是 top：
+	 * top 访问最多的页面 [{pagePath, pv, uv, avgDurationMs}]，按 pv 降序；
+	 * entry 入口页 [{pagePath, sessions, bounces, bounceRate}]，按从这个页面进来的会话数降序；
+	 * exit 退出页 [{pagePath, sessions, pv, exitRate}]，按在这个页面结束的会话数降序。
+	 * entry、exit 的 days 只支持 1..{@value TrackConstants#PAGES_EDGE_DAYS_MAX}，算法见 TrackAnalysisService#cachedEdgePages。
+	 */
 	@GetMapping("/pages")
 	@SaCheckPermission(TrackConstants.PERM_OVERVIEW_LIST)
 	public R<List<Map<String, Object>>> pages(@RequestParam(required = false) String appKey,
 											  @RequestParam(required = false) Integer days,
-											  @RequestParam(required = false) Integer limit) {
-		return R.data(analysisService.pages(appKey, days, limit));
+											  @RequestParam(required = false) Integer limit,
+											  @RequestParam(required = false) String type) {
+		return R.data(analysisService.pages(appKey, days, limit, type));
 	}
 
 	/** 事件分析分页：records=[{eventName, eventCount, sessionCount, uv, lastTime(epoch ms)}]，按次数降序 */

@@ -663,4 +663,15 @@ public interface TrackConstants {
 	String JOURNEY_START_ANY = "any";
 	/** 起点方式：路径必须从会话的第一个页面（入口页）开始 */
 	String JOURNEY_START_ENTRY = "entry";
+
+	/* ==================== 入口页 / 退出页 ==================== */
+
+	/** 页面排行的类型：访问最多的页面（默认） */
+	String PAGES_TYPE_TOP = "top";
+	/** 页面排行的类型：入口页，每次会话看的第一个页面 */
+	String PAGES_TYPE_ENTRY = "entry";
+	/** 页面排行的类型：退出页，每次会话看的最后一个页面 */
+	String PAGES_TYPE_EXIT = "exit";
+	/** 入口页、退出页查询 days 上限（天；要把每次会话的页面排出先后，只能查明细，和访问路径一样要限窗） */
+	int PAGES_EDGE_DAYS_MAX = 30;
 }

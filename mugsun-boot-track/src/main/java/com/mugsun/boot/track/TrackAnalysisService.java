@@ -372,6 +372,99 @@ public class TrackAnalysisService {
 		return jdbc.queryForList(sql, args.toArray());
 	}
 
+	/**
+	 * 页面排行，按类型分三种：
+	 * <ul>
+	 *   <li>{@code top}（默认）：访问最多的页面，同 {@link #pages(String, Integer, Integer)}；</li>
+	 *   <li>{@code entry}：入口页 {@code [{pagePath, sessions, bounces, bounceRate}]}。{@code sessions} 是从这个页面进来的会话数，
+	 *       {@code bounces} 是其中只看了这一页就走的，{@code bounceRate = bounces / sessions}；</li>
+	 *   <li>{@code exit}：退出页 {@code [{pagePath, sessions, pv, exitRate}]}。{@code sessions} 是在这个页面结束的会话数，
+	 *       {@code pv} 是这个页面被浏览的次数，{@code exitRate = sessions / pv}。</li>
+	 * </ul>
+	 * 两个比率都是 0 到 1 的小数，保留 4 位。都按会话数从多到少排，一样多的按页面地址排。算法见 {@link #cachedEdgePages}。
+	 *
+	 * @param type {@code top} / {@code entry} / {@code exit}，不传是 {@code top}
+	 */
+	public List<Map<String, Object>> pages(String appKey, Integer days, Integer limit, String type) {
+		String kind = assertPagesType(type);
+		if (TrackConstants.PAGES_TYPE_TOP.equals(kind)) {
+			return pages(appKey, days, limit);
+		}
+		appKey = assertAppKey(appKey);
+		int d = assertEdgeDays(days);
+		int top = clampLimit(limit, TrackConstants.ANALYSIS_TOP_LIMIT);
+		String tenant = currentTenant();
+		return self.getObject().cachedEdgePages(appKey, d, top, kind, tenant, timezones.zoneFor(tenant).getId());
+	}
+
+	/**
+	 * 入口页 / 退出页：把每次会话的页面浏览按发生时间排出先后，第一个是入口页，最后一个是退出页。
+	 * <ul>
+	 *   <li>按会话算。页面的取法和页面排行、访问路径一样：路由模板优先，没有就用原始路径；没有页面地址的浏览不算。</li>
+	 *   <li>跳出：这次会话在统计范围里只有一次页面浏览。刷新算两次浏览，不算跳出。
+	 *       这里算的是统计范围里所有的会话；概览卡片上的跳出率只算已经结束的会话，所以两边可能差一点。</li>
+	 *   <li>退出率的分母是这个页面的浏览次数，不是会话数：回答的是「每看这个页面 100 次，有多少次是最后一页」。</li>
+	 *   <li>统计范围和访问路径一样：按租户时区切日，用服务端接收时间圈范围（能按分区裁剪），用发生时间排先后，
+	 *       发生时间相同的按主键排。会话跨过统计范围的起点时，只看得到范围内的那一段。</li>
+	 *   <li>要排先后，没法提前汇总，只能查明细，所以天数限在 {@value TrackConstants#PAGES_EDGE_DAYS_MAX} 天以内。</li>
+	 * </ul>
+	 * 条数没有被 {@code limit} 截断时，各入口页的会话数加起来等于统计范围内有页面浏览的会话数，各退出页也一样。
+	 * 租户隔离和页面排行是同一套做法：SQL 里显式带租户条件，别的租户的应用查出来是空的。
+	 */
+	@Cached(name = "track:ana:pages:edge:",
+		key = "#appKey + ':' + #days + ':' + #limit + ':' + #type + ':' + #tenant + ':' + #zoneId",
+		expire = TrackConstants.ANALYSIS_CACHE_SECONDS, cacheType = CacheType.LOCAL)
+	public List<Map<String, Object>> cachedEdgePages(String appKey, int days, int limit, String type,
+													 String tenant, String zoneId) {
+		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+		OffsetDateTime from = TrackDayWindow.of(ZoneId.of(zoneId), now.toInstant(), days).fromOffset();
+		List<Object> args = new ArrayList<>(List.of(appKey, from, now));
+		StringBuilder sql = new StringBuilder("WITH pv AS (SELECT e.session_id,"
+			+ " left(coalesce(nullif(e.route_path, ''), e.url_path), " + TrackConstants.DIM_MAX_LEN + ") AS page,"
+			+ " e.ts, e.id FROM track_event e"
+			+ " WHERE e.app_key = ? AND e.received_at >= ? AND e.received_at <= ?");
+		sql.append(tenantFrag("e", tenant, args));
+		sql.append(" AND e.event_name = '" + TrackConstants.EVENT_PAGEVIEW + "')");
+		// seq：每次会话的页面浏览。pos 从前往后数，rpos 从后往前数，n 是这次会话一共有几次页面浏览
+		sql.append(", seq AS (SELECT session_id, page,"
+			+ " row_number() OVER (PARTITION BY session_id ORDER BY ts, id) AS pos,"
+			+ " row_number() OVER (PARTITION BY session_id ORDER BY ts DESC, id DESC) AS rpos,"
+			+ " count(*) OVER (PARTITION BY session_id) AS n"
+			+ " FROM pv WHERE page <> '')");
+		boolean entry = TrackConstants.PAGES_TYPE_ENTRY.equals(type);
+		if (entry) {
+			sql.append(" SELECT page AS \"pagePath\", count(*) AS \"sessions\","
+				+ " count(*) FILTER (WHERE n = 1) AS \"bounces\""
+				+ " FROM seq WHERE pos = 1 GROUP BY page ORDER BY \"sessions\" DESC, page LIMIT ?");
+		} else {
+			sql.append(", viewed AS (SELECT page, count(*) AS views FROM seq GROUP BY page)"
+				+ " SELECT x.page AS \"pagePath\", x.sessions AS \"sessions\", v.views AS \"pv\""
+				+ " FROM (SELECT page, count(*) AS sessions FROM seq WHERE rpos = 1 GROUP BY page) x"
+				+ " JOIN viewed v ON v.page = x.page ORDER BY x.sessions DESC, x.page LIMIT ?");
+		}
+		args.add(limit);
+
+		List<Map<String, Object>> rows = jdbc.queryForList(sql.toString(), args.toArray());
+		List<Map<String, Object>> result = new ArrayList<>(rows.size());
+		for (Map<String, Object> row : rows) {
+			long sessions = num(row, "sessions");
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("pagePath", row.get("pagePath"));
+			item.put("sessions", sessions);
+			if (entry) {
+				long bounces = num(row, "bounces");
+				item.put("bounces", bounces);
+				item.put("bounceRate", ratio(bounces, sessions));
+			} else {
+				long pv = num(row, "pv");
+				item.put("pv", pv);
+				item.put("exitRate", ratio(sessions, pv));
+			}
+			result.add(item);
+		}
+		return result;
+	}
+
 	/** Web Vitals 分位（直方图插值，非实时 percentile）：每 metric 返回 count/avg/p50/p75/p95 */
 	public List<Map<String, Object>> vitals(String appKey, Integer days, String routePath) {
 		appKey = assertAppKey(appKey);
@@ -782,6 +875,35 @@ public class TrackAnalysisService {
 			throw new ServiceException(I18n.get("统计天数只支持 1 到 {0} 天。请改到这个范围里再查", TrackConstants.ANALYSIS_DAYS_MAX));
 		}
 		return days;
+	}
+
+	/** 页面排行的类型：缺省是访问最多；不认识的值说明有哪几种可以选 */
+	private String assertPagesType(String type) {
+		if (type == null || type.isBlank()) {
+			return TrackConstants.PAGES_TYPE_TOP;
+		}
+		if (TrackConstants.PAGES_TYPE_TOP.equals(type) || TrackConstants.PAGES_TYPE_ENTRY.equals(type)
+			|| TrackConstants.PAGES_TYPE_EXIT.equals(type)) {
+			return type;
+		}
+		throw new ServiceException("页面排行的类型不对。请从访问最多、入口页或退出页里重新选择");
+	}
+
+	/** 入口页、退出页的统计天数：缺省 7 天；须在 1..{@value TrackConstants#PAGES_EDGE_DAYS_MAX}，否则说明重新选择 */
+	private int assertEdgeDays(Integer days) {
+		if (days == null) {
+			return 7;
+		}
+		if (days < 1 || days > TrackConstants.PAGES_EDGE_DAYS_MAX) {
+			throw new ServiceException(I18n.get("统计天数只支持 1 到 {0} 天。请从今天、近 7 天或近 30 天里重新选择",
+				TrackConstants.PAGES_EDGE_DAYS_MAX));
+		}
+		return days;
+	}
+
+	/** 比率：0 到 1 的小数，保留 4 位；分母是 0 时返回 0 */
+	private double ratio(long part, long whole) {
+		return whole == 0 ? 0.0 : Math.round(part * 10000.0 / whole) / 10000.0;
 	}
 
 	private long clampPageSize(long pageSize) {
