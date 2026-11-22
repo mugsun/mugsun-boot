@@ -93,6 +93,7 @@ insert / update 前调用实体的 `sanitizeForInsert()` / `sanitizeForUpdate()`
 | 权限注解 | `@SaCheckPermission("sys:role:list")` 等 |
 | 数据权限 | `@DataScope` + `DataScopeTables.register` |
 | 租户切换 / 忽略 | `TenantContext.execute` / `ignore` |
+| 分布式锁 | `@DistributedLock` / `LockTemplate`（core 的 `mugsun-starter-lock`）。不要再手写 `setIfAbsent` 加脚本；锁名不带 `mugsun:`，前缀由 `mugsun.lock.key-prefix` 加 |
 | 代码生成 | `com.mugsun.boot.gen`（`GenController`、`GenNaming` 等） |
 | 本地密钥示例 | `config/application-local.yml.example`（勿提交真实密钥） |
 | 可选模块说明 | `docs/可选模块装配.md` |

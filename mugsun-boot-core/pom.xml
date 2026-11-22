@@ -25,6 +25,10 @@
 			<artifactId>mugsun-starter-mybatis</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>com.mugsun</groupId>
+			<artifactId>mugsun-starter-lock</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>com.mybatis-flex</groupId>
 			<artifactId>mybatis-flex-codegen</artifactId>
 		</dependency>

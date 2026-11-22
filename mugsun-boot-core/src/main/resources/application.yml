@@ -231,6 +231,8 @@ mugsun:
     sm2-public-key: ${MUGSUN_SM2_PUBLIC_KEY:}       # SM2 传输公钥 hex（04+128）
     sign-private-key: ${MUGSUN_SIGN_PRIVATE_KEY:}   # 审计签名 SM2 私钥（可选）：没配自动生成到 audit-sign-sm2.key，与接口密钥分文件
     sign-public-key: ${MUGSUN_SIGN_PUBLIC_KEY:}     # 审计签名 SM2 公钥
+  lock:
+    key-prefix: "mugsun:"    # 锁在 Redis 里的键前缀，和本工程其它 Redis 键一样以 mugsun: 开头；改它要先停掉所有实例
   serial-number:
     provider: redis          # redis 自增（默认）/ db 行锁
   websocket:

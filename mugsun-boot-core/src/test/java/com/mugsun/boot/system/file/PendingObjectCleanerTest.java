@@ -1,5 +1,7 @@
 package com.mugsun.boot.system.file;
 
+import com.mugsun.core.lock.client.LocalLockClient;
+import com.mugsun.core.lock.template.LockTemplate;
 import org.dromara.x.file.storage.core.FileInfo;
 import org.dromara.x.file.storage.core.FileStorageService;
 import org.dromara.x.file.storage.core.platform.FileStorage;
@@ -25,6 +27,7 @@ class PendingObjectCleanerTest {
 	private final FileStorage storage = mock(FileStorage.class);
 	private final com.mugsun.boot.system.mapper.SysAttachMapper attachMapper =
 		mock(com.mugsun.boot.system.mapper.SysAttachMapper.class);
+	private final LockTemplate locks = new LockTemplate(new LocalLockClient());
 
 	@SuppressWarnings("unchecked")
 	PendingObjectCleanerTest() {
@@ -44,7 +47,7 @@ class PendingObjectCleanerTest {
 	@Test
 	void failedDeleteIsQueuedAndRetriedUntilItSucceeds() {
 		when(storage.delete(any())).thenThrow(new RuntimeException("down"));
-		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 		c.deleteOrEnqueue(obj());
 		assertThat(queue).hasSize(1);
 		assertThat(c.drain()).isZero();
@@ -59,7 +62,7 @@ class PendingObjectCleanerTest {
 	@Test
 	void givesUpAfterMaxAttempts() {
 		when(storage.delete(any())).thenThrow(new RuntimeException("down"));
-		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 		c.enqueue(obj(), PendingObjectCleaner.MAX_ATTEMPTS - 1);
 		c.drain();
 		assertThat(queue).isEmpty();
@@ -68,7 +71,7 @@ class PendingObjectCleanerTest {
 	@Test
 	void delayedItemWaitsUntilNotBefore() {
 		when(storage.delete(any())).thenReturn(true);
-		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 		c.enqueueAfter(obj(), System.currentTimeMillis() + 60_000);
 		assertThat(c.drain()).isZero();
 		assertThat(queue).hasSize(1).first().asString().contains("\"attempts\":0");
@@ -79,16 +82,10 @@ class PendingObjectCleanerTest {
 	}
 
 	@Test
-	void unlockScriptComparesTokenBeforeDelete() {
-		assertThat(PendingObjectCleaner.UNLOCK.getScriptAsString())
-			.contains("redis.call('get', KEYS[1]) == ARGV[1]").contains("redis.call('del', KEYS[1])");
-	}
-
-	@Test
 	void registeredKeyIsNeverDeletedAndItemDropped() {
 		when(attachMapper.selectCountByQuery(any(com.mybatisflex.core.query.QueryWrapper.class))).thenReturn(1L);
 		when(storage.delete(any())).thenReturn(true);
-		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 		FileInfo fresh = new FileInfo().setPlatform("minio-1").setPath("private/")
 			.setFilename("0123456789abcdef0123456789abcdef.png");
 		c.deleteOrEnqueue(fresh, true);
@@ -102,7 +99,7 @@ class PendingObjectCleanerTest {
 	@Test
 	void keyOutsideStagingAndNotFreshIsNeverDeleted() {
 		when(storage.delete(any())).thenReturn(true);
-		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 		FileInfo published = new FileInfo().setPlatform("minio-1").setPath("public/")
 			.setFilename("0123456789abcdef0123456789abcdef.png");
 		FileInfo freshButOddName = new FileInfo().setPlatform("minio-1").setPath("private/").setFilename("report.pdf");
@@ -124,7 +121,7 @@ class PendingObjectCleanerTest {
 	void registryLookupFailureKeepsItemForRetry() {
 		when(attachMapper.selectCountByQuery(any(com.mybatisflex.core.query.QueryWrapper.class)))
 			.thenThrow(new RuntimeException("db down"));
-		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 		c.deleteOrEnqueue(obj());
 		org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).delete(any());
 		assertThat(queue).hasSize(1);
@@ -134,7 +131,7 @@ class PendingObjectCleanerTest {
 	void drainRequeuesRegistryFailureWithoutCountingAttempt() {
 		when(attachMapper.selectCountByQuery(any(com.mybatisflex.core.query.QueryWrapper.class)))
 			.thenThrow(new RuntimeException("db down"));
-		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 		c.enqueue(obj(), 3);
 		assertThat(c.drain()).isZero();
 		assertThat(queue).hasSize(1).first().asString().contains("\"attempts\":3");
@@ -155,7 +152,7 @@ class PendingObjectCleanerTest {
 		app.start();
 		lg.addAppender(app);
 		try {
-			PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+			PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 			c.enqueue(obj(), 2);
 			c.drain();
 			assertThat(queue).hasSize(1).first().asString().contains("\"unknownRounds\":1");
@@ -186,7 +183,7 @@ class PendingObjectCleanerTest {
 		app.start();
 		lg.addAppender(app);
 		try {
-			PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+			PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 			for (int i = 0; i < 8; i++) {
 				c.enqueue(new FileInfo().setPlatform("minio-1").setPath("tmp/").setFilename("f" + i + ".png"),
 					0, 0L, false, PendingObjectCleaner.MAX_UNKNOWN_ROUNDS);
@@ -212,7 +209,7 @@ class PendingObjectCleanerTest {
 	@Test
 	void delayedFreshItemIsCheckedAgainstRegistryBeforeDelete() {
 		when(storage.delete(any())).thenReturn(true);
-		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper);
+		PendingObjectCleaner c = new PendingObjectCleaner(redis, fss, attachMapper, locks);
 		FileInfo fresh = new FileInfo().setPlatform("minio-1").setPath("private/")
 			.setFilename("0123456789abcdef0123456789abcdef.png");
 		c.enqueueFreshAfter(fresh, System.currentTimeMillis() + 60_000);

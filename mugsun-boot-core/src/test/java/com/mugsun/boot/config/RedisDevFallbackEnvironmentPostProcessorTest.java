@@ -27,6 +27,7 @@ class RedisDevFallbackEnvironmentPostProcessorTest {
 		assertThat(env.getProperty("mugsun.websocket.sender-type")).isEqualTo("local");
 		assertThat(env.getProperty("mugsun.serial-number.provider")).isEqualTo("db");
 		assertThat(env.getProperty("mugsun.login-lock.store")).isEqualTo("memory");
+		assertThat(env.getProperty("mugsun.lock.type")).isEqualTo("local");
 		assertThat(env.getProperty("jetcache.remote.default.type")).isEqualTo("mock");
 	}
 

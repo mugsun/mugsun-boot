@@ -248,18 +248,21 @@ public interface TrackConstants {
 	/** 游标任务键：Web Vitals 直方图 rollup（日粒度窗口） */
 	String CURSOR_JOB_STATS_VITALS = "stats_vitals";
 
-	/** Redis 调度锁键：5 分钟 rollup */
-	String LOCK_STATS_5M = REDIS_PREFIX + "lock:stats-5m";
-	/** Redis 调度锁键：天级 rollup */
-	String LOCK_STATS_DAY = REDIS_PREFIX + "lock:stats-day";
-	/** Redis 调度锁键：vitals rollup */
-	String LOCK_STATS_VITALS = REDIS_PREFIX + "lock:stats-vitals";
-	/** Redis 调度锁键：会话结算 */
-	String LOCK_SESSION_SETTLE = REDIS_PREFIX + "lock:session-settle";
-	/** Redis 调度锁键：分区维护 */
-	String LOCK_PARTITION = REDIS_PREFIX + "lock:partition";
-	/** 调度锁 TTL（秒）：防持锁节点宕机死锁；正常一轮执行远短于此 */
-	long JOB_LOCK_SECONDS = 600L;
+	/**
+	 * 调度锁的锁名前缀（交给 {@code LockTemplate}）。Redis 里的键是 mugsun.lock.key-prefix 加锁名，
+	 * 默认就是 {@link #REDIS_PREFIX}lock:xxx，和埋点域其它键在同一个前缀下。
+	 */
+	String LOCK_NAME_PREFIX = "track:lock:";
+	/** 调度锁名：5 分钟 rollup */
+	String LOCK_STATS_5M = LOCK_NAME_PREFIX + "stats-5m";
+	/** 调度锁名：天级 rollup */
+	String LOCK_STATS_DAY = LOCK_NAME_PREFIX + "stats-day";
+	/** 调度锁名：vitals rollup */
+	String LOCK_STATS_VITALS = LOCK_NAME_PREFIX + "stats-vitals";
+	/** 调度锁名：会话结算 */
+	String LOCK_SESSION_SETTLE = LOCK_NAME_PREFIX + "session-settle";
+	/** 调度锁名：分区维护 */
+	String LOCK_PARTITION = LOCK_NAME_PREFIX + "partition";
 
 	/** rollup 调度 tick（毫秒）：1 分钟探一次；内存节流（{@link #ROLLUP_TICK_MS}）控制实际执行频率 */
 	long ROLLUP_SCHED_TICK_MS = 60000L;
@@ -368,8 +371,8 @@ public interface TrackConstants {
 	/** app_key/session_id 对象键路径安全字符集（防路径穿越注入对象键） */
 	java.util.regex.Pattern REPLAY_PATH_SAFE = java.util.regex.Pattern.compile("^[A-Za-z0-9_-]+$");
 
-	/** Redis 调度锁键：回放保留期清理 */
-	String LOCK_REPLAY_CLEAN = REDIS_PREFIX + "lock:replay-clean";
+	/** 调度锁名：回放保留期清理 */
+	String LOCK_REPLAY_CLEAN = LOCK_NAME_PREFIX + "replay-clean";
 	/** 回放清理调度 tick（毫秒）：每小时探一次，内存节流每日一轮（同分区维护范式） */
 	long REPLAY_CLEAN_TICK_MS = 3600000L;
 	/** 回放清理单轮处理上限（行）；超出逐轮消化 */
@@ -492,8 +495,8 @@ public interface TrackConstants {
 	/** 时间线分页条数上限（行含 props 原文，钳制严于通用分页上限） */
 	int TIMELINE_PAGE_SIZE_MAX = 100;
 
-	/** Redis 调度锁键：响应体保留期清理 */
-	String LOCK_API_BODY_CLEAN = REDIS_PREFIX + "lock:api-body-clean";
+	/** 调度锁名：响应体保留期清理 */
+	String LOCK_API_BODY_CLEAN = LOCK_NAME_PREFIX + "api-body-clean";
 	/** 响应体清理调度 tick（毫秒）：每小时探一次，内存节流每日一轮（同回放清理范式） */
 	long API_BODY_CLEAN_TICK_MS = 3600000L;
 	/** 响应体清理单轮处理上限（行）；超出逐轮消化 */
@@ -589,8 +592,8 @@ public interface TrackConstants {
 	/** 事件定义本地缓存 TTL（毫秒）：摄入侧停用拒收判定用；多副本各自缓存无广播，管理端变更经 evict 即时生效（同 TrackAppService 口径） */
 	long EVENT_DEF_CACHE_TTL_MS = 30000L;
 
-	/** Redis 调度锁键：事件明细保留清理 */
-	String LOCK_EVENT_CLEAN = REDIS_PREFIX + "lock:event-clean";
+	/** 调度锁名：事件明细保留清理 */
+	String LOCK_EVENT_CLEAN = LOCK_NAME_PREFIX + "event-clean";
 	/** 事件明细清理调度 tick（毫秒）：每小时探一次，内存节流每日一轮（同回放/响应体清理范式） */
 	long EVENT_CLEAN_TICK_MS = 3600000L;
 	/** 事件明细清理单批删除行数（按 id+received_at 分批；超出逐轮消化） */

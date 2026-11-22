@@ -45,6 +45,17 @@
 
 ### 变更
 
+- 分布式锁改用 mugsun-core 的 `mugsun-starter-lock`，不再各处手写
+  - 换掉 6 处：租户配额、通知重试、日志清理、文件待清理、流程发起、埋点调度
+  - Redis 里的键名不变（`mugsun.lock.key-prefix` 默认 `mugsun:`），可以滚动升级
+  - 锁在执行期间自动续期，不再有「跑得比锁的有效期长，锁先过期」的情况
+  - 进程崩溃后锁在 30 秒内放开，原来要等 10 秒到 10 分钟不等
+  - 开发态连不上 Redis 时锁也降级成单机锁：发起流程、给租户建账号不再报错
+  - 埋点 UV 回填任务保留自己的锁：它每处理完一段都要当场确认锁还在
+  - 常量 `RETRY_LOCK_KEY`、`CLEAN_LOCK_KEY` 改名 `*_LOCK_NAME`，值去掉 `mugsun:`
+  - `TrackConstants.LOCK_*` 的值同样去掉 `mugsun:`，现在是锁名不是完整的键
+  - 删除常量 `RETRY_LOCK_SECONDS`、`CLEAN_LOCK_SECONDS`、`JOB_LOCK_SECONDS`
+  - 新增常量 `NotifyConstants.RETRY_ROUND_BUDGET_MS`：通知重试一轮最多跑 100 秒
 - 手机端「我是谁」分成单独的一个类，微服务版据此把登录拆成单独的服务
   - 新增 `AppUserReader`：读当前用户的编号、账号、显示名，只查用户表
   - `/app/auth/me` 和手机端首页都改成用它，`AppHomeService` 不再直接查用户表

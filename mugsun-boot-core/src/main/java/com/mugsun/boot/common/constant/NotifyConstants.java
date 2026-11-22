@@ -38,10 +38,10 @@ public interface NotifyConstants {
 	/** 调度 tick（固定 15s 触发一次，实际扫描按 notify.retry.scan-interval-ms 节流） */
 	long RETRY_SCHEDULE_TICK_MS = 15000L;
 
-	/** 重试扫描分布式锁键（Redis SETNX，集群仅一节点执行扫描） */
-	String RETRY_LOCK_KEY = "mugsun:notify:retry-lock";
-	/** 锁持有上限（秒），防持锁节点宕机死锁 */
-	long RETRY_LOCK_SECONDS = 300L;
+	/** 重试扫描的锁名（集群仅一节点执行扫描）。Redis 里的键是 mugsun.lock.key-prefix 加它，默认 mugsun:notify:retry-lock */
+	String RETRY_LOCK_NAME = "notify:retry-lock";
+	/** 一轮扫描最多跑多久（毫秒），到点收手，剩下的留给下一轮 */
+	long RETRY_ROUND_BUDGET_MS = 100000L;
 	/** 单次扫描最大处理条数，防积压拖垮单轮 */
 	int RETRY_SCAN_BATCH_SIZE = 100;
 

@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mugsun.boot.common.constant.OssConstants;
 import com.mugsun.boot.system.mapper.SysAttachMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.lock.template.LockHandle;
+import com.mugsun.core.lock.template.LockTemplate;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.dromara.x.file.storage.core.FileInfo;
 import org.dromara.x.file.storage.core.FileStorageService;
@@ -15,10 +17,9 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
+import java.util.Optional;
 
 /**
  * 存储对象待清理队列：直传回验失败、搬到新 key 后的旧 key，删不掉时先记进 Redis 列表，
@@ -30,14 +31,15 @@ import java.util.UUID;
  * {@code fresh} 且文件名是服务端随机名的；两类都必须没有在 sys_attach 登记。已登记的对象一律不删，
  * 打告警并丢弃该队列项；查登记表出错时不删，原样放回且不计失败次数；连续查不了超过
  * {@value #MAX_UNKNOWN_ROUNDS} 轮（约 1 天）打一次 error 日志，仍然不删。
- * <p>集群下用 Redis SETNX 锁保证同一时刻只有一个节点在扫；释放锁用 Lua 先比较 token 再删。
+ * <p>集群下用分布式锁（{@link LockTemplate}）保证同一时刻只有一个节点在扫。
  */
 @Component
 public class PendingObjectCleaner {
 
 	private static final Logger log = LoggerFactory.getLogger(PendingObjectCleaner.class);
 	public static final String QUEUE_KEY = "mugsun:oss:pending-delete";
-	private static final String LOCK_KEY = "mugsun:oss:pending-delete:lock";
+	/** 锁名。Redis 里的键是 mugsun.lock.key-prefix 加它，默认 mugsun:oss:pending-delete:lock */
+	private static final String LOCK_NAME = "oss:pending-delete:lock";
 	static final int MAX_ATTEMPTS = 20;
 	/** 查登记表连续失败的告警轮数：144 轮 × 10 分钟 ≈ 1 天 */
 	static final int MAX_UNKNOWN_ROUNDS = 144;
@@ -47,21 +49,18 @@ public class PendingObjectCleaner {
 	private final StringRedisTemplate redis;
 	private final FileStorageService fileStorageService;
 	private final SysAttachMapper attachMapper;
+	private final LockTemplate lockTemplate;
 	private final ObjectMapper om = new ObjectMapper();
 	/** 服务端随机存储名：UploadPolicy.storedName 生成的 32 位十六进制 + 扩展名 */
 	static final java.util.regex.Pattern RANDOM_NAME = java.util.regex.Pattern.compile("[0-9a-f]{32}\\.[a-z0-9]{1,8}");
-	/** 先比较 token 再删，避免锁过期后误删别的节点刚拿到的锁 */
-	static final org.springframework.data.redis.core.script.RedisScript<Long> UNLOCK =
-		new org.springframework.data.redis.core.script.DefaultRedisScript<>(
-			"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-			Long.class);
 	private static final long LOCAL_STAGING_TTL_MS = 24L * 3600 * 1000;
 
 	public PendingObjectCleaner(StringRedisTemplate redis, FileStorageService fileStorageService,
-								SysAttachMapper attachMapper) {
+								SysAttachMapper attachMapper, LockTemplate lockTemplate) {
 		this.redis = redis;
 		this.fileStorageService = fileStorageService;
 		this.attachMapper = attachMapper;
+		this.lockTemplate = lockTemplate;
 	}
 
 	/** 暂存 key：立即删一次，失败就入队，不向调用方抛错 */
@@ -161,21 +160,19 @@ public class PendingObjectCleaner {
 
 	@Scheduled(fixedDelay = 600_000L, initialDelay = 60_000L)
 	public void sweep() {
-		String token = UUID.randomUUID().toString();
-		Boolean locked;
+		Optional<LockHandle> lock;
 		try {
-			locked = redis.opsForValue().setIfAbsent(LOCK_KEY, token, Duration.ofMinutes(5));
-		} catch (Exception e) {
+			lock = lockTemplate.tryLock(LOCK_NAME);
+		} catch (RuntimeException e) {
+			// Redis 连不上：队列也读不了，这一轮不扫
 			return;
 		}
-		if (!Boolean.TRUE.equals(locked)) {
+		if (lock.isEmpty()) {
 			return;
 		}
-		try {
+		try (LockHandle ignored = lock.get()) {
 			drain();
 			sweepLocalStaging();
-		} finally {
-			redis.execute(UNLOCK, List.of(LOCK_KEY), token);
 		}
 	}
 

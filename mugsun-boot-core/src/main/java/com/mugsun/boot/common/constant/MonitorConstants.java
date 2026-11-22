@@ -77,10 +77,8 @@ public interface MonitorConstants {
 	long CLEAN_TICK_MS = 3600000L;
 	/** 清理节流间隔（默认 24h，本节点内存节流 + 分布式锁兜底） */
 	long CLEAN_INTERVAL_MS = 86400000L;
-	/** 清理分布式锁键（Redis SETNX，集群仅一节点执行） */
-	String CLEAN_LOCK_KEY = "mugsun:monitor:log-clean-lock";
-	/** 锁持有上限（秒） */
-	long CLEAN_LOCK_SECONDS = 600L;
+	/** 清理的锁名（集群仅一节点执行）。Redis 里的键是 mugsun.lock.key-prefix 加它，默认 mugsun:monitor:log-clean-lock */
+	String CLEAN_LOCK_NAME = "monitor:log-clean-lock";
 
 	/** 在线终端扩展数据键：登录 IP / 登录 UA（SaLoginParameter.terminalExtra → SaTerminalInfo） */
 	String TERMINAL_EXTRA_IP = "loginIp";

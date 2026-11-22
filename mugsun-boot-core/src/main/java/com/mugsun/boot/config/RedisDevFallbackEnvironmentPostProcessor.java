@@ -17,7 +17,7 @@ import java.util.Map;
 
 /**
  * 开发态缺 Redis 时的约定降级：显式 active 为非生产（见 {@link DeployProfiles}）且探测不到 Redis 时，
- * 把会话、验证码、WebSocket 扇出、单号、登录锁与 JetCache remote 切到进程内实现，并打 WARN。
+ * 把会话、验证码、WebSocket 扇出、单号、登录锁、分布式锁与 JetCache remote 切到进程内实现，并打 WARN。
  * <p>生产不降级（保持原行为，缺 Redis 仍会在启动或首用时失败）。
  * {@code mugsun.redis.mode=redis} 强制不降级；{@code fallback} 在非生产强制降级（不探测）。
  * <p>生产判定与 {@link com.mugsun.boot.auth.lock.LoginLockStoreConfig}/{@link SaTokenMemorySessionConfig} 共用
@@ -70,6 +70,7 @@ public class RedisDevFallbackEnvironmentPostProcessor implements EnvironmentPost
 		map.put("mugsun.serial-number.provider", "db");
 		map.put("mugsun.login-lock.store", "memory");
 		map.put("mugsun.session.store", "memory");
+		map.put("mugsun.lock.type", "local");
 		map.put("jetcache.remote.default.type", "mock");
 		map.put(APPLIED_KEY, "true");
 		// 插在 systemEnvironment 之后：覆盖 application.yml 缺省，但不压过命令行 / 系统属性 / 环境变量。
@@ -78,7 +79,7 @@ public class RedisDevFallbackEnvironmentPostProcessor implements EnvironmentPost
 		String host = env.getProperty("spring.data.redis.host", "localhost");
 		String port = env.getProperty("spring.data.redis.port", "6379");
 		log.warn("开发态未连上 Redis（" + host + ":" + port
-			+ "），已降级：Sa-Token/验证码/登录锁=memory，WebSocket=local，单号=db，JetCache remote=mock。"
+			+ "），已降级：Sa-Token/验证码/登录锁=memory，WebSocket=local，单号=db，分布式锁=local，JetCache remote=mock。"
 			+ "生产请提供 Redis；强制 Redis 可设 mugsun.redis.mode=redis");
 	}
 

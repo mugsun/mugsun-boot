@@ -204,6 +204,8 @@ public abstract class AbstractIntegrationTest {
 			() -> new java.io.File("target/it-files/").getAbsolutePath() + "/");
 		// Redis 容器就绪，推送扇出保持 redis 模式
 		registry.add("mugsun.websocket.sender-type", () -> "redis");
+		// 同上，分布式锁保持 redis 模式：容器端口是随机的，开发态降级探测的是默认端口，会误判成没有 Redis 而改用单机锁
+		registry.add("mugsun.lock.type", () -> "redis");
 		// application.yml 的 SMTP 为占位符，邮件健康检查必然 DOWN 拖垮聚合 503；测试环境关闭该指标
 		registry.add("management.health.mail.enabled", () -> "false");
 		PROPERTY_OVERRIDES.forEach(registry::add);

@@ -7,6 +7,8 @@ import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.RuntimeSql;
 import com.mugsun.boot.system.mapper.SysUserMapper;
+import com.mugsun.core.lock.template.LockHandle;
+import com.mugsun.core.lock.template.LockTemplate;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.row.Db;
 import com.mybatisflex.core.row.Row;
@@ -17,12 +19,9 @@ import org.dromara.warm.flow.core.entity.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -46,16 +45,16 @@ public class FlowService {
 	/** 抄送用户类型（warm-flow 引擎不识别，仅应用层读写；引擎办理人为 1/2/3） */
 	private static final String USER_TYPE_COPY = "C";
 
-	private static final String START_LOCK_PREFIX = "mugsun:flow:start:";
-	/** 发起请求要同步跑完后面的自动节点，AI 预审一个节点最长等 5 分钟；锁留得比它长，请求结束时会主动释放 */
-	private static final Duration START_LOCK_TTL = Duration.ofMinutes(10);
-	private static final String RELEASE_LOCK =
-		"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+	/**
+	 * 发起占位的锁名前缀。Redis 里的键是 mugsun.lock.key-prefix 加它，默认 mugsun:flow:start:。
+	 * 发起请求要同步跑完后面的自动节点，AI 预审一个节点最长等 5 分钟：锁在请求跑的期间自动续期，请求结束时释放。
+	 */
+	private static final String START_LOCK_PREFIX = "flow:start:";
 
 	private final HandlerSelectService selectService;
 	private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 	private final SysUserMapper userMapper;
-	private final StringRedisTemplate redis;
+	private final LockTemplate lockTemplate;
 
 	/**
 	 * 金仓：裸名 {@code sys_*} 会命中 SYS_CATALOG，裸 SQL 须 schema 限定业务表。
@@ -64,11 +63,11 @@ public class FlowService {
 	private String defaultDbSchema;
 
 	public FlowService(HandlerSelectService selectService, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-			SysUserMapper userMapper, StringRedisTemplate redis) {
+			SysUserMapper userMapper, LockTemplate lockTemplate) {
 		this.selectService = selectService;
 		this.objectMapper = objectMapper;
 		this.userMapper = userMapper;
-		this.redis = redis;
+		this.lockTemplate = lockTemplate;
 	}
 
 	/** 业务表名（可带 default-schema；金仓裸 sys_* 会进 SYS_CATALOG） */
@@ -566,16 +565,10 @@ public class FlowService {
 	 */
 	public <T> T startLocked(String flowCode, String businessId, Supplier<T> action) {
 		String tenant = starterTenant();
-		String key = START_LOCK_PREFIX + (tenant == null ? "-" : tenant) + ":" + flowCode + ":" + businessId;
-		String token = IdUtil.fastSimpleUUID();
-		Boolean acquired = redis.opsForValue().setIfAbsent(key, token, START_LOCK_TTL);
-		if (!Boolean.TRUE.equals(acquired)) {
-			throw new ServiceException("这张单子正在发起，还没有处理完。请不要重复提交，稍后到审批中心的我发起里查看");
-		}
-		try {
+		String name = START_LOCK_PREFIX + (tenant == null ? "-" : tenant) + ":" + flowCode + ":" + businessId;
+		try (LockHandle ignored = lockTemplate.tryLock(name).orElseThrow(() ->
+			new ServiceException("这张单子正在发起，还没有处理完。请不要重复提交，稍后到审批中心的我发起里查看"))) {
 			return action.get();
-		} finally {
-			redis.execute(new DefaultRedisScript<>(RELEASE_LOCK, Long.class), List.of(key), token);
 		}
 	}
 

@@ -6,6 +6,8 @@ import com.mugsun.boot.system.mapper.SysTenantMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.tenant.entity.SysTenantPackage;
 import com.mugsun.boot.tenant.mapper.SysTenantPackageMapper;
+import com.mugsun.core.lock.template.LockHandle;
+import com.mugsun.core.lock.template.LockTemplate;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Service;
@@ -36,17 +38,17 @@ public class TenantValidator {
 	private final SysTenantMapper tenantMapper;
 	private final SysTenantPackageMapper packageMapper;
 	private final SysUserMapper userMapper;
-	private final org.springframework.data.redis.core.StringRedisTemplate redis;
+	private final LockTemplate lockTemplate;
 
 	private final Map<String, Cached<SysTenant>> tenantCache = new ConcurrentHashMap<>();
 	private final Map<Long, Cached<Set<String>>> packageCache = new ConcurrentHashMap<>();
 
 	public TenantValidator(SysTenantMapper tenantMapper, SysTenantPackageMapper packageMapper, SysUserMapper userMapper,
-						   org.springframework.data.redis.core.StringRedisTemplate redis) {
+						   LockTemplate lockTemplate) {
 		this.tenantMapper = tenantMapper;
 		this.packageMapper = packageMapper;
 		this.userMapper = userMapper;
-		this.redis = redis;
+		this.lockTemplate = lockTemplate;
 	}
 
 	/** 按编号加载租户（sys_tenant 无 tenant_id，忽略隔离；登录前无会话亦可查）。本地缓存 60s，不缓存 null。 */
@@ -142,25 +144,16 @@ public class TenantValidator {
 	}
 
 	/**
-	 * 租户级互斥执行（Redis SETNX 锁，集群安全）：配额「检查+插入」等读-改-写序列在同一锁内串行，
-	 * 杜绝并发 TOCTOU 超额。平台租户无需锁直接执行。
+	 * 租户级互斥执行（分布式锁，集群安全）：配额「检查+插入」等读-改-写序列在同一锁内串行，
+	 * 杜绝并发 TOCTOU 超额。平台租户无需锁直接执行。抢不到不等，直接拒绝。
 	 */
 	public <T> T quotaLocked(String code, java.util.function.Supplier<T> action) {
 		if (code == null || TenantConstants.DEFAULT_TENANT_ID.equals(code)) {
 			return action.get();
 		}
-		String key = "mugsun:quota:lock:" + code;
-		String token = cn.hutool.core.util.IdUtil.fastSimpleUUID();
-		Boolean acquired = redis.opsForValue().setIfAbsent(key, token, java.time.Duration.ofSeconds(10));
-		if (!Boolean.TRUE.equals(acquired)) {
-			throw new ServiceException("该租户正在创建账号，请稍后重试");
-		}
-		try {
+		try (LockHandle ignored = lockTemplate.tryLock("quota:lock:" + code)
+			.orElseThrow(() -> new ServiceException("该租户正在创建账号，请稍后重试"))) {
 			return action.get();
-		} finally {
-			String script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
-			redis.execute(new org.springframework.data.redis.core.script.DefaultRedisScript<>(script, Long.class),
-				java.util.List.of(key), token);
 		}
 	}
 
