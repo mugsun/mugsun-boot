@@ -195,7 +195,7 @@ flowchart LR
 
 Data access uses MyBatis-Flex, authentication uses Sa-Token and caching uses JetCache.
 
-The AI module does not pull in Spring AI; it makes model calls and vector searches itself.
+The AI module ships Spring AI's model interfaces and chat client: inject `ChatClient.Builder` in your code to call the models configured on the Models page, with no extra configuration. See [docs/Spring-AI接入.md](./docs/Spring-AI接入.md) (in Chinese). The platform's own chat, knowledge bases and vector search are still implemented by the module itself.
 
 ## Current limits
 

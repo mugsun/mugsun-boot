@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# B89-0：证明根 pom 的 maven-enforcer bannedDependencies 规则确实会拦下 Spring AI 与 MCP SDK。
+# B89-0：证明根 pom 的 maven-enforcer bannedDependencies 规则确实会拦下 MCP SDK 和放行清单以外的 Spring AI 包，
+# 放行的四个基础包（模型接口、对话客户端，和它们带的两个公共包）能过。
 # 在 target/enforcer-probe/ 下生成几个继承根 pom 的探针工程，各自只加一个依赖，跑 validate：
 #   - 对照组（无禁用依赖）必须通过，证明探针本身能构建；
-#   - 直接依赖 org.springframework.ai / io.modelcontextprotocol.sdk 必须失败，且输出里有规则的提示语；
-#   - Spring AI 的 MCP Server starter（B89-0 的来源）失败；只引入 MCP SDK 的 json 子包也失败（组名通配）；
+#   - 放行的对话客户端（它会带进另外三个放行的包）必须通过；
+#   - 清单以外的 Spring AI 包必须失败，且输出里有规则的提示语：某一家模型的接入包、自动装配包、
+#     MCP Server starter（B89-0 的来源）；
+#   - 直接依赖 io.modelcontextprotocol.sdk 失败；只引入 MCP SDK 的 json 子包也失败（组名通配）；
 #   - B89-2 纯传递依赖：包装模块自己设 enforcer.skip 并依赖 mcp-json，使用方模块只依赖包装模块，使用方的构建必须失败。
 # 探针工程都生成在 target/ 下，不进仓库，也不在 B89-3 守卫（NoEnforcerSkipGuardTest）扫描的范围内。
 # 额外的 Maven 参数原样传下去，例如：scripts/check-banned-dependencies.sh -s .empty-settings.xml -Dmaven.repo.local=$PWD/.m2repo
@@ -44,9 +47,9 @@ POM
 	local code=$?
 	if [ "$expect" = pass ]; then
 		if [ $code -eq 0 ]; then
-			echo "OK   ${name}：通过（对照组）"
+			echo "OK   ${name}：通过"
 		else
-			echo "FAIL ${name}：对照组应通过，实际退出码 ${code}"; tail -40 "$log"; failures=$((failures + 1))
+			echo "FAIL ${name}：应通过，实际退出码 ${code}"; tail -40 "$log"; failures=$((failures + 1))
 		fi
 	else
 		if [ $code -ne 0 ] && grep -q "$MARKER" "$log"; then
@@ -126,8 +129,13 @@ POM
 
 shift_args=("$@")
 probe control pass "" "${shift_args[@]}"
-probe spring-ai-direct fail "$(dep org.springframework.ai spring-ai-model 1.1.2 '<exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions>')" "${shift_args[@]}"
-probe spring-ai-mcp-server-starter fail "$(dep org.springframework.ai spring-ai-starter-mcp-server-webmvc 1.1.2)" "${shift_args[@]}"
+# Spring AI 的版本取根 pom 的 spring-ai.version（探针继承根 pom，这里原样写进去由 Maven 取值）
+SPRING_AI='${spring-ai.version}'
+NO_TRANSITIVE='<exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions>'
+probe spring-ai-allowed pass "$(dep org.springframework.ai spring-ai-client-chat "$SPRING_AI")" "${shift_args[@]}"
+probe spring-ai-openai fail "$(dep org.springframework.ai spring-ai-openai "$SPRING_AI" "$NO_TRANSITIVE")" "${shift_args[@]}"
+probe spring-ai-autoconfigure fail "$(dep org.springframework.ai spring-ai-autoconfigure-model-chat-client "$SPRING_AI" "$NO_TRANSITIVE")" "${shift_args[@]}"
+probe spring-ai-mcp-server-starter fail "$(dep org.springframework.ai spring-ai-starter-mcp-server-webmvc "$SPRING_AI")" "${shift_args[@]}"
 probe mcp-sdk fail "$(dep io.modelcontextprotocol.sdk mcp 0.17.0)" "${shift_args[@]}"
 probe mcp-json-only fail "$(dep io.modelcontextprotocol.sdk mcp-json 0.17.0)" "${shift_args[@]}"
 probe_transitive "${shift_args[@]}"

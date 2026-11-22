@@ -50,6 +50,9 @@
 		     在这里统一成一个版本，整包里只有一份。不能退回 1.21.1：它解析 svg 里的 script 时会把后面的标签吞掉
 		     （jsoup #2374，1.21.2 起修掉）。换版本后跑 RichTextSanitizerTest 和 AiDocumentTextExtractorTest -->
 		<jsoup.version>1.23.2</jsoup.version>
+		<!-- Spring AI 2.0.x 基于 Spring Boot 4.1（2.1.x 基于 4.2，升 Spring Boot 时再跟）。只用它的模型接口和对话客户端，
+		     能进来的包见下面 enforcer 规则的 includes -->
+		<spring-ai.version>2.0.3</spring-ai.version>
 	</properties>
 
 	<dependencyManagement>
@@ -87,6 +90,24 @@
 				<groupId>com.mugsun</groupId>
 				<artifactId>mugsun-boot-ai</artifactId>
 				<version>${project.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-model</artifactId>
+				<version>${spring-ai.version}</version>
+				<exclusions>
+					<!-- 这个注解包跟着 springdoc 走（swagger-core 带进来的版本）。不排除的话 Maven 会改用 Spring AI
+					     声明的旧版本，接口文档那边的注解包就被拉低了 -->
+					<exclusion>
+						<groupId>io.swagger.core.v3</groupId>
+						<artifactId>swagger-annotations-jakarta</artifactId>
+					</exclusion>
+				</exclusions>
+			</dependency>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-client-chat</artifactId>
+				<version>${spring-ai.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>org.locationtech.jts</groupId>
@@ -142,8 +163,11 @@
 				</configuration>
 			</plugin>
 			<!--
-				B89-0：内置 MCP Server 暂时下线（加鉴权后恢复），Spring AI 随之移出依赖。Spring AI 的 MCP Server 自动装配不走本项目的鉴权，
+				B89-0：内置 MCP Server 暂时下线（加鉴权后恢复）。Spring AI 的 MCP Server 自动装配不走本项目的鉴权，
 				只要 jar 回到 classpath、配置一开就是匿名可调的端点；这里在 validate 阶段禁止它们（含传递依赖）重新进来。
+				Spring AI 整组默认禁用，只放行 includes 里的四个基础包（模型接口、对话客户端和它俩依赖的公共包、模板包）：
+				它们不带自动装配、不开端点、不自己联网，模型请求仍由 AiLlmClient 经出站校验发出。MCP、自动装配、starter 和
+				各家模型的接入包（自带 HTTP 客户端，会绕过出站校验）仍然禁止；要加包先过安全评审，再改 includes。
 				触发验证见 scripts/check-banned-dependencies.sh（CI 每次都跑）。
 			-->
 			<plugin>
@@ -164,7 +188,14 @@
 										<exclude>org.springframework.ai</exclude>
 										<exclude>io.modelcontextprotocol*</exclude>
 									</excludes>
-									<message>B89-0：禁止引入 Spring AI（org.springframework.ai:*）与 MCP SDK（io.modelcontextprotocol*）。内置 MCP Server 暂时下线、正在加鉴权后恢复；恢复前不得引入，恢复时须连同鉴权方案一起过安全评审。</message>
+									<!-- 放行清单：只有这四个。SpringAiSurfaceGuardTest 会核对 classpath 上的 Spring AI 包和这里一致 -->
+									<includes>
+										<include>org.springframework.ai:spring-ai-model</include>
+										<include>org.springframework.ai:spring-ai-client-chat</include>
+										<include>org.springframework.ai:spring-ai-commons</include>
+										<include>org.springframework.ai:spring-ai-template-st</include>
+									</includes>
+									<message>B89-0：禁止引入 MCP SDK（io.modelcontextprotocol*）和放行清单以外的 Spring AI 包（MCP、自动装配、starter、各家模型的接入包）。内置 MCP Server 暂时下线、正在加鉴权后恢复；恢复前不得引入，恢复时须连同鉴权方案一起过安全评审。</message>
 								</bannedDependencies>
 							</rules>
 							<fail>true</fail>

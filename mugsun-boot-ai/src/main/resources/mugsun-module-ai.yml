@@ -10,3 +10,9 @@ mugsun:
     # kb:
     #   max-upload-bytes: 20971520
     #   max-segments-per-asset: 5000
+
+    # 业务代码用 Spring AI（注入 ChatClient.Builder）调模型时的超时，默认 5 分钟，不配也能用：
+    # 普通调用指整次请求，流式指前后两段内容之间最长等多久。模型的地址、密钥在「大模型配置」页面里配，
+    # 不在这里；这里的键不是 spring.ai.*，Spring AI 自己的那套配置在本项目里不起作用
+    # spring-ai:
+    #   timeout: 5m

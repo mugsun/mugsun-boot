@@ -199,7 +199,7 @@ flowchart LR
 
 数据访问用 MyBatis-Flex，鉴权用 Sa-Token，缓存用 JetCache。
 
-AI 模块没有引入 Spring AI，模型调用和向量检索由模块自己实现。
+AI 模块带了 Spring AI 的模型接口和对话客户端：业务代码注入 `ChatClient.Builder` 就能调「大模型配置」里配好的模型，不用另外配置，用法见 [docs/Spring-AI接入.md](./docs/Spring-AI接入.md)。平台自己的对话、知识库和向量检索仍由模块自己实现。
 
 ## 目前的限制
 

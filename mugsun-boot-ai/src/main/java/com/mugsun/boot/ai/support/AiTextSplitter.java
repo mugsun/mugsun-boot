@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 
 /**
  * 知识库分段：对齐开源常见策略（定长 / 换行 / 符号 / Markdown 标题 / 段落）。
- * 不引入 Spring AI TokenTextSplitter 依赖链，行为可测、无外部模型。
+ * 分段规则自己实现，没有用 Spring AI 的 TokenTextSplitter：行为可测、无外部模型。
  * 每一段都不超过分段长度：按符号、换行、段落、标题切出来的块如果超长，再按定长切开。
  */
 public final class AiTextSplitter {

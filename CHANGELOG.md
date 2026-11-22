@@ -50,6 +50,26 @@
   - 各模块的 `*I18nBundleTest`：翻译文件里的原文必须还在本模块代码里，改了提示语忘改翻译会失败
   - 全套镜像里的 mugsun-core 钉到 a7456a7（占位里的数字不再自动加千分位）
 
+- AI 模块接入 Spring AI：业务代码注入 `ChatClient.Builder` 就能调模型
+  - 调的是「大模型配置」里配好的模型，按租户取，不用另外配地址和密钥
+  - 不指定模型用租户的默认对话模型；`options` 里写模型名称可以指定
+  - 支持工具调用（`@Tool`）、结构化结果、流式、图片附件；向量用
+    `EmbeddingModel`；思考过程和用量从返回结果里取
+  - 请求和平台自己的对话走同一个出站客户端，模型地址照样过出站校验
+  - 流式里工具在别的线程执行：租户带过去了，登录身份没带，
+    要用操作人时用 `toolContext` 传
+  - 只有一项配置 `mugsun.ai.spring-ai.timeout`（默认 5 分钟），不配也能用；
+    `spring.ai.*` 不起作用
+  - 只放行四个基础包（2.0.3）：`spring-ai-model`、`spring-ai-client-chat`
+    和它们依赖的 `spring-ai-commons`、`spring-ai-template-st`。其余
+    Spring AI 包和 MCP SDK 仍由 enforcer 规则拦下，内置 MCP Server 仍然下线
+  - 随之新增的第三方包：ST4、antlr-runtime、antlr4-runtime、jtokkit、
+    ethlo 的 itu、networknt 的 json-schema-validator、
+    victools 的 jsonschema-generator 和它的两个模块包
+  - `NoSpringAiGuardTest` 改名 `SpringAiSurfaceGuardTest`，改为核对放行清单；
+    `scripts/check-banned-dependencies.sh` 加了放行包和被拦包的探针
+  - 用法和注愎事项见 `docs/Spring-AI接入.md`
+
 - AiFlow foreach/parallel 控制节点（P0 契约落地）
   - `foreach`：数组串行迭代；maxIterations 20/100；timeout 120s/300s
   - 截断成功+truncated；禁嵌套；body 步硬顶 50；AI_* 错误码

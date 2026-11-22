@@ -43,6 +43,17 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webclient</artifactId>
 		</dependency>
+		<!-- Spring AI：只要模型接口（ChatModel、EmbeddingModel、工具调用）和对话客户端（ChatClient）。模型由本模块的
+		     MugsunChatModel 接到「大模型配置」，请求仍经 AiLlmClient 发出。不要加 starter、自动装配、MCP
+		     和各家模型的接入包：根 pom 的 enforcer 规则会拦（B89-0） -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-model</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-client-chat</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
