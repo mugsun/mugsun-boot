@@ -6,6 +6,7 @@ import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysDict;
 import com.mugsun.boot.system.mapper.SysDictMapper;
 import com.mugsun.boot.system.service.DictService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.core.tool.tree.TreeUtil;
@@ -191,7 +192,7 @@ public class SysDictController {
 			dup.ne("id", dict.getId());
 		}
 		if (dictMapper.selectCountByQuery(dup) > 0) {
-			throw new ServiceException("编码「" + code + "」下已经有键值「" + key + "」。请换一个键值");
+			throw new ServiceException(I18n.get("编码「{0}」下已经有键值「{1}」。请换一个键值", code, key));
 		}
 		if (dict.getId() == null) {
 			dict.sanitizeForInsert();
@@ -231,10 +232,10 @@ public class SysDictController {
 				continue;
 			}
 			if (dict.getIsSealed() != null && dict.getIsSealed() == 1) {
-				throw new ServiceException("「" + dict.getDictValue() + "」已封存。请先编辑并取消封存，再删除");
+				throw new ServiceException(I18n.get("「{0}」已封存。请先编辑并取消封存，再删除", dict.getDictValue()));
 			}
 			if (dictMapper.selectCountByQuery(QueryWrapper.create().eq("parent_id", id)) > 0) {
-				throw new ServiceException("「" + dict.getDictValue() + "」下面还有下级字典。请先删除下级，再删除这一级");
+				throw new ServiceException(I18n.get("「{0}」下面还有下级字典。请先删除下级，再删除这一级", dict.getDictValue()));
 			}
 			rows.add(dict);
 		}
@@ -261,7 +262,7 @@ public class SysDictController {
 			throw new ServiceException("上级字典不存在。请刷新后再选");
 		}
 		if (!dict.getCode().equals(parent.getCode())) {
-			throw new ServiceException("下级字典的编码要和上级「" + parent.getDictValue() + "」一致。请改成 " + parent.getCode());
+			throw new ServiceException(I18n.get("下级字典的编码要和上级「{0}」一致。请改成 {1}", parent.getDictValue(), parent.getCode()));
 		}
 		if (dict.getId() == null) {
 			return;

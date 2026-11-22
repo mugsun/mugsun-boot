@@ -10,6 +10,7 @@ import com.mugsun.boot.help.mapper.HelpCatalogMapper;
 import com.mugsun.boot.help.mapper.HelpDocMapper;
 import com.mugsun.boot.help.mapper.HelpPageBindingMapper;
 import com.mugsun.boot.security.RichTextSanitizer;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.core.tool.tree.TreeUtil;
@@ -87,7 +88,7 @@ public class HelpController {
 			sameName.ne("id", catalog.getId());
 		}
 		if (catalogMapper.selectCountByQuery(sameName) > 0) {
-			throw new ServiceException("同一级里已经有叫「" + name + "」的目录。请换一个名称，或编辑原来那个");
+			throw new ServiceException(I18n.get("同一级里已经有叫「{0}」的目录。请换一个名称，或编辑原来那个", name));
 		}
 		catalog.setName(name);
 		catalog.setSort(sort);
@@ -113,7 +114,7 @@ public class HelpController {
 			throw new ServiceException("这个目录下面还有子目录或文档。请先删掉它们，再删这个目录");
 		}
 		catalogMapper.deleteById(id);
-		return R.success("已删除目录「" + existing.getName() + "」。左侧不会再出现");
+		return R.success(I18n.get("已删除目录「{0}」。左侧不会再出现", existing.getName()));
 	}
 
 	/** 文档分页：列表不返 content 大字段 */
@@ -207,7 +208,7 @@ public class HelpController {
 		}
 		docMapper.deleteBatchByIds(distinct);
 		bindingMapper.deleteByQuery(QueryWrapper.create().in("doc_id", distinct));
-		return R.success("已删除 " + distinct.size() + " 篇文档。列表和已绑定的页面都不会再出现");
+		return R.success(I18n.get("已删除 {0} 篇文档。列表和已绑定的页面都不会再出现", distinct.size()));
 	}
 
 	@GetMapping("/binding/list")
@@ -239,13 +240,13 @@ public class HelpController {
 				throw new ServiceException("这个页面已经绑过这篇文档。换一个路由，或先解除原来的绑定");
 			}
 			bindingMapper.insertSelective(binding);
-			return R.success("已绑定。打开「" + route + "」时，帮助里能看到这篇文档");
+			return R.success(I18n.get("已绑定。打开「{0}」时，帮助里能看到这篇文档", route));
 		}
 		if (bindingMapper.selectOneById(binding.getId()) == null) {
 			throw new ServiceException("这条绑定不存在。请刷新后再改");
 		}
 		bindingMapper.update(binding);
-		return R.success("已保存绑定。打开「" + route + "」时会按新的路由显示");
+		return R.success(I18n.get("已保存绑定。打开「{0}」时会按新的路由显示", route));
 	}
 
 	@PostMapping("/binding/remove/{id}")
@@ -257,7 +258,7 @@ public class HelpController {
 			throw new ServiceException("这条绑定不存在。请刷新后再解除");
 		}
 		bindingMapper.deleteById(id);
-		return R.success("已解除「" + existing.getRoutePath() + "」。这个页面的帮助里不会再出现这篇文档");
+		return R.success(I18n.get("已解除「{0}」。这个页面的帮助里不会再出现这篇文档", existing.getRoutePath()));
 	}
 
 	@GetMapping("/page-docs")

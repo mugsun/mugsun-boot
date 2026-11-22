@@ -25,6 +25,7 @@ import com.mugsun.boot.system.service.UserRoleAssignGuard;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.tenant.TenantPackageModules;
 import com.mugsun.boot.tenant.TenantValidator;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -271,10 +272,10 @@ public class SysRoleController {
 				continue;
 			}
 			if (RoleConstants.ADMIN.equals(role.getRoleCode())) {
-				throw new ServiceException("「" + role.getRoleName() + "」是内置管理员角色，不能删除。请改其他角色");
+				throw new ServiceException(I18n.get("「{0}」是内置管理员角色，不能删除。请改其他角色", role.getRoleName()));
 			}
 			if (userRoleMapper.selectCountByQuery(QueryWrapper.create().eq("role_id", id)) > 0) {
-				throw new ServiceException("还有人在用「" + role.getRoleName() + "」。请先到用户管理里换掉他们的角色，再删除");
+				throw new ServiceException(I18n.get("还有人在用「{0}」。请先到用户管理里换掉他们的角色，再删除", role.getRoleName()));
 			}
 			rows.add(role);
 		}

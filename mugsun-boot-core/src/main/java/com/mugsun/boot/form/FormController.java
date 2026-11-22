@@ -10,6 +10,7 @@ import com.mugsun.boot.form.mapper.SysFormDataMapper;
 import com.mugsun.boot.form.mapper.SysFormMapper;
 import com.mugsun.boot.system.service.UserService;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -118,7 +119,7 @@ public class FormController {
 			SysForm exists = formMapper.selectOneByQuery(
 				QueryWrapper.create().eq("form_key", formKey).and("tenant_id = ?", tenant));
 			if (exists != null) {
-				throw new ServiceException("标识「" + formKey + "」已经有了。请换一个，或编辑原来那个");
+				throw new ServiceException(I18n.get("标识「{0}」已经有了。请换一个，或编辑原来那个", formKey));
 			}
 			if (param.getStatus() == null) {
 				param.setStatus(1);
@@ -166,7 +167,7 @@ public class FormController {
 			}
 		}
 		formMapper.deleteBatchByIds(distinct);
-		return R.success("已删除 " + forms.size() + " 个表单。填报记录也会一起清掉");
+		return R.success(I18n.get("已删除 {0} 个表单。填报记录也会一起清掉", forms.size()));
 	}
 
 	/** 运行时填报：保存填报数据 */

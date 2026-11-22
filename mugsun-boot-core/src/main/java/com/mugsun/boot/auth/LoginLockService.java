@@ -2,6 +2,7 @@ package com.mugsun.boot.auth;
 
 import com.mugsun.boot.auth.lock.LoginLockStore;
 import com.mugsun.boot.security.SecurityPolicyService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.stereotype.Service;
 
@@ -45,15 +46,13 @@ public class LoginLockService {
 		String reason = reasonOf(username);
 		boolean hasReason = reason != null && !reason.isBlank();
 		if (ttl == null || ttl < 0) {
-			throw new ServiceException(hasReason
-				? "账号已锁定：" + reason + "。请联系管理员解锁"
-				: "账号已锁定，请联系管理员解锁");
+			throw new ServiceException(hasReason ? I18n.get("账号已锁定：{0}。请联系管理员解锁", I18n.translate(reason)) : "账号已锁定，请联系管理员解锁");
 		}
 		long minutes = Math.max(1, (ttl + 59) / 60);
 		if (hasReason) {
-			throw new ServiceException("账号已锁定：" + reason + "。请 " + minutes + " 分钟后再试，或联系管理员解锁");
+			throw new ServiceException(I18n.get("账号已锁定：{0}。请 {1} 分钟后再试，或联系管理员解锁", I18n.translate(reason), minutes));
 		}
-		throw new ServiceException("账号已锁定，请 " + minutes + " 分钟后再试");
+		throw new ServiceException(I18n.get("账号已锁定，请 {0} 分钟后再试", minutes));
 	}
 
 	/** 组装锁键：租户维度 + 账号——多租户同名账号（如各租户 admin）独立计数，防跨租户连锁锁定与针对性锁死 */

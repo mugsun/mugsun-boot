@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gen.entity.GenDatasource;
 import com.mugsun.boot.log.OperationLog;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -86,9 +87,9 @@ public class GenDatasourceController {
 		}
 		List<GenDatasource> rows = datasourceService.remove(datasourceIds(body.get("ids")));
 		if (rows.size() == 1) {
-			return R.success("已删除「" + rows.get(0).getDsName() + "」。代码生成里不能再选择这套数据源");
+			return R.success(I18n.get("已删除「{0}」。代码生成里不能再选择这套数据源", rows.get(0).getDsName()));
 		}
-		return R.success("已删除 " + rows.size() + " 套数据源。代码生成里不能再选择它们");
+		return R.success(I18n.get("已删除 {0} 套数据源。代码生成里不能再选择它们", rows.size()));
 	}
 
 	@PostMapping("/test")

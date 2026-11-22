@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.service.FlowGraphService;
 import com.mugsun.boot.system.service.FlowService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.row.Row;
@@ -146,18 +147,18 @@ public class FlowController {
 		}
 		List<String> started = flowService.startedDefinitionNames(ids);
 		if (!started.isEmpty()) {
-			throw new ServiceException("「" + started.get(0) + "」已经有人发起过。请改为停用，不要删除");
+			throw new ServiceException(I18n.get("「{0}」已经有人发起过。请改为停用，不要删除", started.get(0)));
 		}
 		String name = rows.get(0).getString("flowName");
 		try {
 			FlowEngine.defService().removeDef(ids);
 		} catch (FlowException ex) {
-			throw new ServiceException("「" + name + "」已经有人发起过。请改为停用，不要删除");
+			throw new ServiceException(I18n.get("「{0}」已经有人发起过。请改为停用，不要删除", name));
 		}
 		if (rows.size() == 1) {
-			return R.success("已删除「" + name + "」。列表里不会再出现，也不能再发起");
+			return R.success(I18n.get("已删除「{0}」。列表里不会再出现，也不能再发起", name));
 		}
-		return R.success("已删除 " + rows.size() + " 个流程。列表里不会再出现，也不能再发起");
+		return R.success(I18n.get("已删除 {0} 个流程。列表里不会再出现，也不能再发起", rows.size()));
 	}
 
 	private List<Long> parseDefinitionIds(JsonNode body) {
@@ -198,8 +199,8 @@ public class FlowController {
 		if (!businessId.matches("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")) {
 			throw new ServiceException("业务单号请使用字母或数字开头，只能包含字母、数字、下划线或连字符");
 		}
-		LocalDateTime start = parseLeaveTime(leave.startTime(), "请选择开始时间");
-		LocalDateTime end = parseLeaveTime(leave.endTime(), "请选择结束时间");
+		LocalDateTime start = parseLeaveTime(leave.startTime(), "请选择开始时间。时间格式如 2026-10-05 09:00:00");
+		LocalDateTime end = parseLeaveTime(leave.endTime(), "请选择结束时间。时间格式如 2026-10-05 09:00:00");
 		if (!end.isAfter(start)) {
 			throw new ServiceException("结束时间要晚于开始时间。请重新选择后再提交");
 		}
@@ -232,7 +233,7 @@ public class FlowController {
 
 	private static LocalDateTime parseLeaveTime(String raw, String emptyMessage) {
 		if (raw == null || raw.isBlank()) {
-			throw new ServiceException(emptyMessage + "。时间格式如 2026-10-05 09:00:00");
+			throw new ServiceException(emptyMessage);
 		}
 		String text = raw.trim().replace('T', ' ');
 		if (text.length() == 16) {
@@ -493,7 +494,8 @@ public class FlowController {
 
 		int x = baseX;
 		boolean hasForm = req.formKey() != null && !req.formKey().isBlank();
-		Map<String, Object> startNode = node(0, "start", "开始", null, null, x, y, edge("start", codes.get(1), "提交", x, y, x + step));
+		Map<String, Object> startNode = node(0, "start", I18n.translate("开始"), null, null, x, y,
+			edge("start", codes.get(1), I18n.translate("提交"), x, y, x + step));
 		if (hasForm) {
 			bindForm(startNode, req.formKey(), null);
 		}
@@ -506,7 +508,7 @@ public class FlowController {
 			String next = codes.get(i + 2);
 			String ratio = dn.nodeRatio() == null || dn.nodeRatio().isBlank() ? "0" : dn.nodeRatio();
 			String permissionFlag = permissionFlag(dn);
-			Map<String, Object> an = node(1, code, dn.name(), permissionFlag, ratio, x, y, edge(code, next, "通过", x, y, x + step));
+			Map<String, Object> an = node(1, code, dn.name(), permissionFlag, ratio, x, y, edge(code, next, I18n.translate("通过"), x, y, x + step));
 			if (hasForm) {
 				bindForm(an, req.formKey(), dn.fieldPerms());
 			}
@@ -514,7 +516,7 @@ public class FlowController {
 		}
 
 		x = baseX + step * (n + 1);
-		Map<String, Object> end = node(2, "end", "结束", null, null, x, y, null);
+		Map<String, Object> end = node(2, "end", I18n.translate("结束"), null, null, x, y, null);
 		end.put("skipList", new ArrayList<>());
 		nodeList.add(end);
 
@@ -575,8 +577,8 @@ public class FlowController {
 		if (dn.role() != null && !dn.role().isBlank()) {
 			return "role:" + dn.role();
 		}
-		String nodeName = dn.name() == null || dn.name().isBlank() ? "未命名" : dn.name().trim();
-		throw new ServiceException("审批节点「" + nodeName + "」未配置候选人。请为这个节点选上候选人后再发布");
+		String nodeName = dn.name() == null || dn.name().isBlank() ? I18n.translate("未命名") : dn.name().trim();
+		throw new ServiceException(I18n.get("审批节点「{0}」未配置候选人。请为这个节点选上候选人后再发布", nodeName));
 	}
 
 	/** 流程设计请求：流程码/名 + 绑定业务表单 formKey(可空) + 审批节点链 */

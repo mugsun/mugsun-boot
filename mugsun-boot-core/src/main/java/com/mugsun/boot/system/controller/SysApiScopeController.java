@@ -13,6 +13,7 @@ import com.mugsun.boot.system.mapper.SysMenuMapper;
 import com.mugsun.boot.system.mapper.SysRoleApiScopeMapper;
 import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -155,7 +156,7 @@ public class SysApiScopeController {
 		}
 		ruleLoader.reload();
 		if (status == 1) {
-			return R.success("已启用。除平台管理员外，只有被授权的角色可以调用 " + path);
+			return R.success(I18n.get("已启用。除平台管理员外，只有被授权的角色可以调用 {0}", path));
 		}
 		return R.success("已停用。该路径不再额外校验接口权限");
 	}
@@ -192,9 +193,9 @@ public class SysApiScopeController {
 		}
 		ruleLoader.reload();
 		if (roleIds.isEmpty()) {
-			return R.success("已清空授权。除平台管理员外，调用 " + row.getScopePath() + " 会被拒绝");
+			return R.success(I18n.get("已清空授权。除平台管理员外，调用 {0} 会被拒绝", row.getScopePath()));
 		}
-		return R.success("已授权 " + roleIds.size() + " 个角色。其他角色调用 " + row.getScopePath() + " 会被拒绝");
+		return R.success(I18n.get("已授权 {0} 个角色。其他角色调用 {1} 会被拒绝", roleIds.size(), row.getScopePath()));
 	}
 
 	@PostMapping("/remove")
@@ -288,7 +289,7 @@ public class SysApiScopeController {
 	private void assertPathFree(String path, Long id) {
 		SysApiScope exist = apiScopeMapper.selectOneByQuery(QueryWrapper.create().eq("scope_path", path));
 		if (exist != null && (id == null || !exist.getId().equals(id))) {
-			throw new ServiceException("路径已被规则「" + exist.getScopeName() + "」使用，请换一个路径或编辑原规则");
+			throw new ServiceException(I18n.get("路径已被规则「{0}」使用，请换一个路径或编辑原规则", exist.getScopeName()));
 		}
 	}
 

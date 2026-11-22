@@ -8,6 +8,7 @@ import com.mugsun.boot.system.mapper.SysApiKeyMapper;
 import com.mugsun.boot.system.service.ApiKeyCallRecorder;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.tenant.TenantValidator;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.api.ResultCode;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -76,7 +77,7 @@ public class SysApiKeyController {
 		normalize(param, true);
 		SysApiKey taken = apiKeyMapper.selectOneByQuery(QueryWrapper.create().eq("name", param.getName()));
 		if (taken != null) {
-			throw new ServiceException("已经有叫「" + param.getName() + "」的密钥。请换一个名称，或编辑原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的密钥。请换一个名称，或编辑原来那个", param.getName()));
 		}
 		SysApiKey key = new SysApiKey();
 		key.setTenantId(TenantContext.current());
@@ -98,7 +99,7 @@ public class SysApiKeyController {
 	@SaCheckPermission("sys:api-key:edit")
 	@RepeatSubmit
 	public R<Void> enable(@PathVariable Long id) {
-		SysApiKey key = requireKey(id, "启用");
+		SysApiKey key = requireKey(id, "这个密钥不存在，或属于其他租户。请刷新列表后再启用");
 		key.setStatus(1);
 		apiKeyMapper.update(key);
 		return R.success("已启用。这把密钥可以继续通过校验");
@@ -108,7 +109,7 @@ public class SysApiKeyController {
 	@SaCheckPermission("sys:api-key:edit")
 	@RepeatSubmit
 	public R<Void> disable(@PathVariable Long id) {
-		SysApiKey key = requireKey(id, "停用");
+		SysApiKey key = requireKey(id, "这个密钥不存在，或属于其他租户。请刷新列表后再停用");
 		key.setStatus(0);
 		apiKeyMapper.update(key);
 		return R.success("已停用。这把密钥不能再通过校验，请先启用再试");
@@ -131,16 +132,16 @@ public class SysApiKeyController {
 		for (SysApiKey key : keys) {
 			apiKeyMapper.deleteById(key.getId());
 		}
-		return R.success("已删除 " + keys.size() + " 个密钥。它们不能再通过校验");
+		return R.success(I18n.get("已删除 {0} 个密钥。它们不能再通过校验", keys.size()));
 	}
 
 	@PostMapping("/remove/{id}")
 	@SaCheckPermission("sys:api-key:remove")
 	@RepeatSubmit
 	public R<Void> remove(@PathVariable Long id) {
-		SysApiKey key = requireKey(id, "删除");
+		SysApiKey key = requireKey(id, "这个密钥不存在，或属于其他租户。请刷新列表后再删除");
 		apiKeyMapper.deleteById(id);
-		return R.success("已删除「" + key.getName() + "」。列表里不会再出现，旧密钥也不能再通过校验");
+		return R.success(I18n.get("已删除「{0}」。列表里不会再出现，旧密钥也不能再通过校验", key.getName()));
 	}
 
 	/** 校验密钥：AK+SK 匹配且启用则通过，并留下一条不含密钥明文的调用记录 */
@@ -200,7 +201,7 @@ public class SysApiKeyController {
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("valid", valid);
 		result.put("scope", valid && key.getScope() != null ? key.getScope() : "");
-		result.put("message", message);
+		result.put("message", I18n.translate(message));
 		R<Map<String, Object>> body = R.data(result);
 		body.setMsg(message);
 		if (!valid) {
@@ -210,13 +211,13 @@ public class SysApiKeyController {
 		return body;
 	}
 
-	private SysApiKey requireKey(Long id, String action) {
+	private SysApiKey requireKey(Long id, String missingMessage) {
 		if (id == null) {
-			throw new ServiceException("这个密钥不存在，或属于其他租户。请刷新列表后再" + action);
+			throw new ServiceException(missingMessage);
 		}
 		SysApiKey key = apiKeyMapper.selectOneById(id);
 		if (key == null) {
-			throw new ServiceException("这个密钥不存在，或属于其他租户。请刷新列表后再" + action);
+			throw new ServiceException(missingMessage);
 		}
 		return key;
 	}

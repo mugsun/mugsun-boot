@@ -3,6 +3,7 @@ package com.mugsun.boot.common.perm;
 import cn.dev33.satoken.exception.SaTokenContextException;
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ForbiddenException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -32,6 +33,6 @@ public class ApiScopeGuard implements HandlerInterceptor {
 		if (ApiScopeIndex.allowed(rule.id(), TenantContext.current(), StpUtil.getRoleList())) {
 			return true;
 		}
-		throw new ForbiddenException("没有接口「" + rule.name() + "」的访问权限。请让管理员在接口权限中把该路径授给当前角色");
+		throw new ForbiddenException(I18n.get("没有接口「{0}」的访问权限。请让管理员在接口权限中把该路径授给当前角色", rule.name()));
 	}
 }

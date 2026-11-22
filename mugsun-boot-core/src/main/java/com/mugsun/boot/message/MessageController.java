@@ -8,6 +8,7 @@ import com.mugsun.boot.message.entity.SysMessage;
 import com.mugsun.boot.message.entity.SysMessageUser;
 import com.mugsun.boot.message.mapper.SysMessageMapper;
 import com.mugsun.boot.message.mapper.SysMessageUserMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -50,7 +51,7 @@ public class MessageController {
 		}
 		messageService.send(dto);
 		int count = dto.getRecipientIds().stream().filter(java.util.Objects::nonNull).distinct().toList().size();
-		return R.success("已发送给 " + count + " 人。对方可以在我的消息里看到");
+		return R.success(I18n.get("已发送给 {0} 人。对方可以在我的消息里看到", count));
 	}
 
 	/** 当前用户未读数（顶栏角标） */
@@ -157,7 +158,7 @@ public class MessageController {
 			throw new ServiceException("有消息不存在，或不是你的。请刷新列表后再删");
 		}
 		messageUserMapper.deleteByQuery(QueryWrapper.create().in("id", distinct).eq("user_id", userId));
-		return R.success("已删除 " + rows.size() + " 条消息。收件箱里不会再出现");
+		return R.success(I18n.get("已删除 {0} 条消息。收件箱里不会再出现", rows.size()));
 	}
 
 	/** 装配收件记录所属消息的标题/内容/类型/发送时间 */

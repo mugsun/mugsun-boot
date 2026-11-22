@@ -7,6 +7,7 @@ import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.notify.NotifyTemplateRenderer;
 import com.mugsun.boot.notify.entity.SysNotifyTemplate;
 import com.mugsun.boot.notify.mapper.SysNotifyTemplateMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -86,7 +87,7 @@ public class SysNotifyTemplateController {
 			SysNotifyTemplate taken = templateMapper.selectOneByQuery(
 				QueryWrapper.create().eq("code", template.getCode()));
 			if (taken != null) {
-				throw new ServiceException("模板编码「" + template.getCode() + "」已经有了。请换一个编码，或编辑原来那个");
+				throw new ServiceException(I18n.get("模板编码「{0}」已经有了。请换一个编码，或编辑原来那个", template.getCode()));
 			}
 			templateMapper.insertSelective(template);
 			return R.success("已保存。列表里可以查看这个模板的名称和渠道");
@@ -99,7 +100,7 @@ public class SysNotifyTemplateController {
 			throw new ServiceException("模板编码创建后不能修改。请新增一个模板，再删除原来的");
 		}
 		if (NotifyConstants.TEMPLATE_WELCOME.equals(before.getCode()) && template.getStatus() == 0) {
-			throw new ServiceException("「" + before.getName() + "」是内置通知模板，不能停用。新建用户时还要用它");
+			throw new ServiceException(I18n.get("「{0}」是内置通知模板，不能停用。新建用户时还要用它", before.getName()));
 		}
 		template.setCode(before.getCode());
 		templateMapper.update(template);
@@ -128,13 +129,13 @@ public class SysNotifyTemplateController {
 		}
 		for (SysNotifyTemplate row : rows) {
 			if (NotifyConstants.TEMPLATE_WELCOME.equals(row.getCode())) {
-				throw new ServiceException("「" + row.getName() + "」是内置通知模板，不能删除。新建用户时还要用它");
+				throw new ServiceException(I18n.get("「{0}」是内置通知模板，不能删除。新建用户时还要用它", row.getName()));
 			}
 		}
 		for (SysNotifyTemplate row : rows) {
 			templateMapper.deleteById(row.getId());
 		}
-		return R.success("已删除 " + rows.size() + " 个模板。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个模板。列表里不会再出现", rows.size()));
 	}
 
 	private void normalize(SysNotifyTemplate template) {
@@ -211,7 +212,8 @@ public class SysNotifyTemplateController {
 	private void assertPlaceholders(String text, String field) {
 		String left = PLACEHOLDER.matcher(text).replaceAll("");
 		if (left.contains("${")) {
-			throw new ServiceException(field + "里的占位请写成 ${name} 这种形式。名称用字母开头，发送时再填上对应的值");
+			throw new ServiceException(I18n.get("{0}里的占位请写成 $'{'name'}' 这种形式。名称用字母开头，发送时再填上对应的值",
+				I18n.translate(field)));
 		}
 	}
 }

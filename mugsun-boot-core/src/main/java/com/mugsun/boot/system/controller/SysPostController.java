@@ -7,6 +7,7 @@ import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysPost;
 import com.mugsun.boot.system.mapper.SysPostMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -147,7 +148,7 @@ public class SysPostController {
 			}
 			long using = userMapper.selectCountByQuery(QueryWrapper.create().eq("post_id", id));
 			if (using > 0) {
-				throw new ServiceException("还有人在用「" + exist.getPostName() + "」。请先到用户管理里换掉他们的岗位，再删除");
+				throw new ServiceException(I18n.get("还有人在用「{0}」。请先到用户管理里换掉他们的岗位，再删除", exist.getPostName()));
 			}
 			postMapper.deleteById(id);
 			removed++;

@@ -6,6 +6,7 @@ import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.boot.gen.mapper.GenColumnMapper;
 import com.mugsun.boot.gen.mapper.GenTableMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -111,7 +112,7 @@ public class OnlineService {
 				}
 				Object value = data.get(c.getColumnName());
 				if (value == null || value.toString().isBlank()) {
-					throw new ServiceException("请填写「" + label(c) + "」。用来在列表里区分这条记录");
+					throw new ServiceException(I18n.get("请填写「{0}」。用来在列表里区分这条记录", label(c)));
 				}
 			}
 		}
@@ -196,7 +197,7 @@ public class OnlineService {
 			Db.updateBySql("UPDATE " + tableName + " SET is_deleted = 1 WHERE id IN (" + placeholders + ")" + tenantClause,
 				params.toArray());
 		}
-		return "已删除 " + distinct.size() + " 条记录。列表里不会再出现";
+		return I18n.get("已删除 {0} 条记录。列表里不会再出现", distinct.size());
 	}
 
 	/** 无实体路径手工附加租户 + 逻辑删除范围条件，与 page/detail/save/remove 统一口径 */
@@ -261,7 +262,7 @@ public class OnlineService {
 			throw new ServiceException("读取表结构失败。请确认这张表还在库里，或回到代码生成重新导入");
 		}
 		if (names.isEmpty()) {
-			throw new ServiceException("库里已经没有「" + tableName + "」。请确认表还在，或先删掉这条生成配置");
+			throw new ServiceException(I18n.get("库里已经没有「{0}」。请确认表还在，或先删掉这条生成配置", tableName));
 		}
 		return names;
 	}
@@ -291,7 +292,7 @@ public class OnlineService {
 			return;
 		}
 		if (value.toString().length() > limit) {
-			throw new ServiceException("「" + label(column) + "」请控制在 " + limit + " 个字以内");
+			throw new ServiceException(I18n.get("「{0}」请控制在 {1} 个字以内", label(column), limit));
 		}
 	}
 

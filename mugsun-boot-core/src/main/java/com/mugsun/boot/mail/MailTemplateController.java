@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.mail.entity.SysMailTemplate;
 import com.mugsun.boot.mail.mapper.SysMailTemplateMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -72,7 +73,7 @@ public class MailTemplateController {
 		if (creating) {
 			SysMailTemplate taken = mapper.selectOneByQuery(QueryWrapper.create().eq("code", template.getCode()));
 			if (taken != null) {
-				throw new ServiceException("模板编码「" + template.getCode() + "」已经有了。请换一个编码，或编辑原来那个");
+				throw new ServiceException(I18n.get("模板编码「{0}」已经有了。请换一个编码，或编辑原来那个", template.getCode()));
 			}
 			mapper.insert(template);
 			return R.success("已保存。列表里可以查看这个模板的主题和状态");
@@ -85,7 +86,7 @@ public class MailTemplateController {
 			throw new ServiceException("模板编码创建后不能修改。请新增一个模板，再删除原来的");
 		}
 		if (BUILTIN.contains(before.getCode()) && template.getStatus() != null && template.getStatus() == 0) {
-			throw new ServiceException("「" + before.getName() + "」是内置邮件模板，不能停用。登录验证码和找回密码还要用它");
+			throw new ServiceException(I18n.get("「{0}」是内置邮件模板，不能停用。登录验证码和找回密码还要用它", before.getName()));
 		}
 		template.setCode(before.getCode());
 		mapper.update(template);
@@ -108,13 +109,13 @@ public class MailTemplateController {
 		}
 		for (SysMailTemplate row : rows) {
 			if (BUILTIN.contains(row.getCode())) {
-				throw new ServiceException("「" + row.getName() + "」是内置邮件模板，不能删除。请改其他模板");
+				throw new ServiceException(I18n.get("「{0}」是内置邮件模板，不能删除。请改其他模板", row.getName()));
 			}
 		}
 		for (SysMailTemplate row : rows) {
 			mapper.deleteById(row.getId());
 		}
-		return R.success("已删除 " + rows.size() + " 个模板。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个模板。列表里不会再出现", rows.size()));
 	}
 
 	/** 发送测试：按模板渲染并发送到指定邮箱。通道未配置时说明下一步，不返回连接原文。 */

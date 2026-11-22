@@ -17,6 +17,7 @@ import com.mugsun.boot.system.mapper.SysTopMenuMapper;
 import com.mugsun.boot.system.mapper.SysTopMenuMenuMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.core.tool.tree.TreeUtil;
@@ -176,19 +177,19 @@ public class SysTopMenuController {
 				next.sanitizeForUpdate();
 				topMenuMapper.update(next);
 				if (rows.size() == 1) {
-					return R.success("已删除「" + name + "」。主页已改到「" + next.getName() + "」。进入系统时会打开它");
+					return R.success(I18n.get("已删除「{0}」。主页已改到「{1}」。进入系统时会打开它", name, next.getName()));
 				}
-				return R.success("已删除 " + rows.size() + " 个方案。主页已改到「" + next.getName() + "」。进入系统时会打开它");
+				return R.success(I18n.get("已删除 {0} 个方案。主页已改到「{1}」。进入系统时会打开它", rows.size(), next.getName()));
 			}
 			if (rows.size() == 1) {
-				return R.success("已删除「" + name + "」。现在没有顶部方案，侧栏会显示全部菜单");
+				return R.success(I18n.get("已删除「{0}」。现在没有顶部方案，侧栏会显示全部菜单", name));
 			}
-			return R.success("已删除 " + rows.size() + " 个方案。现在没有顶部方案，侧栏会显示全部菜单");
+			return R.success(I18n.get("已删除 {0} 个方案。现在没有顶部方案，侧栏会显示全部菜单", rows.size()));
 		}
 		if (rows.size() == 1) {
-			return R.success("已删除「" + name + "」。顶部不会再出现这个方案");
+			return R.success(I18n.get("已删除「{0}」。顶部不会再出现这个方案", name));
 		}
-		return R.success("已删除 " + rows.size() + " 个方案。顶部不会再出现这些方案");
+		return R.success(I18n.get("已删除 {0} 个方案。顶部不会再出现这些方案", rows.size()));
 	}
 
 	private static List<Long> schemeIds(JsonNode body) {
@@ -254,7 +255,7 @@ public class SysTopMenuController {
 		}
 		int skipped = menuIds.size() - existIds.size();
 		if (skipped > 0) {
-			return R.success("已保存 " + existIds.size() + " 个菜单，有 " + skipped + " 个已删除已跳过");
+			return R.success(I18n.get("已保存 {0} 个菜单，有 {1} 个已删除已跳过", existIds.size(), skipped));
 		}
 		return R.success("已保存，切换到该方案后侧栏只显示勾选的菜单");
 	}
@@ -274,7 +275,7 @@ public class SysTopMenuController {
 		row.setTenantId(null);
 		row.sanitizeForUpdate();
 		topMenuMapper.update(row);
-		return R.success("已设为主页。进入系统时默认打开「" + row.getName() + "」");
+		return R.success(I18n.get("已设为主页。进入系统时默认打开「{0}」", row.getName()));
 	}
 
 	/** 当前用户可见的方案。菜单已展开子级，并去掉当前账号看不到的项。 */

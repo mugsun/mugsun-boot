@@ -1,10 +1,14 @@
 package com.mugsun.boot;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
 import java.net.URI;
 
@@ -14,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 多语言回归：真实 HTTP 请求，提示语跟着请求头 Accept-Language 走，没带或者带的语言没有翻译时是简体中文。
  * 提示语有四条路出去，每条各测一个：控制器抛的业务异常、统一异常处理转出来的、过滤器里自己写的、
  * 排在最前面（比「定语言」还早）的过滤器里自己写的。
+ * 另外两种要在代码里自己按语言给的也各测一个：带变量的句子、放在返回数据里的字。
  */
 class I18nApiTest extends AbstractIntegrationTest {
 
@@ -54,6 +59,54 @@ class I18nApiTest extends AbstractIntegrationTest {
 
 		assertThat(msg(uri, ENGLISH)).isEqualTo("The request path contains illegal encoding");
 		assertThat(msg(uri, null)).isEqualTo("请求路径含非法编码");
+	}
+
+	/** 开放授权的错误说明不走统一返回体：带变量的句子把值填进译文，整句固定的在出口翻译 */
+	@Test
+	void oauthErrorDescriptionFollowsTheRequestLanguage() {
+		assertThat(tokenError("password", ENGLISH)).isEqualTo("Unsupported grant type: password");
+		assertThat(tokenError("password", null)).isEqualTo("不支持的授权类型：password");
+
+		assertThat(tokenError("client_credentials", ENGLISH)).isEqualTo("client_id is required");
+		assertThat(tokenError("client_credentials", null)).isEqualTo("client_id 不能为空");
+	}
+
+	/** 返回数据里给人看的字（搜索联想的分类名、副标题）统一返回体的翻译管不到，代码里自己按语言给 */
+	@Test
+	void textInsideDataFollowsTheRequestLanguage() {
+		String token = loginAdmin();
+		String url = "/system/search/suggest?keyword=" + ADMIN_USERNAME;
+
+		JsonNode english = firstUser(url, token, ENGLISH);
+		assertThat(english.path("typeName").asText()).isEqualTo("User");
+		assertThat(english.path("subtitle").asText()).startsWith("Account ");
+
+		JsonNode chinese = firstUser(url, token, null);
+		assertThat(chinese.path("typeName").asText()).isEqualTo("用户");
+		assertThat(chinese.path("subtitle").asText()).startsWith("账号 ");
+	}
+
+	private String tokenError(String grantType, String acceptLanguage) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+		if (acceptLanguage != null) {
+			headers.set(HttpHeaders.ACCEPT_LANGUAGE, acceptLanguage);
+		}
+		MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+		form.add("grant_type", grantType);
+		ResponseEntity<String> response = rest.exchange("/oauth2/token", HttpMethod.POST, new HttpEntity<>(form, headers), String.class);
+		return readBody(response).path("error_description").asText();
+	}
+
+	private JsonNode firstUser(String url, String token, String acceptLanguage) {
+		JsonNode found = readBody(rest.exchange(url, HttpMethod.GET, new HttpEntity<>(headers(token, acceptLanguage)), String.class))
+			.path("data");
+		for (JsonNode item : found) {
+			if ("user".equals(item.path("type").asText())) {
+				return item;
+			}
+		}
+		throw new AssertionError("联想结果里应该有用户：" + found);
 	}
 
 	private String msg(String url, String token, String acceptLanguage) {

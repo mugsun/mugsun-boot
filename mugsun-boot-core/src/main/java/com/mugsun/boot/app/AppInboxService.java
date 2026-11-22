@@ -8,6 +8,7 @@ import com.mugsun.boot.message.entity.SysMessage;
 import com.mugsun.boot.message.entity.SysMessageUser;
 import com.mugsun.boot.message.mapper.SysMessageMapper;
 import com.mugsun.boot.message.mapper.SysMessageUserMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -48,7 +49,7 @@ public class AppInboxService {
 		List<AppMessageItemVO> records = page.getRecords().stream().map(r -> new AppMessageItemVO(
 			r.getId(),
 			r.getMessageId() == null ? 0L : r.getMessageId(),
-			blank(r.getTitle(), "未命名消息"),
+			blank(r.getTitle(), I18n.translate("未命名消息")),
 			fmt(r.getSendTime()),
 			!Integer.valueOf(1).equals(r.getIsRead())
 		)).toList();
@@ -65,7 +66,7 @@ public class AppInboxService {
 		return new AppMessageDetailVO(
 			row.getId(),
 			row.getMessageId() == null ? 0L : row.getMessageId(),
-			blank(row.getTitle(), "未命名消息"),
+			blank(row.getTitle(), I18n.translate("未命名消息")),
 			blank(row.getContent(), ""),
 			fmt(row.getSendTime()),
 			!Integer.valueOf(1).equals(row.getIsRead())

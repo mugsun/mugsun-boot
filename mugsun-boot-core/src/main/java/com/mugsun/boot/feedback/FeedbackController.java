@@ -8,6 +8,7 @@ import com.mugsun.boot.feedback.entity.SysFeedback;
 import com.mugsun.boot.feedback.mapper.SysFeedbackMapper;
 import com.mugsun.boot.system.entity.SysAttach;
 import com.mugsun.boot.system.service.AttachService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -138,6 +139,6 @@ public class FeedbackController {
 		if (!attachIds.isEmpty()) {
 			attachService.deleteBatchByIds(attachIds);
 		}
-		return R.success("已删除 " + rows.size() + " 条反馈。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 条反馈。列表里不会再出现", rows.size()));
 	}
 }

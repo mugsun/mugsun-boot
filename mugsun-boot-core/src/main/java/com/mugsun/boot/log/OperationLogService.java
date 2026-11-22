@@ -1,6 +1,7 @@
 package com.mugsun.boot.log;
 
 import com.mugsun.boot.demo.LogDataSourceRouter;
+import com.mugsun.core.i18n.message.I18n;
 import com.mybatisflex.core.datasource.DataSourceKey;
 
 import cn.hutool.crypto.SmUtil;
@@ -292,7 +293,7 @@ public class OperationLogService {
 		Map<String, Object> ok = new LinkedHashMap<>();
 		ok.put("valid", true);
 		ok.put("verified", verified);
-		ok.put("message", "审计链完整，共验签 " + verified + " 条记录");
+		ok.put("message", I18n.get("审计链完整，共验签 {0} 条记录", verified));
 		return ok;
 	}
 
@@ -300,7 +301,7 @@ public class OperationLogService {
 		Map<String, Object> r = new LinkedHashMap<>();
 		r.put("valid", false);
 		r.put("tamperedId", id);
-		r.put("reason", reason);
+		r.put("reason", I18n.translate(reason));
 		r.put("verifiedBefore", verified);
 		return r;
 	}

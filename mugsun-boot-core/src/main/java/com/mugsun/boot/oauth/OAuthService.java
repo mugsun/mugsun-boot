@@ -3,6 +3,7 @@ package com.mugsun.boot.oauth;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.oauth.entity.SysOauthClient;
 import com.mugsun.boot.oauth.mapper.SysOauthClientMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.tenant.TenantValidator;
@@ -339,7 +340,7 @@ public class OAuthService {
 
 	private void assertGrantAllowed(SysOauthClient client, String grantType) {
 		if (!toScopeSet(client.getGrantTypes()).contains(grantType)) {
-			throw OAuth2Exception.unsupportedGrantType("客户端不支持该授权类型：" + grantType);
+			throw OAuth2Exception.unsupportedGrantType(I18n.get("客户端不支持该授权类型：{0}", grantType));
 		}
 	}
 
@@ -352,7 +353,7 @@ public class OAuthService {
 		Set<String> request = toScopeSet(requestScope);
 		Set<String> invalid = request.stream().filter(s -> !clientScopes.contains(s)).collect(Collectors.toSet());
 		if (!invalid.isEmpty()) {
-			throw OAuth2Exception.invalidScope("超出客户端授权范围：" + String.join(",", invalid));
+			throw OAuth2Exception.invalidScope(I18n.get("超出客户端授权范围：{0}", String.join(",", invalid)));
 		}
 		return String.join(",", request);
 	}

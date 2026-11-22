@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.constant.NotifyConstants;
 import com.mugsun.boot.notify.entity.SysNotifyChannel;
 import com.mugsun.boot.notify.mapper.SysNotifyChannelMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.slf4j.Logger;
@@ -120,7 +121,7 @@ public class MailNotifyChannel implements MessageChannel {
 			String config = cfg.getConfig();
 			return config == null || config.isBlank() ? objectMapper.createObjectNode() : objectMapper.readTree(config);
 		} catch (Exception e) {
-			throw new ServiceException("邮件渠道配置 JSON 非法: " + e.getMessage());
+			throw new ServiceException(I18n.get("邮件渠道配置 JSON 非法: {0}", e.getMessage()));
 		}
 	}
 }

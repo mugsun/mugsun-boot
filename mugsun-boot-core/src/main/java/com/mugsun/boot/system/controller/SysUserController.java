@@ -21,6 +21,7 @@ import com.mugsun.boot.system.service.UserSelectOptions;
 import com.mugsun.boot.system.payload.StatusParam;
 import com.mugsun.boot.system.payload.UserGrantParam;
 import com.mugsun.boot.system.payload.UserImportResult;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.web.excel.ExcelUtil;
 import com.mybatisflex.core.paginate.Page;
@@ -446,7 +447,7 @@ public class SysUserController {
 		}
 		// 清角色关联+删用户在同一事务内；提交后回收会话
 		userManageService.removeUsers(users);
-		return R.success("已删除 " + users.size() + " 个用户。他们不能再登录，列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个用户。他们不能再登录，列表里不会再出现", users.size()));
 	}
 
 	/**
@@ -528,11 +529,12 @@ public class SysUserController {
 					created.add(new UserImportResult.CreatedRow(i + 2, username, otp));
 				}
 			} catch (com.mugsun.core.tool.exception.ServiceException e) {
-				// rowIndex 为 Excel 物理行号：表头占第 1 行，首条数据为第 2 行
-				failList.add(new UserImportResult.FailRow(i + 2, username, e.getMessage()));
+				// rowIndex 为 Excel 物理行号：表头占第 1 行，首条数据为第 2 行；失败原因放在返回数据里，要在这里按请求的语言翻译
+				failList.add(new UserImportResult.FailRow(i + 2, username, I18n.translate(e.getMessage())));
 			} catch (org.springframework.dao.DuplicateKeyException e) {
 				// 唯一约束冲突（用户名/手机号与他账号重复）：记失败行而非整批 500
-				failList.add(new UserImportResult.FailRow(i + 2, username, "与已有账号数据冲突（用户名或手机号重复）。请改一个还没用过的用户名或手机号后再导入"));
+				failList.add(new UserImportResult.FailRow(i + 2, username,
+					I18n.translate("与已有账号数据冲突（用户名或手机号重复）。请改一个还没用过的用户名或手机号后再导入")));
 			}
 		}
 		UserImportResult result = new UserImportResult(success, failList.size(), failList, created);
@@ -542,7 +544,7 @@ public class SysUserController {
 				throw new com.mugsun.core.tool.exception.ServiceException(MSG_IMPORT_NO_ROWS);
 			}
 			R<UserImportResult> fail = R.fail(com.mugsun.core.tool.api.ResultCode.FAILURE,
-				"一条都没有导入。共 " + failList.size() + " 行有问题，请按失败明细改好后再导入");
+				I18n.get("一条都没有导入。共 {0} 行有问题，请按失败明细改好后再导入", failList.size()));
 			fail.setData(result);
 			return fail;
 		}
@@ -614,7 +616,7 @@ public class SysUserController {
 		List<com.mugsun.boot.system.entity.SysDept> depts = deptMapper
 			.selectListByQuery(QueryWrapper.create().eq("dept_name", name));
 		if (depts.isEmpty()) {
-			throw new com.mugsun.core.tool.exception.ServiceException("部门不存在：" + name);
+			throw new com.mugsun.core.tool.exception.ServiceException(I18n.get("部门不存在：{0}", name));
 		}
 		return depts.get(0).getId();
 	}
@@ -628,7 +630,7 @@ public class SysUserController {
 		List<com.mugsun.boot.system.entity.SysPost> posts = postMapper
 			.selectListByQuery(QueryWrapper.create().eq("post_name", name));
 		if (posts.isEmpty()) {
-			throw new com.mugsun.core.tool.exception.ServiceException("岗位不存在：" + name);
+			throw new com.mugsun.core.tool.exception.ServiceException(I18n.get("岗位不存在：{0}", name));
 		}
 		return posts.get(0).getId();
 	}
@@ -817,7 +819,7 @@ public class SysUserController {
 		if (param.roleIds() != null) {
 			for (Long roleId : param.roleIds()) {
 				if (roleMapper.selectOneById(roleId) == null) {
-					throw new com.mugsun.core.tool.exception.ServiceException("角色不存在：" + roleId);
+					throw new com.mugsun.core.tool.exception.ServiceException(I18n.get("角色不存在：{0}", roleId));
 				}
 			}
 		}

@@ -6,6 +6,7 @@ import com.mugsun.boot.client.entity.SysClient;
 import com.mugsun.boot.client.mapper.SysClientMapper;
 import com.mugsun.boot.common.constant.ClientConstants;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -60,7 +61,7 @@ public class SysClientController {
 		if (client.getId() == null) {
 			SysClient exist = clientMapper.selectOneByQuery(QueryWrapper.create().eq("client_id", client.getClientId()));
 			if (exist != null) {
-				throw new ServiceException("客户端码「" + client.getClientId() + "」已存在。请换一个，或编辑原来那个");
+				throw new ServiceException(I18n.get("客户端码「{0}」已存在。请换一个，或编辑原来那个", client.getClientId()));
 			}
 			clientMapper.insertSelective(client);
 		} else {
@@ -83,11 +84,11 @@ public class SysClientController {
 		List<SysClient> rows = requireRows(ids);
 		for (SysClient row : rows) {
 			if (BUILTIN.contains(row.getClientId())) {
-				throw new ServiceException("「" + row.getClientName() + "」是内置登录客户端，不能删除。请改其他客户端");
+				throw new ServiceException(I18n.get("「{0}」是内置登录客户端，不能删除。请改其他客户端", row.getClientName()));
 			}
 		}
 		clientMapper.deleteBatchByIds(rows.stream().map(SysClient::getId).toList());
-		return R.success("已删除 " + rows.size() + " 个客户端。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个客户端。列表里不会再出现", rows.size()));
 	}
 
 	@SaCheckPermission("sys:client:edit")
@@ -108,7 +109,7 @@ public class SysClientController {
 			throw new ServiceException("这个客户端不存在。请刷新列表后再改状态");
 		}
 		if (status == 0 && BUILTIN.contains(exist.getClientId())) {
-			throw new ServiceException("「" + exist.getClientName() + "」是内置登录客户端，不能停用。请改其他客户端");
+			throw new ServiceException(I18n.get("「{0}」是内置登录客户端，不能停用。请改其他客户端", exist.getClientName()));
 		}
 		UpdateChain.of(SysClient.class).set(SysClient::getStatus, status).where(SysClient::getId).eq(id).update();
 		return R.success(status == 1

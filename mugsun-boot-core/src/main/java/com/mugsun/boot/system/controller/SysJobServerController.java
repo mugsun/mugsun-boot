@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.log.OperationLog;
 import com.mugsun.boot.system.entity.SysJobServer;
 import com.mugsun.boot.system.service.JobServerRegistry;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -88,9 +89,9 @@ public class SysJobServerController {
 		}
 		List<SysJobServer> rows = registry.remove(serverIds(body.get("ids")));
 		if (rows.size() == 1) {
-			return R.success("已删除「" + rows.get(0).getServerName() + "」。定时任务里不能再切换到这套服务");
+			return R.success(I18n.get("已删除「{0}」。定时任务里不能再切换到这套服务", rows.get(0).getServerName()));
 		}
-		return R.success("已删除 " + rows.size() + " 套任务服务。定时任务里不能再切换到它们");
+		return R.success(I18n.get("已删除 {0} 套任务服务。定时任务里不能再切换到它们", rows.size()));
 	}
 
 	@PostMapping("/sync")

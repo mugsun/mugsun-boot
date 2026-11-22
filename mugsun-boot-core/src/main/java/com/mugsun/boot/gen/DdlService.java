@@ -4,6 +4,7 @@ import com.mugsun.boot.gen.entity.GenColumn;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.boot.gen.mapper.GenColumnMapper;
 import com.mugsun.boot.gen.mapper.GenTableMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -80,7 +81,7 @@ public class DdlService {
 		String tn = validName(t.getTableName());
 		guardNotProtected(tn);
 		if (physicalExists(tn)) {
-			throw new ServiceException("物理表已存在，请改用同步：" + tn);
+			throw new ServiceException(I18n.get("物理表已存在，请改用同步：{0}", tn));
 		}
 		execute(List.of(buildCreate(t, columns(tableId), dialect())));
 	}
@@ -101,7 +102,7 @@ public class DdlService {
 			return "重建成功";
 		}
 		if (!physicalExists(tn)) {
-			throw new ServiceException("物理表不存在，请先建表：" + tn);
+			throw new ServiceException(I18n.get("物理表不存在，请先建表：{0}", tn));
 		}
 		List<String> stmts = buildSync(t, cols, false, d);
 		if (stmts.isEmpty()) {
@@ -187,12 +188,12 @@ public class DdlService {
 				c.commit();
 			} catch (SQLException e) {
 				c.rollback();
-				throw new ServiceException("DDL 执行失败：" + e.getMessage());
+				throw new ServiceException(I18n.get("DDL 执行失败：{0}", e.getMessage()));
 			} finally {
 				c.setAutoCommit(auto);
 			}
 		} catch (SQLException e) {
-			throw new ServiceException("获取连接失败：" + e.getMessage());
+			throw new ServiceException(I18n.get("获取连接失败：{0}", e.getMessage()));
 		}
 	}
 
@@ -220,7 +221,7 @@ public class DdlService {
 				collectColumns(md, c, tn.toUpperCase(), m);
 			}
 		} catch (SQLException e) {
-			throw new ServiceException("读取表结构失败：" + e.getMessage());
+			throw new ServiceException(I18n.get("读取表结构失败：{0}", e.getMessage()));
 		}
 		return m;
 	}

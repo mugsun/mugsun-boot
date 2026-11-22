@@ -2,6 +2,7 @@ package com.mugsun.boot.system.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mugsun.boot.common.constant.FlowConstants;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.stereotype.Service;
 
@@ -58,14 +59,14 @@ public class FlowGraphService {
 		// 先翻译根子树（终点回指 end），再补 start/end 节点
 		String rootEntry = translate(design.root(), endCode, ctx, nodes);
 
-		Map<String, Object> start = baseNode(0, "start", "开始", ctx);
+		Map<String, Object> start = baseNode(0, "start", I18n.translate("开始"), ctx);
 		if (ctx.hasForm()) {
 			bindForm(start, ctx.formKey, null);
 		}
-		start.put("skipList", list(skip("start", rootEntry, "提交", null, ctx)));
+		start.put("skipList", list(skip("start", rootEntry, I18n.translate("提交"), null, ctx)));
 		nodes.add(0, start);
 
-		Map<String, Object> end = baseNode(2, endCode, "结束", ctx);
+		Map<String, Object> end = baseNode(2, endCode, I18n.translate("结束"), ctx);
 		end.put("skipList", new ArrayList<>());
 		nodes.add(end);
 
@@ -107,13 +108,13 @@ public class FlowGraphService {
 	private String approval(TreeNode node, String nextCode, Ctx ctx, List<Map<String, Object>> nodes) {
 		String code = ctx.next();
 		String cont = translate(node.childNode(), nextCode, ctx, nodes);
-		Map<String, Object> n = baseNode(1, code, coalesce(node.name(), "审批"), ctx);
+		Map<String, Object> n = baseNode(1, code, coalesce(node.name(), I18n.translate("审批")), ctx);
 		n.put("permissionFlag", permissionFlag(node));
 		n.put("nodeRatio", ratio(node.nodeRatio()));
 		if (ctx.hasForm()) {
 			bindForm(n, ctx.formKey, node.fieldPerms());
 		}
-		n.put("skipList", list(skip(code, cont, "通过", null, ctx)));
+		n.put("skipList", list(skip(code, cont, I18n.translate("通过"), null, ctx)));
 		nodes.add(n);
 		return code;
 	}
@@ -122,11 +123,11 @@ public class FlowGraphService {
 	/** AI 预审节点（nodeType 1 BETWEEN）：create 监听器调已发布 AiFlow；候选人默认 initiator 便于失败 stay 后人工办 */
 	private String aiNode(TreeNode node, String nextCode, Ctx ctx, List<Map<String, Object>> nodes) {
 		if (node.aiFlowId() == null || node.aiFlowId() <= 0) {
-			throw new ServiceException("AI 节点「" + coalesce(node.name(), "未命名") + "」未绑定应用。请选择已发布的 AI 应用后再发布");
+			throw new ServiceException(I18n.get("AI 节点「{0}」未绑定应用。请选择已发布的 AI 应用后再发布", nameOf(node.name())));
 		}
 		String code = ctx.next();
 		String cont = translate(node.childNode(), nextCode, ctx, nodes);
-		Map<String, Object> n = baseNode(1, code, coalesce(node.name(), "AI预审"), ctx);
+		Map<String, Object> n = baseNode(1, code, coalesce(node.name(), I18n.translate("AI预审")), ctx);
 		// 失败 stay 时发起人可在待办里看到；成功由监听器 ignore skip
 		n.put("permissionFlag", FlowConstants.PLACEHOLDER_INITIATOR);
 		n.put("nodeRatio", "0");
@@ -165,7 +166,7 @@ public class FlowGraphService {
 		} catch (Exception e) {
 			throw new ServiceException("AI 节点配置序列化失败。请重新配置后再发布");
 		}
-		n.put("skipList", list(skip(code, cont, "通过", null, ctx)));
+		n.put("skipList", list(skip(code, cont, I18n.translate("通过"), null, ctx)));
 		nodes.add(n);
 		return code;
 	}
@@ -173,7 +174,7 @@ public class FlowGraphService {
 	/** 条件分支（排他网关 nodeType 3）：每分支一条带 skipCondition 的边，默认分支末位；各分支汇聚到续接节点 */
 	private String exclusiveGateway(TreeNode node, String nextCode, Ctx ctx, List<Map<String, Object>> nodes) {
 		if (node.branches() == null || node.branches().isEmpty()) {
-			throw new ServiceException("条件分支「" + coalesce(node.name(), "未命名") + "」至少需一个分支。请加上一个分支后再发布");
+			throw new ServiceException(I18n.get("条件分支「{0}」至少需一个分支。请加上一个分支后再发布", nameOf(node.name())));
 		}
 		String code = ctx.next();
 		String cont = translate(node.childNode(), nextCode, ctx, nodes);
@@ -182,13 +183,13 @@ public class FlowGraphService {
 		List<Map<String, Object>> skips = new ArrayList<>();
 		for (Branch b : ordered) {
 			String entry = translate(b.childNode(), cont, ctx, nodes);
-			skips.add(skip(code, entry, coalesce(b.name(), "分支"), compileCondition(b), ctx));
+			skips.add(skip(code, entry, coalesce(b.name(), I18n.translate("分支")), compileCondition(b), ctx));
 		}
 		// 无显式默认分支 → 补隐式兜底边直达续接节点，防所有条件不满足时排他网关无路可走卡死
 		if (!hasDefault) {
-			skips.add(skip(code, cont, "默认", "default@@${true}", ctx));
+			skips.add(skip(code, cont, I18n.translate("默认"), "default@@${true}", ctx));
 		}
-		Map<String, Object> gw = baseNode(3, code, coalesce(node.name(), "条件分支"), ctx);
+		Map<String, Object> gw = baseNode(3, code, coalesce(node.name(), I18n.translate("条件分支")), ctx);
 		gw.put("skipList", skips);
 		nodes.add(gw);
 		return code;
@@ -197,7 +198,7 @@ public class FlowGraphService {
 	/** 并行分支（并行网关 nodeType 4）：fork 无条件全激活 + join 原生 AND-join，各分支汇聚到 join */
 	private String parallelGateway(TreeNode node, String nextCode, Ctx ctx, List<Map<String, Object>> nodes) {
 		if (node.branches() == null || node.branches().size() < 2) {
-			throw new ServiceException("并行分支「" + coalesce(node.name(), "未命名") + "」至少需两个分支。请补到至少两个分支后再发布");
+			throw new ServiceException(I18n.get("并行分支「{0}」至少需两个分支。请补到至少两个分支后再发布", nameOf(node.name())));
 		}
 		String fork = ctx.next();
 		String join = ctx.next();
@@ -207,10 +208,10 @@ public class FlowGraphService {
 			String entry = translate(b.childNode(), join, ctx, nodes);
 			forkSkips.add(skip(fork, entry, coalesce(b.name(), ""), null, ctx));
 		}
-		Map<String, Object> f = baseNode(4, fork, coalesce(node.name(), "并行开始"), ctx);
+		Map<String, Object> f = baseNode(4, fork, coalesce(node.name(), I18n.translate("并行开始")), ctx);
 		f.put("skipList", forkSkips);
 		nodes.add(f);
-		Map<String, Object> j = baseNode(4, join, "并行汇聚", ctx);
+		Map<String, Object> j = baseNode(4, join, I18n.translate("并行汇聚"), ctx);
 		j.put("skipList", list(skip(join, cont, "", null, ctx)));
 		nodes.add(j);
 		return fork;
@@ -360,7 +361,7 @@ public class FlowGraphService {
 		if (node.role() != null && !node.role().isBlank()) {
 			return FlowConstants.CANDIDATE_ROLE + node.role();
 		}
-		throw new ServiceException("审批节点「" + coalesce(node.name(), "未命名") + "」未配置候选人。请为这个节点选上候选人后再发布");
+		throw new ServiceException(I18n.get("审批节点「{0}」未配置候选人。请为这个节点选上候选人后再发布", nameOf(node.name())));
 	}
 
 	/** 会签比例：0 或签 / 100 会签 / 1~99 票签；限 0~100 整数，防非法值透传引擎 */
@@ -388,6 +389,11 @@ public class FlowGraphService {
 		}
 		return key.startsWith("ai_ext_") && key.length() > "ai_ext_".length()
 			&& key.matches("ai_ext_[A-Za-z0-9_]+");
+	}
+
+	/** 提示语里用的节点名：没起名的显示「未命名」（跟着这次请求的语言） */
+	private String nameOf(String name) {
+		return name == null || name.isBlank() ? I18n.translate("未命名") : name;
 	}
 
 	private String coalesce(String v, String fallback) {

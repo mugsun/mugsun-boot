@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.oauth.entity.SysOauthClient;
 import com.mugsun.boot.oauth.mapper.SysOauthClientMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -119,7 +120,7 @@ public class OAuthClientController {
 			throw new ServiceException("这个客户端不存在，或属于其他租户。请刷新列表后再删");
 		}
 		clientMapper.deleteById(id);
-		return R.success("已删除「" + client.getName() + "」。列表里不会再出现，旧密钥也不能再换令牌");
+		return R.success(I18n.get("已删除「{0}」。列表里不会再出现，旧密钥也不能再换令牌", client.getName()));
 	}
 
 	private R<Void> setStatus(Long id, int status, String msg) {
@@ -146,7 +147,7 @@ public class OAuthClientController {
 			duplicate.ne("id", param.getId());
 		}
 		if (clientMapper.selectCountByQuery(duplicate) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的客户端。请换一个名称，或编辑原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的客户端。请换一个名称，或编辑原来那个", name));
 		}
 		String rawGrants = param.getGrantTypes() == null ? "" : param.getGrantTypes();
 		LinkedHashSet<String> grants = new LinkedHashSet<>();

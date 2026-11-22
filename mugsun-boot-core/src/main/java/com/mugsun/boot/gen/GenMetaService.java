@@ -5,6 +5,7 @@ import com.mugsun.boot.gen.entity.GenScheme;
 import com.mugsun.boot.gen.entity.GenTable;
 import com.mugsun.boot.gen.mapper.GenColumnMapper;
 import com.mugsun.boot.gen.mapper.GenTableMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.codegen.Generator;
 import com.mybatisflex.codegen.config.GlobalConfig;
@@ -122,7 +123,7 @@ public class GenMetaService {
 		}
 		Table meta = introspect(table.getTableName());
 		if (meta == null) {
-			throw new ServiceException("库里已经没有「" + table.getTableName() + "」。请确认表还在，或先删掉这条生成配置");
+			throw new ServiceException(I18n.get("库里已经没有「{0}」。请确认表还在，或先删掉这条生成配置", table.getTableName()));
 		}
 		mergeColumns(tableId, meta.getColumns());
 	}
@@ -221,7 +222,7 @@ public class GenMetaService {
 		}
 		columnMapper.deleteByQuery(QueryWrapper.create().eq("table_id", tableId));
 		tableMapper.deleteById(tableId);
-		return "已删除「" + table.getTableName() + "」的生成配置。数据库里的业务表还在";
+		return I18n.get("已删除「{0}」的生成配置。数据库里的业务表还在", table.getTableName());
 	}
 
 	public boolean imported(String tableName) {

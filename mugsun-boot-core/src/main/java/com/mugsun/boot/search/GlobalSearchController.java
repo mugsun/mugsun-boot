@@ -10,6 +10,7 @@ import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.service.NoticeTitleFinder;
 import com.mugsun.boot.system.service.NoticeViewer;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -65,7 +66,7 @@ public class GlobalSearchController {
 			.orderBy("id", false).limit(PER_TYPE_LIMIT);
 		for (SysUser u : userMapper.selectListByQuery(uq)) {
 			String title = u.getNickname() != null && !u.getNickname().isBlank() ? u.getNickname() : u.getUsername();
-			out.add(item("user", "用户", title, "账号 " + u.getUsername(), "/system/user"));
+			out.add(item("user", "用户", title, I18n.get("账号 {0}", u.getUsername()), "/system/user"));
 		}
 
 		// 部门
@@ -92,7 +93,7 @@ public class GlobalSearchController {
 	private Map<String, Object> item(String type, String typeName, String title, String subtitle, String path) {
 		Map<String, Object> m = new LinkedHashMap<>();
 		m.put("type", type);
-		m.put("typeName", typeName);
+		m.put("typeName", I18n.translate(typeName));
 		m.put("title", title);
 		m.put("subtitle", subtitle);
 		m.put("path", path);

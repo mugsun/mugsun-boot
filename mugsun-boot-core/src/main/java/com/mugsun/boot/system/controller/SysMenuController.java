@@ -7,6 +7,7 @@ import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysMenu;
 import com.mugsun.boot.system.mapper.SysMenuMapper;
 import com.mugsun.boot.system.mapper.SysRoleMenuMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.core.tool.tree.TreeUtil;
@@ -139,10 +140,10 @@ public class SysMenuController {
 		if (menu.getSort() < 0 || menu.getSort() > 9999) {
 			throw new ServiceException("排序请填 0 到 9999 的整数");
 		}
-		menu.setIsHide(flag(menu.getIsHide(), "是否隐藏"));
-		menu.setIsKeepAlive(flag(menu.getIsKeepAlive(), "页面缓存"));
-		menu.setIsExternal(flag(menu.getIsExternal(), "是否外链"));
-		menu.setIsPublic(flag(menu.getIsPublic(), "是否公共"));
+		menu.setIsHide(flag(menu.getIsHide(), "是否隐藏只能选是或否"));
+		menu.setIsKeepAlive(flag(menu.getIsKeepAlive(), "页面缓存只能选是或否"));
+		menu.setIsExternal(flag(menu.getIsExternal(), "是否外链只能选是或否"));
+		menu.setIsPublic(flag(menu.getIsPublic(), "是否公共只能选是或否"));
 		if (parentId != 0L) {
 			if (menu.getId() != null && parentId == menu.getId()) {
 				throw new ServiceException("上级菜单不能是自己。请改成顶级，或选另一个菜单");
@@ -207,7 +208,7 @@ public class SysMenuController {
 				continue;
 			}
 			if (menuMapper.selectCountByQuery(QueryWrapper.create().eq("parent_id", id)) > 0) {
-				throw new ServiceException("「" + menu.getMenuName() + "」下面还有下级菜单。请先删除下级，再删除这一级");
+				throw new ServiceException(I18n.get("「{0}」下面还有下级菜单。请先删除下级，再删除这一级", menu.getMenuName()));
 			}
 			if (roleMenuMapper.selectCountByQuery(QueryWrapper.create().eq("menu_id", id)) > 0) {
 				granted = true;
@@ -227,10 +228,10 @@ public class SysMenuController {
 		return R.success("已删除。列表里不会再出现这些菜单");
 	}
 
-	private int flag(Integer value, String label) {
+	private int flag(Integer value, String invalidMessage) {
 		int flag = value == null ? 0 : value;
 		if (flag != 0 && flag != 1) {
-			throw new ServiceException(label + "只能选是或否");
+			throw new ServiceException(invalidMessage);
 		}
 		return flag;
 	}

@@ -5,6 +5,7 @@ import com.mugsun.boot.datasource.entity.SysTenantDatasource;
 import com.mugsun.boot.datasource.mapper.SysTenantDatasourceMapper;
 import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.SqlDialect;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.datasource.FlexDataSource;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -144,7 +145,7 @@ public class TenantDataSourceRegistry {
 					ps.setString(1, schemaName);
 					try (var rs = ps.executeQuery()) {
 						if (!rs.next()) {
-							throw new ServiceException("目标 schema 不存在：" + schemaName);
+							throw new ServiceException(I18n.get("目标 schema 不存在：{0}", schemaName));
 						}
 					}
 				}

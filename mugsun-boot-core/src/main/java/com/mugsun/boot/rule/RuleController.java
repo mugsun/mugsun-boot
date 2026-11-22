@@ -1,6 +1,7 @@
 package com.mugsun.boot.rule;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.yomahub.liteflow.core.FlowExecutor;
@@ -34,8 +35,8 @@ public class RuleController {
 		TenantContext.requirePlatformSuperAdmin();
 		LiteflowResponse response = flowExecutor.execute2Resp("tenantInitChain", null, RuleContext.class);
 		if (!response.isSuccess()) {
-			throw new ServiceException("规则链执行失败：" + response.getMessage());
+			throw new ServiceException(I18n.get("规则链执行失败：{0}", response.getMessage()));
 		}
-		return R.data(response.getContextBean(RuleContext.class).getSteps());
+		return R.data(response.getContextBean(RuleContext.class).getSteps().stream().map(I18n::translate).toList());
 	}
 }

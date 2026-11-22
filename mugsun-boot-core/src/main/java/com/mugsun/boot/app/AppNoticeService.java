@@ -7,6 +7,7 @@ import com.mugsun.boot.app.dto.AppPageVO;
 import com.mugsun.boot.system.entity.SysNotice;
 import com.mugsun.boot.system.service.NoticeReadService;
 import com.mugsun.boot.system.service.NoticeViewer;
+import com.mugsun.core.i18n.message.I18n;
 import com.mybatisflex.core.paginate.Page;
 import org.springframework.stereotype.Service;
 
@@ -42,7 +43,7 @@ public class AppNoticeService implements AppNoticeReader {
 		SysNotice n = notices.detail(NoticeViewer.ofLogin(), id);
 		return new AppNoticeDetailVO(
 			n.getId(),
-			blank(n.getTitle(), "未命名公告"),
+			blank(n.getTitle(), I18n.translate("未命名公告")),
 			blank(n.getContent(), ""),
 			fmt(n.getReleaseTime() != null ? n.getReleaseTime() : n.getCreateTime()),
 			!Boolean.TRUE.equals(n.getReadFlag())
@@ -61,7 +62,7 @@ public class AppNoticeService implements AppNoticeReader {
 	private static List<AppNoticeItemVO> items(List<SysNotice> list) {
 		return list.stream().map(n -> new AppNoticeItemVO(
 			n.getId(),
-			blank(n.getTitle(), "未命名公告"),
+			blank(n.getTitle(), I18n.translate("未命名公告")),
 			fmt(n.getReleaseTime() != null ? n.getReleaseTime() : n.getCreateTime()),
 			!Boolean.TRUE.equals(n.getReadFlag())
 		)).toList();

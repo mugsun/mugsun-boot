@@ -13,6 +13,7 @@ import com.mugsun.boot.notify.NotifyTemplateRenderer;
 import com.mugsun.boot.security.RichTextSanitizer;
 import com.mugsun.boot.websocket.WsFrame;
 import com.mugsun.boot.websocket.WsMessageSender;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,7 +113,7 @@ public class MessageService {
 				.filter(key -> dto.getParams() == null || !dto.getParams().containsKey(key))
 				.collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
 			if (!missing.isEmpty()) {
-				throw new ServiceException("还缺这些占位的值：" + String.join("、", missing) + "。请填上后再发送");
+				throw new ServiceException(I18n.get("还缺这些占位的值：{0}。请填上后再发送", String.join("、", missing)));
 			}
 			title = renderer.render(title, dto.getParams());
 			content = renderer.render(content, dto.getParams());

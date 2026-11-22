@@ -7,6 +7,7 @@ import com.mugsun.boot.common.constant.TenantConstants;
 import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.RuntimeSql;
 import com.mugsun.boot.system.mapper.SysUserMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.lock.template.LockHandle;
 import com.mugsun.core.lock.template.LockTemplate;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -814,13 +815,14 @@ public class FlowService {
 			throw e;
 		} catch (RuntimeException e) {
 			log.warn("流程人员调整失败 {}", e.getClass().getSimpleName());
-			throw new ServiceException("这次" + action + "没有完成。请刷新待办，确认任务还在，并重新选择本租户的办理人后再试");
+			throw new ServiceException(I18n.get("这次{0}没有完成。请刷新待办，确认任务还在，并重新选择本租户的办理人后再试",
+				I18n.translate(action)));
 		}
 		return switch (op) {
-			case "transfer" -> "已转办给 " + people.size() + " 人。请让对方到待办里继续办理";
-			case "depute" -> "已委派给 " + people.size() + " 人。请让对方到待办里办理";
-			case "addSignature" -> "已加签 " + people.size() + " 人。他们可以在待办里看到";
-			default -> "已减签 " + people.size() + " 人。请刷新待办，确认当前办理人";
+			case "transfer" -> I18n.get("已转办给 {0} 人。请让对方到待办里继续办理", people.size());
+			case "depute" -> I18n.get("已委派给 {0} 人。请让对方到待办里办理", people.size());
+			case "addSignature" -> I18n.get("已加签 {0} 人。他们可以在待办里看到", people.size());
+			default -> I18n.get("已减签 {0} 人。请刷新待办，确认当前办理人", people.size());
 		};
 	}
 
@@ -845,7 +847,7 @@ public class FlowService {
 			Db.updateBySql(RuntimeSql.insertFlowUser(DbDialects.current()),
 				IdUtil.getSnowflakeNextId(), USER_TYPE_COPY, u, instanceId);
 		}
-		return "已抄送给 " + people.size() + " 人。他们可以在我的抄送里看到";
+		return I18n.get("已抄送给 {0} 人。他们可以在我的抄送里看到", people.size());
 	}
 
 	/**

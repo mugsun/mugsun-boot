@@ -6,6 +6,7 @@ import com.mugsun.boot.system.entity.SysTenant;
 import com.mugsun.boot.system.service.TenantService;
 import com.mugsun.boot.tenant.entity.SysTenantPackage;
 import com.mugsun.boot.tenant.mapper.SysTenantPackageMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -123,15 +124,14 @@ public class TenantPackageController {
 				.filter(pkg -> pkg.getId().equals(tenant.getPackageId()))
 				.map(SysTenantPackage::getName)
 				.findFirst()
-				.orElse("该套餐");
+				.orElse(I18n.translate("该套餐"));
 			String tenantName = tenant.getTenantName() == null || tenant.getTenantName().isBlank()
 				? tenant.getTenantCode() : tenant.getTenantName();
-			throw new ServiceException("还有租户在用「" + packageName + "」，例如「" + tenantName
-				+ "」。请先到租户管理里换掉或清空他们的套餐，再删除");
+			throw new ServiceException(I18n.get("还有租户在用「{0}」，例如「{1}」。请先到租户管理里换掉或清空他们的套餐，再删除", packageName, tenantName));
 		}
 		packageMapper.deleteBatchByIds(idList);
 		idList.forEach(tenantValidator::evictPackage);
-		return R.success("已删除 " + packages.size() + " 个套餐。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个套餐。列表里不会再出现", packages.size()));
 	}
 
 	private void normalize(SysTenantPackage param) {
@@ -148,7 +148,7 @@ public class TenantPackageController {
 			duplicate.ne("id", param.getId());
 		}
 		if (packageMapper.selectCountByQuery(duplicate) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的套餐。请换一个名称，或编辑原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的套餐。请换一个名称，或编辑原来那个", name));
 		}
 		if (param.getStatus() == null) {
 			param.setStatus(1);

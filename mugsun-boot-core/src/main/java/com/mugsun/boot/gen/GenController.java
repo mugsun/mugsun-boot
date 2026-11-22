@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gen.entity.GenColumn;
 import com.mugsun.boot.gen.entity.GenTable;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.core.env.Environment;
@@ -42,7 +43,7 @@ public class GenController {
 	@GetMapping("/datasource")
 	public R<Map<String, Object>> datasource() {
 		Map<String, Object> ds = new LinkedHashMap<>();
-		ds.put("name", "主数据源");
+		ds.put("name", I18n.translate("主数据源"));
 		// 数据源配置在 mybatis-flex.datasource.primary.*（本项目多数据源体系），非 spring.datasource.*
 		ds.put("url", env.getProperty("mybatis-flex.datasource.primary.url"));
 		ds.put("username", env.getProperty("mybatis-flex.datasource.primary.username"));

@@ -7,6 +7,7 @@ import com.mugsun.boot.serial.entity.SysSerialNumber;
 import com.mugsun.boot.serial.entity.SysSerialNumberRecord;
 import com.mugsun.boot.serial.mapper.SysSerialNumberMapper;
 import com.mugsun.boot.serial.mapper.SysSerialNumberRecordMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -77,7 +78,7 @@ public class SerialNumberController {
 		if (creating) {
 			SysSerialNumber taken = serialMapper.selectOneByQuery(QueryWrapper.create().eq("code", entity.getCode()));
 			if (taken != null) {
-				throw new ServiceException("单号编码「" + entity.getCode() + "」已经有了。请换一个编码，或编辑原来那个");
+				throw new ServiceException(I18n.get("单号编码「{0}」已经有了。请换一个编码，或编辑原来那个", entity.getCode()));
 			}
 			entity.setLastNumber(null);
 			entity.setLastTime(null);
@@ -115,7 +116,7 @@ public class SerialNumberController {
 		for (SysSerialNumber row : rows) {
 			serialMapper.deleteById(row.getId());
 		}
-		return R.success("已删除 " + rows.size() + " 条规则。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 条规则。列表里不会再出现", rows.size()));
 	}
 
 	@SaCheckPermission("sys:serial:generate")
@@ -128,7 +129,7 @@ public class SerialNumberController {
 		}
 		List<String> numbers = serialNumberService.generate(code.trim(), count);
 		R<List<String>> result = R.data(numbers);
-		result.setMsg("已生成 " + numbers.size() + " 个单号。列表里的当前序号会跟着更新");
+		result.setMsg(I18n.get("已生成 {0} 个单号。列表里的当前序号会跟着更新", numbers.size()));
 		return result;
 	}
 

@@ -1,6 +1,7 @@
 package com.mugsun.boot.cache;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -63,7 +64,7 @@ public class CacheController {
 		if (type == DataType.STRING) {
 			info.put("value", redisTemplate.opsForValue().get(key));
 		} else {
-			info.put("value", "(" + typeCode + " 类型，暂不支持文本展示)");
+			info.put("value", I18n.get("({0} 类型，暂不支持文本展示)", typeCode));
 		}
 		return R.data(info);
 	}

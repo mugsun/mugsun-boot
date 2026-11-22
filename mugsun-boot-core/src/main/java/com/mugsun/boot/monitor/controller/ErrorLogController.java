@@ -8,6 +8,7 @@ import com.mugsun.boot.common.constant.MonitorConstants;
 import com.mugsun.boot.monitor.OperatorNameLookup;
 import com.mugsun.boot.monitor.entity.SysErrorLog;
 import com.mugsun.boot.monitor.mapper.SysErrorLogMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -137,9 +138,9 @@ public class ErrorLogController {
 		errorLogMapper.update(update);
 		String label = labelOf(record);
 		if (status == MonitorConstants.ERROR_STATUS_IGNORED) {
-			return R.success("已忽略「" + label + "」。列表里会标成已忽略，不再等处理");
+			return R.success(I18n.get("已忽略「{0}」。列表里会标成已忽略，不再等处理", label));
 		}
-		return R.success("已处理「" + label + "」。列表里会标成已处理");
+		return R.success(I18n.get("已处理「{0}」。列表里会标成已处理", label));
 	}
 
 	private static String text(JsonNode body, String field) {
@@ -165,7 +166,7 @@ public class ErrorLogController {
 			throw new ServiceException("这条错误日志不存在。请刷新列表后再试");
 		}
 		errorLogMapper.deleteById(row.getId());
-		return R.success("已删除「" + labelOf(row) + "」。列表里不会再出现这条记录");
+		return R.success(I18n.get("已删除「{0}」。列表里不会再出现这条记录", labelOf(row)));
 	}
 
 	private static String labelOf(SysErrorLog row) {
@@ -178,7 +179,7 @@ public class ErrorLogController {
 			label = dot >= 0 ? type.substring(dot + 1) : type;
 		}
 		if (label.isEmpty()) {
-			return "这条错误日志";
+			return I18n.translate("这条错误日志");
 		}
 		if (label.length() > 80) {
 			return label.substring(0, 80);

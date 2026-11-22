@@ -1,5 +1,6 @@
 package com.mugsun.boot.security;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 
 import java.util.ArrayList;
@@ -47,16 +48,16 @@ public final class JdbcUrlValidator {
 		int schemeEnd = lower.indexOf(':', 5);
 		String scheme = schemeEnd > 0 ? lower.substring(5, schemeEnd) : lower.substring(5);
 		if (DENY_SCHEMES.contains(scheme)) {
-			throw new ServiceException("禁止使用内嵌库连接串（存在 RCE 风险）：" + scheme);
+			throw new ServiceException(I18n.get("禁止使用内嵌库连接串（存在 RCE 风险）：{0}", scheme));
 		}
 		for (String key : paramKeys(decoded)) {
 			String k = key.toLowerCase();
 			if (DENY_KEYS.contains(k)) {
-				throw new ServiceException("数据源连接串含高危参数：" + key);
+				throw new ServiceException(I18n.get("数据源连接串含高危参数：{0}", key));
 			}
 			for (String bad : DENY_KEY_SUBSTR) {
 				if (k.contains(bad)) {
-					throw new ServiceException("数据源连接串含高危参数：" + key);
+					throw new ServiceException(I18n.get("数据源连接串含高危参数：{0}", key));
 				}
 			}
 		}

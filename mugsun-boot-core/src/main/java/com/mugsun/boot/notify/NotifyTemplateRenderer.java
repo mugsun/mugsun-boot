@@ -1,5 +1,6 @@
 package com.mugsun.boot.notify;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.stereotype.Component;
 
@@ -50,7 +51,7 @@ public class NotifyTemplateRenderer {
 			.filter(key -> params == null || !params.containsKey(key))
 			.collect(Collectors.toCollection(LinkedHashSet::new));
 		if (!missing.isEmpty()) {
-			throw new ServiceException("还缺这些占位的值：" + String.join("、", missing) + "。请填上后再发送");
+			throw new ServiceException(I18n.get("还缺这些占位的值：{0}。请填上后再发送", String.join("、", missing)));
 		}
 		String result = template;
 		for (String key : required) {

@@ -7,6 +7,7 @@ import com.mugsun.boot.common.constant.NotifyConstants;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.notify.entity.SysNotifyChannel;
 import com.mugsun.boot.notify.mapper.SysNotifyChannelMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -76,7 +77,7 @@ public class SysNotifyChannelController {
 			SysNotifyChannel taken = channelMapper.selectOneByQuery(
 				QueryWrapper.create().eq("channel", channel.getChannel()));
 			if (taken != null) {
-				throw new ServiceException("渠道「" + taken.getName() + "」已经有了。请直接编辑原来那条，不要再新增");
+				throw new ServiceException(I18n.get("渠道「{0}」已经有了。请直接编辑原来那条，不要再新增", taken.getName()));
 			}
 			if (channel.getSecret() != null && channel.getSecret().isBlank()) {
 				channel.setSecret(null);
@@ -103,16 +104,16 @@ public class SysNotifyChannelController {
 	@SaCheckPermission("sys:notify-channel:remove")
 	@RepeatSubmit
 	public R<Void> remove(@RequestBody List<Long> ids) {
-		List<SysNotifyChannel> rows = loadExisting(ids, "渠道");
+		List<SysNotifyChannel> rows = loadExisting(ids);
 		for (SysNotifyChannel row : rows) {
 			if (BUILTIN.contains(row.getChannel())) {
-				throw new ServiceException("「" + row.getName() + "」是内置通知渠道，不能删除。不需要时可以停用邮件或短信");
+				throw new ServiceException(I18n.get("「{0}」是内置通知渠道，不能删除。不需要时可以停用邮件或短信", row.getName()));
 			}
 		}
 		for (SysNotifyChannel row : rows) {
 			channelMapper.deleteById(row.getId());
 		}
-		return R.success("已删除 " + rows.size() + " 条渠道。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 条渠道。列表里不会再出现", rows.size()));
 	}
 
 	private void normalize(SysNotifyChannel channel) {
@@ -168,14 +169,14 @@ public class SysNotifyChannelController {
 		}
 	}
 
-	private List<SysNotifyChannel> loadExisting(List<Long> ids, String label) {
+	private List<SysNotifyChannel> loadExisting(List<Long> ids) {
 		if (ids == null || ids.isEmpty()) {
-			throw new ServiceException("请先选择要删除的" + label);
+			throw new ServiceException("请先选择要删除的渠道");
 		}
 		List<Long> distinct = new ArrayList<>();
 		for (Long id : ids) {
 			if (id == null) {
-				throw new ServiceException("有" + label + "不存在。请刷新列表后再删除");
+				throw new ServiceException("有渠道不存在。请刷新列表后再删除");
 			}
 			if (!distinct.contains(id)) {
 				distinct.add(id);
@@ -183,7 +184,7 @@ public class SysNotifyChannelController {
 		}
 		List<SysNotifyChannel> rows = channelMapper.selectListByIds(distinct);
 		if (rows.size() != distinct.size()) {
-			throw new ServiceException("有" + label + "不存在，或已经被删除。请刷新列表后再试");
+			throw new ServiceException("有渠道不存在，或已经被删除。请刷新列表后再试");
 		}
 		return rows;
 	}

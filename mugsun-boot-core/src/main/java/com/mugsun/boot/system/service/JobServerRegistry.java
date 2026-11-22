@@ -3,6 +3,7 @@ package com.mugsun.boot.system.service;
 import com.mugsun.boot.system.entity.SysJobServer;
 import com.mugsun.boot.system.mapper.SysJobServerMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -120,7 +121,7 @@ public class JobServerRegistry {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("id", row.getId());
 		body.put("synced", Integer.valueOf(1).equals(row.getSyncStatus()));
-		body.put("message", row.getSyncMsg());
+		body.put("message", I18n.translate(row.getSyncMsg()));
 		return body;
 	}
 
@@ -166,8 +167,8 @@ public class JobServerRegistry {
 			}
 		}
 		String message = fail == 0
-			? "已同步 " + ok + " 套任务服务"
-			: "已同步 " + ok + " 套，" + fail + " 套没连上。请查看列表里的同步说明，确认地址后再试";
+			? I18n.get("已同步 {0} 套任务服务", ok)
+			: I18n.get("已同步 {0} 套，{1} 套没连上。请查看列表里的同步说明，确认地址后再试", ok, fail);
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("ok", ok);
 		body.put("fail", fail);
@@ -184,7 +185,7 @@ public class JobServerRegistry {
 		map.put("remark", row.getRemark());
 		map.put("passwordSet", row.getAppPassword() != null && !row.getAppPassword().isBlank());
 		map.put("syncStatus", row.getSyncStatus());
-		map.put("syncMsg", row.getSyncMsg());
+		map.put("syncMsg", I18n.translate(row.getSyncMsg()));
 		map.put("syncTime", row.getSyncTime());
 		map.put("createTime", row.getCreateTime());
 		return map;

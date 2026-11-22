@@ -100,8 +100,8 @@ public class SysNoticeController {
 			}
 			query.eq("category", category);
 		}
-		LocalDateTime begin = parseReleaseTime(beginTime, "开始时间");
-		LocalDateTime end = parseReleaseTime(endTime, "结束时间");
+		LocalDateTime begin = parseReleaseTime(beginTime, "开始时间请使用 2026-10-05 09:00:00 这样的格式");
+		LocalDateTime end = parseReleaseTime(endTime, "结束时间请使用 2026-10-05 09:00:00 这样的格式");
 		if (begin != null && end != null && !end.isAfter(begin)) {
 			throw new ServiceException("结束时间要晚于开始时间。请重新选择后再查");
 		}
@@ -317,7 +317,7 @@ public class SysNoticeController {
 
 	// ============ 内部工具 ============
 
-	private LocalDateTime parseReleaseTime(String raw, String label) {
+	private LocalDateTime parseReleaseTime(String raw, String invalidMessage) {
 		if (raw == null || raw.isBlank()) {
 			return null;
 		}
@@ -328,7 +328,7 @@ public class SysNoticeController {
 		try {
 			return LocalDateTime.parse(text, RELEASE_TIME);
 		} catch (DateTimeParseException ex) {
-			throw new ServiceException(label + "请使用 2026-10-05 09:00:00 这样的格式");
+			throw new ServiceException(invalidMessage);
 		}
 	}
 

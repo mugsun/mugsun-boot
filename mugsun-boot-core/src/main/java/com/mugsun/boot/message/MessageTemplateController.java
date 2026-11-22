@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.message.entity.SysMessageTemplate;
 import com.mugsun.boot.message.mapper.SysMessageTemplateMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -81,7 +82,7 @@ public class MessageTemplateController {
 			SysMessageTemplate taken = templateMapper.selectOneByQuery(
 				QueryWrapper.create().eq("code", template.getCode()));
 			if (taken != null) {
-				throw new ServiceException("模板编码「" + template.getCode() + "」已经有了。请换一个编码，或编辑原来那个");
+				throw new ServiceException(I18n.get("模板编码「{0}」已经有了。请换一个编码，或编辑原来那个", template.getCode()));
 			}
 			templateMapper.insert(template);
 			return R.success("已保存。列表里可以查看这个模板的标题");
@@ -114,13 +115,13 @@ public class MessageTemplateController {
 		}
 		for (SysMessageTemplate row : rows) {
 			if (BUILTIN.contains(row.getCode())) {
-				throw new ServiceException("「" + row.getTitle() + "」是内置消息模板，不能删除。新建用户时还要用它");
+				throw new ServiceException(I18n.get("「{0}」是内置消息模板，不能删除。新建用户时还要用它", row.getTitle()));
 			}
 		}
 		for (SysMessageTemplate row : rows) {
 			templateMapper.deleteById(row.getId());
 		}
-		return R.success("已删除 " + rows.size() + " 个模板。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个模板。列表里不会再出现", rows.size()));
 	}
 
 	private void normalize(SysMessageTemplate template) {
@@ -154,7 +155,8 @@ public class MessageTemplateController {
 	private void assertPlaceholders(String text, String field) {
 		String left = PLACEHOLDER.matcher(text).replaceAll("");
 		if (left.contains("${")) {
-			throw new ServiceException(field + "里的占位请写成 ${name} 这种形式。名称用字母开头，发送时再填上对应的值");
+			throw new ServiceException(I18n.get("{0}里的占位请写成 $'{'name'}' 这种形式。名称用字母开头，发送时再填上对应的值",
+				I18n.translate(field)));
 		}
 	}
 }

@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.datasource.entity.SysTenantDatasource;
 import com.mugsun.boot.datasource.mapper.SysTenantDatasourceMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -64,7 +65,7 @@ public class TenantDatasourceController {
 		if (param.getId() == null) {
 			// 只能给现存（未删除）的租户建数据源：已删除或不存在的编号不能预占路由
 			if (!tenantValidator.activeTenantExists(param.getTenantCode())) {
-				throw new ServiceException("租户编号「" + param.getTenantCode() + "」不存在或已删除。请先在「租户管理」里确认编号");
+				throw new ServiceException(I18n.get("租户编号「{0}」不存在或已删除。请先在「租户管理」里确认编号", param.getTenantCode()));
 			}
 			if (param.getStatus() == null) {
 				param.setStatus(1);
@@ -129,7 +130,7 @@ public class TenantDatasourceController {
 			registry.unregister(cfg.getTenantCode());
 		}
 		datasourceMapper.deleteBatchByIds(idList);
-		return R.success("已删除 " + rows.size() + " 个数据源。这些租户的业务数据会回到主库");
+		return R.success(I18n.get("已删除 {0} 个数据源。这些租户的业务数据会回到主库", rows.size()));
 	}
 
 	private void normalize(SysTenantDatasource param) {
@@ -198,7 +199,7 @@ public class TenantDatasourceController {
 		if (param.getId() == null) {
 			long exists = datasourceMapper.selectCountByQuery(QueryWrapper.create().eq("tenant_code", code));
 			if (exists > 0) {
-				throw new ServiceException("租户「" + code + "」已经有数据源。请编辑原来那条，或先删除再新建");
+				throw new ServiceException(I18n.get("租户「{0}」已经有数据源。请编辑原来那条，或先删除再新建", code));
 			}
 		}
 	}

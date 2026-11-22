@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.datasource.entity.BizCustomer;
 import com.mugsun.boot.datasource.mapper.BizCustomerMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -76,7 +77,7 @@ public class BizCustomerController {
 			duplicated.ne("id", param.getId());
 		}
 		if (customerMapper.selectCountByQuery(duplicated) > 0) {
-			throw new ServiceException("已经有叫「" + name + "」的客户。请换一个名称，或编辑原来那个");
+			throw new ServiceException(I18n.get("已经有叫「{0}」的客户。请换一个名称，或编辑原来那个", name));
 		}
 		boolean creating = param.getId() == null;
 		if (creating) {
@@ -108,6 +109,6 @@ public class BizCustomerController {
 			throw new ServiceException("有客户不存在，或已经被删除。请刷新列表后再试");
 		}
 		customerMapper.deleteBatchByIds(distinct);
-		return R.success("已删除 " + distinct.size() + " 个客户。列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个客户。列表里不会再出现", distinct.size()));
 	}
 }

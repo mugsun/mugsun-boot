@@ -10,6 +10,7 @@ import com.mugsun.boot.system.entity.SysMenu;
 import com.mugsun.boot.system.mapper.SysDataScopeMapper;
 import com.mugsun.boot.system.mapper.SysMenuMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -139,10 +140,10 @@ public class SysDataScopeController {
 		}
 		ruleLoader.reload();
 		if (status == 1 && scopeType != 1) {
-			return R.success("已启用。角色范围比本规则更宽时，" + table + " 的查询会按本规则收紧");
+			return R.success(I18n.get("已启用。角色范围比本规则更宽时，{0} 的查询会按本规则收紧", table));
 		}
 		if (status == 1) {
-			return R.success("已启用。" + table + " 会按角色的数据范围过滤");
+			return R.success(I18n.get("已启用。{0} 会按角色的数据范围过滤", table));
 		}
 		return R.success("已保存为停用。这张表不再按本规则收紧");
 	}
@@ -194,7 +195,7 @@ public class SysDataScopeController {
 		SysDataScope exist = dataScopeMapper.selectOneByQuery(
 			QueryWrapper.create().eq("table_name", table).eq("status", 1));
 		if (exist != null && (id == null || !exist.getId().equals(id))) {
-			throw new ServiceException("表 " + table + " 已有启用规则「" + exist.getScopeName() + "」。请先停用它，或把本规则设为停用后再保存");
+			throw new ServiceException(I18n.get("表 {0} 已有启用规则「{1}」。请先停用它，或把本规则设为停用后再保存", table, exist.getScopeName()));
 		}
 	}
 

@@ -11,6 +11,7 @@ import com.mugsun.boot.system.entity.SysUser;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.websocket.WsMessageSender;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -95,7 +96,7 @@ public class OnlineController {
 				if (stale) {
 					// 失效会话：展示 loginId 便于定位，昵称标明已失效（e2e/删户残留常见）
 					row.put("username", loginId == null ? "-" : loginId.toString());
-					row.put("nickname", "账号已失效");
+					row.put("nickname", I18n.translate("账号已失效"));
 				} else {
 					row.put("username", user.getUsername());
 					row.put("nickname", user.getNickname() == null ? user.getUsername() : user.getNickname());

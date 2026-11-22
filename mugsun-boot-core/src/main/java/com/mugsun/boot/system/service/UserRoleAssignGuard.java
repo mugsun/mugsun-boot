@@ -10,6 +10,7 @@ import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysRoleMenuMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Component;
@@ -79,11 +80,11 @@ public class UserRoleAssignGuard {
 			.anyMatch(r -> Objects.equals(r.getDataScope(), DataScopeConstants.ALL));
 		for (SysRole role : roles) {
 			if (!operatorMenus.containsAll(menuIdsOf(Set.of(role.getId())))) {
-				throw new ServiceException("角色「" + role.getRoleName() + "」的菜单权限超出了你自己的权限，不能分配或移除");
+				throw new ServiceException(I18n.get("角色「{0}」的菜单权限超出了你自己的权限，不能分配或移除", role.getRoleName()));
 			}
 			if (!operatorSeesAll && (Objects.equals(role.getDataScope(), DataScopeConstants.ALL)
 				|| Objects.equals(role.getDataScope(), DataScopeConstants.CUSTOM_SQL))) {
-				throw new ServiceException("角色「" + role.getRoleName() + "」的数据范围超出了你自己的范围，不能分配或移除");
+				throw new ServiceException(I18n.get("角色「{0}」的数据范围超出了你自己的范围，不能分配或移除", role.getRoleName()));
 			}
 		}
 	}

@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.gen.entity.GenScheme;
 import com.mugsun.boot.log.OperationLog;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -94,9 +95,9 @@ public class GenSchemeController {
 		}
 		List<GenScheme> rows = schemeService.remove(schemeIds(body.get("ids")));
 		if (rows.size() == 1) {
-			return R.success("已删除「" + rows.get(0).getSchemeName() + "」。导入表时不会再带上这套模块、包名和作者");
+			return R.success(I18n.get("已删除「{0}」。导入表时不会再带上这套模块、包名和作者", rows.get(0).getSchemeName()));
 		}
-		return R.success("已删除 " + rows.size() + " 套生成方案。导入表时不会再带上这些模块、包名和作者");
+		return R.success(I18n.get("已删除 {0} 套生成方案。导入表时不会再带上这些模块、包名和作者", rows.size()));
 	}
 
 	private static String text(Object raw) {

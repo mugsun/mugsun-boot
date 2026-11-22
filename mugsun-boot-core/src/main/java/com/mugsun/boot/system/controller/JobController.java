@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.service.JobServerRegistry;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.slf4j.Logger;
@@ -184,7 +185,7 @@ public class JobController {
 					&& jobName.equals(job.getJobName())
 					&& (param.id() == null || !param.id().equals(job.getId())));
 				if (duplicated) {
-					throw new ServiceException("已经有叫「" + jobName + "」的任务。请换一个名称，或编辑原来那个");
+					throw new ServiceException(I18n.get("已经有叫「{0}」的任务。请换一个名称，或编辑原来那个", jobName));
 				}
 			}
 			ResultDTO<Long> saved = client(serverId).saveJob(req);
@@ -239,7 +240,7 @@ public class JobController {
 		if (enabled == null || !enabled.isSuccess()) {
 			throw new ServiceException("这次没有启用成功。请刷新列表后再试");
 		}
-		return R.success("已启用「" + jobName + "」。到了触发时间会自动执行");
+		return R.success(I18n.get("已启用「{0}」。到了触发时间会自动执行", jobName));
 	}
 
 	/** 停用任务 */
@@ -252,7 +253,7 @@ public class JobController {
 		if (disabled == null || !disabled.isSuccess()) {
 			throw new ServiceException("这次没有停用成功。请刷新列表后再试");
 		}
-		return R.success("已停用「" + jobName + "」。它不会再按计划触发");
+		return R.success(I18n.get("已停用「{0}」。它不会再按计划触发", jobName));
 	}
 
 	/** 删除任务 */
@@ -265,7 +266,7 @@ public class JobController {
 		if (deleted == null || !deleted.isSuccess()) {
 			throw new ServiceException("这次没有删除成功。请刷新列表，确认任务还在后再试");
 		}
-		return R.success("已删除「" + jobName + "」。它不会再被触发");
+		return R.success(I18n.get("已删除「{0}」。它不会再被触发", jobName));
 	}
 
 	private JobInfoDTO requireJob(Long serverId, Long jobId, String missing) {
@@ -281,7 +282,7 @@ public class JobController {
 	}
 
 	private String label(String jobName) {
-		return jobName == null || jobName.isBlank() ? "这个任务" : jobName;
+		return jobName == null || jobName.isBlank() ? I18n.translate("这个任务") : jobName;
 	}
 
 	/** 任务执行日志（最近实例） */

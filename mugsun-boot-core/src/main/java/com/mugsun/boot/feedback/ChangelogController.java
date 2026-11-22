@@ -6,6 +6,7 @@ import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.feedback.entity.SysChangelog;
 import com.mugsun.boot.feedback.mapper.SysChangelogMapper;
 import com.mugsun.boot.security.RichTextSanitizer;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
@@ -118,7 +119,7 @@ public class ChangelogController {
 		for (SysChangelog row : rows) {
 			changelogMapper.deleteById(row.getId());
 		}
-		return R.success("已删除 " + rows.size() + " 条记录。列表和首页都不会再出现");
+		return R.success(I18n.get("已删除 {0} 条记录。列表和首页都不会再出现", rows.size()));
 	}
 
 	private void normalize(SysChangelog changelog) {

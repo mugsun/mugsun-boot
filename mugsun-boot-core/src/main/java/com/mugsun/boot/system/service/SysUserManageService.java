@@ -16,6 +16,7 @@ import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.system.mapper.SysUserRoleMapper;
 import com.mugsun.boot.tenant.TenantContext;
 import com.mugsun.boot.tenant.TenantValidator;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.slf4j.Logger;
@@ -99,7 +100,7 @@ public class SysUserManageService {
 			try {
 				userMapper.insert(user);
 			} catch (DuplicateKeyException ex) {
-				throw new ServiceException("账号「" + user.getUsername() + "」已经有人用过。请换一个账号");
+				throw new ServiceException(I18n.get("账号「{0}」已经有人用过。请换一个账号", user.getUsername()));
 			}
 			return null;
 		});
@@ -131,7 +132,7 @@ public class SysUserManageService {
 		try {
 			userMapper.update(user);
 		} catch (DuplicateKeyException ex) {
-			throw new ServiceException("账号「" + user.getUsername() + "」已经有人用过。请换一个账号");
+			throw new ServiceException(I18n.get("账号「{0}」已经有人用过。请换一个账号", user.getUsername()));
 		}
 		dataScopeGuard.assertStillCovers(operatorScope, user.getId());
 		kickoutIfDisabled(user.getId(), user.getStatus());
@@ -250,7 +251,7 @@ public class SysUserManageService {
 		}
 		SysUser taken = userMapper.selectOneByQuery(QueryWrapper.create().eq("username", username));
 		if (taken != null && (selfId == null || !taken.getId().equals(selfId))) {
-			throw new ServiceException("账号「" + username + "」已经有人在用。请换一个账号，或编辑原来那个用户");
+			throw new ServiceException(I18n.get("账号「{0}」已经有人在用。请换一个账号，或编辑原来那个用户", username));
 		}
 	}
 

@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysReport;
 import com.mugsun.boot.system.mapper.SysReportMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -57,7 +58,7 @@ public class SysReportController {
 	@GetMapping("/datasets")
 	public R<List<Map<String, String>>> datasets() {
 		return R.data(DATASET_LABELS.entrySet().stream()
-			.map(e -> Map.of("key", e.getKey(), "label", e.getValue()))
+			.map(e -> Map.of("key", e.getKey(), "label", I18n.translate(e.getValue())))
 			.toList());
 	}
 
@@ -121,7 +122,7 @@ public class SysReportController {
 		if (removed == 0) {
 			throw new ServiceException("这些报表不存在，或已被删除。请刷新列表后再试");
 		}
-		return R.success("已删除 " + removed + " 张报表");
+		return R.success(I18n.get("已删除 {0} 张报表", removed));
 	}
 
 	/** 报表预览：按报表定义的内置数据集执行聚合，返回可视化数据 */

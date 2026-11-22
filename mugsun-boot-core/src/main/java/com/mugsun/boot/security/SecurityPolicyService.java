@@ -3,6 +3,7 @@ package com.mugsun.boot.security;
 import com.mugsun.boot.security.entity.SysPasswordLog;
 import com.mugsun.boot.security.mapper.SysPasswordLogMapper;
 import com.mugsun.boot.system.service.ParamService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -146,7 +147,7 @@ public class SecurityPolicyService {
 	// ---- 复杂度校验 ----
 	public void validateComplexity(String raw) {
 		if (raw == null || raw.length() < getMinLength()) {
-			throw new ServiceException("密码至少 " + getMinLength() + " 位");
+			throw new ServiceException(I18n.get("密码至少 {0} 位", getMinLength()));
 		}
 		if (isComplexityEnabled()) {
 			int categories = 0;
@@ -178,7 +179,7 @@ public class SecurityPolicyService {
 			QueryWrapper.create().eq("user_id", userId).orderBy("create_time", false).limit(n));
 		for (SysPasswordLog log : logs) {
 			if (passwordEncoder.matches(rawNew, log.getPassword())) {
-				throw new ServiceException("新密码不能与最近 " + n + " 次使用的密码重复");
+				throw new ServiceException(I18n.get("新密码不能与最近 {0} 次使用的密码重复", n));
 			}
 		}
 	}

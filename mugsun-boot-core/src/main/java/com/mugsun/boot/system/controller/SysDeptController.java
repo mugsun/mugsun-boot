@@ -8,6 +8,7 @@ import com.mugsun.boot.system.entity.SysDept;
 import com.mugsun.boot.system.entity.SysUser;
 import com.mugsun.boot.system.mapper.SysDeptMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.core.tool.tree.TreeUtil;
@@ -212,10 +213,10 @@ public class SysDeptController {
 		}
 		for (SysDept exist : targets) {
 			if (deptMapper.selectCountByQuery(QueryWrapper.create().eq("parent_id", exist.getId())) > 0) {
-				throw new ServiceException("「" + exist.getDeptName() + "」下面还有下级部门。请先删除下级，再删除这一级");
+				throw new ServiceException(I18n.get("「{0}」下面还有下级部门。请先删除下级，再删除这一级", exist.getDeptName()));
 			}
 			if (userMapper.selectCountByQuery(QueryWrapper.create().eq("dept_id", exist.getId())) > 0) {
-				throw new ServiceException("还有人在「" + exist.getDeptName() + "」。请先到用户管理里换掉他们的部门，再删除");
+				throw new ServiceException(I18n.get("还有人在「{0}」。请先到用户管理里换掉他们的部门，再删除", exist.getDeptName()));
 			}
 		}
 		for (SysDept exist : targets) {

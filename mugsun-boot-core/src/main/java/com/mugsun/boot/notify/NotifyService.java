@@ -9,6 +9,7 @@ import com.mugsun.boot.notify.entity.SysNotifyTemplate;
 import com.mugsun.boot.notify.mapper.SysNotifyRecordMapper;
 import com.mugsun.boot.notify.mapper.SysNotifyTemplateMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.stereotype.Service;
@@ -55,14 +56,14 @@ public class NotifyService {
 		SysNotifyTemplate template = templateMapper.selectOneByQuery(
 			QueryWrapper.create().eq("code", templateCode).eq("status", 1));
 		if (template == null) {
-			throw new ServiceException("通知模板不存在或未启用: " + templateCode);
+			throw new ServiceException(I18n.get("通知模板不存在或未启用: {0}", templateCode));
 		}
 		// 缺参 fail-fast：落流水前校验，拒绝发出残缺通知
 		String subject = renderer.render(template.getSubject(), params);
 		String content = renderer.render(template.getContent(), params);
 		List<String> channelCodes = resolveChannels(template, channels);
 		if (channelCodes.isEmpty()) {
-			throw new ServiceException("通知模板未配置投递渠道: " + templateCode);
+			throw new ServiceException(I18n.get("通知模板未配置投递渠道: {0}", templateCode));
 		}
 
 		long batchId = IdUtil.getSnowflakeNextId();

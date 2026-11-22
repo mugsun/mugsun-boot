@@ -2,6 +2,7 @@ package com.mugsun.boot.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.mugsun.boot.demo.DemoConstants;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.web.crypto.ApiDecrypt;
 import com.mugsun.core.web.crypto.ApiEncrypt;
@@ -33,7 +34,7 @@ public class CryptoDemoController {
 		Map<String, Object> result = new HashMap<>();
 		String text = String.valueOf(body.get("text"));
 		result.put("received", body.get("text"));
-		result.put("echo", "服务端已解密收到并将加密返回：" + body.get("text"));
+		result.put("echo", I18n.get("服务端已解密收到并将加密返回：{0}", body.get("text")));
 		result.put("digest", com.mugsun.boot.common.crypto.GmDigestUtil.digest(text));
 		result.put("digestAlgo", com.mugsun.boot.common.crypto.GmDigestUtil.algorithm());
 		result.put("time", LocalDateTime.now().toString());

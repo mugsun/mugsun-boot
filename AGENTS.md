@@ -94,7 +94,7 @@ insert / update 前调用实体的 `sanitizeForInsert()` / `sanitizeForUpdate()`
 | 数据权限 | `@DataScope` + `DataScopeTables.register` |
 | 租户切换 / 忽略 | `TenantContext.execute` / `ignore` |
 | 分布式锁 | `@DistributedLock` / `LockTemplate`（core 的 `mugsun-starter-lock`）。不要再手写 `setIfAbsent` 加脚本；锁名不带 `mugsun:`，前缀由 `mugsun.lock.key-prefix` 加 |
-| 多语言 | 提示语照常写中文（`throw new ServiceException("用户不存在")`），返回前按请求头 `Accept-Language` 整句查翻译（core 的 `mugsun-starter-i18n`）。英文配在句子所在模块的 `src/main/resources/i18n/` 下，键就是中文原文：mugsun-boot-core 是 `mugsun-boot_en.properties`，ai、gis、track 各带各的 `mugsun-boot-<模块>_en.properties`（core 里配过的句子不用再配）；没配的句子照旧返回中文。带变量的用 `I18n.get("用户 {0} 不存在", name)`，不要用加号拼（拼出来的句子查不到翻译）。过滤器、拦截器里自己往 response 写 JSON 的地方用 `DirectResponse.msg(request, "…")`。改了中文原文要同步改翻译文件，各模块的 `*I18nBundleTest`（继承 core 测试代码里的 `AbstractI18nBundleTest`）会拦；写进日志、存进库的文字不翻译 |
+| 多语言 | 提示语照常写中文（`throw new ServiceException("用户不存在")`），返回前按请求头 `Accept-Language` 整句查翻译（core 的 `mugsun-starter-i18n`）。英文配在句子所在模块的 `src/main/resources/i18n/` 下，键就是中文原文：mugsun-boot-core 是 `mugsun-boot_en.properties`，ai、gis、track 各带各的 `mugsun-boot-<模块>_en.properties`（core 里配过的句子不用再配）；没配的句子照旧返回中文。带变量的用 `I18n.get("用户 {0} 不存在", name)`，不要用加号拼（拼出来的句子查不到翻译）；这种句子按 MessageFormat 解析，原文和译文里的单引号都写两个（`''`），字面的花括号写成 `'{'`、`'}'`，数字原样输出不加千分位。只有 `msg` 会自动翻译：放在返回数据里给人看的字用 `I18n.translate("…")`，存在库里的整句固定说明（连接状态、同步结果）读出来返回时再 `I18n.translate(存的值)`；替用户起的默认名字（流程的开始、结束节点）跟着创建人的语言走。过滤器、拦截器里自己往 response 写 JSON 的地方用 `DirectResponse.msg(request, "…")`。改了中文原文要同步改翻译文件，各模块的 `*I18nBundleTest`（继承 core 测试代码里的 `AbstractI18nBundleTest`）会拦；写进日志、存进库的记录，短信和邮件正文，生成代码的模板，初始化数据不翻译 |
 | 代码生成 | `com.mugsun.boot.gen`（`GenController`、`GenNaming` 等） |
 | 本地密钥示例 | `config/application-local.yml.example`（勿提交真实密钥） |
 | 可选模块说明 | `docs/可选模块装配.md` |

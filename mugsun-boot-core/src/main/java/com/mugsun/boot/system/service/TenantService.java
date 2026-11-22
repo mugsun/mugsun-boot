@@ -7,6 +7,7 @@ import com.mugsun.boot.common.tx.AfterCommit;
 import com.mugsun.boot.oauth.OAuthService;
 import com.mugsun.boot.system.mapper.SysApiKeyMapper;
 import com.mugsun.boot.tenant.TenantCredentialPurger;
+import com.mugsun.core.i18n.message.I18n;
 import org.springframework.beans.factory.ObjectProvider;
 import com.mugsun.boot.system.entity.SysDept;
 import com.mugsun.boot.system.entity.SysPost;
@@ -261,8 +262,8 @@ public class TenantService {
 		for (SysTenant tenant : tenants) {
 			if ("000000".equals(tenant.getTenantCode())) {
 				String name = tenant.getTenantName() == null || tenant.getTenantName().isBlank()
-					? "平台租户" : tenant.getTenantName();
-				throw new ServiceException("「" + name + "」是平台租户，不能删除。请改其他租户");
+					? I18n.translate("平台租户") : tenant.getTenantName();
+				throw new ServiceException(I18n.get("「{0}」是平台租户，不能删除。请改其他租户", name));
 			}
 		}
 		tenantMapper.deleteBatchByIds(idList);

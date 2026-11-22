@@ -6,6 +6,7 @@ import com.mugsun.boot.system.mapper.SysTenantMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
 import com.mugsun.boot.tenant.entity.SysTenantPackage;
 import com.mugsun.boot.tenant.mapper.SysTenantPackageMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.lock.template.LockHandle;
 import com.mugsun.core.lock.template.LockTemplate;
 import com.mugsun.core.tool.exception.ServiceException;
@@ -139,7 +140,7 @@ public class TenantValidator {
 		}
 		long used = TenantContext.execute(code, () -> userMapper.selectCountByQuery(QueryWrapper.create()));
 		if (used >= tenant.getAccountCount()) {
-			throw new ServiceException("租户账号数已达上限（" + tenant.getAccountCount() + "），请联系管理员开通");
+			throw new ServiceException(I18n.get("租户账号数已达上限（{0}），请联系管理员开通", tenant.getAccountCount()));
 		}
 	}
 

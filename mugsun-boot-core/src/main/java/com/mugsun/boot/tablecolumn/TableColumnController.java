@@ -10,6 +10,7 @@ import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.RuntimeSql;
 import com.mugsun.boot.tablecolumn.entity.SysTableColumn;
 import com.mugsun.boot.tablecolumn.mapper.SysTableColumnMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -119,7 +120,7 @@ public class TableColumnController {
 			log.warn("保存表格列失败: {}", e.getClass().getSimpleName());
 			throw new ServiceException("这次没有保存成功。请回到列表重新勾选，或点恢复默认后再试");
 		}
-		return R.success("已保存 " + node.size() + " 列。刷新后这张表仍按这份配置显示");
+		return R.success(I18n.get("已保存 {0} 列。刷新后这张表仍按这份配置显示", node.size()));
 	}
 
 	/** 恢复默认：删除当前用户该表的配置行 */

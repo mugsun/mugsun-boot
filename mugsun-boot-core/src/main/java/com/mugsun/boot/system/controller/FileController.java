@@ -1,6 +1,7 @@
 package com.mugsun.boot.system.controller;
 
 import com.mugsun.boot.system.file.PendingObjectCleaner;
+import com.mugsun.core.i18n.message.I18n;
 import org.dromara.x.file.storage.core.platform.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.dromara.x.file.storage.core.get.RemoteFileInfo;
@@ -221,8 +222,7 @@ public class FileController {
 		SysAttach attach = fileAccessService.requireDownloadable(id, TenantContext.current(),
 			StpUtil.getLoginIdAsLong(), StpUtil::hasPermission);
 		if (!localFileUrlSigner.directAccessEnabled(attach.getPlatform())) {
-			throw new ServiceException("这个文件存在服务器本机，没有可以直接打开的地址。请改用 /system/file/download-stream/"
-				+ id + " 下载");
+			throw new ServiceException(I18n.get("这个文件存在服务器本机，没有可以直接打开的地址。请改用 /system/file/download-stream/{0} 下载", id));
 		}
 		boolean cloudPrivate = OssConstants.ACCESS_PRIVATE.equals(attach.getAccess())
 			&& !OssConstants.CATEGORY_LOCAL.equals(ossService.categoryOf(attach.getPlatform()));
@@ -257,7 +257,8 @@ public class FileController {
 			attach = null;
 		}
 		if (attach == null) {
-			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND, "这个附件不存在，或已被删除。请刷新列表后再下载");
+			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND,
+				I18n.translate("这个附件不存在，或已被删除。请刷新列表后再下载"));
 			return;
 		}
 		FileInfo fileInfo = new FileInfo();
@@ -282,7 +283,8 @@ public class FileController {
 			log.warn("文件下载失败 id={}: {}", id, e.getMessage());
 			response.reset();
 			// 存储平台下线/文件已物删 → 404（前端预览类调用据此静默降级，不污染错误监控）
-			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND, "文件读不出来。请到存储配置里确认这套存储还在，然后再下载");
+			response.sendError(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND,
+				I18n.translate("文件读不出来。请到存储配置里确认这套存储还在，然后再下载"));
 		}
 	}
 

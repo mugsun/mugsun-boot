@@ -3,6 +3,7 @@ package com.mugsun.boot.gen;
 import com.mugsun.boot.gen.entity.GenDatasource;
 import com.mugsun.boot.gen.mapper.GenDatasourceMapper;
 import com.mugsun.boot.tenant.TenantContext;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -135,7 +136,7 @@ public class GenDatasourceService {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("id", row.getId());
 		body.put("connected", Integer.valueOf(1).equals(row.getConnectStatus()));
-		body.put("message", row.getConnectMsg());
+		body.put("message", I18n.translate(row.getConnectMsg()));
 		return body;
 	}
 
@@ -165,7 +166,7 @@ public class GenDatasourceService {
 		datasourceMapper.update(row);
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("connected", Integer.valueOf(1).equals(row.getConnectStatus()));
-		body.put("message", row.getConnectMsg());
+		body.put("message", I18n.translate(row.getConnectMsg()));
 		return body;
 	}
 
@@ -179,7 +180,7 @@ public class GenDatasourceService {
 		map.put("remark", row.getRemark());
 		map.put("passwordSet", row.getPassword() != null && !row.getPassword().isBlank());
 		map.put("connectStatus", row.getConnectStatus());
-		map.put("connectMsg", row.getConnectMsg());
+		map.put("connectMsg", I18n.translate(row.getConnectMsg()));
 		map.put("connectTime", row.getConnectTime());
 		map.put("createTime", row.getCreateTime());
 		return map;

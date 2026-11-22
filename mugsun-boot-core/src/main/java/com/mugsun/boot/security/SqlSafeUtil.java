@@ -1,5 +1,6 @@
 package com.mugsun.boot.security;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 
 import java.util.Set;
@@ -19,7 +20,7 @@ public final class SqlSafeUtil {
 	/** 校验排序列名为合法标识符；非法抛异常，返回原值 */
 	public static String safeColumn(String column) {
 		if (column == null || !COLUMN.matcher(column.trim()).matches()) {
-			throw new ServiceException("非法排序字段：" + column);
+			throw new ServiceException(I18n.get("非法排序字段：{0}", column));
 		}
 		return column.trim();
 	}
@@ -28,7 +29,7 @@ public final class SqlSafeUtil {
 	public static String safeColumn(String column, Set<String> allowed) {
 		String c = safeColumn(column);
 		if (allowed != null && !allowed.contains(c)) {
-			throw new ServiceException("不允许的排序字段：" + column);
+			throw new ServiceException(I18n.get("不允许的排序字段：{0}", column));
 		}
 		return c;
 	}
@@ -40,7 +41,7 @@ public final class SqlSafeUtil {
 		}
 		String d = direction.trim().toUpperCase();
 		if (!"ASC".equals(d) && !"DESC".equals(d)) {
-			throw new ServiceException("非法排序方向：" + direction);
+			throw new ServiceException(I18n.get("非法排序方向：{0}", direction));
 		}
 		return d;
 	}

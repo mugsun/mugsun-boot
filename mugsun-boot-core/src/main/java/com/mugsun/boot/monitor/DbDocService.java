@@ -1,5 +1,6 @@
 package com.mugsun.boot.monitor;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import org.springframework.stereotype.Service;
 
@@ -43,7 +44,7 @@ public class DbDocService {
 			sb.append("共 ").append(tables.size()).append(" 张表\n\n");
 			tables.forEach((table, remark) -> appendTable(sb, md, c, table, remark));
 		} catch (SQLException e) {
-			throw new ServiceException("读取数据库元数据失败：" + e.getMessage());
+			throw new ServiceException(I18n.get("读取数据库元数据失败：{0}", e.getMessage()));
 		}
 		return sb.toString();
 	}

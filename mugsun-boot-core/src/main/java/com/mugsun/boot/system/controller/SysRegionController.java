@@ -7,6 +7,7 @@ import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysRegion;
 import com.mugsun.boot.system.excel.RegionExcel;
 import com.mugsun.boot.system.mapper.SysRegionMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mugsun.core.web.excel.ExcelUtil;
@@ -182,7 +183,7 @@ public class SysRegionController {
 			count++;
 		}
 		R<Integer> result = R.data(count);
-		result.setMsg("已导入 " + count + " 条。可以在列表里按上级展开查看");
+		result.setMsg(I18n.get("已导入 {0} 条。可以在列表里按上级展开查看", count));
 		return result;
 	}
 
@@ -207,37 +208,37 @@ public class SysRegionController {
 			int line = lineRow.line();
 			String code = row.getCode() == null ? "" : row.getCode().trim();
 			if (code.isEmpty()) {
-				throw new ServiceException("第 " + line + " 行没有区划编码。请补上编码，或删掉空行后再导入");
+				throw new ServiceException(I18n.get("第 {0} 行没有区划编码。请补上编码，或删掉空行后再导入", line));
 			}
 			if (!code.matches("^[0-9]{2,12}$")) {
-				throw new ServiceException("第 " + line + " 行的区划编码请填写 2 到 12 位数字");
+				throw new ServiceException(I18n.get("第 {0} 行的区划编码请填写 2 到 12 位数字", line));
 			}
 			if (!seen.add(code)) {
-				throw new ServiceException("第 " + line + " 行的区划编码和前面重复了。请删掉重复行后再导入");
+				throw new ServiceException(I18n.get("第 {0} 行的区划编码和前面重复了。请删掉重复行后再导入", line));
 			}
 			String name = row.getName() == null ? "" : row.getName().trim();
 			if (name.isEmpty()) {
-				throw new ServiceException("第 " + line + " 行没有名称。请填上名称后再导入");
+				throw new ServiceException(I18n.get("第 {0} 行没有名称。请填上名称后再导入", line));
 			}
 			if (name.length() > 64) {
-				throw new ServiceException("第 " + line + " 行的名称请控制在 64 字以内");
+				throw new ServiceException(I18n.get("第 {0} 行的名称请控制在 64 字以内", line));
 			}
 			String parentCode = blankToRoot(row.getParentCode());
 			if (code.equals(parentCode)) {
-				throw new ServiceException("第 " + line + " 行的上级不能是自己。请改成上一级的编码，顶级填 0");
+				throw new ServiceException(I18n.get("第 {0} 行的上级不能是自己。请改成上一级的编码，顶级填 0", line));
 			}
 			// 已有的区划不能靠导入改挂：改挂后下级的层级全部失准，两行互挂还会成环，从树上消失且删不掉
 			String oldParent = existingParent.get(code);
 			if (oldParent != null && !oldParent.equals(parentCode)) {
-				throw new ServiceException("第 " + line + " 行的区划已经存在，上级不能通过导入修改。请把父级编码改回 "
-					+ ("0".equals(oldParent) ? "0（顶级）" : oldParent) + "，或先删除这一级再重新导入");
+				throw new ServiceException(I18n.get("第 {0} 行的区划已经存在，上级不能通过导入修改。请把父级编码改回 {1}，或先删除这一级再重新导入",
+					line, "0".equals(oldParent) ? I18n.translate("0（顶级）") : oldParent));
 			}
 			Integer level = row.getLevel();
 			int expect = expectedLevel(parentCode, known, line);
 			if (level == null) {
 				level = expect;
 			} else if (level != expect) {
-				throw new ServiceException("第 " + line + " 行的层级和上级对不上。顶级填 1，每往下一级加 1");
+				throw new ServiceException(I18n.get("第 {0} 行的层级和上级对不上。顶级填 1，每往下一级加 1", line));
 			}
 			prepared.add(new PreparedRegion(code, parentCode, name, level));
 			known.put(code, level);
@@ -255,10 +256,10 @@ public class SysRegionController {
 		}
 		Integer parentLevel = known.get(parentCode);
 		if (parentLevel == null) {
-			throw new ServiceException("第 " + line + " 行的上级编码不存在。请先写上上级那一行，或改成已有的上级编码");
+			throw new ServiceException(I18n.get("第 {0} 行的上级编码不存在。请先写上上级那一行，或改成已有的上级编码", line));
 		}
 		if (parentLevel >= MAX_LEVEL) {
-			throw new ServiceException("第 " + line + " 行的上级已经是最末级，不能再挂下级");
+			throw new ServiceException(I18n.get("第 {0} 行的上级已经是最末级，不能再挂下级", line));
 		}
 		return parentLevel + 1;
 	}

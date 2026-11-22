@@ -1,5 +1,6 @@
 package com.mugsun.boot.gen;
 
+import com.mugsun.core.i18n.message.I18n;
 import com.mybatisflex.codegen.Generator;
 import com.mybatisflex.codegen.config.GlobalConfig;
 import com.mybatisflex.codegen.entity.Column;
@@ -82,7 +83,7 @@ public class GenService {
 		try (Connection connection = dataSource.getConnection()) {
 			return readInformationSchema(connection);
 		} catch (SQLException e) {
-			throw new ServiceException("读取库表失败：" + e.getMessage());
+			throw new ServiceException(I18n.get("读取库表失败：{0}", e.getMessage()));
 		}
 	}
 
@@ -150,7 +151,7 @@ public class GenService {
 				columns.add(column);
 			}
 		} catch (SQLException e) {
-			throw new ServiceException("读取库表失败：" + e.getMessage());
+			throw new ServiceException(I18n.get("读取库表失败：{0}", e.getMessage()));
 		}
 		List<Map<String, Object>> result = new ArrayList<>(grouped.values());
 		result.sort(Comparator.comparing(m -> String.valueOf(m.get("name"))));

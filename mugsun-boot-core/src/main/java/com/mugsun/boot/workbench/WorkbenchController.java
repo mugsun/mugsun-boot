@@ -10,6 +10,7 @@ import com.mugsun.boot.gen.DbDialects;
 import com.mugsun.boot.gen.RuntimeSql;
 import com.mugsun.boot.workbench.entity.SysWorkbenchShortcut;
 import com.mugsun.boot.workbench.mapper.SysWorkbenchShortcutMapper;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -145,7 +146,7 @@ public class WorkbenchController {
 		if (node.isEmpty()) {
 			return R.success("已清空。首页会显示还没配置，点编辑可以再选");
 		}
-		return R.success("已保存 " + node.size() + " 个入口。回到首页就能点开");
+		return R.success(I18n.get("已保存 {0} 个入口。回到首页就能点开", node.size()));
 	}
 
 	/** 逻辑未删计数（表名为常量字面量，非用户输入）；tenant 非空时按租户过滤 */

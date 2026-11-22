@@ -5,6 +5,7 @@ import com.mugsun.boot.common.repeat.RepeatSubmit;
 import com.mugsun.boot.system.entity.SysTenant;
 import com.mugsun.boot.system.mapper.SysTenantMapper;
 import com.mugsun.boot.system.service.TenantService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -85,7 +86,7 @@ public class SysTenantController {
 
 	static final String WARN_ICON_CLICK_ONLY = "只启用了 ICON_CLICK：图标库公开，图标点选只能部分抵御自动求解，不应作为唯一防线，建议同时启用 SLIDER 或其他题型";
 
-	/** 保存题型时的提示（仍保存）；多条用「；」连接，无提示返回 null */
+	/** 保存题型时的提示（仍保存），按这次请求的语言给；多条用「；」连接，无提示返回 null */
 	static String captchaTypesWarning(java.util.Set<com.mugsun.boot.captcha.CaptchaType> parsed) {
 		java.util.List<String> w = new java.util.ArrayList<>();
 		if (java.util.Collections.disjoint(parsed, com.mugsun.boot.captcha.CaptchaType.KEYBOARD)) {
@@ -97,7 +98,12 @@ public class SysTenantController {
 		if (parsed.equals(java.util.EnumSet.of(com.mugsun.boot.captcha.CaptchaType.ICON_CLICK))) {
 			w.add(WARN_ICON_CLICK_ONLY);
 		}
-		return w.isEmpty() ? null : String.join("；", w);
+		String joined = null;
+		for (String one : w) {
+			String text = I18n.translate(one);
+			joined = joined == null ? text : I18n.get("{0}；{1}", joined, text);
+		}
+		return joined;
 	}
 
 	/** types 用 JsonNode 区分「缺省（不改）」与「显式 null（清回默认）」 */
@@ -148,8 +154,7 @@ public class SysTenantController {
 		data.put("tenantCode", created.tenantCode());
 		data.put("initialPassword", created.adminPassword());
 		R<java.util.Map<String, Object>> result = R.data(data);
-		result.setMsg("已创建。编号 " + created.tenantCode()
-			+ "。管理员账号 admin，一次性口令仅此一次返回；首次登录须改密");
+		result.setMsg(I18n.get("已创建。编号 {0}。管理员账号 admin，一次性口令仅此一次返回；首次登录须改密", created.tenantCode()));
 		return result;
 	}
 
@@ -169,6 +174,6 @@ public class SysTenantController {
 	public R<Void> remove(@RequestBody List<Long> ids) {
 		TenantContext.requirePlatformSuperAdmin();
 		int count = tenantService.remove(ids);
-		return R.success("已删除 " + count + " 个租户。他们的部门、岗位、角色、用户、OAuth 客户端、API 密钥和 AI 密钥也已清掉，列表里不会再出现");
+		return R.success(I18n.get("已删除 {0} 个租户。他们的部门、岗位、角色、用户、OAuth 客户端、API 密钥和 AI 密钥也已清掉，列表里不会再出现", count));
 	}
 }

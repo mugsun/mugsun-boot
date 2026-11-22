@@ -6,6 +6,7 @@ import com.mugsun.boot.app.dto.AppHandleDTO;
 import com.mugsun.boot.app.dto.AppTodoDetailVO;
 import com.mugsun.boot.app.dto.AppTodoItemVO;
 import com.mugsun.boot.system.service.FlowService;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.exception.ServiceException;
 import com.mybatisflex.core.row.Row;
 import org.springframework.stereotype.Service;
@@ -61,7 +62,7 @@ public class AppTodoService implements AppTodoReader {
 		long instanceId = longVal(row, "instanceId");
 		String flowName = str(row, "flowName");
 		String nodeName = str(row, "nodeName");
-		String title = flowName.isEmpty() ? "待办事项" : flowName;
+		String title = flowName.isEmpty() ? I18n.translate("待办事项") : flowName;
 		return new AppTodoItemVO(taskId, instanceId, title, flowName, nodeName, str(row, "createTime"));
 	}
 

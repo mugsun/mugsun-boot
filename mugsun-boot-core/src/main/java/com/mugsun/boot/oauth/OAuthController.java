@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.mugsun.boot.common.config.WebProperties;
 import com.mugsun.boot.oauth.entity.SysOauthClient;
+import com.mugsun.core.i18n.message.I18n;
 import com.mugsun.core.tool.api.R;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
@@ -60,7 +61,7 @@ public class OAuthController {
 			case OAuthService.GRANT_CLIENT_CREDENTIALS -> oauthService.clientCredentials(cred[0], cred[1], scope);
 			case OAuthService.GRANT_AUTHORIZATION_CODE -> oauthService.authorizationCode(cred[0], cred[1], code, redirectUri, codeVerifier);
 			case OAuthService.GRANT_REFRESH_TOKEN -> oauthService.refreshToken(cred[0], cred[1], refreshToken);
-			default -> throw OAuth2Exception.unsupportedGrantType("不支持的授权类型：" + grantType);
+			default -> throw OAuth2Exception.unsupportedGrantType(I18n.get("不支持的授权类型：{0}", grantType));
 		};
 		Map<String, Object> resp = new LinkedHashMap<>();
 		resp.put("access_token", result.accessToken());
@@ -186,12 +187,12 @@ public class OAuthController {
 		return URLEncoder.encode(v, StandardCharsets.UTF_8);
 	}
 
-	/** 协议错误统一转标准 OAuth2 错误响应 {error, error_description} */
+	/** 协议错误统一转标准 OAuth2 错误响应 {error, error_description}；说明按这次请求的语言给 */
 	@ExceptionHandler(OAuth2Exception.class)
 	public ResponseEntity<Map<String, Object>> handleOAuth2(OAuth2Exception e) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("error", e.getError());
-		body.put("error_description", e.getMessage());
+		body.put("error_description", I18n.translate(e.getMessage()));
 		return ResponseEntity.status(e.getStatus()).body(body);
 	}
 }
