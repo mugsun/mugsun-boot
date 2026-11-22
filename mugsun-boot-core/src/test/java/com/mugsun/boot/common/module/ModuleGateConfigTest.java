@@ -119,7 +119,7 @@ class ModuleGateConfigTest {
 		MappedInterceptor aiGate = list.stream()
 			.filter(mi -> "ai".equals(((ModuleGateInterceptor) mi.getInterceptor()).module()))
 			.findFirst().orElseThrow();
-		assertThat(aiGate.getPathPatterns()).containsExactlyInAnyOrder("/system/ai/**", "/v1/**");
+		assertThat(aiGate.getIncludePathPatterns()).containsExactlyInAnyOrder("/system/ai/**", "/v1/**");
 		for (String mcp : new String[] {"/sse", "/sse/x", "/mcp", "/mcp/message", "/custom-sse"}) {
 			assertThat(gateFor(list, mcp)).as(mcp + " 不归任何模块闸门（没有处理器，本身就是 404）").isNull();
 		}
@@ -148,9 +148,9 @@ class ModuleGateConfigTest {
 		ModuleGateInterceptor gate = new ModuleGateInterceptor("ai", () -> false);
 		MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/models");
 		req.setContextPath("/api");
+		// Spring 7 起异常消息里还带完整的请求地址（含 context-path），所以核对资源路径字段，不核对消息文本
 		assertThatThrownBy(() -> gate.preHandle(req, new MockHttpServletResponse(), new Object()))
-			.isInstanceOf(NoResourceFoundException.class)
-			.hasMessageContaining("/v1/models")
-			.hasMessageNotContaining("/api/v1");
+			.isInstanceOfSatisfying(NoResourceFoundException.class,
+				e -> assertThat(e.getResourcePath()).isEqualTo("/v1/models"));
 	}
 }

@@ -38,6 +38,6 @@ public class ModuleGateInterceptor implements HandlerInterceptor {
 			return true;
 		}
 		String path = request.getRequestURI().substring(request.getContextPath().length());
-		throw new NoResourceFoundException(HttpMethod.valueOf(request.getMethod()), path);
+		throw new NoResourceFoundException(HttpMethod.valueOf(request.getMethod()), request.getRequestURI(), path);
 	}
 }

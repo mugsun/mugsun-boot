@@ -16,7 +16,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -26,7 +27,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.HashMap;
@@ -49,6 +50,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 	com.mugsun.boot.track.TrackAskTestLlmGateway.class
 })
 @ActiveProfiles("test")
+// Spring Boot 4 起 TestRestTemplate 不再随 @SpringBootTest 自动提供，要显式打开
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 	properties = {
 		// 双因子码/短信码回显仅测试环境开启（生产配置恒 false）
@@ -104,7 +107,7 @@ public abstract class AbstractIntegrationTest {
 	private static final String EXT_REDIS_HOST = envOr("REDIS_HOST", "127.0.0.1");
 	private static final int EXT_REDIS_PORT = Integer.parseInt(envOr("REDIS_PORT", "6379"));
 
-	private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
+	private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
 		DockerImageName.parse("postgres:16-alpine"))
 		.withDatabaseName("mugsun")
 		.withUsername("mugsun")

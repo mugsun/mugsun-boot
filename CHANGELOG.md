@@ -424,6 +424,22 @@
 
 ### 不兼容变更
 
+- 升级到 Spring Boot 4.1.3，mugsun-core 换成 `0.3.0-SNAPSHOT`
+  - 随之升级：Spring Framework 7、Spring Security 7.1、Tomcat 11、Flyway 12
+  - 还有 Lettuce 7、Testcontainers 2、JUnit 6；JDK 仍是 21
+  - 构建前先装 mugsun-core `0.3.0-SNAPSHOT`；`0.2.x` 是 Spring Boot 3.5 版
+  - JSON 这一步仍用 Jackson 2（mugsun-core 设的默认值），接口返回不变
+  - 本仓库用到的 Spring 配置项名字都没变，`application*.yml` 没改
+  - 二次开发的工程要跟着改 Boot 4 的启动包名和类的包名，常见的几处：
+  - `spring-boot-starter-aop` → `spring-boot-starter-aspectj`
+  - 只引 `flyway-core` 不再自动跑迁移，要引 `spring-boot-starter-flyway`
+  - 只用 WebClient 的模块引 `spring-boot-starter-webclient`
+  - `EnvironmentPostProcessor` 搬到了 `org.springframework.boot` 包
+  - 测试用 TestRestTemplate 要引 `spring-boot-resttestclient`
+  - 并在测试类上标 `@AutoConfigureTestRestTemplate`
+  - Testcontainers 2 的构件名加了 `testcontainers-` 前缀，类的包名也变了
+  - warm-flow、LiteFlow 换成各自的 Boot 4 版构件
+
 - Flyway 迁移并成每套库一个基线，旧库不能原地升级，要重建
   - 主库三套各一个 `V1__baseline_0_2.sql`，埋点库 `T1__baseline_0_2.sql`
   - 由 0.1.0 基线和之后的脚本按版本号原样拼成，语句未改，段前标原文件名

@@ -10,7 +10,7 @@ import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.io.WKTWriter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,12 +23,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GisBufferPostgisParityTest {
 
 	private static final GeometryFactory GF = new GeometryFactory();
-	private static PostgreSQLContainer<?> postgis;
+	private static PostgreSQLContainer postgis;
 	private static JdbcTemplate jdbc;
 
 	@BeforeAll
 	static void startDb() {
-		postgis = new PostgreSQLContainer<>(
+		postgis = new PostgreSQLContainer(
 			DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres"))
 			.withDatabaseName("mugsun").withUsername("mugsun").withPassword("mugsun");
 		postgis.start();

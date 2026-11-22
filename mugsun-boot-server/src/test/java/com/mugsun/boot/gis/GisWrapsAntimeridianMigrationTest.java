@@ -9,7 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Connection;
@@ -19,13 +19,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** #76：基线里原 V16 那一段（生成列）+ V17 CONCURRENTLY 部分索引在 PostGIS 上可执行 */
 class GisWrapsAntimeridianMigrationTest {
 
-	private static PostgreSQLContainer<?> postgis;
+	private static PostgreSQLContainer postgis;
 	private static JdbcTemplate jdbc;
 	private static DriverManagerDataSource ds;
 
 	@BeforeAll
 	static void startDb() throws Exception {
-		postgis = new PostgreSQLContainer<>(
+		postgis = new PostgreSQLContainer(
 			DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres"))
 			.withDatabaseName("mugsun").withUsername("mugsun").withPassword("mugsun");
 		postgis.start();

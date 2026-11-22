@@ -8,7 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.ArrayList;
@@ -36,14 +36,14 @@ class GisFeatureStoreConcurrencyTest {
 	private static final long LAYER_ID = 900001L;
 	private static final String TENANT = "000000";
 
-	private static PostgreSQLContainer<?> postgis;
+	private static PostgreSQLContainer postgis;
 	private static JdbcTemplate jdbc;
 
 	private GisFeatureStore store;
 
 	@BeforeAll
 	static void startDb() {
-		postgis = new PostgreSQLContainer<>(
+		postgis = new PostgreSQLContainer(
 			DockerImageName.parse("postgis/postgis:16-3.4")
 				.asCompatibleSubstituteFor("postgres"))
 			.withDatabaseName("mugsun")

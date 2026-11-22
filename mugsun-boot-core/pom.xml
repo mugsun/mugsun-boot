@@ -38,7 +38,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-aop</artifactId>
+			<artifactId>spring-boot-starter-aspectj</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.security</groupId>
@@ -110,7 +110,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.dromara.warm</groupId>
-			<artifactId>warm-flow-mybatis-sb3-starter</artifactId>
+			<artifactId>warm-flow-mybatis-sb4-starter</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.dromara.warm</groupId>
@@ -126,7 +126,7 @@
 		</dependency>
 		<dependency>
 			<groupId>com.yomahub</groupId>
-			<artifactId>liteflow-spring-boot-starter</artifactId>
+			<artifactId>liteflow-spring-boot4-starter</artifactId>
 		</dependency>
 		<!-- 只读演示模式：分布式限流（Redis 后端）与并发舱壁 -->
 		<dependency>
@@ -137,9 +137,10 @@
 			<groupId>io.github.resilience4j</groupId>
 			<artifactId>resilience4j-bulkhead</artifactId>
 		</dependency>
+		<!-- Spring Boot 4 起 Flyway 的自动装配在单独的模块里，只引 flyway-core 不会跑迁移 -->
 		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-core</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-flyway</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
@@ -155,14 +156,25 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- TestRestTemplate：Spring Boot 4 起在单独的模块里，测试类还要标 @AutoConfigureTestRestTemplate -->
 		<dependency>
-			<groupId>org.testcontainers</groupId>
-			<artifactId>junit-jupiter</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-resttestclient</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
-			<artifactId>postgresql</artifactId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

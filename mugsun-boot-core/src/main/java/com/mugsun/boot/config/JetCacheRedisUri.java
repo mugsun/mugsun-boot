@@ -1,5 +1,6 @@
 package com.mugsun.boot.config;
 
+import io.lettuce.core.RedisCredentials;
 import io.lettuce.core.RedisURI;
 
 import java.net.URI;
@@ -69,7 +70,7 @@ public final class JetCacheRedisUri {
 			throw new IllegalStateException(
 				"jetcache Redis URI 无法解析（口令可能含未编码特殊字符），已拒绝启动", e);
 		}
-		String gotPw = parsed.getPassword() == null ? "" : new String(parsed.getPassword());
+		String gotPw = passwordOf(parsed);
 		String expectPw = password == null ? "" : password;
 		if (!host.equals(parsed.getHost())
 			|| port != parsed.getPort()
@@ -78,5 +79,17 @@ public final class JetCacheRedisUri {
 			throw new IllegalStateException(
 				"jetcache Redis URI 回解析与 spring.data.redis 不一致（主机/端口/库/口令），已拒绝启动");
 		}
+	}
+
+	/**
+	 * 取回解析出的口令，没有口令返回空串。Lettuce 7 去掉了 {@code RedisURI.getPassword()}，口令只能从凭据提供者里取；
+	 * 从 URI 解析出来的是静态凭据，这里的 block() 立即返回，不访问网络。
+	 */
+	private static String passwordOf(RedisURI parsed) {
+		RedisCredentials credentials = parsed.getCredentialsProvider().resolveCredentials().block();
+		if (credentials == null || credentials.getPassword() == null) {
+			return "";
+		}
+		return new String(credentials.getPassword());
 	}
 }

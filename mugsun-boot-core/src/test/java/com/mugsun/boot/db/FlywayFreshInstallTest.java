@@ -4,7 +4,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.io.InputStream;
@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
  */
 class FlywayFreshInstallTest {
 
-	private static PostgreSQLContainer<?> container;
+	private static PostgreSQLContainer container;
 	private static String adminUrl;
 	private static String user;
 	private static String pass;
@@ -48,7 +48,7 @@ class FlywayFreshInstallTest {
 			user = env("POSTGRES_USER", "mugsun");
 			pass = env("POSTGRES_PASSWORD", "mugsun");
 		} else {
-			container = new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+			container = new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
 				.withDatabaseName("mugsun").withUsername("mugsun").withPassword("mugsun");
 			container.start();
 			adminUrl = container.getJdbcUrl();

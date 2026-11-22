@@ -259,7 +259,7 @@ public class AuthController {
 			throws org.springframework.web.servlet.resource.NoResourceFoundException {
 		if (!registerGate.isOpen()) {
 			throw new org.springframework.web.servlet.resource.NoResourceFoundException(
-				org.springframework.http.HttpMethod.POST, request.getRequestURI());
+				org.springframework.http.HttpMethod.POST, request.getRequestURI(), request.getRequestURI());
 		}
 		registerGate.checkRate(com.mugsun.boot.common.web.ClientIpResolver.clientIp(request),
 			dto == null ? null : dto.getUsername(), dto == null ? null : dto.getPhone());

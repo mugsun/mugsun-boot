@@ -1,4 +1,4 @@
-org.springframework.boot.env.EnvironmentPostProcessor=\
+org.springframework.boot.EnvironmentPostProcessor=\
 com.mugsun.boot.monitor.AccessLogRetentionEnvironmentPostProcessor,\
 com.mugsun.boot.config.RedisDevFallbackEnvironmentPostProcessor,\
 com.mugsun.boot.config.JetCacheRedisUriEnvironmentPostProcessor

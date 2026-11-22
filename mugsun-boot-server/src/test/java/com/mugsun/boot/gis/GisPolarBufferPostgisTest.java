@@ -10,7 +10,7 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import javax.sql.DataSource;
@@ -30,7 +30,7 @@ class GisPolarBufferPostgisTest {
 	private static final String SOUTH_CAP =
 		"POLYGON((-180 -80, -90 -80, 0 -80, 90 -80, 180 -80, 180 -90, -180 -90, -180 -80))";
 
-	private static PostgreSQLContainer<?> postgis;
+	private static PostgreSQLContainer postgis;
 	private static DataSource dataSource;
 	private static JdbcTemplate jdbc;
 	private static GisSpatialQueryService service;
@@ -38,7 +38,7 @@ class GisPolarBufferPostgisTest {
 
 	@BeforeAll
 	static void startDb() {
-		postgis = new PostgreSQLContainer<>(
+		postgis = new PostgreSQLContainer(
 			DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres"))
 			.withDatabaseName("mugsun").withUsername("mugsun").withPassword("mugsun");
 		postgis.start();

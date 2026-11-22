@@ -154,6 +154,10 @@ public final class ModuleRouteGuard {
 			}
 
 			@Override
+			public void version(String version) {
+			}
+
+			@Override
 			public void startAnd() {
 			}
 

@@ -6,7 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
+import org.springframework.boot.jackson2.autoconfigure.Jackson2AutoConfiguration;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 
 import java.nio.file.Path;
@@ -24,7 +24,7 @@ class ApiCryptoKeyStartupTest {
 
 	private WebApplicationContextRunner runner() {
 		return new WebApplicationContextRunner()
-			.withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class, MugsunWebAutoConfiguration.class))
+			.withConfiguration(AutoConfigurations.of(Jackson2AutoConfiguration.class, MugsunWebAutoConfiguration.class))
 			.withPropertyValues("mugsun.home=" + home);
 	}
 

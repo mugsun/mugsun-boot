@@ -37,9 +37,11 @@
 				</exclusion>
 			</exclusions>
 		</dependency>
+		<!-- 只用 WebClient 调外部接口（不起响应式服务端）。Spring Boot 4 起 WebClient.Builder 的自动装配在这个启动包里，
+		     spring-boot-starter-webflux 不再提供 -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webflux</artifactId>
+			<artifactId>spring-boot-starter-webclient</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

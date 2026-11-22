@@ -32,14 +32,25 @@
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>
+		<!-- AbstractIntegrationTest 用的 TestRestTemplate（test-jar 不传递测试依赖，这里要再声明一遍） -->
 		<dependency>
-			<groupId>org.testcontainers</groupId>
-			<artifactId>junit-jupiter</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-resttestclient</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
-			<artifactId>postgresql</artifactId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -258,7 +269,8 @@
 					<version>${dameng.jdbc.version}</version>
 					<scope>runtime</scope>
 				</dependency>
-				<!-- 社区 Flyway 不认 DM DBMS。mengweijin/db-migration 4.1.2 覆盖 Flyway 10.10–12.4，对得上 Boot 3.5 的 11.7。 -->
+				<!-- 社区 Flyway 不认 DM DBMS。mengweijin/db-migration 4.1.2 覆盖 Flyway 10.10–12.4，
+				     它自己按 12.4.0 编译，和 Boot 4.1 带的 Flyway 是同一个版本。 -->
 				<dependency>
 					<groupId>com.github.mengweijin</groupId>
 					<artifactId>db-migration-dameng-flyway</artifactId>

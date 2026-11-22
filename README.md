@@ -6,7 +6,7 @@
 [![compose-full smoke](https://github.com/mugsun/mugsun-boot/actions/workflows/compose-full.yml/badge.svg?branch=main)](https://github.com/mugsun/mugsun-boot/actions/workflows/compose-full.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-mugsun 的后端，一个 Spring Boot 3 单体应用。打包后是一个可执行 JAR，运行时需要 PostgreSQL 和 Redis。
+mugsun 的后端，一个 Spring Boot 4 单体应用。打包后是一个可执行 JAR，运行时需要 PostgreSQL 和 Redis。
 
 它自带中后台项目常用的功能，比如账号权限、多租户和工作流。GIS、埋点分析和 AI 是三个可选模块，用不到的可以不打进包。
 
@@ -76,7 +76,7 @@ Compose 文件里没有默认口令。数据库口令、管理员口令和加密
 
 需要 JDK 21、Maven 3.9+ 和 Docker。
 
-`main` 分支依赖 [mugsun-core](https://github.com/mugsun/mugsun-core) 的 `0.2.0-SNAPSHOT`。Maven Central 上没有这个版本，要先装到本地。
+`main` 分支依赖 [mugsun-core](https://github.com/mugsun/mugsun-core) 的 `0.3.0-SNAPSHOT`。Maven Central 上没有这个版本，要先装到本地。
 
 ```bash
 git clone https://github.com/mugsun/mugsun-core.git

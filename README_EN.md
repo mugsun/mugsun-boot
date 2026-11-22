@@ -6,7 +6,7 @@
 [![compose-full smoke](https://github.com/mugsun/mugsun-boot/actions/workflows/compose-full.yml/badge.svg?branch=main)](https://github.com/mugsun/mugsun-boot/actions/workflows/compose-full.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-The backend of mugsun: a Spring Boot 3 monolith that builds into a single executable JAR. It needs PostgreSQL and Redis at runtime.
+The backend of mugsun: a Spring Boot 4 monolith that builds into a single executable JAR. It needs PostgreSQL and Redis at runtime.
 
 It ships with what most admin systems need, such as accounts and permissions, multi-tenancy and workflow. GIS, product analytics and AI are three optional modules that you can leave out of the build.
 
@@ -72,7 +72,7 @@ Each feature has its own page under [Features](https://docs.mugsun.com/en/boot/f
 
 You need JDK 21, Maven 3.9+ and Docker.
 
-The `main` branch depends on [mugsun-core](https://github.com/mugsun/mugsun-core) `0.2.0-SNAPSHOT`. That version is not on Maven Central, so install it locally first.
+The `main` branch depends on [mugsun-core](https://github.com/mugsun/mugsun-core) `0.3.0-SNAPSHOT`. That version is not on Maven Central, so install it locally first.
 
 ```bash
 git clone https://github.com/mugsun/mugsun-core.git

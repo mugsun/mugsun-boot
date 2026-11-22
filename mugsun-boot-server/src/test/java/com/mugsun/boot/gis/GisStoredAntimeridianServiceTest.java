@@ -9,7 +9,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.List;
@@ -26,13 +26,13 @@ import static org.mockito.Mockito.when;
 class GisStoredAntimeridianServiceTest {
 
 	private static final long LAYER_ID = 900064L;
-	private static PostgreSQLContainer<?> postgis;
+	private static PostgreSQLContainer postgis;
 	private static GisSpatialQueryService service;
 	private static GisLayer layer;
 
 	@BeforeAll
 	static void startDb() {
-		postgis = new PostgreSQLContainer<>(
+		postgis = new PostgreSQLContainer(
 			DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres"))
 			.withDatabaseName("mugsun").withUsername("mugsun").withPassword("mugsun");
 		postgis.start();
