@@ -45,6 +45,12 @@
 
 ### 变更
 
+- 手机端公告和全局搜索找公告各分出一层，微服务版据此把工作台拆成单独的服务
+  - 新增 `NoticeReadService`：按「谁在看」读公告，不读登录态
+  - 手机端公告的接口从 `AppInboxController` 分到 `AppNoticeController`
+  - 新增接口 `AppNoticeReader`、`NoticeTitleFinder`：首页和全局搜索只认接口
+  - `AppNoticeSupport` 并进 `NoticeReadService`，少一处跨模块直接查表
+  - 接口地址、权限、返回内容都没有变
 - 手机端首页取待办分出一层接口，微服务版据此把审批流拆成单独的服务
   - 新增接口 `AppTodoReader`：首页只认接口，`AppTodoService` 实现它
   - `FlowService` 新增 `todoOf`：按用户编号取待办，「我的待办」改为调它

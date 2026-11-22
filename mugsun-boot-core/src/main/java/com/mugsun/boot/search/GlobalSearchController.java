@@ -3,13 +3,13 @@ package com.mugsun.boot.search;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.mugsun.boot.datascope.DataScope;
 import com.mugsun.boot.system.entity.SysDept;
-import com.mugsun.boot.system.entity.SysNotice;
 import com.mugsun.boot.system.entity.SysRole;
 import com.mugsun.boot.system.entity.SysUser;
 import com.mugsun.boot.system.mapper.SysDeptMapper;
-import com.mugsun.boot.system.mapper.SysNoticeMapper;
 import com.mugsun.boot.system.mapper.SysRoleMapper;
 import com.mugsun.boot.system.mapper.SysUserMapper;
+import com.mugsun.boot.system.service.NoticeTitleFinder;
+import com.mugsun.boot.system.service.NoticeViewer;
 import com.mugsun.core.tool.api.R;
 import com.mybatisflex.core.query.QueryWrapper;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -38,14 +38,14 @@ public class GlobalSearchController {
 	private final SysUserMapper userMapper;
 	private final SysDeptMapper deptMapper;
 	private final SysRoleMapper roleMapper;
-	private final SysNoticeMapper noticeMapper;
+	private final NoticeTitleFinder noticeTitles;
 
 	public GlobalSearchController(SysUserMapper userMapper, SysDeptMapper deptMapper,
-								  SysRoleMapper roleMapper, SysNoticeMapper noticeMapper) {
+								  SysRoleMapper roleMapper, NoticeTitleFinder noticeTitles) {
 		this.userMapper = userMapper;
 		this.deptMapper = deptMapper;
 		this.roleMapper = roleMapper;
-		this.noticeMapper = noticeMapper;
+		this.noticeTitles = noticeTitles;
 	}
 
 	/** 关键词联想：跨用户/部门/角色/通知白名单数据源，每类取前 N 条 */
@@ -81,18 +81,8 @@ public class GlobalSearchController {
 		}
 
 		// 通知公告（业务数据）：与「我的通知」同口径可见范围（all_visible 或命中本人/本部门），防定向公告标题经联想旁路
-		QueryWrapper nq = QueryWrapper.create().like("title", kw).orderBy("id", false).limit(PER_TYPE_LIMIT);
-		if (!cn.dev33.satoken.stp.StpUtil.hasPermission("sys:notice:manage")) {
-			Long userId = cn.dev33.satoken.stp.StpUtil.getLoginIdAsLong();
-			com.mugsun.boot.system.entity.SysUser me = userMapper.selectOneById(userId);
-			Long deptId = me == null ? null : me.getDeptId();
-			nq.and("(all_visible = 1 or id in (select notice_id from "
-				+ com.mugsun.boot.config.BizTables.of("sys_notice_scope")
-				+ " where is_deleted = 0 and ((scope_type = 1 and scope_id = ?) or (scope_type = 2 and scope_id = ?))))",
-				userId, deptId == null ? -1L : deptId);
-		}
-		for (SysNotice n : noticeMapper.selectListByQuery(nq)) {
-			out.add(item("notice", "通知", n.getTitle(), null, "/system/notice"));
+		for (String title : noticeTitles.titlesLike(NoticeViewer.ofLogin(), kw, PER_TYPE_LIMIT)) {
+			out.add(item("notice", "通知", title, null, "/system/notice"));
 		}
 
 		return R.data(out);

@@ -38,7 +38,6 @@ class NoCrossDomainMapperTest {
 	private static final Set<String> FROZEN = new TreeSet<>(List.of(
 		"app/AppHomeService.java",
 		"app/AppInboxService.java",
-		"app/AppNoticeSupport.java",
 		"auth/AuthController.java",
 		"auth/AuthLoginService.java",
 		"auth/ForgetPasswordService.java",

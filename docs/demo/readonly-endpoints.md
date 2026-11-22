@@ -16,7 +16,7 @@ GET/HEAD/OPTIONS 全部放行（`/open/**`、`/oauth2/**`、`/v1/**`、`/system/
 | POST | `/app/auth/two-factor` | AppAuthController#twoFactor | 放行 |
 | POST | `/app/captcha/check` | AppCaptchaController#check | 放行 |
 | POST | `/app/inbox/messages/{messageId}/read` | AppInboxController#readMessage | 拒绝 |
-| POST | `/app/inbox/notices/{id}/read` | AppInboxController#readNotice | 拒绝 |
+| POST | `/app/inbox/notices/{id}/read` | AppNoticeController#readNotice | 拒绝 |
 | POST | `/app/todos/{taskId}/handle` | AppTodoController#handle | 拒绝 |
 | POST | `/auth/avatar/upload` | AvatarUploadController#upload | 拒绝 |
 | POST | `/auth/captcha/challenge` | CaptchaController#challenge | 放行 |
