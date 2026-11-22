@@ -202,6 +202,11 @@
 						<goals>
 							<goal>test-jar</goal>
 						</goals>
+						<!-- 带 -Dmaven.test.skip=true 打包时也照常出这个包（此时是空的）：gis/track/server 把它声明成了测试依赖，
+						     不出包的话它们会报「找不到 mugsun-boot-core:tests」，整个构建失败 -->
+						<configuration>
+							<skip>false</skip>
+						</configuration>
 					</execution>
 				</executions>
 			</plugin>
